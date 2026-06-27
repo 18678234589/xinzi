@@ -1,8 +1,6 @@
 # Debug logs
 debug_*.txt
 
-# Config with credentials
-config/database.php
 
 # System files
 .htaccess
