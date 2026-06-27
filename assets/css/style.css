@@ -1,0 +1,12 @@
+/* 自定义样式补充 */
+.table th { white-space: nowrap; }
+.badge-dept { font-size: .85em; }
+.cursor-pointer { cursor: pointer; }
+.upload-area {
+    border: 2px dashed #ced4da; border-radius: 8px;
+    padding: 30px; text-align: center; transition: all .3s;
+    background: #fafafa;
+}
+.upload-area:hover { border-color: #28a745; background: #f0fff4; }
+.upload-area.dragover { border-color: #28a745; background: #e8f5e9; }
+.required { color: #dc3545; }

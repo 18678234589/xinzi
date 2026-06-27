@@ -1,0 +1,114 @@
+{
+    "modules": [
+        {
+            "name": ">=50元订单提成",
+            "type": "tiered",
+            "enabled": true,
+            "config": {
+                "_name": ">=50元订单提成",
+                "min_amount": "50",
+                "max_amount": "",
+                "shop_keyword": "",
+                "tiers": [
+                    {
+                        "threshold": 6000,
+                        "rate": 0.05,
+                        "subsidy": 2
+                    },
+                    {
+                        "threshold": 9000,
+                        "rate": 0.08,
+                        "subsidy": 3
+                    },
+                    {
+                        "threshold": 12000,
+                        "rate": 0.1,
+                        "subsidy": 5
+                    },
+                    {
+                        "threshold": 15000,
+                        "rate": 0.1,
+                        "subsidy": 5
+                    }
+                ]
+            }
+        },
+        {
+            "name": "<50订单提成",
+            "type": "tiered",
+            "enabled": true,
+            "config": {
+                "_name": "<50订单提成",
+                "min_amount": "",
+                "max_amount": "49.99",
+                "shop_keyword": "",
+                "tiers": [
+                    {
+                        "threshold": 6000,
+                        "rate": 0.05,
+                        "subsidy": 0.5
+                    },
+                    {
+                        "threshold": 9000,
+                        "rate": 0.08,
+                        "subsidy": 0.5
+                    },
+                    {
+                        "threshold": 12000,
+                        "rate": 0.1,
+                        "subsidy": 0.5
+                    },
+                    {
+                        "threshold": 15000,
+                        "rate": 0.1,
+                        "subsidy": 0.5
+                    }
+                ]
+            }
+        },
+        {
+            "name": "全勤奖金",
+            "type": "attendance_full",
+            "enabled": true,
+            "config": {
+                "full_amount": 200
+            }
+        },
+        {
+            "name": "老客户",
+            "type": "standard",
+            "enabled": true,
+            "config": {
+                "_name": "老客户",
+                "rate": 0.1,
+                "shop_keyword": "老客户"
+            }
+        },
+        {
+            "name": "阶梯底薪",
+            "type": "base_salary_tiered",
+            "enabled": true,
+            "config": {
+                "tiers": [
+                    {
+                        "threshold": 6000,
+                        "base_amount": 2100
+                    },
+                    {
+                        "threshold": 9000,
+                        "base_amount": 2300
+                    },
+                    {
+                        "threshold": 12000,
+                        "base_amount": 3300
+                    },
+                    {
+                        "threshold": 15000,
+                        "base_amount": 4800
+                    }
+                ]
+            }
+        }
+    ],
+    "updated_at": "2026-06-23 16:18:40"
+}

@@ -1,0 +1,31 @@
+{
+    "modules": [
+        {
+            "name": "全勤奖金",
+            "type": "attendance_full",
+            "enabled": true,
+            "config": {
+                "full_amount": 200
+            }
+        },
+        {
+            "name": "修改",
+            "type": "standard",
+            "enabled": true,
+            "config": {
+                "_name": "",
+                "rate": 0.2
+            }
+        },
+        {
+            "name": "续费",
+            "type": "standard",
+            "enabled": true,
+            "config": {
+                "_name": "",
+                "rate": 0.022
+            }
+        }
+    ],
+    "updated_at": "2026-06-18 17:16:36"
+}

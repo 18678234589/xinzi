@@ -1,0 +1,31 @@
+{
+    "modules": [
+        {
+            "name": "200",
+            "type": "attendance_full",
+            "enabled": true,
+            "config": {
+                "full_amount": 200
+            }
+        },
+        {
+            "name": "续费",
+            "type": "standard",
+            "enabled": true,
+            "config": {
+                "_name": "",
+                "rate": 0.018
+            }
+        },
+        {
+            "name": "修改",
+            "type": "standard",
+            "enabled": true,
+            "config": {
+                "_name": "",
+                "rate": 0.2
+            }
+        }
+    ],
+    "updated_at": "2026-06-22 10:45:44"
+}
