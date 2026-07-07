@@ -11,6 +11,9 @@ $salary_count = (int)db()->query("SELECT COUNT(*) FROM salaries")->fetchColumn()
 // 各部门人数
 $dept_stats = db()->query("SELECT department, COUNT(*) as cnt, SUM(base_salary) as total_salary FROM employees GROUP BY department ORDER BY department")->fetchAll();
 
+// 店铺列表（含关联订单数）
+$shop_stats = get_shop_list();
+
 // 本月订单情况
 $this_month = date('Y-m');
 $stmt = db()->prepare("
@@ -96,6 +99,32 @@ include __DIR__ . '/includes/header.php';
                 </table>
                 <?php else: ?>
                     <p class="text-muted text-center py-3">暂无数据</p>
+                <?php endif; ?>
+            </div>
+        </div>
+
+        <div class="card mt-3">
+            <div class="card-header bg-white">
+                <div class="d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0"><i class="fas fa-store text-success"></i> 店铺概览</h5>
+                    <a href="<?php echo BASE_URL; ?>/shops/index.php" class="btn btn-sm btn-outline-secondary">管理店铺</a>
+                </div>
+            </div>
+            <div class="card-body">
+                <?php if ($shop_stats): ?>
+                <table class="table table-sm">
+                    <thead><tr><th>店铺</th><th>订单数</th></tr></thead>
+                    <tbody>
+                    <?php foreach ($shop_stats as $s): ?>
+                        <tr>
+                            <td><span class="badge badge-info"><i class="fas fa-store"></i> <?php echo e($s['name']); ?></span></td>
+                            <td><?php echo $s['order_count']; ?> 笔</td>
+                        </tr>
+                    <?php endforeach; ?>
+                    </tbody>
+                </table>
+                <?php else: ?>
+                    <p class="text-muted text-center py-3">暂无店铺数据，前往 <a href="<?php echo BASE_URL; ?>/shops/index.php">店铺管理</a> 添加</p>
                 <?php endif; ?>
             </div>
         </div>

@@ -71,6 +71,42 @@ function get_department($id)
 }
 
 /**
+ * 获取所有店铺列表（名称数组）
+ */
+function get_shops()
+{
+    try {
+        $stmt = db()->query("SELECT name FROM shops ORDER BY sort ASC, id ASC");
+        return $stmt->fetchAll(PDO::FETCH_COLUMN);
+    } catch (PDOException $e) {
+        return [];
+    }
+}
+
+/**
+ * 获取所有店铺记录（含id/sort及关联订单数）
+ */
+function get_shop_list()
+{
+    try {
+        $stmt = db()->query("SELECT s.*, (SELECT COUNT(*) FROM orders o WHERE o.shop = s.name) AS order_count FROM shops s ORDER BY s.sort ASC, s.id ASC");
+        return $stmt->fetchAll();
+    } catch (PDOException $e) {
+        return [];
+    }
+}
+
+/**
+ * 获取单个店铺
+ */
+function get_shop($id)
+{
+    $stmt = db()->prepare("SELECT * FROM shops WHERE id = ?");
+    $stmt->execute([$id]);
+    return $stmt->fetch();
+}
+
+/**
  * 获取所有员工
  */
 function get_employees($department = null)

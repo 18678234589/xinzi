@@ -14,6 +14,7 @@ $_rel = ltrim($_rel, '/'); // 如 index.php / employees/index.php / salaries/set
 
 $is_home        = ($_rel === 'index.php');
 $is_departments = (strpos($_rel, 'departments/') === 0);
+$is_shops       = (strpos($_rel, 'shops/') === 0);
 $is_employees   = (strpos($_rel, 'employees/') === 0);
 $is_orders      = (strpos($_rel, 'orders/') === 0);
 $is_settle      = ($_rel === 'salaries/settle.php');
@@ -68,6 +69,7 @@ $is_query       = ($_rel === 'salaries/query.php');
 <div class="sidebar">
     <a href="<?php echo BASE_URL; ?>/index.php" class="<?php echo $is_home ? 'active' : ''; ?>"><i class="fas fa-tachometer-alt"></i> 系统首页</a>
     <a href="<?php echo BASE_URL; ?>/departments/index.php" class="<?php echo $is_departments ? 'active' : ''; ?>"><i class="fas fa-sitemap"></i> 部门管理</a>
+    <a href="<?php echo BASE_URL; ?>/shops/index.php" class="<?php echo $is_shops ? 'active' : ''; ?>"><i class="fas fa-store"></i> 店铺管理</a>
     <a href="<?php echo BASE_URL; ?>/employees/index.php" class="<?php echo $is_employees ? 'active' : ''; ?>"><i class="fas fa-users"></i> 员工管理</a>
     <a href="<?php echo BASE_URL; ?>/orders/index.php" class="<?php echo $is_orders ? 'active' : ''; ?>"><i class="fas fa-file-upload"></i> 订单上传</a>
     <a href="<?php echo BASE_URL; ?>/salaries/settle.php" class="<?php echo $is_settle ? 'active' : ''; ?>"><i class="fas fa-calculator"></i> 薪资结算</a>
