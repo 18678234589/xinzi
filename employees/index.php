@@ -45,10 +45,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     } elseif ($action === 'delete') {
         $id = (int)($_POST['id'] ?? 0);
         try {
-            $stmt = db()->prepare("DELETE FROM employees WHERE id = ?");
-            $stmt->execute([$id]);
+            // orders 表的员工外键已被移除（部门订单需存 employee_id=0，见 orders/index.php 的 ensureProjectColumn），
+            // ON DELETE CASCADE 已失效，这里手动清理关联数据，避免留下指向不存在员工的孤儿订单/薪资记录。
+            db()->beginTransaction();
+            db()->prepare("DELETE FROM orders WHERE employee_id = ?")->execute([$id]);
+            db()->prepare("DELETE FROM salaries WHERE employee_id = ?")->execute([$id]);
+            db()->prepare("DELETE FROM employees WHERE id = ?")->execute([$id]);
+            db()->commit();
             $success = '员工已删除';
         } catch (PDOException $ex) {
+            if (db()->inTransaction()) {
+                db()->rollBack();
+            }
             $error = '删除失败: ' . $ex->getMessage();
         }
     }
