@@ -37,8 +37,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 if (count($orderList) === 0) {
                     $error = "未找到该员工在 {$month} 的订单记录";
                 } else {
+                    // 自定义额外金额（正数加、负数减）
+                    $extraAmount = (float)($_POST['extra_amount'] ?? 0);
+
                     // 调用薪资算法（自动选择员工专属算法或默认算法）
                     $result = SalaryCalculator::calculate($emp, $orderList, $order_total, $month);
+
+                    // 将自定义金额叠加到最终结果
+                    $result['net_pay'] = round($result['net_pay'] + $extraAmount, 2);
+                    $result['module_total'] = round(($result['module_total'] ?? 0) + $extraAmount, 2);
+                    // 在模块列表末尾追加一项，便于明细展示
+                    if ($extraAmount != 0) {
+                        $result['modules'][] = [
+                            'name'   => '自定义额外金额',
+                            'amount' => round($extraAmount, 2),
+                            'formula'=> sprintf('手动调整 %+.2f', $extraAmount),
+                            'type'   => 'extra_amount',
+                        ];
+                    }
                     
                     // DEBUG: 分析订单金额分布
                     $debug_info = "调试信息：\n";
@@ -119,6 +135,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         'order_total'    => $order_total,
                         'commission'     => $result['module_total'] ?? $result['commission'],
                         'net_pay'        => $result['net_pay'],
+                        'extra_amount'   => $extraAmount,
                         'modules'        => $result['modules'] ?? [],
                         'module_total'   => $result['module_total'] ?? $result['commission'],
                         'base_salary'    => $result['base_salary'] ?? (float)$emp['base_salary'],
@@ -150,20 +167,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                 // 调用薪资算法
                 $result = SalaryCalculator::calculate($emp, $orderList, $order_total, $month);
+                $extraAmount = (float)($_POST['extra_amount'] ?? 0);
                 $commission = $result['module_total'] ?? $result['commission'];
-                $net_pay    = $result['net_pay'];
+                $net_pay    = round($result['net_pay'] + $extraAmount, 2);
+                $commission = round($commission + $extraAmount, 2);
 
                 try {
+                    // 确保 salaries 表有 extra_amount 字段
+                    $hasExtra = db()->query("SHOW COLUMNS FROM `salaries` LIKE 'extra_amount'")->fetchAll();
+                    if (empty($hasExtra)) {
+                        db()->exec("ALTER TABLE `salaries` ADD COLUMN `extra_amount` DECIMAL(12,2) NOT NULL DEFAULT 0.00 COMMENT '自定义额外金额' AFTER `net_pay`");
+                    }
                     $stmt = db()->prepare("
-                        INSERT INTO salaries (employee_id, month, order_total, commission, net_pay)
-                        VALUES (?, ?, ?, ?, ?)
+                        INSERT INTO salaries (employee_id, month, order_total, commission, net_pay, extra_amount)
+                        VALUES (?, ?, ?, ?, ?, ?)
                         ON DUPLICATE KEY UPDATE
                             order_total = VALUES(order_total),
                             commission = VALUES(commission),
                             net_pay = VALUES(net_pay),
+                            extra_amount = VALUES(extra_amount),
                             created_at = CURRENT_TIMESTAMP
                     ");
-                    $stmt->execute([$employee_id, $month, $order_total, $commission, $net_pay]);
+                    $stmt->execute([$employee_id, $month, $order_total, $commission, $net_pay, $extraAmount]);
                     $success = sprintf('薪资结算成功！%s %s：订单总额 ¥%s，提成 ¥%s，实发 ¥%s（%s）',
                         $emp['name'], $month, money($order_total), money($commission), money($net_pay), $result['algorithm_name']);
 
@@ -174,6 +199,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         'order_total'    => $order_total,
                         'commission'     => $commission,
                         'net_pay'        => $net_pay,
+                        'extra_amount'   => $extraAmount,
                         'modules'        => $result['modules'] ?? [],
                         'module_total'   => $result['module_total'] ?? $commission,
                         'base_salary'    => $result['base_salary'] ?? (float)$emp['base_salary'],
@@ -245,6 +271,14 @@ include __DIR__ . '/../includes/header.php';
                         <label>选择月份 <span class="required">*</span></label>
                         <input type="month" name="month" class="form-control" value="<?php echo e($preview['month'] ?? date('Y-m')); ?>" required>
                     </div>
+                    <div class="form-group">
+                        <label><i class="fas fa-hand-holding-usd text-warning"></i> 自定义额外金额</label>
+                        <div class="input-group">
+                            <div class="input-group-prepend"><span class="input-group-text">¥</span></div>
+                            <input type="number" name="extra_amount" class="form-control" step="0.01" value="<?php echo e($_POST['extra_amount'] ?? '0'); ?>" placeholder="手动调整金额，如 -50 或 100">
+                        </div>
+                        <small class="text-muted">用于无法通过订单计算的金额，正数加、负数减，结算时累加到实发工资</small>
+                    </div>
                     <button type="submit" class="btn btn-info btn-block"><i class="fas fa-eye"></i> 预览计算</button>
                 </form>
             </div>
@@ -302,8 +336,14 @@ include __DIR__ . '/../includes/header.php';
                     <?php endif; ?>
 
                     <tbody>
+                        <?php if (abs((float)($preview['extra_amount'] ?? 0)) > 0.001): ?>
+                        <tr class="table-warning">
+                            <th colspan="3" class="text-right h6 mb-0"><i class="fas fa-hand-holding-usd text-warning"></i> 自定义额外金额</th>
+                            <td class="h6 mb-0 <?php echo $preview['extra_amount'] >= 0 ? 'text-success' : 'text-danger'; ?> font-weight-bold"><?php echo $preview['extra_amount'] >= 0 ? '+' : ''; ?>¥<?php echo money($preview['extra_amount']); ?></td>
+                        </tr>
+                        <?php endif; ?>
                         <tr class="table-success">
-                            <th colspan="3" class="text-right h5 mb-0">底薪 + 模块合计 → 实发工资</th>
+                            <th colspan="3" class="text-right h5 mb-0">底薪 + 模块合计 <?php if (abs((float)($preview['extra_amount'] ?? 0)) > 0.001) echo '+ 自定义'; ?> → 实发工资</th>
                             <td class="h4 mb-0 text-success font-weight-bold">¥<?php echo money($preview['net_pay']); ?></td>
                         </tr>
                     </tbody>
@@ -334,6 +374,7 @@ include __DIR__ . '/../includes/header.php';
                     <input type="hidden" name="action" value="settle">
                     <input type="hidden" name="employee_id" value="<?php echo $emp['id']; ?>">
                     <input type="hidden" name="month" value="<?php echo e($preview['month']); ?>">
+                    <input type="hidden" name="extra_amount" value="<?php echo e($preview['extra_amount'] ?? 0); ?>">
                     <button type="submit" class="btn btn-success btn-lg btn-block"
                         onclick="return confirm('确认生成<?php echo e($emp['name']); ?> <?php echo e($preview['month']); ?>月的薪资记录？<?php echo $existing ? '将覆盖已有记录。' : ''; ?>')">
                         <i class="fas fa-check-double"></i> 确认生成薪资记录

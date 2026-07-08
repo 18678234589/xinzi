@@ -178,7 +178,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         $batchStmt->execute([$employee_id, $batchHeaders]);
 
                         $inserted = 0; $skipped = 0;
-                        $stmt = db()->prepare("INSERT INTO orders (employee_id, order_amount, order_date, project, raw_data, is_abnormal, abnormal_reason, order_scope) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
+                        $stmt = db()->prepare("INSERT INTO orders (employee_id, order_amount, order_date, project, order_no, raw_data, is_abnormal, abnormal_reason, order_scope) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
 
                         foreach ($dataRows as $row) {
                             if (count(array_filter($row, fn($v) => trim($v) !== '')) === 0) continue;
@@ -198,15 +198,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             // 使用归属月份的第一天作为订单日期
                             $parsedDate = $upload_month . '-01';
                             $dateErr = '';
-                            
+
                             // 异常标记
                             $isAbn = 0; $abnReason = '';
                             // 金额为0才标记异常，负数金额视为退款订单正常处理
-                            if ($amount == 0) { 
-                                $isAbn = 1; 
+                            if ($amount == 0) {
+                                $isAbn = 1;
                                 $abnReason = '订单金额为0';
                             }
-                            
+
                             // 退款订单标记：如果金额为负数，标记为退款订单，在raw_data中记录
                             $isRefund = ($amount < 0);
 
@@ -221,21 +221,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             if ($isRefund) {
                                 $rawMap['__is_refund__'] = '1'; // 标记为退款订单
                             }
+                            // 提取订单号（用于后续店铺/员工订单对比）
+                            $orderNo = extract_order_no($rawMap);
 
                             // 部门订单 employee_id 存 0（或为每个归属员工各插一条）
                             if ($order_scope === 'department' && !empty($deptEmpModules)) {
                                 // 先插一条部门汇总记录（employee_id=0）
-                                $stmt->execute([0, $amount, $parsedDate, $project, json_encode($rawMap, JSON_UNESCAPED_UNICODE), $isAbn, $abnReason, $order_scope]);
+                                $stmt->execute([0, $amount, $parsedDate, $project, $orderNo, json_encode($rawMap, JSON_UNESCAPED_UNICODE), $isAbn, $abnReason, $order_scope]);
                                 $isAbn ? $skipped++ : $inserted++;
                                 // 再为每个归属员工插一条 personal 记录（标记来源于部门订单）
                                 foreach ($deptEmpModules as $dem) {
                                     $demRawMap = $rawMap;
                                     $demRawMap['__from_dept__'] = $dept_name;
-                                    $stmt->execute([$dem['employee_id'], $amount, $parsedDate, $dem['module'], json_encode($demRawMap, JSON_UNESCAPED_UNICODE), $isAbn, $abnReason, 'personal']);
+                                    $stmt->execute([$dem['employee_id'], $amount, $parsedDate, $dem['module'], $orderNo, json_encode($demRawMap, JSON_UNESCAPED_UNICODE), $isAbn, $abnReason, 'personal']);
                                 }
                             } else {
                                 $bindEmpId = $order_scope === 'department' ? 0 : $employee_id;
-                                $stmt->execute([$bindEmpId, $amount, $parsedDate, $project, json_encode($rawMap, JSON_UNESCAPED_UNICODE), $isAbn, $abnReason, $order_scope]);
+                                $stmt->execute([$bindEmpId, $amount, $parsedDate, $project, $orderNo, json_encode($rawMap, JSON_UNESCAPED_UNICODE), $isAbn, $abnReason, $order_scope]);
                                 $isAbn ? $skipped++ : $inserted++;
                             }
                         }
@@ -428,14 +430,16 @@ $_pp = (int)($_GET['per_page'] ?? 20);
 $per_page = in_array($_pp, $allowed_per_page) ? $_pp : 20;
 
 ensureProjectColumn(); // 确保 upload_batches 等表/字段存在
+ensureOrderNoColumn(); // 确保 orders.order_no 字段存在
 
 // 基础 WHERE（不含 project 筛选，用于分组汇总）
-$baseWhere  = " WHERE (o.raw_data IS NULL OR o.raw_data NOT LIKE '%\"__from_dept__%\":%')";
+// 排除店铺上传的订单（order_scope='department' 且 shop 非空），它们只在店铺管理页展示
+$baseWhere  = " WHERE (o.raw_data IS NULL OR o.raw_data NOT LIKE '%\"__from_dept__%\":%') AND NOT (o.order_scope = 'department' AND o.shop <> '')";
 $baseParams = [];
 $filter_dept = $_GET['department'] ?? '';
 if ($filter_employee) {
-    // 个人订单匹配 employee_id，部门订单不过滤（employee_id=0 不属于任何人，显示给所有人看）
-    $baseWhere .= " AND (o.employee_id = ? OR o.order_scope = 'department')";
+    // 个人订单匹配 employee_id，部门订单（非店铺）不过滤（employee_id=0 不属于任何人，显示给所有人看）
+    $baseWhere .= " AND (o.employee_id = ? OR (o.order_scope = 'department' AND (o.shop IS NULL OR o.shop = '')))";
     $baseParams[] = $filter_employee;
 }
 if ($filter_dept) {

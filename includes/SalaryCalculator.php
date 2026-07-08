@@ -105,8 +105,25 @@ class SalaryCalculator
                 }
                 
                 // 再计算各个提成模块（排除退款订单）
-                foreach ($raw['modules'] as $mod) {
+                // 先找出 base_salary 模块（自定义底薪，覆盖员工表底薪）
+                $customBase = null;
+                $customBaseIdx = -1;
+                foreach ($raw['modules'] as $mi => $mod) {
                     if (!($mod['enabled'] ?? true)) continue;
+                    if ($mod['type'] === 'base_salary') {
+                        $r = self::runModule($mod['type'], $mod['config'], $context, $mod['name']);
+                        if ($r !== null) {
+                            $customBase = $r;
+                            $customBaseIdx = $mi;
+                            $baseSalary = (float)$r['amount']; // 自定义底薪覆盖员工表底薪
+                        }
+                        break;
+                    }
+                }
+
+                foreach ($raw['modules'] as $mi => $mod) {
+                    if (!($mod['enabled'] ?? true)) continue;
+                    if ($mi === $customBaseIdx) continue; // base_salary 已单独处理，不重复加入模块合计
                     $result = self::runModule($mod['type'], $mod['config'], $context, $mod['name']);
                     if ($result !== null) {
                         $results[] = array_merge($result, ['name' => $mod['name']]);
@@ -117,7 +134,7 @@ class SalaryCalculator
                 foreach ($results as $r) {
                     $formulaParts[] = "+{$r['amount']}({$r['name']})";
                 }
-                
+
                 return [
                     'base_salary'   => $baseSalary,
                     'modules'       => $results,
@@ -182,13 +199,15 @@ class SalaryCalculator
         }
     }
 
-    // ---- 底薪（固定）----
+    // ---- 底薪（自定义，覆盖员工表底薪）----
     private static function calcBaseSalary($cfg, $c, $moduleName = '')
     {
         $amount = (float)($cfg['base_amount'] ?? 0);
+        $tableBase = (float)($c['base_salary'] ?? 0);
+        $note = abs($amount - $tableBase) > 0.001 ? sprintf('（覆盖员工表底薪 %.2f）', $tableBase) : '';
         return [
             'amount' => round($amount, 2),
-            'formula' => sprintf('底薪 %.2f', $amount),
+            'formula' => sprintf('底薪 %.2f%s', $amount, $note),
             'type' => 'base_salary',
         ];
     }
@@ -584,7 +603,56 @@ class SalaryCalculator
     private static function calcAttendanceFull($cfg, $c)
     {
         $fullAmount = (float)($cfg['full_amount'] ?? 200);
-        // 全勤奖直接返回固定金额（假设出满勤就给）
+        $deductMode = $cfg['deduct_mode'] ?? 'none';      // none / prorate / fixed
+        $workHours  = (float)($cfg['work_hours'] ?? 0);    // 当月应出勤总小时数
+        $absentHours = (float)($cfg['absent_hours'] ?? 0); // 当月请假小时数
+        $thresholdHours = isset($cfg['absent_threshold_hours']) && $cfg['absent_threshold_hours'] !== ''
+            ? (float)$cfg['absent_threshold_hours'] : null; // 超过此值全勤奖归0
+
+        // 无请假 或 扣除模式=none → 全额发放
+        if ($absentHours <= 0 || $deductMode === 'none') {
+            return [
+                'amount' => round($fullAmount, 2),
+                'formula' => sprintf('全勤奖 %g（满勤）', $fullAmount),
+                'type' => 'attendance_full',
+            ];
+        }
+
+        // 超过阈值 → 全勤奖归0
+        if ($thresholdHours !== null && $absentHours >= $thresholdHours) {
+            return [
+                'amount' => 0,
+                'formula' => sprintf('全勤奖 0（请假%.1f小时≥阈值%.1f小时，归零）', $absentHours, $thresholdHours),
+                'type' => 'attendance_full',
+            ];
+        }
+
+        // 按比例折算
+        if ($deductMode === 'prorate') {
+            if ($workHours <= 0) $workHours = 176; // 兜底默认22天×8小时
+            $ratio = max(0, ($workHours - $absentHours) / $workHours);
+            $amt = $fullAmount * $ratio;
+            return [
+                'amount' => round($amt, 2),
+                'formula' => sprintf('全勤奖 %g×(%g-%g)/%g=%.2f', $fullAmount, $workHours, $absentHours, $workHours, $amt),
+                'type' => 'attendance_full',
+            ];
+        }
+
+        // 每小时扣固定金额（fixed）
+        if ($deductMode === 'fixed') {
+            if ($workHours <= 0) $workHours = 176;
+            $perHour = $fullAmount / $workHours;
+            $deduct = $absentHours * $perHour;
+            $amt = max(0, $fullAmount - $deduct);
+            return [
+                'amount' => round($amt, 2),
+                'formula' => sprintf('全勤奖 %g-%.1f×%.4f=%.2f', $fullAmount, $absentHours, $perHour, $amt),
+                'type' => 'attendance_full',
+            ];
+        }
+
+        // 未知模式 → 全额
         return [
             'amount' => round($fullAmount, 2),
             'formula' => sprintf('全勤奖 %g', $fullAmount),
@@ -725,9 +793,13 @@ class SalaryCalculator
                 'label' => '全勤奖金',
                 'icon' => 'fa-calendar-check',
                 'color' => 'success',
-                'desc' => '出满勤给予固定全勤奖金',
+                'desc' => '出满勤给予固定全勤奖金，请假按小时折算或扣除',
                 'fields' => [
                     ['key'=>'full_amount','label'=>'全勤奖金额','type'=>'number','step'=>'0.01','min'=>'0','placeholder'=>'如 200','default'=>'200'],
+                    ['key'=>'deduct_mode','label'=>'请假扣除方式','type'=>'select','options'=>['none'=>'不扣除（请假照发）','prorate'=>'按小时比例折算','fixed'=>'每小时扣固定金额'],'default'=>'none'],
+                    ['key'=>'work_hours','label'=>'当月应出勤总小时数','type'=>'number','step'=>'0.1','min'=>'0','placeholder'=>'如 22天×8小时=176','default'=>'176'],
+                    ['key'=>'absent_hours','label'=>'当月请假小时数','type'=>'number','step'=>'0.1','min'=>'0','placeholder'=>'每月结算时填写，如 4=半天','default'=>'0'],
+                    ['key'=>'absent_threshold_hours','label'=>'请假阈值(小时)','type'=>'number','step'=>'0.1','min'=>'0','placeholder'=>'请假超过此值全勤奖归0，留空=不限制','default'=>''],
                 ],
             ],
             'attendance_daily' => [
@@ -751,10 +823,10 @@ class SalaryCalculator
                 ],
             ],
             'base_salary' => [
-                'label' => '底薪（固定）',
+                'label' => '底薪（自定义）',
                 'icon' => 'fa-coins',
                 'color' => 'secondary',
-                'desc' => '固定底薪，不受订单影响',
+                'desc' => '自定义该员工底薪金额，会覆盖员工表中录入的底薪；不配置则用员工表底薪',
                 'fields' => [
                     ['key'=>'_name','label'=>'模块名称（必填）','type'=>'text','placeholder'=>'如：底薪','default'=>''],
                     ['key'=>'base_amount','label'=>'底薪金额','type'=>'number','step'=>'any','placeholder'=>'如 3300','default'=>3300],

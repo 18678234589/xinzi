@@ -238,7 +238,7 @@ include __DIR__ . '/../includes/header.php';
         <table class="table table-sm table-bordered mb-0">
             <thead><tr><th width="40%">项目</th><th>金额</th><th>说明</th></tr></thead>
             <tbody id="totalBody">
-                <tr><td><i class="fas fa-wallet text-primary"></i> 底薪（固定）</td><td class="font-weight-bold"><?php echo money($employee['base_salary']); ?></td><td class="text-muted">从员工基本工资读取</td></tr>
+                <tr><td><i class="fas fa-wallet text-primary"></i> 底薪</td><td class="font-weight-bold"><?php echo money($employee['base_salary']); ?></td><td class="text-muted">员工表底薪（可被"底薪（自定义）"模块覆盖）</td></tr>
             </tbody>
             <tfoot><tr class="bg-success text-white font-weight-bold">
                 <td colspan="2" class="text-right">实发工资 = </td>
@@ -335,6 +335,17 @@ function renderModuleForm($idx, $type, $cfg)
             $html .= "<div class=\"input-group\">{$suffix}<input type=\"{$f['type']}\" {$extraAttrs} value=\"" . e($valDisplay) . "\" placeholder=\"{$ph}\"></div>";
             $desc = $f['desc'] ?? '';
             $html .= "<small class=\"text-muted\">{$desc}</small></div>";
+        } elseif ($f['type'] === 'select') {
+            $html .= "<div class=\"form-group\"><label>{$f['label']}</label>";
+            $html .= "<select {$extraAttrs}>";
+            $options = $f['options'] ?? [];
+            foreach ($options as $ov => $ol) {
+                $sel = ((string)$ov === (string)$val) ? ' selected' : '';
+                $html .= "<option value=\"" . e($ov) . "\"{$sel}>" . e($ol) . "</option>";
+            }
+            $html .= "</select>";
+            $desc = $f['desc'] ?? '';
+            $html .= "<small class=\"text-muted\">{$desc}</small></div>";
         } else {
             // 其他类型（text等）
             $html .= "<div class=\"form-group\"><label>{$f['label']}</label>";
@@ -403,12 +414,38 @@ var orderTotalDemo = 25000; // 预算用模拟订单总额
 
 function renderAllPreviews() {
     var total = baseSalary;
-    var html = '<tr><td><i class="fas fa-wallet text-primary"></i> 底薪（固定）</td><td class="fw-bold">¥' + total.toFixed(2) + '</td><td class="text-muted">从员工基本工资读取</td></tr>';
+    var baseLabel = '底薪（固定）';
+    var baseNote = '从员工基本工资读取';
+    var customBaseUsed = false;
+
+    // 先扫一遍：是否有启用的 base_salary（自定义底薪）模块，有则覆盖底薪基数
+    $('.module-card').each(function() {
+        var idx = $(this).data('index');
+        var enabled = $(this).find('[data-enabled]').val() == '1';
+        if (!enabled) return;
+        var type = $(this).find("[name='mod_type\\["+idx+"\\]']").val();
+        if (type === 'base_salary') {
+            var amt = calcPreview(idx);
+            if (amt > 0) {
+                baseSalary = amt;
+                total = amt;
+                baseLabel = '底薪（自定义）';
+                baseNote = '覆盖员工表底薪 ¥' + (<?php echo (float)$employee['base_salary']; ?>).toFixed(2);
+                customBaseUsed = true;
+            }
+        }
+    });
+
+    var html = '<tr><td><i class="fas fa-wallet text-primary"></i> ' + baseLabel + '</td><td class="fw-bold">¥' + total.toFixed(2) + '</td><td class="text-muted">' + baseNote + '</td></tr>';
 
     $('.module-card').each(function() {
         var idx = $(this).data('index');
         var enabled = $(this).find('[data-enabled]').val() == '1';
         if (!enabled) return;
+        var type = $(this).find("[name='mod_type\\["+idx+"\\]']").val();
+        // base_salary 已作为底薪基数，不重复加入模块合计
+        if (type === 'base_salary') return;
+
         var amt = calcPreview(idx);
 
         // 获取模块名（strong标签内的文本）
@@ -468,6 +505,10 @@ function calcPreview(idx) {
 
     var result = {amount: 0, detail: ''};
     switch(type) {
+        case 'base_salary':
+            result.amount = cfg.base_amount || 0;
+            result.detail = '自定义底薪 ¥' + (result.amount).toFixed(2);
+            break;
         case 'standard':
             var r = (cfg.rate !== undefined && cfg.rate !== 0) ? cfg.rate : 0.05;
             result.amount = orderTotalDemo * r;
