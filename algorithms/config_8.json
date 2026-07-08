@@ -67,14 +67,6 @@
             }
         },
         {
-            "name": "全勤奖金",
-            "type": "attendance_full",
-            "enabled": true,
-            "config": {
-                "full_amount": 200
-            }
-        },
-        {
             "name": "老客户",
             "type": "standard",
             "enabled": true,
@@ -110,5 +102,5 @@
             }
         }
     ],
-    "updated_at": "2026-06-23 16:18:40"
+    "updated_at": "2026-07-08 16:48:25"
 }

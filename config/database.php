@@ -2,7 +2,7 @@
 /**
  * 数据库配置
  */
-define('DB_HOST', '192.168.1.254');
+define('DB_HOST', '58.58.98.150');
 define('DB_PORT', '3306');
 define('DB_NAME', 'xinzi');
 define('DB_USER', 'xinzi');
