@@ -56,7 +56,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $order_date = $_POST['order_date'] ?? '';
         $project = trim($_POST['project'] ?? '');
 
-        if ($employee_id <= 0 || $order_amount <= 0 || $order_date === '') {
+        if ($employee_id <= 0 || $order_amount < 0 || $order_date === '') {
             $error = '请填写完整且有效的订单信息';
         } else {
             try {
@@ -204,12 +204,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                             // 异常标记
                             $isAbn = 0; $abnReason = '';
-                            // 金额为0才标记异常，负数金额视为退款订单正常处理
-                            if ($amount == 0) {
-                                $isAbn = 1;
-                                $abnReason = '订单金额为0';
-                            }
-
                             // 退款订单标记：如果金额为负数，标记为退款订单，在raw_data中记录
                             $isRefund = ($amount < 0);
 
@@ -425,12 +419,19 @@ function ensureProjectColumn() {
     } catch (\Throwable $e) {}
 }
 $filter_employee = $locked_employee_id ?: (int)($_GET['employee_id'] ?? 0);
+$filter_dept = $_GET['department'] ?? '';
 $filter_month = $_GET['month'] ?? '';  // 空字符串=不限月份
 $filter_project = $_GET['project'] ?? ''; // 展开某个模块时使用
+$filter_abnormal = (($_GET['abnormal'] ?? '') === '1') ? 1 : 0;
 $page     = max(1, (int)($_GET['page'] ?? 1));
 $allowed_per_page = [20, 50, 100, 200, 500, 1000];
 $_pp = (int)($_GET['per_page'] ?? 20);
 $per_page = in_array($_pp, $allowed_per_page) ? $_pp : 20;
+$baseQ = [];
+if ($locked_employee) $baseQ['employee_id'] = $locked_employee['id'];
+elseif ($filter_employee) $baseQ['employee_id'] = $filter_employee;
+if ($filter_dept) $baseQ['department'] = $filter_dept;
+if ($filter_month) $baseQ['month'] = $filter_month;
 
 ensureProjectColumn(); // 确保 upload_batches 等表/字段存在
 ensureOrderNoColumn(); // 确保 orders.order_no 字段存在
@@ -439,7 +440,6 @@ ensureOrderNoColumn(); // 确保 orders.order_no 字段存在
 // 排除店铺上传的订单（order_scope='department' 且 shop 非空），它们只在店铺管理页展示
 $baseWhere  = " WHERE (o.raw_data IS NULL OR o.raw_data NOT LIKE '%\"__from_dept__%\":%') AND NOT (o.order_scope = 'department' AND o.shop <> '')";
 $baseParams = [];
-$filter_dept = $_GET['department'] ?? '';
 if ($filter_employee) {
     // 个人订单匹配 employee_id，部门订单（非店铺）不过滤（employee_id=0 不属于任何人，显示给所有人看）
     $baseWhere .= " AND (o.employee_id = ? OR (o.order_scope = 'department' AND (o.shop IS NULL OR o.shop = '')))";
@@ -533,15 +533,21 @@ $orders = [];
 $total_pages = 1;
 $uploadHeaders = [];
 $expand_project = $filter_project; // 当前展开的分组名（空=全部收起）
+$detailQ = [];
 
 if ($expand_project !== '') {
     $detailWhere  = $baseWhere;
     $detailParams = $baseParams;
+    $detailQ = array_merge($baseQ, ['project' => $expand_project, 'page' => 1]);
+    if ($filter_abnormal) $detailQ['abnormal'] = '1';
     if ($expand_project === '订单') {
         $detailWhere .= " AND (o.project = '' OR o.project IS NULL)";
     } else {
         $detailWhere .= " AND o.project = ?";
         $detailParams[] = $expand_project;
+    }
+    if ($filter_abnormal) {
+        $detailWhere .= " AND o.is_abnormal = 1";
     }
 
     $cntRow = db()->prepare("SELECT COUNT(*) as cnt, COALESCE(SUM(o.order_amount),0) as total FROM orders o LEFT JOIN employees e ON o.employee_id = e.id" . $detailWhere);
@@ -854,15 +860,6 @@ include __DIR__ . '/../includes/header.php';
                     <div class="text-center text-muted py-5"><i class="fas fa-inbox fa-2x mb-2 d-block"></i>暂无订单数据</div>
                 <?php else: ?>
 
-                <?php
-                // 构建基础 URL 参数（用于分组跳转链接）
-                $baseQ = [];
-                if ($locked_employee) $baseQ['employee_id'] = $locked_employee['id'];
-                elseif ($filter_employee) $baseQ['employee_id'] = $filter_employee;
-                if ($filter_dept) $baseQ['department'] = $filter_dept;
-                if ($filter_month) $baseQ['month'] = $filter_month;
-                ?>
-
                 <!-- 第一级：部门卡片（未选择部门时显示） -->
                 <?php if (!$filter_dept && !$filter_employee && !$locked_employee): ?>
                     <div class="row">
@@ -948,12 +945,14 @@ include __DIR__ . '/../includes/header.php';
                                 $grpName   = $grp['grp_name'];
                                 $isExpand  = ($expand_project === $grpName);
                                 $grpQ      = array_merge($baseQ, ['project' => $grpName, 'page' => 1]);
+                                $abnQ      = array_merge($grpQ, ['abnormal' => '1']);
                                 $collapseQ = $baseQ; // 点击已展开的分组则收起（不带 project 参数）
                                 ?>
                                 <div class="order-group mb-2">
                                     <!-- 分组标题行：点击展开/收起 -->
                                     <a href="<?php echo '?' . http_build_query($isExpand ? $collapseQ : $grpQ); ?>"
-                                       class="order-group-header d-flex align-items-center justify-content-between px-3 py-2 text-decoration-none <?php echo $isExpand ? 'expanded' : ''; ?>">
+                                       class="order-group-header d-flex align-items-center justify-content-between px-3 py-2 text-decoration-none <?php echo $isExpand ? 'expanded' : ''; ?>"
+                                       <?php if ($isExpand): ?>data-toggle="modal" data-target="#orderDetailModal"<?php endif; ?>>
                                         <span>
                                             <i class="fas fa-<?php echo $isExpand ? 'folder-open' : 'folder'; ?> mr-2 text-warning"></i>
                                             <strong><?php echo e($grpName); ?></strong>
@@ -965,7 +964,7 @@ include __DIR__ . '/../includes/header.php';
                                                 <span class="badge badge-success ml-1" title="部门订单"><i class="fas fa-users"></i> <?php echo $grp['dept_cnt']; ?></span>
                                             <?php endif; ?>
                                             <?php if ($grp['abn_cnt'] > 0): ?>
-                                                <span class="badge badge-danger ml-1" title="异常订单"><i class="fas fa-exclamation-triangle"></i> <?php echo $grp['abn_cnt']; ?></span>
+                                                <span class="badge badge-danger ml-1 abnormal-filter-badge" title="只看异常订单" onclick="event.preventDefault();event.stopPropagation();location.href='<?php echo '?' . http_build_query($abnQ); ?>';"><i class="fas fa-exclamation-triangle"></i> <?php echo $grp['abn_cnt']; ?></span>
                                             <?php endif; ?>
                                         </span>
                                         <span class="text-success font-weight-bold">
@@ -974,138 +973,11 @@ include __DIR__ . '/../includes/header.php';
                                         </span>
                                     </a>
 
-                    <?php if ($isExpand): ?>
-                    <!-- 展开的订单明细 -->
-                    <div class="order-group-body border border-top-0 rounded-bottom p-2">
-
-                        <!-- 明细工具栏 -->
-                        <div class="d-flex align-items-center justify-content-between flex-wrap mb-2">
-                            <small class="text-muted">共 <?php echo $detail_count; ?> 条，¥<?php echo money($detail_amount); ?></small>
-                            <div class="d-flex align-items-center">
-                                <select class="form-control form-control-sm mr-1" style="width:auto"
-                                    onchange="location.href='<?php echo '?' . http_build_query(array_merge($grpQ, ['per_page' => '__PP__'])); ?>'.replace('__PP__', this.value)">
-                                    <?php foreach ([20,50,100,200,500,1000] as $n): ?>
-                                        <option value="<?php echo $n; ?>" <?php echo $per_page == $n ? 'selected' : ''; ?>><?php echo $n; ?> 条/页</option>
-                                    <?php endforeach; ?>
-                                </select>
-                            </div>
-                        </div>
-
-                        <form method="post" id="batchForm">
-                            <input type="hidden" name="action" value="batch_delete">
-                            <input type="hidden" name="_page" value="<?php echo $page; ?>">
-                            <input type="hidden" name="_per_page" value="<?php echo $per_page; ?>">
-                            <input type="hidden" name="_month" value="<?php echo e($filter_month); ?>">
-                            <input type="hidden" name="_employee_id" value="<?php echo $filter_employee; ?>">
-                            <input type="hidden" name="_project" value="<?php echo e($expand_project); ?>">
-                            <!-- 批量操作栏 -->
-                            <div class="align-items-center mb-2" id="batchBar" style="display:none">
-                                <span class="text-muted small mr-2" id="selectedCount">已选 0 条</span>
-                                <button type="submit" class="btn btn-sm btn-danger" id="batchDelBtn"
-                                    onclick="return confirm('确定删除所选订单？此操作不可恢复！')">
-                                    <i class="fas fa-trash-alt"></i> 批量删除
-                                </button>
-                                <button type="button" class="btn btn-sm btn-outline-secondary ml-2" onclick="clearSelection()">取消选择</button>
-                            </div>
-
-                            <div class="table-responsive" style="max-height:500px;overflow-y:auto">
-                                <table class="table table-sm table-hover mb-0" id="ordersTable">
-                                    <thead class="thead-light sticky-top">
-                                        <tr>
-                                            <th style="width:32px"><input type="checkbox" id="checkAll" title="全选" onclick="var cbs=document.querySelectorAll('.row-check');cbs.forEach(function(c){c.checked=this.checked;}.bind(this));document.getElementById('batchBar').style.display=this.checked?'flex':'none';document.getElementById('batchBar').style.alignItems='center';document.getElementById('selectedCount').textContent='已选 '+(this.checked?cbs.length:0)+' 条';document.getElementById('batchDelBtn').disabled=!this.checked;"></th>
-                                            <th>ID</th><th>员工</th>
-                                            <?php foreach ($uploadHeaders as $hdr): ?>
-                                                <th><?php echo e($hdr); ?></th>
-                                            <?php endforeach; ?>
-                                            <th>计算金额</th>
-                                            <th>上传日期</th><th>操作</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                    <?php if ($orders): foreach ($orders as $o): ?>
-                                        <?php $rawData = !empty($o['raw_data']) ? (json_decode($o['raw_data'], true) ?: []) : []; ?>
-                                        <tr class="<?php echo !empty($o['is_abnormal']) ? 'table-danger' : ''; ?>">
-                                            <td><input type="checkbox" class="row-check" name="ids[]" value="<?php echo $o['id']; ?>" onclick="var cbs=document.querySelectorAll('.row-check'),n=0;cbs.forEach(function(c){if(c.checked)n++;});var ca=document.getElementById('checkAll');if(ca){ca.checked=n===cbs.length;ca.indeterminate=n>0&&n<cbs.length;}var bb=document.getElementById('batchBar');if(bb){bb.style.display=n>0?'flex':'none';bb.style.alignItems='center';}var st=document.getElementById('selectedCount');if(st)st.textContent='已选 '+n+' 条';var bd=document.getElementById('batchDelBtn');if(bd)bd.disabled=n===0;"></td>
-                                            <td><?php echo $o['id']; ?></td>
-                                            <td>
-                                                <?php if ($o['order_scope'] === 'department'): ?>
-                                                    <?php $dept = !empty($o['raw_data']) ? (json_decode($o['raw_data'], true)['__dept__'] ?? '') : ''; ?>
-                                                    <span class="badge badge-success"><i class="fas fa-users"></i> <?php echo e($dept ?: '部门'); ?></span>
-                                                <?php else: ?>
-                                                    <span class="badge badge-primary"><i class="fas fa-user"></i> <?php echo e($o['name'] ?: '--'); ?></span>
-                                                <?php endif; ?>
-                                            </td>
-                                            <?php foreach ($uploadHeaders as $hdr): ?>
-                                                <td><?php echo isset($rawData[$hdr]) && $rawData[$hdr] !== '' ? e($rawData[$hdr]) : '<span class="text-muted small">--</span>'; ?></td>
-                                            <?php endforeach; ?>
-                                            <td class="<?php echo !empty($o['is_abnormal']) ? 'text-danger' : 'text-success font-weight-bold'; ?>">
-                                                <?php if (!empty($o['is_abnormal'])): ?>
-                                                    <i class="fas fa-exclamation-triangle"></i> ¥<?php echo money($o['order_amount']); ?>
-                                                    <br><small><?php echo e($o['abnormal_reason'] ?? ''); ?></small>
-                                                <?php else: ?>
-                                                    ¥<?php echo money($o['order_amount']); ?>
-                                                <?php endif; ?>
-                                            </td>
-                                            <td class="text-muted small"><?php echo !empty($o['created_at']) ? date('m-d H:i', strtotime($o['created_at'])) : '--'; ?></td>
-                                            <td>
-                                                <button class="btn btn-sm btn-outline-danger py-0" onclick="deleteSingle(<?php echo $o['id']; ?>)">
-                                                    <i class="fas fa-times"></i>
-                                                </button>
-                                            </td>
-                                        </tr>
-                                    <?php endforeach; else: ?>
-                                        <tr><td colspan="10" class="text-center text-muted py-3">暂无数据</td></tr>
+                                    <?php if ($isExpand): ?>
+                                        <div class="small text-muted px-3 py-1 bg-light border-left border-right border-bottom rounded-bottom">
+                                            明细已在弹窗中打开。
+                                        </div>
                                     <?php endif; ?>
-                                    </tbody>
-                                    <?php if ($orders): ?>
-                                    <tfoot>
-                                        <tr class="table-light font-weight-bold">
-                                            <td colspan="<?php echo 3 + count($uploadHeaders); ?>">本页合计</td>
-                                            <td class="text-success">¥<?php echo money(array_sum(array_column(array_filter($orders, fn($r) => empty($r['is_abnormal'])), 'order_amount'))); ?></td>
-                                            <td colspan="2"></td>
-                                        </tr>
-                                    </tfoot>
-                                    <?php endif; ?>
-                                </table>
-                            </div>
-                        </form><!-- /batchForm -->
-
-                        <?php if ($total_pages > 1):
-                            $pq = array_merge($grpQ, ['per_page' => $per_page]);
-                            function page_url($p, $pq) { $pq['page'] = $p; return '?' . http_build_query($pq); }
-                        ?>
-                        <nav class="mt-2">
-                            <ul class="pagination pagination-sm justify-content-center flex-wrap mb-0">
-                                <li class="page-item <?php echo $page <= 1 ? 'disabled' : ''; ?>">
-                                    <a class="page-link" href="<?php echo page_url(1, $pq); ?>">«</a>
-                                </li>
-                                <li class="page-item <?php echo $page <= 1 ? 'disabled' : ''; ?>">
-                                    <a class="page-link" href="<?php echo page_url($page-1, $pq); ?>">‹</a>
-                                </li>
-                                <?php
-                                $start = max(1, $page - 2); $end = min($total_pages, $page + 2);
-                                if ($start > 1) echo '<li class="page-item disabled"><span class="page-link">…</span></li>';
-                                for ($i = $start; $i <= $end; $i++):
-                                ?>
-                                <li class="page-item <?php echo $i === $page ? 'active' : ''; ?>">
-                                    <a class="page-link" href="<?php echo page_url($i, $pq); ?>"><?php echo $i; ?></a>
-                                </li>
-                                <?php endfor;
-                                if ($end < $total_pages) echo '<li class="page-item disabled"><span class="page-link">…</span></li>';
-                                ?>
-                                <li class="page-item <?php echo $page >= $total_pages ? 'disabled' : ''; ?>">
-                                    <a class="page-link" href="<?php echo page_url($page+1, $pq); ?>">›</a>
-                                </li>
-                                <li class="page-item <?php echo $page >= $total_pages ? 'disabled' : ''; ?>">
-                                    <a class="page-link" href="<?php echo page_url($total_pages, $pq); ?>">»</a>
-                                </li>
-                            </ul>
-                            <p class="text-center text-muted small mt-1 mb-0">第 <?php echo $page; ?> / <?php echo $total_pages; ?> 页，每页 <?php echo $per_page; ?> 条</p>
-                        </nav>
-                        <?php endif; ?>
-
-                    </div><!-- /order-group-body -->
-                    <?php endif; // isExpand ?>
 
                 </div><!-- /order-group -->
                 <?php endforeach; // projects in month ?>
@@ -1125,6 +997,96 @@ include __DIR__ . '/../includes/header.php';
         </div>
     </div>
 </div>
+
+<?php if ($expand_project !== ''): ?>
+<?php $detailAllQ = $detailQ; unset($detailAllQ['abnormal']); $detailAbnormalQ = array_merge($detailQ, ['abnormal' => '1', 'page' => 1]); ?>
+<div class="modal fade" id="orderDetailModal" tabindex="-1" role="dialog" aria-labelledby="orderDetailModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-xl order-detail-modal" role="document">
+        <div class="modal-content">
+            <div class="modal-header py-2">
+                <div>
+                    <h5 class="modal-title mb-0" id="orderDetailModalLabel"><i class="fas fa-list text-info"></i> <?php echo e($expand_project); ?> 明细</h5>
+                    <small class="text-muted">共 <?php echo $detail_count; ?> 条，¥<?php echo money($detail_amount); ?><?php if ($filter_abnormal): ?> <span class="badge badge-danger ml-1">仅异常</span><?php endif; ?></small>
+                </div>
+                <div class="d-flex align-items-center flex-wrap justify-content-end">
+                    <select class="form-control form-control-sm mr-2" style="width:auto" onchange="location.href='<?php echo '?' . http_build_query(array_merge($detailQ, ['per_page' => '__PP__'])); ?>'.replace('__PP__', this.value)">
+                        <?php foreach ([20,50,100,200,500,1000] as $n): ?>
+                            <option value="<?php echo $n; ?>" <?php echo $per_page == $n ? 'selected' : ''; ?>><?php echo $n; ?> 条/页</option>
+                        <?php endforeach; ?>
+                    </select>
+                    <a class="btn btn-sm <?php echo $filter_abnormal ? 'btn-danger' : 'btn-outline-danger'; ?> mr-2" href="<?php echo '?' . http_build_query($detailAbnormalQ); ?>"><i class="fas fa-exclamation-triangle"></i> 只看异常</a>
+                    <?php if ($filter_abnormal): ?>
+                        <a class="btn btn-sm btn-outline-primary mr-2" href="<?php echo '?' . http_build_query($detailAllQ); ?>">全部订单</a>
+                    <?php endif; ?>
+                    <a class="btn btn-sm btn-outline-secondary mr-2" href="<?php echo '?' . http_build_query($baseQ); ?>">退出明细</a>
+                    <button type="button" class="close" data-dismiss="modal" aria-label="关闭"><span aria-hidden="true">&times;</span></button>
+                </div>
+            </div>
+            <div class="modal-body p-2">
+                <form method="post" id="batchForm">
+                    <input type="hidden" name="action" value="batch_delete">
+                    <input type="hidden" name="_page" value="<?php echo $page; ?>">
+                    <input type="hidden" name="_per_page" value="<?php echo $per_page; ?>">
+                    <input type="hidden" name="_month" value="<?php echo e($filter_month); ?>">
+                    <input type="hidden" name="_employee_id" value="<?php echo $filter_employee; ?>">
+                    <input type="hidden" name="_project" value="<?php echo e($expand_project); ?>">
+                    <div class="align-items-center mb-2" id="batchBar" style="display:none">
+                        <span class="text-muted small mr-2" id="selectedCount">已选 0 条</span>
+                        <button type="submit" class="btn btn-sm btn-danger" id="batchDelBtn" onclick="return confirm('确定删除所选订单？此操作不可恢复！')"><i class="fas fa-trash-alt"></i> 批量删除</button>
+                        <button type="button" class="btn btn-sm btn-outline-secondary ml-2" onclick="clearSelection()">取消选择</button>
+                    </div>
+                    <div class="table-responsive order-detail-table-wrap">
+                        <table class="table table-sm table-hover mb-0 order-detail-table" id="ordersTable">
+                            <thead class="thead-light sticky-top">
+                                <tr>
+                                    <th style="width:32px"><input type="checkbox" id="checkAll" title="全选" onclick="var cbs=document.querySelectorAll('.row-check');cbs.forEach(function(c){c.checked=this.checked;}.bind(this));document.getElementById('batchBar').style.display=this.checked?'flex':'none';document.getElementById('batchBar').style.alignItems='center';document.getElementById('selectedCount').textContent='已选 '+(this.checked?cbs.length:0)+' 条';document.getElementById('batchDelBtn').disabled=!this.checked;"></th>
+                                    <th>ID</th><th>员工</th>
+                                    <?php foreach ($uploadHeaders as $hdr): ?>
+                                        <th><?php echo e($hdr); ?></th>
+                                    <?php endforeach; ?>
+                                    <th>计算金额</th><th>上传日期</th><th>操作</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                            <?php if ($orders): foreach ($orders as $o): ?>
+                                <?php $rawData = !empty($o['raw_data']) ? (json_decode($o['raw_data'], true) ?: []) : []; ?>
+                                <tr class="<?php echo !empty($o['is_abnormal']) ? 'table-danger' : ''; ?>">
+                                    <td><input type="checkbox" class="row-check" name="ids[]" value="<?php echo $o['id']; ?>" onclick="var cbs=document.querySelectorAll('.row-check'),n=0;cbs.forEach(function(c){if(c.checked)n++;});var ca=document.getElementById('checkAll');if(ca){ca.checked=n===cbs.length;ca.indeterminate=n>0&&n<cbs.length;}var bb=document.getElementById('batchBar');if(bb){bb.style.display=n>0?'flex':'none';bb.style.alignItems='center';}var st=document.getElementById('selectedCount');if(st)st.textContent='已选 '+n+' 条';var bd=document.getElementById('batchDelBtn');if(bd)bd.disabled=n===0;"></td>
+                                    <td><?php echo $o['id']; ?></td>
+                                    <td><?php if ($o['order_scope'] === 'department'): ?><?php $dept = !empty($o['raw_data']) ? (json_decode($o['raw_data'], true)['__dept__'] ?? '') : ''; ?><span class="badge badge-success"><i class="fas fa-users"></i> <?php echo e($dept ?: '部门'); ?></span><?php else: ?><span class="badge badge-primary"><i class="fas fa-user"></i> <?php echo e($o['name'] ?: '--'); ?></span><?php endif; ?></td>
+                                    <?php foreach ($uploadHeaders as $hdr): ?>
+                                        <td><?php echo isset($rawData[$hdr]) && $rawData[$hdr] !== '' ? e($rawData[$hdr]) : '<span class="text-muted small">--</span>'; ?></td>
+                                    <?php endforeach; ?>
+                                    <td class="<?php echo !empty($o['is_abnormal']) ? 'text-danger' : 'text-success font-weight-bold'; ?>"><?php if (!empty($o['is_abnormal'])): ?><i class="fas fa-exclamation-triangle"></i> ¥<?php echo money($o['order_amount']); ?><br><small><?php echo e($o['abnormal_reason'] ?? ''); ?></small><?php else: ?>¥<?php echo money($o['order_amount']); ?><?php endif; ?></td>
+                                    <td class="text-muted small"><?php echo !empty($o['created_at']) ? date('m-d H:i', strtotime($o['created_at'])) : '--'; ?></td>
+                                    <td><button type="button" class="btn btn-sm btn-outline-danger py-0" onclick="deleteSingle(<?php echo $o['id']; ?>)"><i class="fas fa-times"></i></button></td>
+                                </tr>
+                            <?php endforeach; else: ?>
+                                <tr><td colspan="10" class="text-center text-muted py-3">暂无数据</td></tr>
+                            <?php endif; ?>
+                            </tbody>
+                            <?php if ($orders): ?>
+                            <tfoot><tr class="table-light font-weight-bold"><td colspan="<?php echo 3 + count($uploadHeaders); ?>">本页合计</td><td class="text-success">¥<?php echo money(array_sum(array_column(array_filter($orders, fn($r) => empty($r['is_abnormal'])), 'order_amount'))); ?></td><td colspan="2"></td></tr></tfoot>
+                            <?php endif; ?>
+                        </table>
+                    </div>
+                </form>
+                <?php if ($total_pages > 1): $detailPageQ = array_merge($detailQ, ['per_page' => $per_page]); ?>
+                <nav class="mt-2"><ul class="pagination pagination-sm justify-content-center flex-wrap mb-0">
+                    <li class="page-item <?php echo $page <= 1 ? 'disabled' : ''; ?>"><a class="page-link" href="<?php echo '?' . http_build_query(array_merge($detailPageQ, ['page' => 1])); ?>">«</a></li>
+                    <li class="page-item <?php echo $page <= 1 ? 'disabled' : ''; ?>"><a class="page-link" href="<?php echo '?' . http_build_query(array_merge($detailPageQ, ['page' => $page-1])); ?>">‹</a></li>
+                    <?php $start = max(1, $page - 2); $end = min($total_pages, $page + 2); if ($start > 1) echo '<li class="page-item disabled"><span class="page-link">…</span></li>'; for ($i = $start; $i <= $end; $i++): ?>
+                    <li class="page-item <?php echo $i === $page ? 'active' : ''; ?>"><a class="page-link" href="<?php echo '?' . http_build_query(array_merge($detailPageQ, ['page' => $i])); ?>"><?php echo $i; ?></a></li>
+                    <?php endfor; if ($end < $total_pages) echo '<li class="page-item disabled"><span class="page-link">…</span></li>'; ?>
+                    <li class="page-item <?php echo $page >= $total_pages ? 'disabled' : ''; ?>"><a class="page-link" href="<?php echo '?' . http_build_query(array_merge($detailPageQ, ['page' => $page+1])); ?>">›</a></li>
+                    <li class="page-item <?php echo $page >= $total_pages ? 'disabled' : ''; ?>"><a class="page-link" href="<?php echo '?' . http_build_query(array_merge($detailPageQ, ['page' => $total_pages])); ?>">»</a></li>
+                </ul><p class="text-center text-muted small mt-1 mb-0">第 <?php echo $page; ?> / <?php echo $total_pages; ?> 页，每页 <?php echo $per_page; ?> 条</p></nav>
+                <?php endif; ?>
+            </div>
+        </div>
+    </div>
+</div>
+<?php endif; ?>
 
 <!-- 单条删除专用 form（不能嵌套在 batchForm 里） -->
 <form method="post" id="singleDeleteForm" style="display:none">
@@ -1358,6 +1320,14 @@ $(document).ready(function() {
     }
 })();
 
+<?php if ($expand_project !== ''): ?>
+window.addEventListener('load', function() {
+    if (window.jQuery && $('#orderDetailModal').modal) {
+        $('#orderDetailModal').modal('show');
+    }
+});
+<?php endif; ?>
+
 // 取消选择 & 单条删除
 (function() {
     window.clearSelection = function() {
@@ -1387,16 +1357,26 @@ $(document).ready(function() {
     transition: background .15s;
 }
 .order-group-header:hover { background: #e9ecef; color: #343a40; }
+.abnormal-filter-badge { cursor: pointer; }
+.abnormal-filter-badge:hover { filter: brightness(.95); }
 .order-group-header.expanded {
     background: #fff3cd;
     border-color: #ffc107;
     border-bottom-left-radius: 0;
     border-bottom-right-radius: 0;
 }
-.order-group-body {
-    border-color: #ffc107 !important;
-    background: #fff;
-    border-radius: 0 0 6px 6px;
+.order-detail-modal { max-width: min(1600px, 96vw); }
+.order-detail-modal .modal-content { max-height: 92vh; }
+.order-detail-modal .modal-body { overflow: hidden; }
+.order-detail-table-wrap {
+    max-height: calc(92vh - 170px);
+    overflow: auto;
+}
+.order-detail-table { white-space: nowrap; }
+.order-detail-table thead th {
+    position: sticky;
+    top: 0;
+    z-index: 2;
 }
 </style>
 <?php include __DIR__ . '/../includes/footer.php'; ?>
