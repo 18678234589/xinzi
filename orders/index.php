@@ -26,7 +26,7 @@ if (($_GET['ajax'] ?? '') === 'modules' && $ajax_employee_id > 0) {
     $result = [];
     if ($modCfg && !empty($modCfg['modules'])) {
         foreach ($modCfg['modules'] as $m) {
-            if (in_array($m['type'], ['standard','tiered','per_order','profit_commission']) && ($m['enabled'] ?? true)) {
+            if (in_array($m['type'], ['standard','tiered','per_order','profit_commission','referral_order']) && ($m['enabled'] ?? true)) {
                 $extra = '';
                 if ($m['type'] === 'standard' && isset($m['config']['rate']) && $m['config']['rate'] !== '') {
                     $rVal = (float)$m['config']['rate'];
@@ -38,6 +38,8 @@ if (($_GET['ajax'] ?? '') === 'modules' && $ajax_employee_id > 0) {
                     $extra = ' (阶梯)';
                 } elseif ($m['type'] === 'per_order') {
                     $extra = ' (¥' . ($m['config']['per_amount'] ?? 0) . '/笔)';
+                } elseif ($m['type'] === 'referral_order') {
+                    $extra = ' (每单补助¥' . ($m['config']['subsidy'] ?? 0) . ')';
                 }
                 $result[] = ['name' => $m['name'], 'label' => $m['name'] . $extra];
             }
@@ -711,7 +713,7 @@ include __DIR__ . '/../includes/header.php';
                                 $modCfg = SalaryCalculator::readModulesConfig($locked_employee['id']);
                                 if ($modCfg && !empty($modCfg['modules'])):
                                     foreach ($modCfg['modules'] as $m):
-                                        if (in_array($m['type'], ['standard','tiered','per_order','profit_commission']) && ($m['enabled'] ?? true)):
+                                        if (in_array($m['type'], ['standard','tiered','per_order','profit_commission','referral_order']) && ($m['enabled'] ?? true)):
                                             $modName = $m['name'];
                                             $extra = '';
                                             if ($m['type'] === 'standard' && isset($m['config']['rate']) && $m['config']['rate'] !== '') {
@@ -722,6 +724,8 @@ include __DIR__ . '/../includes/header.php';
                                                 $extra = ' (阶梯)';
                                             } elseif ($m['type'] === 'per_order') {
                                                 $extra = ' (¥' . ($m['config']['per_amount'] ?? 0) . '/笔)';
+                                            } elseif ($m['type'] === 'referral_order') {
+                                                $extra = ' (每单补助¥' . ($m['config']['subsidy'] ?? 0) . ')';
                                             }
                                             echo '<option value="' . e($modName) . '">' . e($modName) . $extra . '</option>';
                                         endif;
@@ -784,7 +788,7 @@ include __DIR__ . '/../includes/header.php';
                                 $modCfg2 = SalaryCalculator::readModulesConfig($locked_employee['id']);
                                 if ($modCfg2 && !empty($modCfg2['modules'])):
                                     foreach ($modCfg2['modules'] as $m):
-                                        if (in_array($m['type'], ['standard','tiered','per_order','profit_commission']) && ($m['enabled'] ?? true)):
+                                        if (in_array($m['type'], ['standard','tiered','per_order','profit_commission','referral_order']) && ($m['enabled'] ?? true)):
                                             $modName = $m['name'];
                                             $extra = '';
                                             if ($m['type'] === 'standard' && isset($m['config']['rate']) && $m['config']['rate'] !== '') {
@@ -795,6 +799,8 @@ include __DIR__ . '/../includes/header.php';
                                                 $extra = ' (阶梯)';
                                             } elseif ($m['type'] === 'per_order') {
                                                 $extra = ' (¥' . ($m['config']['per_amount'] ?? 0) . '/笔)';
+                                            } elseif ($m['type'] === 'referral_order') {
+                                                $extra = ' (每单补助¥' . ($m['config']['subsidy'] ?? 0) . ')';
                                             }
                                             echo '<option value="' . e($modName) . '">' . e($modName) . $extra . '</option>';
                                         endif;

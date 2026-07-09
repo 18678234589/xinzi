@@ -159,7 +159,7 @@ include __DIR__ . '/../includes/header.php';
 
     <?php else: ?>
     <?php foreach ($currentMods as $idx => $mod):
-        $bgMap = ['primary'=>'#e8f4fd','warning'=>'#fff7e6','info'=>'#e8f4fe','success'=>'#e8f8f8','teal'=>'#d1ecf1','danger'=>'#fce4ec'];
+        $bgMap = ['primary'=>'#e8f4fd','warning'=>'#fff7e6','info'=>'#e8f4fe','success'=>'#e8f8f8','teal'=>'#d1ecf1','danger'=>'#fce4ec','purple'=>'#f3e8ff','secondary'=>'#f1f3f5'];
         $modBg = $bgMap[$allTypes[$mod['type']]['color']] ?? '#f8f9fa';
     ?>
     <!-- 单个模块卡片 -->
@@ -525,6 +525,11 @@ function calcPreview(idx) {
             var pcnt = Math.round(orderTotalDemo/10000)||2;
             result.amount = pcnt*(cfg.per_amount||50)+pcnt*(cfg.per_reward||0);
             result.detail = pcnt + '笔';
+            break;
+        case 'referral_order':
+            var demoCount = Math.round(orderTotalDemo/10000)||2;
+            result.amount = demoCount*(cfg.subsidy||0);
+            result.detail = demoCount + '单×¥' + (cfg.subsidy||0);
             break;
         case 'attendance_full':
             result.amount = cfg.full_amount||200;
