@@ -206,6 +206,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         $empByName = [];
                         foreach ($empList as $e) $empByName[trim($e['name'])] = (int)$e['id'];
 
+                        // 上传前清空该月所有考勤记录，确保上传的数据就是最终数据
+                        db()->prepare("DELETE FROM attendances WHERE year=? AND month=?")->execute([$year, $month]);
+
                         $inserted = 0; $skipped = 0; $notFound = [];
                         $ins = db()->prepare("INSERT INTO attendances (employee_id, year, month, work_hours, absent_hours, remark)
                                               VALUES (?, ?, ?, ?, ?, ?)
@@ -225,7 +228,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                 $wh  = $fullDays * 8;                       // 应出勤小时 = 满勤天数 × 8
                                 $ah  = max(0, ($fullDays - $actDays) * 8);  // 请假小时 = (满勤-实际出勤) × 8
                             } elseif ($autoDayMode) {
-                                // 自动统计模式：满勤天数=应出勤工作日数，实际出勤=有打卡的工作日数
                                 $fullDays = $workDayCount > 0 ? $workDayCount : $dayColCount;
                                 $actDays  = 0;
                                 for ($di = $dayColStart; $di < $dayColStart + $dayColCount; $di++) {
@@ -252,6 +254,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         $msg = "导入完成：成功 {$inserted} 条";
                         if ($skipped > 0) $msg .= "，跳过 {$skipped} 条";
                         if (!empty($notFound)) $msg .= "，未匹配员工：" . implode('、', array_slice($notFound, 0, 5)) . (count($notFound) > 5 ? ' 等' : '');
+                        // 附加识别信息便于排查
+                        $mode = $autoDayMode ? '自动统计(每日打卡列)' : '天数列直读';
+                        $msg .= "【模式:{$mode}；姓名列:{$idxName}；满勤列:" . ($idxFullDays ?? '无') . "；实际出勤列:" . ($idxActualDays ?? '无') . "；数据行:" . count($dataRows) . "】";
                         $success = $msg;
                     }
                 } elseif ($error === '') {
