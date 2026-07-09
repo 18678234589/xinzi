@@ -126,6 +126,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     }
                     $firstRow = $rows[$headerRowIdx];
                     $dataRows = array_slice($rows, $headerRowIdx + 1);
+                    // 跳过日期行：若第一行数据姓名列为空且其余列多为纯数字/星期，视为日期子表头
+                    if (!empty($dataRows)) {
+                        $firstData = $dataRows[0];
+                        $nameCell = trim($firstData[$idxName ?? 0] ?? '');
+                        $numCount = 0;
+                        $nonEmptyCount = 0;
+                        for ($ci = 0; $ci < count($firstData); $ci++) {
+                            $v = trim($firstData[$ci] ?? '');
+                            if ($v === '') continue;
+                            $nonEmptyCount++;
+                            if (preg_match('/^\d{1,2}$/', $v) || in_array($v, ['六','日','端午节'], true)) $numCount++;
+                        }
+                        if ($nameCell === '' && $nonEmptyCount > 0 && $numCount / $nonEmptyCount > 0.5) {
+                            array_shift($dataRows);
+                        }
+                    }
                     // 过滤掉空行和尾部说明行
                     $dataRows = array_values(array_filter($dataRows, function($r) {
                         $nonEmpty = array_filter($r, function($v) { return trim($v) !== ''; });
@@ -171,6 +187,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             $dayColStart = $maxNamed + 1;
                             $dayColCount = max(0, count($firstRow) - $dayColStart);
                             if ($dayColCount <= 0) $dayColCount = 22; // 兜底
+                            // 识别节假日列：日期行（表头下一行）里值为"六/日/端午节"等的是休息日，不算满勤也不算请假
+                            $holidayCols = [];
+                            if (isset($rows[$headerRowIdx + 1])) {
+                                $dateRow = $rows[$headerRowIdx + 1];
+                                for ($ci = $dayColStart; $ci < count($dateRow); $ci++) {
+                                    $dv = trim($dateRow[$ci] ?? '');
+                                    if (in_array($dv, ['六','日','端午节','春节','国庆','中秋','元旦','清明','劳动','五一','十一'], true)) {
+                                        $holidayCols[$ci] = true;
+                                    }
+                                }
+                            }
+                            $workDayCount = $dayColCount - count($holidayCols); // 应出勤天数 = 总天数 - 节假日
                         }
 
                         // 预载员工名单（按名查ID）
@@ -197,10 +225,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                 $wh  = $fullDays * 8;                       // 应出勤小时 = 满勤天数 × 8
                                 $ah  = max(0, ($fullDays - $actDays) * 8);  // 请假小时 = (满勤-实际出勤) × 8
                             } elseif ($autoDayMode) {
-                                // 自动统计模式：每日打卡列，有值算出勤1天，无值算请假
-                                $fullDays = $dayColCount;
+                                // 自动统计模式：满勤天数=应出勤工作日数，实际出勤=有打卡的工作日数
+                                $fullDays = $workDayCount > 0 ? $workDayCount : $dayColCount;
                                 $actDays  = 0;
                                 for ($di = $dayColStart; $di < $dayColStart + $dayColCount; $di++) {
+                                    // 节假日列跳过（不算满勤也不算请假）
+                                    if (isset($holidayCols[$di])) continue;
                                     $v = trim($r[$di] ?? '');
                                     // 有打卡时间/标记（非空、非"-"、"无"等）算出勤
                                     if ($v !== '' && $v !== '-' && $v !== '无' && mb_strpos($v, '请假') === false && mb_strpos($v, '缺勤') === false) {
@@ -403,11 +433,9 @@ include __DIR__ . '/../includes/header.php';
                                         <?php endif; ?>
                                     </td>
                                     <td>
-                                        <form method="post" class="d-inline" onsubmit="return confirm('删除该考勤记录？')">
-                                            <input type="hidden" name="action" value="delete">
-                                            <input type="hidden" name="id" value="<?php echo $r['id']; ?>">
-                                            <button class="btn btn-sm btn-link p-0 text-danger"><i class="fas fa-trash-alt"></i></button>
-                                        </form>
+                                        <button class="btn btn-sm btn-link p-0 text-danger" onclick="delOne(<?php echo $r['id']; ?>)" title="删除">
+                                            <i class="fas fa-trash-alt"></i>
+                                        </button>
                                     </td>
                                 </tr>
                             <?php endforeach; ?>
@@ -439,6 +467,15 @@ function batchDelete(){
     if (n === 0) { alert('请先勾选要删除的记录'); return; }
     if (!confirm('确定删除选中的 ' + n + ' 条考勤记录？')) return;
     document.getElementById('delForm').submit();
+}
+function delOne(id){
+    if (!confirm('删除该考勤记录？')) return;
+    var f = document.createElement('form');
+    f.method = 'post';
+    f.style.display = 'none';
+    f.innerHTML = '<input type="hidden" name="action" value="delete"><input type="hidden" name="id" value="' + id + '">';
+    document.body.appendChild(f);
+    f.submit();
 }
 </script>
 
