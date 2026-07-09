@@ -26,11 +26,14 @@ if (($_GET['ajax'] ?? '') === 'modules' && $ajax_employee_id > 0) {
     $result = [];
     if ($modCfg && !empty($modCfg['modules'])) {
         foreach ($modCfg['modules'] as $m) {
-            if (in_array($m['type'], ['standard','tiered','per_order']) && ($m['enabled'] ?? true)) {
+            if (in_array($m['type'], ['standard','tiered','per_order','profit_commission']) && ($m['enabled'] ?? true)) {
                 $extra = '';
                 if ($m['type'] === 'standard' && isset($m['config']['rate']) && $m['config']['rate'] !== '') {
                     $rVal = (float)$m['config']['rate'];
                     $extra = ' (' . rtrim(rtrim(number_format($rVal * 100, 4, '.', ''), '0'), '.') . '%)';
+                } elseif ($m['type'] === 'profit_commission' && isset($m['config']['commission_rate']) && $m['config']['commission_rate'] !== '') {
+                    $cVal = (float)$m['config']['commission_rate'];
+                    $extra = ' (成本提成' . rtrim(rtrim(number_format($cVal * 100, 4, '.', ''), '0'), '.') . '%)';
                 } elseif ($m['type'] === 'tiered') {
                     $extra = ' (阶梯)';
                 } elseif ($m['type'] === 'per_order') {
@@ -702,11 +705,13 @@ include __DIR__ . '/../includes/header.php';
                                 $modCfg = SalaryCalculator::readModulesConfig($locked_employee['id']);
                                 if ($modCfg && !empty($modCfg['modules'])):
                                     foreach ($modCfg['modules'] as $m):
-                                        if (in_array($m['type'], ['standard','tiered','per_order']) && ($m['enabled'] ?? true)):
+                                        if (in_array($m['type'], ['standard','tiered','per_order','profit_commission']) && ($m['enabled'] ?? true)):
                                             $modName = $m['name'];
                                             $extra = '';
                                             if ($m['type'] === 'standard' && isset($m['config']['rate']) && $m['config']['rate'] !== '') {
                                                 $extra = ' (' . rtrim(rtrim(number_format((float)$m['config']['rate']*100, 4, '.', ''), '0'), '.') . '%)';
+                                            } elseif ($m['type'] === 'profit_commission' && isset($m['config']['commission_rate']) && $m['config']['commission_rate'] !== '') {
+                                                $extra = ' (成本提成' . rtrim(rtrim(number_format((float)$m['config']['commission_rate']*100, 4, '.', ''), '0'), '.') . '%)';
                                             } elseif ($m['type'] === 'tiered') {
                                                 $extra = ' (阶梯)';
                                             } elseif ($m['type'] === 'per_order') {
@@ -773,11 +778,13 @@ include __DIR__ . '/../includes/header.php';
                                 $modCfg2 = SalaryCalculator::readModulesConfig($locked_employee['id']);
                                 if ($modCfg2 && !empty($modCfg2['modules'])):
                                     foreach ($modCfg2['modules'] as $m):
-                                        if (in_array($m['type'], ['standard','tiered','per_order']) && ($m['enabled'] ?? true)):
+                                        if (in_array($m['type'], ['standard','tiered','per_order','profit_commission']) && ($m['enabled'] ?? true)):
                                             $modName = $m['name'];
                                             $extra = '';
                                             if ($m['type'] === 'standard' && isset($m['config']['rate']) && $m['config']['rate'] !== '') {
                                                 $extra = ' (' . rtrim(rtrim(number_format((float)$m['config']['rate']*100, 4, '.', ''), '0'), '.') . '%)';
+                                            } elseif ($m['type'] === 'profit_commission' && isset($m['config']['commission_rate']) && $m['config']['commission_rate'] !== '') {
+                                                $extra = ' (成本提成' . rtrim(rtrim(number_format((float)$m['config']['commission_rate']*100, 4, '.', ''), '0'), '.') . '%)';
                                             } elseif ($m['type'] === 'tiered') {
                                                 $extra = ' (阶梯)';
                                             } elseif ($m['type'] === 'per_order') {
