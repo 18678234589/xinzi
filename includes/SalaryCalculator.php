@@ -206,6 +206,7 @@ class SalaryCalculator
             case 'standard':   return self::calcStandard($config, $ctx, $moduleName);
             case 'tiered':     return self::calcTiered($config, $ctx, $moduleName);
             case 'per_order':  return self::calcPerOrder($config, $ctx, $moduleName);
+            case 'profit_commission': return self::calcProfitCommission($config, $ctx, $moduleName);
             case 'attendance_full':   return self::calcAttendanceFull($config, $ctx);
             case 'attendance_daily':  return self::calcAttendanceDaily($config, $ctx);
             case 'attendance_deduct': return self::calcAttendanceDeduct($config, $ctx);
@@ -416,6 +417,100 @@ class SalaryCalculator
             'amount' => round($amt, 2),
             'formula' => sprintf('%s%.2f×%.2f%%=%.2f', $rangeLabel, $total, $rate*100, $amt),
             'type' => 'standard',
+        ];
+    }
+
+
+    // ---- 成本比例提成 ----
+    private static function calcProfitCommission($cfg, $c, $moduleName = '')
+    {
+        $commissionRate = (float)($cfg['commission_rate'] ?? 0);
+        $serviceFeeRate = (float)($cfg['service_fee_rate'] ?? 0);
+        $minAmount = isset($cfg['min_amount']) && $cfg['min_amount'] !== '' && $cfg['min_amount'] !== null ? (float)$cfg['min_amount'] : null;
+        $maxAmount = isset($cfg['max_amount']) && $cfg['max_amount'] !== '' && $cfg['max_amount'] !== null ? (float)$cfg['max_amount'] : null;
+        $shopKeyword = isset($cfg['shop_keyword']) && $cfg['shop_keyword'] !== '' && $cfg['shop_keyword'] !== null ? $cfg['shop_keyword'] : null;
+
+        // 配置了金额范围或店铺关键字则忽略模块名筛选，与 calcStandard 一致
+        $useFilter = ($minAmount !== null || $maxAmount !== null || $shopKeyword !== null);
+        $filterByName = $useFilter ? '' : $moduleName;
+
+        $totalProfit = 0;
+        $totalPrice  = 0;
+        $count       = 0;
+
+        foreach (($c['orders'] ?? []) as $o) {
+            $rawData = is_string($o['raw_data'] ?? '') ? json_decode($o['raw_data'], true) : ($o['raw_data'] ?? []);
+
+            // 排除退款订单
+            $isRefund = isset($rawData['__is_refund__']) && $rawData['__is_refund__'] === '1';
+            if ($isRefund) continue;
+
+            // 模块名过滤
+            if ($filterByName !== '' && trim($o['project'] ?? '') !== $filterByName) continue;
+
+            // 金额范围过滤（基于 order_amount）
+            $orderAmt = (float)($o['order_amount'] ?? 0);
+            if ($minAmount !== null && $orderAmt < $minAmount) continue;
+            if ($maxAmount !== null && $orderAmt > $maxAmount) continue;
+
+            // 店铺关键字过滤
+            if ($shopKeyword !== null) {
+                $shop = '';
+                if (isset($rawData[$shopKeyword])) {
+                    $shop = trim($rawData[$shopKeyword]);
+                } else {
+                    foreach ($rawData as $k => $v) {
+                        if (mb_strpos($k, '店铺') !== false || mb_strpos($k, '店名') !== false) {
+                            $shop = trim($v);
+                            break;
+                        }
+                    }
+                }
+                if ($shop === '') continue;
+            }
+
+            // 从 raw_data 模糊匹配列名提取售价/成本/利润
+            $price = 0; $cost = 0; $profit = null; $hasProfitCol = false;
+            foreach ($rawData as $k => $v) {
+                if (mb_strpos($k, '利润') !== false) {
+                    $profit = (float)preg_replace('/[^\d.\-]/', '', trim($v));
+                    $hasProfitCol = true;
+                } elseif (mb_strpos($k, '售价') !== false || mb_strpos($k, '价格') !== false) {
+                    $price = (float)preg_replace('/[^\d.\-]/', '', trim($v));
+                } elseif (mb_strpos($k, '成本') !== false) {
+                    $cost = (float)preg_replace('/[^\d.\-]/', '', trim($v));
+                }
+            }
+            // 无利润列时回退售价-成本
+            if (!$hasProfitCol) {
+                $profit = $price - $cost;
+            }
+
+            $totalProfit += $profit;
+            $totalPrice  += $price;
+            $count++;
+        }
+
+        $amt = ($totalProfit - $totalPrice * $serviceFeeRate) * $commissionRate;
+
+        $rangeLabel = '';
+        if ($minAmount !== null || $maxAmount !== null) {
+            if ($minAmount !== null && $maxAmount !== null) {
+                $rangeLabel = sprintf('[¥%.0f-¥%.0f]', $minAmount, $maxAmount);
+            } elseif ($minAmount !== null) {
+                $rangeLabel = sprintf('[≥¥%.0f]', $minAmount);
+            } else {
+                $rangeLabel = sprintf('[≤¥%.0f]', $maxAmount);
+            }
+        }
+        if ($shopKeyword !== null) {
+            $rangeLabel .= "[店铺:{$shopKeyword}]";
+        }
+
+        return [
+            'amount' => round($amt, 2),
+            'formula' => sprintf('%s(利润¥%.2f - 售价¥%.2f×%.2f%%) ×%.2f%% = %.2f', $rangeLabel, $totalProfit, $totalPrice, $serviceFeeRate*100, $commissionRate*100, $amt),
+            'type' => 'profit_commission',
         ];
     }
 
@@ -868,6 +963,20 @@ class SalaryCalculator
                 'fields' => [
                     ['key'=>'_name','label'=>'模块名称（必填）','type'=>'text','placeholder'=>'如：底薪','default'=>''],
                     ['key'=>'base_amount','label'=>'底薪金额','type'=>'number','step'=>'any','placeholder'=>'如 3300','default'=>3300],
+                ],
+            ],
+            'profit_commission' => [
+                'label' => '成本比例提成',
+                'icon' => 'fa-coins',
+                'color' => 'info',
+                'desc' => '基于利润和成本计算：(总利润 - 总售价×服务费比例) × 提成比例',
+                'fields' => [
+                    ['key'=>'_name','label'=>'模块名称（必填）','type'=>'text','placeholder'=>'如：成本提成A','default'=>''],
+                    ['key'=>'commission_rate','label'=>'提成比例(小数)','type'=>'number','step'=>'any','placeholder'=>'0.1=10%','default'=>''],
+                    ['key'=>'service_fee_rate','label'=>'服务费比例(小数)','type'=>'number','step'=>'any','placeholder'=>'0.05=5%','default'=>''],
+                    ['key'=>'min_amount','label'=>'最小订单金额','type'=>'number','step'=>'0.01','placeholder'=>'留空=不限制，如 50','default'=>''],
+                    ['key'=>'max_amount','label'=>'最大订单金额','type'=>'number','step'=>'0.01','placeholder'=>'留空=不限制，如 10000','default'=>''],
+                    ['key'=>'shop_keyword','label'=>'店铺关键字','type'=>'text','placeholder'=>'留空=不限制，如：老客户','default'=>''],
                 ],
             ],
             'base_salary_tiered' => [

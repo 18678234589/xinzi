@@ -538,6 +538,14 @@ function calcPreview(idx) {
             result.amount = -((cfg.absent_days||0)*(cfg.deduct_per_day||100));
             result.detail = '-' + (cfg.absent_days||0) + '天';
             break;
+        case 'profit_commission':
+            var cr = cfg.commission_rate || 0;
+            var sf = cfg.service_fee_rate || 0;
+            var demoProfit = orderTotalDemo;
+            var demoPrice  = orderTotalDemo * 1.2;
+            result.amount = (demoProfit - demoPrice * sf) * cr;
+            result.detail = '(利润¥' + number_format(demoProfit,0) + ' - 售价¥' + number_format(demoPrice,0) + '×' + (sf*100).toFixed(2) + '%) ×' + (cr*100).toFixed(2) + '%';
+            break;
         default: result.amount = 0; result.detail = '--';
     }
 
