@@ -23,13 +23,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     // 手动添加单条
     if ($action === 'manual_add') {
         $empId = (int)($_POST['employee_id'] ?? 0);
-        $wh = (float)($_POST['work_hours'] ?? 0);
-        $ah = (float)($_POST['absent_hours'] ?? 0);
+        $fullDays = (float)($_POST['full_days'] ?? 0);
+        $actualDays = (float)($_POST['actual_days'] ?? $fullDays);
         $rm = trim($_POST['remark'] ?? '');
         if ($empId <= 0) {
             $error = '请选择员工';
         } else {
             try {
+                // 满勤天数 × 8 = 应出勤小时；(满勤-实际出勤) × 8 = 请假小时
+                $wh = $fullDays * 8;
+                $ah = max(0, ($fullDays - $actualDays) * 8);
                 $stmt = db()->prepare("INSERT INTO attendances (employee_id, year, month, work_hours, absent_hours, remark)
                                        VALUES (?, ?, ?, ?, ?, ?)
                                        ON DUPLICATE KEY UPDATE work_hours=VALUES(work_hours), absent_hours=VALUES(absent_hours), remark=VALUES(remark)");
@@ -82,10 +85,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     if (!in_array($ext, ['xlsx', 'csv'])) { $error = '仅支持 .xlsx / .csv'; }
                     else {
                         if ($ext === 'csv') {
-                            $fp = fopen($tmp, 'r');
-                            $bom = fread($fp, 3);
-                            if ($bom !== "\xEF\xBB\xBF") rewind($fp);
-                            while (($d = fgetcsv($fp)) !== false) $rows[] = $d;
+                            // 读取原始内容，自动处理编码（中文 Excel 常为 GBK）
+                            $raw = file_get_contents($tmp);
+                            // 去掉 UTF-8 BOM
+                            if (strncmp($raw, "\xEF\xBB\xBF", 3) === 0) $raw = substr($raw, 3);
+                            // 非 UTF-8 则尝试从 GBK 转码
+                            if (!mb_check_encoding($raw, 'UTF-8')) {
+                                $converted = @iconv('GBK', 'UTF-8//IGNORE', $raw);
+                                if ($converted !== false) $raw = $converted;
+                            }
+                            // 自动检测分隔符（Tab / 逗号 / 分号）
+                            $firstLine = strtok($raw, "\n");
+                            $delim = ',';
+                            $tabN = substr_count($firstLine, "\t");
+                            $comN = substr_count($firstLine, ',');
+                            $semN = substr_count($firstLine, ';');
+                            if ($tabN >= $comN && $tabN >= $semN && $tabN > 0) $delim = "\t";
+                            elseif ($semN > $comN) $delim = ';';
+                            // 解析（按检测到的分隔符切分）
+                            $fp = fopen('php://temp', 'r+');
+                            fwrite($fp, $raw);
+                            rewind($fp);
+                            while (($d = fgetcsv($fp, 0, $delim)) !== false) $rows[] = $d;
                             fclose($fp);
                         } else {
                             $rows = SimpleXLSX::parse($tmp);
@@ -94,8 +115,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
 
                 if ($error === '' && !empty($rows)) {
-                    $firstRow = $rows[0];
-                    $dataRows = array_slice($rows, 1);
+                    // 自动定位表头行：查找包含"姓名"的行作为表头（跳过标题/说明行）
+                    $headerRowIdx = 0;
+                    foreach ($rows as $ri => $row) {
+                        $rowText = implode(' ', array_filter($row, function($v){ return trim($v) !== ''; }));
+                        if (mb_strpos($rowText, '姓名') !== false || mb_strpos($rowText, '员工') !== false) {
+                            $headerRowIdx = $ri;
+                            break;
+                        }
+                    }
+                    $firstRow = $rows[$headerRowIdx];
+                    $dataRows = array_slice($rows, $headerRowIdx + 1);
+                    // 过滤掉空行和尾部说明行
+                    $dataRows = array_values(array_filter($dataRows, function($r) {
+                        $nonEmpty = array_filter($r, function($v) { return trim($v) !== ''; });
+                        return count($nonEmpty) > 0;
+                    }));
 
                     // 规范化表头 + 列映射
                     $colMap = [];
@@ -106,17 +141,38 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     }
                     // 模糊匹配列
                     $idxName = $idxWork = $idxAbsent = $idxRemark = null;
+                    $idxFullDays = $idxActualDays = null;
                     foreach ($colMap as $k => $idx) {
-                        if ($idxName === null && (mb_strpos($k, '姓名') !== false || mb_strpos($k, '员工') !== false || stripos($k, 'name') !== false)) $idxName = $idx;
-                        if ($idxWork === null && (mb_strpos($k, '应出勤') !== false || mb_strpos($k, '出勤') !== false || mb_strpos($k, '应到') !== false)) $idxWork = $idx;
+                        if ($idxName === null && (mb_strpos($k, '姓名') !== false || mb_strpos($k, '员工') !== false || mb_strpos($k, '名字') !== false || stripos($k, 'name') !== false)) $idxName = $idx;
+                        // 满勤天数（新格式）
+                        if ($idxFullDays === null && (mb_strpos($k, '满勤天数') !== false || mb_strpos($k, '满勤') !== false || mb_strpos($k, '应出勤天数') !== false || mb_strpos($k, '应出勤') !== false)) $idxFullDays = $idx;
+                        // 实际出勤天数（新格式）
+                        if ($idxActualDays === null && (mb_strpos($k, '实际出勤') !== false || mb_strpos($k, '实到') !== false || mb_strpos($k, '实际') !== false || mb_strpos($k, '出勤天数') !== false)) $idxActualDays = $idx;
+                        // 应出勤小时（旧格式兼容）
+                        if ($idxWork === null && (mb_strpos($k, '应出勤小时') !== false || mb_strpos($k, '出勤小时') !== false || mb_strpos($k, '应到') !== false)) $idxWork = $idx;
+                        // 请假小时（旧格式兼容）
                         if ($idxAbsent === null && (mb_strpos($k, '请假') !== false || mb_strpos($k, '缺勤') !== false)) $idxAbsent = $idx;
                         if ($idxRemark === null && (mb_strpos($k, '备注') !== false || mb_strpos($k, '说明') !== false || stripos($k, 'remark') !== false)) $idxRemark = $idx;
                     }
                     if ($idxName === null) {
-                        $error = '表头缺少"员工姓名"列';
-                    } elseif ($idxWork === null && $idxAbsent === null) {
-                        $error = '表头至少需要"应出勤"或"请假"中的一个列';
+                        $heads = array_keys($colMap);
+                        $preview = '';
+                        foreach (array_slice($rows, 0, 3) as $ri => $row) {
+                            $preview .= '第' . ($ri+1) . '行: ' . json_encode($row, JSON_UNESCAPED_UNICODE) . "<br>";
+                        }
+                        $error = '表头缺少"姓名"列。识别到的表头：' . implode('、', $heads) . "<br>前3行内容：<br>" . $preview;
                     } else {
+                        // 若没有"满勤天数/实际出勤天数"或"应出勤/请假"列，则自动从每日打卡列统计
+                        $autoDayMode = ($idxFullDays === null && $idxActualDays === null && $idxWork === null && $idxAbsent === null);
+                        if ($autoDayMode) {
+                            // 已知表头列：姓名 + 其他命名列，剩下的当每日打卡列
+                            $namedCols = array_values($colMap);
+                            $maxNamed = $namedCols ? max($namedCols) : $idxName;
+                            $dayColStart = $maxNamed + 1;
+                            $dayColCount = max(0, count($firstRow) - $dayColStart);
+                            if ($dayColCount <= 0) $dayColCount = 22; // 兜底
+                        }
+
                         // 预载员工名单（按名查ID）
                         $empList = get_employees();
                         $empByName = [];
@@ -133,8 +189,31 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             if ($empName === '') continue;
                             $empId = $empByName[$empName] ?? 0;
                             if ($empId <= 0) { $notFound[] = $empName; $skipped++; continue; }
-                            $wh = $idxWork !== null ? (float)preg_replace('/[^\d.]/', '', trim($r[$idxWork] ?? '')) : 0;
-                            $ah = $idxAbsent !== null ? (float)preg_replace('/[^\d.]/', '', trim($r[$idxAbsent] ?? '')) : 0;
+
+                            // 优先按"天数"格式计算（满勤天数 × 8 = 应出勤小时；请假小时 = (满勤-实际)×8）
+                            if ($idxFullDays !== null || $idxActualDays !== null) {
+                                $fullDays  = $idxFullDays  !== null ? (float)preg_replace('/[^\d.]/', '', trim($r[$idxFullDays]  ?? '')) : 0;
+                                $actDays   = $idxActualDays !== null ? (float)preg_replace('/[^\d.]/', '', trim($r[$idxActualDays] ?? '')) : $fullDays;
+                                $wh  = $fullDays * 8;                       // 应出勤小时 = 满勤天数 × 8
+                                $ah  = max(0, ($fullDays - $actDays) * 8);  // 请假小时 = (满勤-实际出勤) × 8
+                            } elseif ($autoDayMode) {
+                                // 自动统计模式：每日打卡列，有值算出勤1天，无值算请假
+                                $fullDays = $dayColCount;
+                                $actDays  = 0;
+                                for ($di = $dayColStart; $di < $dayColStart + $dayColCount; $di++) {
+                                    $v = trim($r[$di] ?? '');
+                                    // 有打卡时间/标记（非空、非"-"、"无"等）算出勤
+                                    if ($v !== '' && $v !== '-' && $v !== '无' && mb_strpos($v, '请假') === false && mb_strpos($v, '缺勤') === false) {
+                                        $actDays++;
+                                    }
+                                }
+                                $wh = $fullDays * 8;
+                                $ah = max(0, ($fullDays - $actDays) * 8);
+                            } else {
+                                // 旧格式：直接读小时数
+                                $wh = $idxWork !== null ? (float)preg_replace('/[^\d.]/', '', trim($r[$idxWork] ?? '')) : 0;
+                                $ah = $idxAbsent !== null ? (float)preg_replace('/[^\d.]/', '', trim($r[$idxAbsent] ?? '')) : 0;
+                            }
                             $rm = $idxRemark !== null ? trim($r[$idxRemark] ?? '') : '';
                             $ins->execute([$empId, $year, $month, $wh, $ah, $rm]);
                             $inserted++;
@@ -213,7 +292,7 @@ include __DIR__ . '/../includes/header.php';
                     </div>
                     <div class="form-group">
                         <label>或粘贴表格数据</label>
-                        <textarea name="csv_data" id="csvData" class="form-control" rows="3" placeholder="姓名,应出勤,请假,备注&#10;张三,176,0,&#10;李四,176,4,病假"></textarea>
+                        <textarea name="csv_data" id="csvData" class="form-control" rows="3" placeholder="姓名,满勤天数,实际出勤天数,备注&#10;张三,22,22,&#10;李四,22,20,请假2天"></textarea>
                         <small class="text-muted">用逗号分隔，第一行为表头</small>
                     </div>
                     <button type="submit" class="btn btn-success btn-block"><i class="fas fa-upload"></i> 开始上传</button>
@@ -221,9 +300,10 @@ include __DIR__ . '/../includes/header.php';
                 <hr>
                 <div class="text-muted small">
                     <b><i class="fas fa-info-circle text-info"></i> 文件格式要求：</b><br>
-                    表头需包含：<code>姓名/员工</code> + <code>应出勤</code> 和/或 <code>请假</code>，可选 <code>备注</code><br>
-                    员工姓名必须与系统员工名一致，否则该行跳过<br>
-                    请假小时支持小数（半天=4）
+                    表头需包含：<code>姓名/员工</code> + <code>满勤天数</code> + <code>实际出勤天数</code>，可选 <code>备注</code><br>
+                    系统按"满勤天数 × 8小时"计算应出勤，按"(满勤天数 - 实际出勤天数) × 8小时"计算请假<br>
+                    也兼容旧格式：<code>应出勤(小时)</code> / <code>请假(小时)</code><br>
+                    员工姓名必须与系统员工名一致，否则该行跳过
                 </div>
             </div>
         </div>
@@ -245,12 +325,14 @@ include __DIR__ . '/../includes/header.php';
                     </div>
                     <div class="form-row">
                         <div class="form-group col-md-6">
-                            <label>应出勤(h)</label>
-                            <input type="number" name="work_hours" class="form-control" step="0.1" min="0" value="176">
+                            <label>满勤天数</label>
+                            <input type="number" name="full_days" id="fullDays" class="form-control" step="0.5" min="0" value="22">
+                            <small class="text-muted">应出勤 = 满勤天数 × 8小时</small>
                         </div>
                         <div class="form-group col-md-6">
-                            <label>请假(h)</label>
-                            <input type="number" name="absent_hours" class="form-control" step="0.1" min="0" value="0">
+                            <label>实际出勤天数</label>
+                            <input type="number" name="actual_days" id="actualDays" class="form-control" step="0.5" min="0" value="22">
+                            <small class="text-muted">请假 = (满勤 - 实际出勤) × 8小时</small>
                         </div>
                     </div>
                     <div class="form-group">
@@ -291,8 +373,9 @@ include __DIR__ . '/../includes/header.php';
                                     <th style="width:36px"><input type="checkbox" id="chkAll" onclick="document.querySelectorAll('.row-chk').forEach(c=>c.checked=this.checked)"></th>
                                     <th>员工</th>
                                     <th>部门</th>
-                                    <th class="text-right">应出勤</th>
-                                    <th class="text-right">请假</th>
+                                    <th class="text-right">满勤天数</th>
+                                    <th class="text-right">实际出勤</th>
+                                    <th class="text-right">请假(h)</th>
                                     <th>备注</th>
                                     <th style="width:70px">状态</th>
                                     <th style="width:60px">操作</th>
@@ -301,12 +384,15 @@ include __DIR__ . '/../includes/header.php';
                             <tbody>
                             <?php foreach ($records as $r):
                                 $isFull = (float)$r['absent_hours'] == 0;
+                                $fullDays  = (float)$r['work_hours'] / 8;
+                                $actDays   = ((float)$r['work_hours'] - (float)$r['absent_hours']) / 8;
                             ?>
                                 <tr>
                                     <td><input type="checkbox" name="ids[]" value="<?php echo $r['id']; ?>" class="row-chk"></td>
                                     <td><strong><?php echo e($r['name']); ?></strong></td>
                                     <td><span class="badge badge-info"><?php echo e($r['department']); ?></span></td>
-                                    <td class="text-right"><?php echo number_format($r['work_hours'], 1); ?>h</td>
+                                    <td class="text-right"><?php echo number_format($fullDays, 1); ?>天</td>
+                                    <td class="text-right <?php echo $isFull ? 'text-success' : ''; ?>"><?php echo number_format($actDays, 1); ?>天</td>
                                     <td class="text-right <?php echo $isFull ? '' : 'text-warning font-weight-bold'; ?>"><?php echo number_format($r['absent_hours'], 1); ?>h</td>
                                     <td><small class="text-muted"><?php echo e($r['remark']); ?></small></td>
                                     <td>

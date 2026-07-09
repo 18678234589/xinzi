@@ -302,6 +302,38 @@ include __DIR__ . '/../includes/header.php';
                         <tr><th width="20%">员工</th><td><?php echo e($emp['name']); ?></td><th width="20%">部门</th><td><?php echo e($emp['department']); ?></td></tr>
                         <tr><th>结算月份</th><td><?php echo e($preview['month']); ?></td><th>当月订单数</th><td><?php echo $preview['order_count']; ?> 笔</td></tr>
                         <tr><th>订单总额</th><td class="text-primary font-weight-bold" colspan="3">¥<?php echo money($preview['order_total']); ?></td></tr>
+                        <?php
+                        // 读取当月考勤
+                        $attInfo = null;
+                        $mp = explode('-', (string)$preview['month']);
+                        if (count($mp) === 2) {
+                            $attInfo = get_attendance((int)$emp['id'], (int)$mp[0], (int)$mp[1]);
+                        }
+                        $attAbsent = $attInfo ? (float)$attInfo['absent_hours'] : 0;
+                        $attWork   = $attInfo ? (float)$attInfo['work_hours'] : 0;
+                        ?>
+                        <tr>
+                            <th>考勤（应出勤/请假）</th>
+                            <td colspan="3">
+                                <?php if ($attInfo): ?>
+                                    <span class="text-muted">应出勤 <b><?php echo number_format($attWork, 1); ?>h</b></span>
+                                    <span class="ml-3 <?php echo $attAbsent > 0 ? 'text-warning' : 'text-success'; ?>">
+                                        请假 <b><?php echo number_format($attAbsent, 1); ?>h</b>
+                                    </span>
+                                    <?php if ($attAbsent >= 8): ?>
+                                        <span class="badge badge-danger ml-2">全勤奖全部扣除</span>
+                                    <?php elseif ($attAbsent >= 4): ?>
+                                        <span class="badge badge-warning ml-2">全勤奖扣除一半</span>
+                                    <?php elseif ($attAbsent > 0): ?>
+                                        <span class="badge badge-info ml-2">全勤奖不扣</span>
+                                    <?php else: ?>
+                                        <span class="badge badge-success ml-2">满勤</span>
+                                    <?php endif; ?>
+                                <?php else: ?>
+                                    <span class="text-muted"><i class="fas fa-info-circle"></i> 未录入考勤，全勤奖按满勤发放</span>
+                                <?php endif; ?>
+                            </td>
+                        </tr>
                     </tbody>
                     
                     <!-- DEBUG 调试信息 -->
@@ -321,7 +353,11 @@ include __DIR__ . '/../includes/header.php';
                         ?>
                             <tr class="<?php echo $cls; ?>">
                                 <td class="text-muted"><?php echo $mi + 1; ?></td>
-                                <td><strong><?php echo e($m['name']); ?></strong></td>
+                                <td><strong><?php echo e($m['name']); ?></strong>
+                                    <?php if (!empty($m['formula'])): ?>
+                                        <div class="text-muted" style="font-size:11px;line-height:1.2;"><?php echo e($m['formula']); ?></div>
+                                    <?php endif; ?>
+                                </td>
                                 <td><span class="badge badge-<?php
                                     $typeColors = ['standard'=>'primary','tiered'=>'warning','per_order'=>'info','attendance_full'=>'success','attendance_daily'=>'teal','attendance_deduct'=>'danger'];
                                     echo $typeColors[$m['type']] ?? 'secondary';

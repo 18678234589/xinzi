@@ -85,6 +85,20 @@ class SalaryCalculator
             'base_salary'  => $baseSalary,
         ];
 
+        // 读取当月考勤数据（供全勤奖等模块使用）
+        $attAbsentHours = 0;
+        $attWorkHours   = 0;
+        $monthParts = explode('-', (string)$month);
+        if (count($monthParts) === 2) {
+            $att = get_attendance((int)$employee['id'], (int)$monthParts[0], (int)$monthParts[1]);
+            if ($att) {
+                $attAbsentHours = (float)$att['absent_hours'];
+                $attWorkHours   = (float)$att['work_hours'];
+            }
+        }
+        $context['absent_hours'] = $attAbsentHours;
+        $context['work_hours']   = $attWorkHours;
+
         $configFile = self::getConfigFile($employee['id']);
         
         if (file_exists($configFile)) {
@@ -603,9 +617,9 @@ class SalaryCalculator
     private static function calcAttendanceFull($cfg, $c)
     {
         $fullAmount = (float)($cfg['full_amount'] ?? 200);
-        $deductMode = $cfg['deduct_mode'] ?? 'none';      // none / prorate / fixed
-        $workHours  = (float)($cfg['work_hours'] ?? 0);    // 当月应出勤总小时数
-        $absentHours = (float)($cfg['absent_hours'] ?? 0); // 当月请假小时数
+        $deductMode = $cfg['deduct_mode'] ?? 'step';      // step(默认阶梯) / none / prorate / fixed
+        $workHours  = (float)($cfg['work_hours'] ?? $c['work_hours'] ?? 0); // 当月应出勤总小时数
+        $absentHours = (float)($cfg['absent_hours'] ?? $c['absent_hours'] ?? 0); // 当月请假小时数
         $thresholdHours = isset($cfg['absent_threshold_hours']) && $cfg['absent_threshold_hours'] !== ''
             ? (float)$cfg['absent_threshold_hours'] : null; // 超过此值全勤奖归0
 
@@ -614,6 +628,30 @@ class SalaryCalculator
             return [
                 'amount' => round($fullAmount, 2),
                 'formula' => sprintf('全勤奖 %g（满勤）', $fullAmount),
+                'type' => 'attendance_full',
+            ];
+        }
+
+        // 默认阶梯规则：请假≥8小时全扣，≥4小时扣一半，<4小时全发
+        if ($deductMode === 'step') {
+            if ($absentHours >= 8) {
+                return [
+                    'amount' => 0,
+                    'formula' => sprintf('全勤奖 0（请假%.1f小时≥8h，全部扣除）', $absentHours),
+                    'type' => 'attendance_full',
+                ];
+            }
+            if ($absentHours >= 4) {
+                $half = round($fullAmount / 2, 2);
+                return [
+                    'amount' => $half,
+                    'formula' => sprintf('全勤奖 %g/2=%.2f（请假%.1f小时≥4h，扣除一半）', $fullAmount, $half, $absentHours),
+                    'type' => 'attendance_full',
+                ];
+            }
+            return [
+                'amount' => round($fullAmount, 2),
+                'formula' => sprintf('全勤奖 %g（请假%.1f小时<4h，不扣）', $fullAmount, $absentHours),
                 'type' => 'attendance_full',
             ];
         }
