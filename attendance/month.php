@@ -318,6 +318,8 @@ include __DIR__ . '/../includes/header.php';
             <div class="card-body">
                 <form method="post" enctype="multipart/form-data" id="uploadForm">
                     <input type="hidden" name="action" value="upload">
+                    <input type="hidden" name="year" value="<?php echo $year; ?>">
+                    <input type="hidden" name="month" value="<?php echo $month; ?>">
                     <div class="form-group">
                         <label>归属月份</label>
                         <input type="text" class="form-control" value="<?php echo $year; ?>年<?php echo $month; ?>月" disabled>
@@ -355,6 +357,8 @@ include __DIR__ . '/../includes/header.php';
             <div class="card-body">
                 <form method="post">
                     <input type="hidden" name="action" value="manual_add">
+                    <input type="hidden" name="year" value="<?php echo $year; ?>">
+                    <input type="hidden" name="month" value="<?php echo $month; ?>">
                     <div class="form-group">
                         <label>员工 <span class="required">*</span></label>
                         <select name="employee_id" class="form-control" required>
