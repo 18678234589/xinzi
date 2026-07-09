@@ -29,7 +29,7 @@ $employees   = get_employees();
 
 // 导出处理
 if (isset($_GET['export'])) {
-    $headers = ['月份', '姓名', '部门', '订单总额', '提成金额', '实发工资', '结算时间'];
+    $headers = ['月份', '姓名', '部门', '订单总额', '提成金额', '实发工资', '全勤奖', '结算时间'];
     $rows = [];
     foreach ($salaries as $s) {
         $rows[] = [
@@ -39,6 +39,7 @@ if (isset($_GET['export'])) {
             $s['order_total'],
             $s['commission'],
             $s['net_pay'],
+            $s['full_attendance_bonus'] ?? 0,
             $s['created_at'],
         ];
     }
@@ -138,7 +139,7 @@ include __DIR__ . '/../includes/header.php';
             <table class="table table-hover table-bordered">
                 <thead class="thead-light">
                     <tr>
-                        <th>月份</th><th>姓名</th><th>部门</th><th>订单总额</th><th>提成金额</th><th>实发工资</th><th>结算时间</th>
+                        <th>月份</th><th>姓名</th><th>部门</th><th>订单总额</th><th>提成金额</th><th>实发工资</th><th>全勤奖</th><th>结算时间</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -150,10 +151,11 @@ include __DIR__ . '/../includes/header.php';
                         <td>¥<?php echo money($s['order_total']); ?></td>
                         <td>¥<?php echo money($s['commission']); ?></td>
                         <td class="font-weight-bold text-success">¥<?php echo money($s['net_pay']); ?></td>
+                        <td class="text-success">+¥<?php echo money($s['full_attendance_bonus'] ?? 0); ?></td>
                         <td><small class="text-muted"><?php echo $s['created_at']; ?></small></td>
                     </tr>
                 <?php endforeach; else: ?>
-                    <tr><td colspan="7" class="text-center text-muted py-5">
+                    <tr><td colspan="8" class="text-center text-muted py-5">
                         <i class="fas fa-inbox fa-3x mb-2 d-block"></i>暂无薪资记录，请先进行薪资结算
                     </td></tr>
                 <?php endif; ?>
@@ -165,6 +167,7 @@ include __DIR__ . '/../includes/header.php';
                         <td>¥<?php echo money($grand_order_total); ?></td>
                         <td>¥<?php echo money($grand_commission); ?></td>
                         <td class="text-success">¥<?php echo money($grand_net_pay); ?></td>
+                        <td></td>
                         <td></td>
                     </tr>
                 </tfoot>
