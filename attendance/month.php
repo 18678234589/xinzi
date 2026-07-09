@@ -9,8 +9,8 @@ $error = '';
 
 ensureAttendanceTable();
 
-$year  = (int)($_GET['year'] ?? 0);
-$month = (int)($_GET['month'] ?? 0);
+$year  = (int)($_REQUEST['year'] ?? 0);
+$month = (int)($_REQUEST['month'] ?? 0);
 if ($year <= 0 || $month < 1 || $month > 12) {
     header('Location: ' . BASE_URL . '/attendance/index.php');
     exit;
@@ -54,11 +54,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     // 批量删除
     elseif ($action === 'batch_delete') {
         $ids = array_filter(array_map('intval', (array)($_POST['ids'] ?? [])));
-        if (empty($ids)) { $error = '请勾选'; }
+        if (empty($ids)) { $error = '请勾选要删除的记录'; }
         else {
-            $ph = implode(',', array_fill(0, count($ids), '?'));
-            db()->prepare("DELETE FROM attendances WHERE id IN ($ph) AND year=? AND month=?")->execute(array_merge($ids, [$year, $month]));
-            $success = '已批量删除 ' . count($ids) . ' 条';
+            try {
+                $ph = implode(',', array_fill(0, count($ids), '?'));
+                $stmt = db()->prepare("DELETE FROM attendances WHERE id IN ($ph) AND year=? AND month=?");
+                $stmt->execute(array_merge($ids, [$year, $month]));
+                $delCnt = $stmt->rowCount();
+                $success = "已批量删除 {$delCnt} 条（选中" . count($ids) . "条）";
+            } catch (PDOException $ex) {
+                $error = '删除失败: ' . $ex->getMessage();
+            }
         }
     }
     // 上传 Excel/CSV
@@ -401,6 +407,8 @@ include __DIR__ . '/../includes/header.php';
                 <?php else: ?>
                 <form method="post" id="delForm">
                     <input type="hidden" name="action" value="batch_delete">
+                    <input type="hidden" name="year" value="<?php echo $year; ?>">
+                    <input type="hidden" name="month" value="<?php echo $month; ?>">
                     <div class="table-responsive">
                         <table class="table table-sm table-hover mb-0">
                             <thead class="thead-light">
@@ -478,7 +486,7 @@ function delOne(id){
     var f = document.createElement('form');
     f.method = 'post';
     f.style.display = 'none';
-    f.innerHTML = '<input type="hidden" name="action" value="delete"><input type="hidden" name="id" value="' + id + '">';
+    f.innerHTML = '<input type="hidden" name="action" value="delete"><input type="hidden" name="id" value="' + id + '"><input type="hidden" name="year" value="<?php echo $year; ?>"><input type="hidden" name="month" value="<?php echo $month; ?>">';
     document.body.appendChild(f);
     f.submit();
 }
