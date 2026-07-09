@@ -77,14 +77,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } else {
             try {
                 $rows = [];
-                if ($csvData !== '') {
-                    $decoded = json_decode($csvData, true);
-                    if (is_array($decoded)) {
-                        foreach ($decoded as $r) {
-                            if (is_array($r) && count(array_filter($r, fn($v) => trim($v) !== '')) > 0) $rows[] = $r;
-                        }
-                    } else { $error = '数据格式错误'; }
-                } else {
+                // 优先使用上传的文件；仅在无文件时才用粘贴的表格数据
+                if ($hasFile) {
                     $file = $_FILES['excel_file'];
                     $ext = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
                     $tmp = $file['tmp_name'];
@@ -118,6 +112,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             $rows = SimpleXLSX::parse($tmp);
                         }
                     }
+                } else {
+                    $decoded = json_decode($csvData, true);
+                    if (is_array($decoded)) {
+                        foreach ($decoded as $r) {
+                            if (is_array($r) && count(array_filter($r, fn($v) => trim($v) !== '')) > 0) $rows[] = $r;
+                        }
+                    } else { $error = '数据格式错误'; }
                 }
 
                 if ($error === '' && !empty($rows)) {
@@ -263,6 +264,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         // 附加识别信息便于排查
                         $mode = $autoDayMode ? '自动统计(每日打卡列)' : '天数列直读';
                         $msg .= "【模式:{$mode}；姓名列:{$idxName}；满勤列:" . ($idxFullDays ?? '无') . "；实际出勤列:" . ($idxActualDays ?? '无') . "；数据行:" . count($dataRows) . "】";
+                        // 预览解析到的表头和首行数据，便于确认文件内容正确
+                        $previewHead = json_encode($firstRow, JSON_UNESCAPED_UNICODE);
+                        $previewFirst = !empty($dataRows) ? json_encode($dataRows[0], JSON_UNESCAPED_UNICODE) : '(空)';
+                        $msg .= "【表头:{$previewHead}；首行:{$previewFirst}】";
                         $success = $msg;
                     }
                 } elseif ($error === '') {
@@ -472,13 +477,36 @@ include __DIR__ . '/../includes/header.php';
     var area = document.getElementById('uploadArea');
     var file = document.getElementById('excelFile');
     var tip = document.getElementById('uploadTip');
+    var csvData = document.getElementById('csvData');
     if (!area || !file) return;
     area.addEventListener('click', function(){ file.click(); });
-    file.addEventListener('change', function(){ if (file.files.length) tip.textContent = file.files[0].name; });
+    file.addEventListener('change', function(){
+        if (file.files.length) {
+            tip.textContent = file.files[0].name;
+            // 选择了文件后清空粘贴框，避免旧数据覆盖新文件
+            if (csvData) csvData.value = '';
+        }
+    });
     ['dragover','dragenter'].forEach(function(ev){ area.addEventListener(ev, function(e){ e.preventDefault(); area.style.borderColor='#28a745'; }); });
     ['dragleave','drop'].forEach(function(ev){ area.addEventListener(ev, function(e){ e.preventDefault(); area.style.borderColor=''; }); });
-    area.addEventListener('drop', function(e){ if (e.dataTransfer.files.length){ file.files = e.dataTransfer.files; tip.textContent = file.files[0].name; } });
+    area.addEventListener('drop', function(e){
+        if (e.dataTransfer.files.length){
+            file.files = e.dataTransfer.files;
+            tip.textContent = file.files[0].name;
+            if (csvData) csvData.value = '';
+        }
+    });
 })();
+// 提交前校验：若同时有文件和粘贴数据，提示优先使用文件
+document.getElementById('uploadForm').addEventListener('submit', function(e){
+    var file = document.getElementById('excelFile');
+    var csvData = document.getElementById('csvData');
+    if (file.files.length && csvData.value.trim() !== '') {
+        if (!confirm('检测到同时有上传文件和粘贴数据，将优先使用上传文件。粘贴框的数据将被忽略，是否继续？')) {
+            e.preventDefault();
+        }
+    }
+});
 function batchDelete(){
     var n = document.querySelectorAll('.row-chk:checked').length;
     if (n === 0) { alert('请先勾选要删除的记录'); return; }
