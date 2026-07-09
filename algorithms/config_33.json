@@ -1,0 +1,14 @@
+{
+    "modules": [
+        {
+            "name": "成本比例提成",
+            "type": "profit_commission",
+            "enabled": true,
+            "config": {
+                "commission_rate": 0.1,
+                "service_fee_rate": 0.03
+            }
+        }
+    ],
+    "updated_at": "2026-07-09 15:03:22"
+}
