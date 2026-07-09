@@ -8,6 +8,109 @@ $success = '';
 $error = '';
 $preview = null;
 
+// 计算全勤奖（先加后扣模式）
+// 规则：请假 ≥8h 全扣、≥4h 扣一半、<4h 不扣；无考勤记录或不启用则净额为0
+// 返回 ['base'=>满勤金额, 'deduct'=>扣除, 'net'=>净额, 'status'=>说明, 'has_att'=>是否有考勤]
+function calcFullAttendanceBonus($empId, $month, $bonusBase) {
+    $attInfo = null;
+    $mp = explode('-', (string)$month);
+    if (count($mp) === 2) {
+        $attInfo = get_attendance((int)$empId, (int)$mp[0], (int)$mp[1]);
+    }
+    if (!$attInfo || $bonusBase <= 0) {
+        return ['base' => 0, 'deduct' => 0, 'net' => 0,
+                'status' => $attInfo ? '未启用全勤奖' : '未录入考勤，不发全勤奖',
+                'has_att' => (bool)$attInfo];
+    }
+    $absent = (float)$attInfo['absent_hours'];
+    if ($absent >= 8) {
+        $deduct = $bonusBase;            // 全扣
+    } elseif ($absent >= 4) {
+        $deduct = $bonusBase / 2;         // 扣一半
+    } else {
+        $deduct = 0;                      // 不扣
+    }
+    if ($absent >= 8) {
+        $status = '请假≥8h，全勤奖全部扣除';
+    } elseif ($absent >= 4) {
+        $status = '请假≥4h，扣除全勤奖一半';
+    } elseif ($absent > 0) {
+        $status = '请假<4h，全勤奖不扣';
+    } else {
+        $status = '满勤，全勤奖全额发放';
+    }
+    return ['base' => $bonusBase, 'deduct' => $deduct,
+            'net' => $bonusBase - $deduct, 'status' => $status, 'has_att' => true];
+}
+
+// 按出勤天数折算底薪（分母固定30）
+// 规则：请假≤4天 → 底薪−底薪/30×请假天数；请假>4天 → 底薪/30×实际出勤天数
+// 两段统一为 底薪/30×实际出勤天数；满勤不折；无考勤按满勤发全额
+// 返回 ['original'=>原始底薪, 'actual_days'=>实际出勤天数, 'leave_days'=>请假天数,
+//        'prorated'=>折算后底薪, 'status'=>说明, 'has_att'=>是否有考勤]
+function calcProratedBaseSalary($empId, $month, $baseSalary) {
+    $attInfo = null;
+    $mp = explode('-', (string)$month);
+    if (count($mp) === 2) {
+        $attInfo = get_attendance((int)$empId, (int)$mp[0], (int)$mp[1]);
+    }
+    if (!$attInfo) {
+        return ['original' => $baseSalary, 'actual_days' => 0, 'leave_days' => 0,
+                'prorated' => $baseSalary, 'status' => '未录入考勤，底薪按满勤发放', 'has_att' => false];
+    }
+    $workH   = (float)$attInfo['work_hours'];
+    $absentH = (float)$attInfo['absent_hours'];
+    $leaveDays  = $absentH / 8;                    // 请假天数
+    $actualDays = max(0, ($workH - $absentH) / 8); // 实际出勤天数（满勤天数−请假天数）
+    if ($leaveDays <= 0) {
+        $prorated = $baseSalary;                   // 满勤不折
+        $status   = '满勤，底薪全额发放';
+    } elseif ($leaveDays <= 4) {
+        // 请假≤4天：底薪 − 底薪/30 × 请假天数（基数用30，与满勤天数无关）
+        $prorated = round($baseSalary - $baseSalary / 30 * $leaveDays, 2);
+        $actualDays = 30 - $leaveDays;             // 显示用：30−请假天数
+        $status = sprintf('请假%.1f天(≤4天)，底薪−底薪/30×请假天数', $leaveDays);
+    } else {
+        // 请假>4天：底薪/30 × 实际出勤天数（实际出勤=满勤天数−请假天数）
+        $prorated = round($baseSalary / 30 * $actualDays, 2);
+        $status = sprintf('请假%.1f天(>4天)，底薪/30×实际出勤%.1f天', $leaveDays, $actualDays);
+    }
+    return ['original' => $baseSalary, 'actual_days' => $actualDays, 'leave_days' => $leaveDays,
+            'prorated' => $prorated, 'status' => $status, 'has_att' => true];
+}
+
+// 在 $result 上应用底薪折算（处理 base_salary 字段与 base_salary_tiered 模块两种来源）
+// 直接修改 $result，返回 base_info 数组
+function applyProratedBaseSalary(&$result, $empId, $month) {
+    $rawBase = (float)($result['base_salary'] ?? 0);
+    // 检测阶梯底薪模块（其金额在 modules 里，不在 base_salary 字段）
+    $baseModIdx = -1;
+    $baseModAmount = 0;
+    foreach (($result['modules'] ?? []) as $mi => $mod) {
+        if (($mod['type'] ?? '') === 'base_salary_tiered') {
+            $baseModIdx = $mi;
+            $baseModAmount = (float)$mod['amount'];
+            break;
+        }
+    }
+    $effectiveBase = $rawBase + $baseModAmount;
+    $baseInfo = calcProratedBaseSalary($empId, $month, $effectiveBase);
+
+    if ($baseModIdx >= 0) {
+        // 阶梯底薪：折算模块金额，并重算 module_total / net_pay
+        $result['modules'][$baseModIdx]['amount']  = round($baseInfo['prorated'], 2);
+        $result['modules'][$baseModIdx]['formula'] = $baseInfo['status'] . '（原 ¥' . number_format($baseModAmount, 2) . '）';
+        $result['module_total'] = round(array_sum(array_column($result['modules'], 'amount')), 2);
+        $result['net_pay']      = round($rawBase + $result['module_total'], 2);
+    } else {
+        // 自定义底薪或员工表底薪：折算 base_salary 字段
+        $baseDiff = round($baseInfo['prorated'] - $rawBase, 2);
+        $result['base_salary'] = $baseInfo['prorated'];
+        $result['net_pay']     = round(($result['net_pay'] ?? 0) + $baseDiff, 2);
+    }
+    return $baseInfo;
+}
+
 // 处理结算
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = $_POST['action'] ?? '';
@@ -40,11 +143,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     // 自定义额外金额（正数加、负数减）
                     $extraAmount = (float)($_POST['extra_amount'] ?? 0);
 
+                    // 全勤奖（先加后扣：自动抓取考勤，按请假小时数扣除）
+                    $bonusBase = (float)($_POST['full_attendance_bonus'] ?? 200);
+                    $bonus = calcFullAttendanceBonus($emp['id'], $month, $bonusBase);
+
                     // 调用薪资算法（自动选择员工专属算法或默认算法）
                     $result = SalaryCalculator::calculate($emp, $orderList, $order_total, $month);
 
+                    // 底薪按出勤天数折算（分母固定30；处理 base_salary 字段与 base_salary_tiered 模块两种来源）
+                    $baseInfo = applyProratedBaseSalary($result, $emp['id'], $month);
+
                     // 将自定义金额叠加到最终结果
-                    $result['net_pay'] = round($result['net_pay'] + $extraAmount, 2);
+                    $result['net_pay']    = round($result['net_pay'] + $extraAmount, 2);
                     $result['module_total'] = round(($result['module_total'] ?? 0) + $extraAmount, 2);
                     // 在模块列表末尾追加一项，便于明细展示
                     if ($extraAmount != 0) {
@@ -54,6 +164,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             'formula'=> sprintf('手动调整 %+.2f', $extraAmount),
                             'type'   => 'extra_amount',
                         ];
+                    }
+
+                    // 全勤奖叠加（先加后扣模式：净额累加到实发工资）
+                    if ($bonus['net'] != 0) {
+                        $result['net_pay'] = round($result['net_pay'] + $bonus['net'], 2);
+                        $result['module_total'] = round(($result['module_total'] ?? 0) + $bonus['net'], 2);
+                        $result['modules'][] = [
+                            'name'   => '全勤奖',
+                            'amount' => round($bonus['base'], 2),
+                            'formula'=> $bonus['status'],
+                            'type'   => 'attendance_full',
+                        ];
+                        if ($bonus['deduct'] > 0) {
+                            $result['modules'][] = [
+                                'name'   => '全勤扣除',
+                                'amount' => -round($bonus['deduct'], 2),
+                                'formula'=> sprintf('请假扣减 -%.2f', $bonus['deduct']),
+                                'type'   => 'attendance_deduct',
+                            ];
+                        }
                     }
                     
                     // DEBUG: 分析订单金额分布
@@ -136,6 +266,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         'commission'     => $result['module_total'] ?? $result['commission'],
                         'net_pay'        => $result['net_pay'],
                         'extra_amount'   => $extraAmount,
+                        'full_attendance_bonus' => $bonusBase,
+                        'bonus_info'     => $bonus,
+                        'base_info'      => $baseInfo,
                         'modules'        => $result['modules'] ?? [],
                         'module_total'   => $result['module_total'] ?? $result['commission'],
                         'base_salary'    => $result['base_salary'] ?? (float)$emp['base_salary'],
@@ -168,29 +301,67 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 // 调用薪资算法
                 $result = SalaryCalculator::calculate($emp, $orderList, $order_total, $month);
                 $extraAmount = (float)($_POST['extra_amount'] ?? 0);
+
+                // 全勤奖（先加后扣：自动抓取考勤）
+                $bonusBase = (float)($_POST['full_attendance_bonus'] ?? 200);
+                $bonus = calcFullAttendanceBonus($emp['id'], $month, $bonusBase);
+                $bonusNet = (float)$bonus['net'];
+
+                // 底薪按出勤天数折算（直接修改 $result，处理阶梯底薪模块）
+                $baseInfo = applyProratedBaseSalary($result, $emp['id'], $month);
+
                 $commission = $result['module_total'] ?? $result['commission'];
-                $net_pay    = round($result['net_pay'] + $extraAmount, 2);
-                $commission = round($commission + $extraAmount, 2);
+                $net_pay    = round($result['net_pay'] + $extraAmount + $bonusNet, 2);
+                $commission = round($commission + $extraAmount + $bonusNet, 2);
 
                 try {
-                    // 确保 salaries 表有 extra_amount 字段
+                    // 确保 salaries 表有 extra_amount / full_attendance_bonus 字段
                     $hasExtra = db()->query("SHOW COLUMNS FROM `salaries` LIKE 'extra_amount'")->fetchAll();
                     if (empty($hasExtra)) {
                         db()->exec("ALTER TABLE `salaries` ADD COLUMN `extra_amount` DECIMAL(12,2) NOT NULL DEFAULT 0.00 COMMENT '自定义额外金额' AFTER `net_pay`");
                     }
+                    $hasBonus = db()->query("SHOW COLUMNS FROM `salaries` LIKE 'full_attendance_bonus'")->fetchAll();
+                    if (empty($hasBonus)) {
+                        db()->exec("ALTER TABLE `salaries` ADD COLUMN `full_attendance_bonus` DECIMAL(12,2) NOT NULL DEFAULT 0.00 COMMENT '全勤奖净额' AFTER `extra_amount`");
+                    }
+                    $hasBaseAmt = db()->query("SHOW COLUMNS FROM `salaries` LIKE 'base_salary_amount'")->fetchAll();
+                    if (empty($hasBaseAmt)) {
+                        db()->exec("ALTER TABLE `salaries` ADD COLUMN `base_salary_amount` DECIMAL(12,2) NOT NULL DEFAULT 0.00 COMMENT '折算后底薪' AFTER `full_attendance_bonus`");
+                    }
                     $stmt = db()->prepare("
-                        INSERT INTO salaries (employee_id, month, order_total, commission, net_pay, extra_amount)
-                        VALUES (?, ?, ?, ?, ?, ?)
+                        INSERT INTO salaries (employee_id, month, order_total, commission, net_pay, extra_amount, full_attendance_bonus, base_salary_amount)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                         ON DUPLICATE KEY UPDATE
                             order_total = VALUES(order_total),
                             commission = VALUES(commission),
                             net_pay = VALUES(net_pay),
                             extra_amount = VALUES(extra_amount),
+                            full_attendance_bonus = VALUES(full_attendance_bonus),
+                            base_salary_amount = VALUES(base_salary_amount),
                             created_at = CURRENT_TIMESTAMP
                     ");
-                    $stmt->execute([$employee_id, $month, $order_total, $commission, $net_pay, $extraAmount]);
+                    $stmt->execute([$employee_id, $month, $order_total, $commission, $net_pay, $extraAmount, $bonusNet, $baseInfo['prorated']]);
                     $success = sprintf('薪资结算成功！%s %s：订单总额 ¥%s，提成 ¥%s，实发 ¥%s（%s）',
                         $emp['name'], $month, money($order_total), money($commission), money($net_pay), $result['algorithm_name']);
+
+                    // 追加全勤奖模块到模块列表（便于结算后预览展示）
+                    $settleModules = $result['modules'] ?? [];
+                    if ($bonusNet != 0) {
+                        $settleModules[] = [
+                            'name'   => '全勤奖',
+                            'amount' => round($bonus['base'], 2),
+                            'formula'=> $bonus['status'],
+                            'type'   => 'attendance_full',
+                        ];
+                        if ($bonus['deduct'] > 0) {
+                            $settleModules[] = [
+                                'name'   => '全勤扣除',
+                                'amount' => -round($bonus['deduct'], 2),
+                                'formula'=> sprintf('请假扣减 -%.2f', $bonus['deduct']),
+                                'type'   => 'attendance_deduct',
+                            ];
+                        }
+                    }
 
                     $preview = [
                         'employee'       => $emp,
@@ -200,7 +371,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         'commission'     => $commission,
                         'net_pay'        => $net_pay,
                         'extra_amount'   => $extraAmount,
-                        'modules'        => $result['modules'] ?? [],
+                        'full_attendance_bonus' => $bonusBase,
+                        'bonus_info'     => $bonus,
+                        'base_info'      => $baseInfo,
+                        'modules'        => $settleModules,
                         'module_total'   => $result['module_total'] ?? $commission,
                         'base_salary'    => $result['base_salary'] ?? (float)$emp['base_salary'],
                         'formula_text'   => $result['formula_text'],
@@ -279,6 +453,22 @@ include __DIR__ . '/../includes/header.php';
                         </div>
                         <small class="text-muted">用于无法通过订单计算的金额，正数加、负数减，结算时累加到实发工资</small>
                     </div>
+                    <div class="form-group">
+                        <label><i class="fas fa-award text-success"></i> 全勤奖金额</label>
+                        <div class="input-group">
+                            <div class="input-group-prepend"><span class="input-group-text">¥</span></div>
+                            <input type="number" name="full_attendance_bonus" class="form-control" step="0.01" value="<?php echo e($_POST['full_attendance_bonus'] ?? ($preview['full_attendance_bonus'] ?? '200')); ?>" placeholder="满勤奖金额，默认200">
+                        </div>
+                        <small class="text-muted">自动抓取考勤：请假≥4h扣一半，≥8h全扣；无考勤记录不发</small>
+                    </div>
+                    <div class="form-group">
+                        <label><i class="fas fa-money-bill-wave text-primary"></i> 底薪</label>
+                        <div class="input-group">
+                            <div class="input-group-prepend"><span class="input-group-text">¥</span></div>
+                            <input type="text" class="form-control" value="<?php echo e($preview['base_info']['original'] ?? ($emp['base_salary'] ?? '')); ?>" readonly>
+                        </div>
+                        <small class="text-muted">自动抓取员工底薪（自定义底薪或阶梯底薪），按出勤天数折算：底薪/30×实际出勤天数</small>
+                    </div>
                     <button type="submit" class="btn btn-info btn-block"><i class="fas fa-eye"></i> 预览计算</button>
                 </form>
             </div>
@@ -311,6 +501,7 @@ include __DIR__ . '/../includes/header.php';
                         }
                         $attAbsent = $attInfo ? (float)$attInfo['absent_hours'] : 0;
                         $attWork   = $attInfo ? (float)$attInfo['work_hours'] : 0;
+                        $bInfo = $preview['bonus_info'] ?? null;
                         ?>
                         <tr>
                             <th>考勤（应出勤/请假）</th>
@@ -329,11 +520,32 @@ include __DIR__ . '/../includes/header.php';
                                     <?php else: ?>
                                         <span class="badge badge-success ml-2">满勤</span>
                                     <?php endif; ?>
+                                    <?php if ($bInfo && $bInfo['base'] > 0): ?>
+                                        <span class="ml-3 text-success">
+                                            全勤奖 ¥<?php echo money($bInfo['base']); ?>
+                                            <?php if ($bInfo['deduct'] > 0): ?> − 扣除 ¥<?php echo money($bInfo['deduct']); ?><?php endif; ?>
+                                            = <b>净 ¥<?php echo money($bInfo['net']); ?></b>
+                                        </span>
+                                    <?php endif; ?>
                                 <?php else: ?>
-                                    <span class="text-muted"><i class="fas fa-info-circle"></i> 未录入考勤，全勤奖按满勤发放</span>
+                                    <span class="text-muted"><i class="fas fa-info-circle"></i> 未录入考勤，不发全勤奖</span>
                                 <?php endif; ?>
                             </td>
                         </tr>
+                        <?php $bi = $preview['base_info'] ?? null; if ($bi): ?>
+                        <tr>
+                            <th>底薪（按出勤折算）</th>
+                            <td colspan="3">
+                                <span class="text-muted">原底薪 <b>¥<?php echo money($bi['original']); ?></b></span>
+                                <?php if ($bi['has_att']): ?>
+                                    <span class="ml-3 text-muted">实际出勤 <b><?php echo number_format($bi['actual_days'], 1); ?>天</b></span>
+                                    <span class="ml-3 text-muted">请假 <b><?php echo number_format($bi['leave_days'], 1); ?>天</b></span>
+                                <?php endif; ?>
+                                <span class="ml-3 text-primary font-weight-bold">折算后 ¥<?php echo money($bi['prorated']); ?></span>
+                                <small class="text-muted d-block"><?php echo e($bi['status']); ?></small>
+                            </td>
+                        </tr>
+                        <?php endif; ?>
                     </tbody>
                     
                     <!-- DEBUG 调试信息 -->
@@ -378,8 +590,26 @@ include __DIR__ . '/../includes/header.php';
                             <td class="h6 mb-0 <?php echo $preview['extra_amount'] >= 0 ? 'text-success' : 'text-danger'; ?> font-weight-bold"><?php echo $preview['extra_amount'] >= 0 ? '+' : ''; ?>¥<?php echo money($preview['extra_amount']); ?></td>
                         </tr>
                         <?php endif; ?>
+                        <?php if (!empty($preview['bonus_info']) && $preview['bonus_info']['base'] > 0): ?>
+                        <tr class="table-info">
+                            <th colspan="3" class="text-right h6 mb-0"><i class="fas fa-award text-success"></i> 全勤奖（<?php echo e($preview['bonus_info']['status']); ?>）</th>
+                            <td class="h6 mb-0 text-success font-weight-bold">+¥<?php echo money($preview['bonus_info']['net']); ?>
+                                <?php if ($preview['bonus_info']['deduct'] > 0): ?>
+                                    <small class="text-danger d-block">满勤¥<?php echo money($preview['bonus_info']['base']); ?> − 扣除¥<?php echo money($preview['bonus_info']['deduct']); ?></small>
+                                <?php endif; ?>
+                            </td>
+                        </tr>
+                        <?php endif; ?>
+                        <?php if (!empty($preview['base_info']) && abs($preview['base_info']['prorated'] - $preview['base_info']['original']) > 0.001): ?>
+                        <tr class="table-light">
+                            <th colspan="3" class="text-right h6 mb-0"><i class="fas fa-money-bill-wave text-primary"></i> 底薪折算（<?php echo e($preview['base_info']['status']); ?>）</th>
+                            <td class="h6 mb-0 text-primary font-weight-bold">¥<?php echo money($preview['base_info']['prorated']); ?>
+                                <small class="text-muted d-block">原 ¥<?php echo money($preview['base_info']['original']); ?></small>
+                            </td>
+                        </tr>
+                        <?php endif; ?>
                         <tr class="table-success">
-                            <th colspan="3" class="text-right h5 mb-0">底薪 + 模块合计 <?php if (abs((float)($preview['extra_amount'] ?? 0)) > 0.001) echo '+ 自定义'; ?> → 实发工资</th>
+                            <th colspan="3" class="text-right h5 mb-0">底薪 + 模块合计 <?php if (abs((float)($preview['extra_amount'] ?? 0)) > 0.001) echo '+ 自定义'; ?> <?php if (!empty($preview['bonus_info']) && $preview['bonus_info']['base'] > 0) echo '+ 全勤奖'; ?> → 实发工资</th>
                             <td class="h4 mb-0 text-success font-weight-bold">¥<?php echo money($preview['net_pay']); ?></td>
                         </tr>
                     </tbody>
@@ -389,10 +619,15 @@ include __DIR__ . '/../includes/header.php';
                     <i class="fas fa-calculator"></i>
                     <strong>计算明细：</strong>
                     <?php 
-                    $baseSalaryAmount = (float)$emp['base_salary'];
+                    $baseSalaryAmount = (float)($preview['base_salary'] ?? $emp['base_salary']);
                     $parts = [];
                     if ($baseSalaryAmount > 0) {
-                        $parts[] = '底薪 ¥' . money($baseSalaryAmount);
+                        $bi = $preview['base_info'] ?? null;
+                        if ($bi && abs($bi['prorated'] - $bi['original']) > 0.001) {
+                            $parts[] = '底薪 ¥' . money($baseSalaryAmount) . '（按出勤折算）';
+                        } else {
+                            $parts[] = '底薪 ¥' . money($baseSalaryAmount);
+                        }
                     }
                     foreach ($mods as $m) {
                         $parts[] = ($m['amount']>=0?'':'') . money(abs($m['amount'])) . '(' . e($m['name']) . ')';
@@ -411,6 +646,7 @@ include __DIR__ . '/../includes/header.php';
                     <input type="hidden" name="employee_id" value="<?php echo $emp['id']; ?>">
                     <input type="hidden" name="month" value="<?php echo e($preview['month']); ?>">
                     <input type="hidden" name="extra_amount" value="<?php echo e($preview['extra_amount'] ?? 0); ?>">
+                    <input type="hidden" name="full_attendance_bonus" value="<?php echo e($preview['full_attendance_bonus'] ?? 200); ?>">
                     <button type="submit" class="btn btn-success btn-lg btn-block"
                         onclick="return confirm('确认生成<?php echo e($emp['name']); ?> <?php echo e($preview['month']); ?>月的薪资记录？<?php echo $existing ? '将覆盖已有记录。' : ''; ?>')">
                         <i class="fas fa-check-double"></i> 确认生成薪资记录

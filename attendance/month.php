@@ -109,7 +109,48 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             while (($d = fgetcsv($fp, 0, $delim)) !== false) $rows[] = $d;
                             fclose($fp);
                         } else {
-                            $rows = SimpleXLSX::parse($tmp);
+                            // 多工作表处理：优先选择含"满勤天数/实际出勤天数"或"应出勤/请假"列的汇总表，
+                            // 而非原始打卡明细表（打卡时间表）。
+                            $sheetNames = SimpleXLSX::sheetNames($tmp);
+                            $rows = null;
+                            if (count($sheetNames) > 1) {
+                                $allSheets = SimpleXLSX::parseAll($tmp);
+                                $bestScore = -1;
+                                foreach ($allSheets as $sName => $sRows) {
+                                    if (empty($sRows)) continue;
+                                    // 检查表头行是否含文档记录格式列
+                                    $headerRow = null;
+                                    foreach ($sRows as $sr) {
+                                        $rowText = implode(' ', array_filter($sr, function($v){ return trim($v) !== ''; }));
+                                        if (mb_strpos($rowText, '姓名') !== false || mb_strpos($rowText, '员工') !== false) {
+                                            $headerRow = $sr;
+                                            break;
+                                        }
+                                    }
+                                    if ($headerRow === null) continue;
+                                    $score = 0;
+                                    foreach ($headerRow as $cv) {
+                                        $cv = trim($cv);
+                                        if ($cv === '') continue;
+                                        if (mb_strpos($cv, '满勤天数') !== false || mb_strpos($cv, '满勤') !== false
+                                            || mb_strpos($cv, '应出勤天数') !== false || mb_strpos($cv, '应出勤') !== false
+                                            || mb_strpos($cv, '实际出勤') !== false || mb_strpos($cv, '实到') !== false
+                                            || mb_strpos($cv, '出勤天数') !== false
+                                            || mb_strpos($cv, '应出勤小时') !== false || mb_strpos($cv, '出勤小时') !== false
+                                            || mb_strpos($cv, '请假') !== false || mb_strpos($cv, '缺勤') !== false) {
+                                            $score++;
+                                        }
+                                    }
+                                    if ($score > $bestScore) {
+                                        $bestScore = $score;
+                                        $rows = $sRows;
+                                    }
+                                }
+                            }
+                            // 没有匹配到汇总表，退回第一个工作表
+                            if ($rows === null) {
+                                $rows = SimpleXLSX::parse($tmp, 0);
+                            }
                         }
                     }
                 } else {
