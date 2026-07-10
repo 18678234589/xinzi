@@ -424,6 +424,7 @@ $filter_employee = $locked_employee_id ?: (int)($_GET['employee_id'] ?? 0);
 $filter_dept = $_GET['department'] ?? '';
 $filter_month = $_GET['month'] ?? '';  // 空字符串=不限月份
 $filter_project = $_GET['project'] ?? ''; // 展开某个模块时使用
+$filter_dept_orders = isset($_GET['dept_orders']) && $_GET['dept_orders'] === '1';
 $filter_abnormal = (($_GET['abnormal'] ?? '') === '1') ? 1 : 0;
 $page     = max(1, (int)($_GET['page'] ?? 1));
 $allowed_per_page = [20, 50, 100, 200, 500, 1000];
@@ -434,6 +435,7 @@ if ($locked_employee) $baseQ['employee_id'] = $locked_employee['id'];
 elseif ($filter_employee) $baseQ['employee_id'] = $filter_employee;
 if ($filter_dept) $baseQ['department'] = $filter_dept;
 if ($filter_month) $baseQ['month'] = $filter_month;
+if ($filter_dept_orders) $baseQ['dept_orders'] = '1';
 
 ensureProjectColumn(); // 确保 upload_batches 等表/字段存在
 ensureOrderNoColumn(); // 确保 orders.order_no 字段存在
@@ -452,6 +454,19 @@ if ($filter_dept) {
     $baseParams[] = $filter_dept;
 }
 if ($filter_month)    { $baseWhere .= " AND DATE_FORMAT(o.order_date, '%Y-%m') = ?"; $baseParams[] = $filter_month; }
+// 部门订单视图：只看 employee_id=0 的部门汇总订单（用 __dept__ 匹配，绕过 e.department 过滤）
+if ($filter_dept_orders) {
+    // 重建 WHERE：去掉 e.department 过滤（部门订单 JOIN 不到员工），改用 __dept__
+    $baseWhere = " WHERE (o.raw_data IS NULL OR o.raw_data NOT LIKE '%\"__from_dept__%\":%')"
+        . " AND NOT (o.order_scope = 'department' AND o.shop <> '')"
+        . " AND o.employee_id = 0 AND o.order_scope = 'department'"
+        . " AND JSON_UNQUOTE(JSON_EXTRACT(o.raw_data, '$.__dept__')) = ?";
+    $baseParams = [$filter_dept];
+    if ($filter_month) {
+        $baseWhere .= " AND DATE_FORMAT(o.order_date, '%Y-%m') = ?";
+        $baseParams[] = $filter_month;
+    }
+}
 
 // 按年份-月份-project三级分组汇总
 $groupSql = "SELECT DATE_FORMAT(o.order_date, '%Y') as order_year,
@@ -503,8 +518,12 @@ foreach ($allGroups as $row) {
     $projectGroups[] = $row;
 }
 
-// 按部门分组统计
-$deptSql = "SELECT COALESCE(e.department,'未分配') as dept_name,
+// 按部门分组统计（部门订单通过 raw_data.__dept__ 命名部门，个人订单回退到员工部门）
+$deptSql = "SELECT COALESCE(
+                NULLIF(JSON_UNQUOTE(JSON_EXTRACT(o.raw_data, '$.__dept__')), ''),
+                e.department,
+                '未分配'
+              ) as dept_name,
                    COUNT(*) as cnt,
                    COALESCE(SUM(CASE WHEN o.is_abnormal=0 THEN o.order_amount ELSE 0 END),0) as normal_amount
             FROM orders o LEFT JOIN employees e ON o.employee_id = e.id" . $baseWhere .
@@ -524,6 +543,34 @@ if ($filter_dept) {
     $empStmt = db()->prepare($empSql);
     $empStmt->execute($baseParams);
     $empGroups = $empStmt->fetchAll();
+
+    // 追加"部门订单"虚拟行（employee_id=0 的部门汇总订单）
+    // 注意：部门订单 employee_id=0，JOIN 不到员工，不能用 e.department 过滤，
+    // 要用 raw_data.__dept__ 匹配部门名。重建 WHERE，不复用含 e.department 的 baseWhere。
+    $deptSumParams = [];
+    $deptSumWhere = " WHERE (o.raw_data IS NULL OR o.raw_data NOT LIKE '%\"__from_dept__%\":%')"
+        . " AND NOT (o.order_scope = 'department' AND o.shop <> '')"
+        . " AND o.employee_id = 0 AND o.order_scope = 'department'"
+        . " AND JSON_UNQUOTE(JSON_EXTRACT(o.raw_data, '$.__dept__')) = ?";
+    $deptSumParams[] = $filter_dept;
+    if ($filter_month) {
+        $deptSumWhere .= " AND DATE_FORMAT(o.order_date, '%Y-%m') = ?";
+        $deptSumParams[] = $filter_month;
+    }
+    $deptSumSql = "SELECT COUNT(*) as cnt,
+        COALESCE(SUM(CASE WHEN o.is_abnormal=0 THEN o.order_amount ELSE 0 END),0) as normal_amount
+        FROM orders o" . $deptSumWhere;
+    $deptSumStmt = db()->prepare($deptSumSql);
+    $deptSumStmt->execute($deptSumParams);
+    $deptSum = $deptSumStmt->fetch();
+    if ($deptSum && (int)$deptSum['cnt'] > 0) {
+        array_unshift($empGroups, [
+            'emp_id'        => 0,
+            'emp_name'      => '部门订单',
+            'cnt'           => $deptSum['cnt'],
+            'normal_amount' => $deptSum['normal_amount'],
+        ]);
+    }
 }
 
 // 总计
@@ -829,6 +876,12 @@ include __DIR__ . '/../includes/header.php';
                         <?php if ($locked_employee): ?>
                             <input type="hidden" name="employee_id" value="<?php echo $locked_employee['id']; ?>">
                         <?php endif; ?>
+                        <?php if ($filter_dept): ?>
+                            <input type="hidden" name="department" value="<?php echo e($filter_dept); ?>">
+                        <?php endif; ?>
+                        <?php if ($filter_dept_orders): ?>
+                            <input type="hidden" name="dept_orders" value="1">
+                        <?php endif; ?>
                         <input type="month" name="month" class="form-control form-control-sm mr-1" value="<?php echo e($filter_month); ?>" onchange="this.form.submit()">
                         <?php if ($filter_month): ?>
                             <button type="submit" name="month" value="" class="btn btn-sm btn-outline-secondary mr-1" title="显示全部月份">全部</button>
@@ -837,19 +890,22 @@ include __DIR__ . '/../includes/header.php';
                 </div>
                 
                 <!-- 面包屑导航 -->
-                <?php if ($filter_dept || $filter_employee): ?>
+                <?php if ($filter_dept || $filter_employee || $filter_dept_orders): ?>
                 <div class="mt-2">
                     <nav aria-label="breadcrumb">
                         <ol class="breadcrumb mb-0 bg-light" style="padding:0.5rem 1rem">
                             <li class="breadcrumb-item"><a href="?<?php echo $filter_month ? 'month='.$filter_month : ''; ?>">全部部门</a></li>
                             <?php if ($filter_dept): ?>
-                                <li class="breadcrumb-item <?php echo $filter_employee ? '' : 'active'; ?>">
-                                    <?php if ($filter_employee): ?>
+                                <li class="breadcrumb-item <?php echo ($filter_employee || $filter_dept_orders) ? '' : 'active'; ?>">
+                                    <?php if ($filter_employee || $filter_dept_orders): ?>
                                         <a href="?department=<?php echo urlencode($filter_dept); ?><?php echo $filter_month ? '&month='.$filter_month : ''; ?>"><?php echo e($filter_dept); ?></a>
                                     <?php else: ?>
                                         <?php echo e($filter_dept); ?>
                                     <?php endif; ?>
                                 </li>
+                            <?php endif; ?>
+                            <?php if ($filter_dept_orders): ?>
+                                <li class="breadcrumb-item active"><i class="fas fa-users text-warning"></i> 部门订单</li>
                             <?php endif; ?>
                             <?php if ($filter_employee): ?>
                                 <?php $emp = array_filter($employees, fn($e) => $e['id'] == $filter_employee)[0] ?? null; ?>
@@ -894,25 +950,30 @@ include __DIR__ . '/../includes/header.php';
                         <?php endforeach; ?>
                     </div>
                 
-                <!-- 第二级：员工卡片（选择了部门但未选择员工时显示） -->
-                <?php elseif ($filter_dept && !$filter_employee && !$locked_employee): ?>
+                <!-- 第二级：员工卡片（选择了部门但未选择员工且非部门订单视图时显示） -->
+                <?php elseif ($filter_dept && !$filter_employee && !$locked_employee && !$filter_dept_orders): ?>
                     <div class="row">
-                        <?php foreach ($empGroups as $emp): ?>
+                        <?php foreach ($empGroups as $emp):
+                            $isDeptOrderCard = ((int)$emp['emp_id'] === 0);
+                            $cardLink = $isDeptOrderCard
+                                ? "?department=" . urlencode($filter_dept) . "&dept_orders=1" . ($filter_month ? '&month=' . $filter_month : '')
+                                : "?department=" . urlencode($filter_dept) . "&employee_id=" . $emp['emp_id'] . ($filter_month ? '&month=' . $filter_month : '');
+                        ?>
                         <div class="col-md-6 mb-3">
-                            <a href="?department=<?php echo urlencode($filter_dept); ?>&employee_id=<?php echo $emp['emp_id']; ?><?php echo $filter_month ? '&month='.$filter_month : ''; ?>" 
+                            <a href="<?php echo $cardLink; ?>"
                                class="text-decoration-none">
-                                <div class="card border-info" style="transition:all 0.2s;cursor:pointer" onmouseover="this.style.transform='translateY(-3px)';this.style.boxShadow='0 4px 12px rgba(0,0,0,0.15)'" onmouseout="this.style.transform='';this.style.boxShadow=''">
+                                <div class="card <?php echo $isDeptOrderCard ? 'border-warning' : 'border-info'; ?>" style="transition:all 0.2s;cursor:pointer" onmouseover="this.style.transform='translateY(-3px)';this.style.boxShadow='0 4px 12px rgba(0,0,0,0.15)'" onmouseout="this.style.transform='';this.style.boxShadow=''">
                                     <div class="card-body">
                                         <div class="d-flex justify-content-between align-items-center">
                                             <div>
                                                 <h5 class="mb-1">
-                                                    <i class="fas fa-user text-info"></i> 
+                                                    <i class="fas <?php echo $isDeptOrderCard ? 'fa-users text-warning' : 'fa-user text-info'; ?>"></i>
                                                     <?php echo e($emp['emp_name']); ?>
                                                 </h5>
                                                 <small class="text-muted"><?php echo $emp['cnt']; ?> 笔订单</small>
                                             </div>
                                             <div class="text-right">
-                                                <div class="h4 mb-0 text-success">¥<?php echo money($emp['normal_amount']); ?></div>
+                                                <div class="h4 mb-0 <?php echo $isDeptOrderCard ? 'text-warning' : 'text-success'; ?>">¥<?php echo money($emp['normal_amount']); ?></div>
                                             </div>
                                         </div>
                                     </div>
@@ -922,8 +983,8 @@ include __DIR__ . '/../includes/header.php';
                         <?php endforeach; ?>
                     </div>
                 
-                <!-- 第三级：按年份-月份-提成模块三级分组（选择了员工或锁定员工时显示） -->
-                <?php else: ?>
+                <!-- 第三级：按年份-月份-提成模块三级分组（选择了员工/锁定员工/部门订单时显示） -->
+                <?php elseif ($filter_employee || $locked_employee || $filter_dept_orders): ?>
                 <?php foreach ($yearGroups as $yearData): ?>
                 <!-- 年份卡片 -->
                 <div class="card mb-3 border-primary">
