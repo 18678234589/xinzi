@@ -680,6 +680,8 @@ include __DIR__ . '/../includes/header.php';
     </div>
 </div>
 
+<?php include __DIR__ . '/../includes/footer.php'; ?>
+
 <script>
 var allEmployees = <?php echo json_encode($employees, JSON_UNESCAPED_UNICODE); ?>;
 var empNameMap = {};
@@ -720,7 +722,7 @@ $(function() {
         });
         $drop.empty();
         if (matches.length === 0) {
-            $drop.append('<div class="list-group-item list-group-item-action text-muted small py-2">无匹配员工</div>');
+            $drop.append('<div style="padding:0.5rem 0.75rem;color:#999;font-size:0.875rem">无匹配员工</div>');
         } else {
             matches.forEach(function(emp) {
                 $drop.append(
@@ -765,5 +767,3 @@ $(function() {
     });
 });
 </script>
-
-<?php include __DIR__ . '/../includes/footer.php'; ?>
