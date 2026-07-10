@@ -705,24 +705,38 @@ function loadEmp() {
 $(function() {
     var $input = $('#empSearch');
     var $hidden = $('#empId');
+    var $form = $('#settleForm');
+
+    function resolveEmpId(text) {
+        text = (text || '').trim();
+        if (!text) return '';
+        // 优先完整文本匹配
+        if (empNameMap[text]) return empNameMap[text];
+        // 退而求其次：前缀匹配员工名
+        for (var key in empNameMap) {
+            if (key.indexOf(text) === 0) return empNameMap[key];
+        }
+        // 最后尝试纯名字匹配（用户可能只输了名字没带部门）
+        for (var i = 0; i < allEmployees.length; i++) {
+            if (allEmployees[i].name === text) return allEmployees[i].id;
+        }
+        return '';
+    }
 
     // 输入或选择时：把显示文本解析回 employee_id
     $input.on('input change', function() {
-        var text = $(this).val().trim();
-        $hidden.val('');
-        if (!text) return;
-        // 优先完整文本匹配（"张宁（网站售后部）"）
-        if (empNameMap[text]) {
-            $hidden.val(empNameMap[text]);
+        $hidden.val(resolveEmpId($(this).val()));
+    });
+
+    // 提交前确保隐藏字段有值
+    $form.on('submit', function(e) {
+        var id = resolveEmpId($input.val());
+        if (!id) {
+            e.preventDefault();
+            alert('无法匹配到员工，请从下拉列表中选择。');
             return;
         }
-        // 退而求其次：只匹配员工名（不含部门）
-        for (var name in empNameMap) {
-            if (name.indexOf(text) === 0 || name.indexOf(text + '（') === 0) {
-                $hidden.val(empNameMap[name]);
-                return;
-            }
-        }
+        $hidden.val(id);
     });
 });
 </script>
