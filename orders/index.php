@@ -1232,28 +1232,81 @@ function loadDeptEmployees(dept) {
     if (dept) addDeptEmpRow();
 }
 
-// 添加一行员工+模块选择
+// 添加一行员工+模块选择（可输入姓名搜索匹配）
 function addDeptEmpRow() {
     var dept = $('#uploadDeptName').val();
-    var rowIdx = $('#deptEmpRows .dept-emp-row').length;
-    var empOptions = '<option value="">-- 选择员工 --</option>';
-    allEmployees.forEach(function(emp) {
-        if (!dept || emp.department === dept) {
-            empOptions += '<option value="' + emp.id + '">' + emp.name + '</option>';
-        }
+    var empList = allEmployees.filter(function(emp) {
+        return !dept || emp.department === dept;
     });
-    var row = $('<div class="dept-emp-row d-flex align-items-center mb-1" style="gap:6px">' +
-        '<select class="form-control form-control-sm dept-emp-sel" style="flex:1" onchange="loadDeptRowModules(this)">' + empOptions + '</select>' +
-        '<select class="form-control form-control-sm dept-mod-sel" style="flex:1"><option value="">-- 先选员工 --</option></select>' +
-        '<button type="button" class="btn btn-sm btn-outline-danger" onclick="$(this).closest(\'.dept-emp-row\').remove()"><i class="fas fa-times"></i></button>' +
-        '</div>');
+    var row = $(
+        '<div class="dept-emp-row d-flex align-items-center mb-1" style="gap:6px">' +
+            '<div class="emp-search-wrap position-relative" style="flex:1;min-width:0">' +
+                '<input type="text" class="form-control form-control-sm dept-emp-search" placeholder="输入员工姓名搜索…" autocomplete="off">' +
+                '<input type="hidden" class="dept-emp-sel">' +
+                '<div class="emp-suggest-dropdown list-group" style="display:none;position:absolute;z-index:1060;max-height:220px;overflow-y:auto;width:100%;box-shadow:0 4px 10px rgba(0,0,0,.2)"></div>' +
+            '</div>' +
+            '<select class="form-control form-control-sm dept-mod-sel" style="flex:1"><option value="">-- 先选员工 --</option></select>' +
+            '<button type="button" class="btn btn-sm btn-outline-danger" onclick="$(this).closest(\'.dept-emp-row\').remove()"><i class="fas fa-times"></i></button>' +
+        '</div>'
+    );
     $('#deptEmpRows').append(row);
+    attachEmpSearch(row, empList);
+}
+
+// 为一行绑定员工搜索行为
+function attachEmpSearch($row, empList) {
+    var $input = $row.find('.dept-emp-search');
+    var $hidden = $row.find('.dept-emp-sel');
+    var $drop = $row.find('.emp-suggest-dropdown');
+
+    function showSuggestions(q) {
+        q = (q || '').trim().toLowerCase();
+        var matches = empList.filter(function(emp) {
+            return !q || emp.name.toLowerCase().indexOf(q) !== -1 || String(emp.id) === q;
+        });
+        $drop.empty();
+        if (matches.length === 0) {
+            $drop.append('<div class="list-group-item list-group-item-action text-muted small py-2">无匹配员工</div>');
+        } else {
+            matches.forEach(function(emp) {
+                $drop.append(
+                    '<button type="button" class="list-group-item list-group-item-action py-2 px-3" data-id="' + emp.id + '" data-name="' + emp.name.replace(/"/g, '&quot;') + '">' +
+                    '<span>' + emp.name + '</span>' +
+                    '<span class="text-muted ml-2 small">' + (emp.department || '') + '</span>' +
+                    '</button>'
+                );
+            });
+        }
+        $drop.show();
+    }
+
+    $input.on('focus', function() { showSuggestions($input.val()); });
+    $input.on('input', function() {
+        // 输入变化时清除已选值（用户可能在修改）
+        $hidden.val('');
+        $row.find('.dept-mod-sel').empty().append('<option value="">-- 先选员工 --</option>');
+        showSuggestions($input.val());
+    });
+
+    // 点击建议项
+    $drop.on('click', 'button[data-id]', function() {
+        var id = $(this).data('id');
+        var name = $(this).data('name');
+        $hidden.val(id);
+        $input.val(name);
+        $drop.hide();
+        loadDeptRowModules($row);
+    });
+
+    // 失焦延迟关闭（让点击事件先触发）
+    $input.on('blur', function() { setTimeout(function() { $drop.hide(); }, 200); });
 }
 
 // 某行员工变化时加载该员工模块
-function loadDeptRowModules(empSel) {
-    var empId = $(empSel).val();
-    var $modSel = $(empSel).closest('.dept-emp-row').find('.dept-mod-sel');
+function loadDeptRowModules(row) {
+    var $row = $(row);
+    var empId = $row.find('.dept-emp-sel').val();
+    var $modSel = $row.find('.dept-mod-sel');
     $modSel.empty().append('<option value="">-- 不指定 --</option>');
     if (!empId) return;
     $.get('<?php echo BASE_URL; ?>/orders/index.php?employee_id=' + empId + '&ajax=modules', function(data) {
