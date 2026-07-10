@@ -452,11 +452,13 @@ include __DIR__ . '/../includes/header.php';
                     </div>
                     <div class="form-group">
                         <label>选择员工 <span class="required">*</span></label>
-                        <div style="position:relative">
-                            <input type="text" id="empSearch" class="form-control" placeholder="输入员工姓名搜索…" autocomplete="off" required>
-                            <input type="hidden" name="employee_id" id="empId">
-                            <div id="empSuggest" style="display:none;position:absolute;top:100%;left:0;right:0;z-index:9999;max-height:260px;overflow-y:auto;box-shadow:0 4px 10px rgba(0,0,0,.2);background:#fff;border:1px solid #dee2e6;border-radius:0 0 0.25rem 0.25rem"></div>
-                        </div>
+                        <input type="text" id="empSearch" class="form-control mb-1" placeholder="输入姓名过滤…" autocomplete="off" oninput="filterEmp()">
+                        <select name="employee_id" id="empSel" class="form-control" required>
+                            <option value="">-- 选择员工 --</option>
+                            <?php foreach ($employees as $emp): ?>
+                                <option value="<?php echo $emp['id']; ?>" data-name="<?php echo e($emp['name']); ?>"><?php echo e($emp['name']); ?>（<?php echo e($emp['department'] ?? ''); ?>）</option>
+                            <?php endforeach; ?>
+                        </select>
                     </div>
                     <div class="form-group">
                         <label>选择月份 <span class="required">*</span></label>
@@ -683,87 +685,34 @@ include __DIR__ . '/../includes/header.php';
 <?php include __DIR__ . '/../includes/footer.php'; ?>
 
 <script>
-var allEmployees = <?php echo json_encode($employees, JSON_UNESCAPED_UNICODE); ?>;
-var empNameMap = {};
-allEmployees.forEach(function(emp) {
-    empNameMap[emp.id] = emp;
-});
-
-// 选部门后筛选员工候选
-function loadEmp() {
-    var dept = $('#deptSel').val();
-    var $input = $('#empSearch');
-    var $drop = $('#empSuggest');
-    $input.val('');
-    $('#empId').val('');
-    $drop.hide();
-    if (dept) {
-        $input.attr('placeholder', '输入姓名搜索（' + dept + '）…');
-    } else {
-        $input.attr('placeholder', '输入员工姓名搜索…');
+// 原生JS过滤员工下拉（不依赖jQuery）
+function filterEmp() {
+    var q = document.getElementById('empSearch').value.trim().toLowerCase();
+    var sel = document.getElementById('empSel');
+    for (var i = 0; i < sel.options.length; i++) {
+        var opt = sel.options[i];
+        if (!opt.value) { opt.style.display = ''; continue; }
+        var name = (opt.getAttribute('data-name') || opt.text).toLowerCase();
+        opt.style.display = (!q || name.indexOf(q) !== -1 || opt.value === q) ? '' : 'none';
     }
-    // 重新过滤当前候选
-    $input.trigger('input');
 }
 
-$(function() {
-    var $dept = $('#deptSel');
-    var $input = $('#empSearch');
-    var $hidden = $('#empId');
-    var $drop = $('#empSuggest');
-
-    function showSuggestions(q) {
-        q = (q || '').trim().toLowerCase();
-        var dept = $dept.val();
-        var matches = allEmployees.filter(function(emp) {
-            if (dept && emp.department !== dept) return false;
-            if (!q) return true;
-            return emp.name.toLowerCase().indexOf(q) !== -1 || String(emp.id) === q;
-        });
-        $drop.empty();
-        if (matches.length === 0) {
-            $drop.append('<div style="padding:0.5rem 0.75rem;color:#999;font-size:0.875rem">无匹配员工</div>');
-        } else {
-            matches.forEach(function(emp) {
-                $drop.append(
-                    '<div class="emp-item" data-id="' + emp.id + '" data-name="' + emp.name.replace(/"/g, '&quot;') + '" ' +
-                    'style="padding:0.5rem 0.75rem;cursor:pointer;border-bottom:1px solid #f1f1f1">' +
-                    '<span>' + emp.name + '</span>' +
-                    '<span class="text-muted ml-2 small">' + (emp.department || '') + '</span>' +
-                    '</div>'
-                );
-            });
-        }
-        $drop.css('display', 'block');
-    }
-
-    $input.on('focus', function() { showSuggestions($input.val()); });
-    $input.on('input', function() {
-        $('#empId').val('');
-        showSuggestions($input.val());
-    });
-
-    // 点击建议项选中 + hover 效果
-    $drop.on('mouseenter', '.emp-item', function() { $(this).css('background', '#f8f9fa'); });
-    $drop.on('mouseleave', '.emp-item', function() { $(this).css('background', '#fff'); });
-    $drop.on('click', '.emp-item', function() {
-        var id = $(this).data('id');
-        var name = $(this).data('name');
-        $hidden.val(id);
-        $input.val(name);
-        $drop.hide();
-    });
-
-    // 失焦延迟关闭
-    $input.on('blur', function() { setTimeout(function() { $drop.hide(); }, 200); });
-
-    // 提交兜底
-    $('#settleForm').on('submit', function(e) {
-        if (!$hidden.val()) {
-            e.preventDefault();
-            alert('请从列表中选择一名员工。');
-            $input.focus();
+// 选部门后筛选员工（原生JS）
+function loadEmp() {
+    var dept = document.getElementById('deptSel').value;
+    var sel = document.getElementById('empSel');
+    var search = document.getElementById('empSearch');
+    search.value = '';
+    sel.innerHTML = '<option value="">-- 选择员工 --</option>';
+    var emps = <?php echo json_encode($employees, JSON_UNESCAPED_UNICODE); ?>;
+    emps.forEach(function(emp) {
+        if (!dept || emp.department === dept) {
+            var opt = document.createElement('option');
+            opt.value = emp.id;
+            opt.setAttribute('data-name', emp.name);
+            opt.text = emp.name + '（' + (emp.department || '') + '）';
+            sel.appendChild(opt);
         }
     });
-});
+}
 </script>
