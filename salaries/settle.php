@@ -452,13 +452,13 @@ include __DIR__ . '/../includes/header.php';
                     </div>
                     <div class="form-group">
                         <label>选择员工 <span class="required">*</span></label>
-                        <input type="text" id="empSearch" class="form-control mb-1" placeholder="输入姓名过滤…" autocomplete="off" oninput="filterEmp()">
-                        <select name="employee_id" id="empSel" class="form-control" required>
-                            <option value="">-- 选择员工 --</option>
+                        <input type="text" id="empSearch" class="form-control" list="empList" placeholder="输入姓名搜索选择…" autocomplete="off" onchange="syncEmpId()" required>
+                        <datalist id="empList">
                             <?php foreach ($employees as $emp): ?>
-                                <option value="<?php echo $emp['id']; ?>" data-name="<?php echo e($emp['name']); ?>"><?php echo e($emp['name']); ?>（<?php echo e($emp['department'] ?? ''); ?>）</option>
+                                <option value="<?php echo e($emp['name']); ?>（<?php echo e($emp['department'] ?? ''); ?>）" data-id="<?php echo $emp['id']; ?>"><?php echo e($emp['name']); ?>（<?php echo e($emp['department'] ?? ''); ?>）</option>
                             <?php endforeach; ?>
-                        </select>
+                        </datalist>
+                        <input type="hidden" name="employee_id" id="empId">
                     </div>
                     <div class="form-group">
                         <label>选择月份 <span class="required">*</span></label>
@@ -685,34 +685,54 @@ include __DIR__ . '/../includes/header.php';
 <?php include __DIR__ . '/../includes/footer.php'; ?>
 
 <script>
-// 原生JS过滤员工下拉（不依赖jQuery）
-function filterEmp() {
-    var q = document.getElementById('empSearch').value.trim().toLowerCase();
-    var sel = document.getElementById('empSel');
-    for (var i = 0; i < sel.options.length; i++) {
-        var opt = sel.options[i];
-        if (!opt.value) { opt.style.display = ''; continue; }
-        var name = (opt.getAttribute('data-name') || opt.text).toLowerCase();
-        opt.style.display = (!q || name.indexOf(q) !== -1 || opt.value === q) ? '' : 'none';
-    }
+// 员工名→id 映射（原生JS，不依赖jQuery）
+var empMap = {};
+<?php foreach ($employees as $emp): ?>
+empMap[<?php echo json_encode($emp['name'] . '（' . ($emp['department'] ?? '') . '）', JSON_UNESCAPED_UNICODE); ?>] = <?php echo $emp['id']; ?>;
+empMap[<?php echo json_encode($emp['name'], JSON_UNESCAPED_UNICODE); ?>] = <?php echo $emp['id']; ?>;
+<?php endforeach; ?>
+
+// datalist 选中/输入后同步 employee_id
+function syncEmpId() {
+    var text = document.getElementById('empSearch').value.trim();
+    var hidden = document.getElementById('empId');
+    hidden.value = empMap[text] || '';
 }
 
-// 选部门后筛选员工（原生JS）
+// 选部门后筛选 datalist 候选
 function loadEmp() {
     var dept = document.getElementById('deptSel').value;
-    var sel = document.getElementById('empSel');
+    var list = document.getElementById('empList');
     var search = document.getElementById('empSearch');
     search.value = '';
-    sel.innerHTML = '<option value="">-- 选择员工 --</option>';
+    document.getElementById('empId').value = '';
+    list.innerHTML = '';
     var emps = <?php echo json_encode($employees, JSON_UNESCAPED_UNICODE); ?>;
     emps.forEach(function(emp) {
         if (!dept || emp.department === dept) {
             var opt = document.createElement('option');
-            opt.value = emp.id;
-            opt.setAttribute('data-name', emp.name);
-            opt.text = emp.name + '（' + (emp.department || '') + '）';
-            sel.appendChild(opt);
+            opt.value = emp.name + '（' + (emp.department || '') + '）';
+            opt.setAttribute('data-id', emp.id);
+            list.appendChild(opt);
         }
     });
 }
+
+// 表单提交前确保 employee_id 有值
+document.addEventListener('DOMContentLoaded', function() {
+    var form = document.getElementById('settleForm');
+    if (form) {
+        form.addEventListener('submit', function(e) {
+            syncEmpId();
+            if (!document.getElementById('empId').value) {
+                e.preventDefault();
+                alert('请从列表中选择一名员工。');
+                document.getElementById('empSearch').focus();
+            }
+        });
+    }
+    // 输入时也实时同步
+    var search = document.getElementById('empSearch');
+    if (search) search.addEventListener('input', syncEmpId);
+});
 </script>
