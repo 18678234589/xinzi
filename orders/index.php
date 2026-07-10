@@ -182,9 +182,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         $batchStmt = db()->prepare("INSERT INTO upload_batches (employee_id, headers) VALUES (?, ?)");
                         $batchStmt->execute([$employee_id, $batchHeaders]);
 
+                        // 清空当月旧数据，避免重复上传导致数据累加
+                        $monthPattern = $upload_month . '%';
+                        if ($order_scope === 'department' && $dept_name !== '') {
+                            // 部门订单：清该部门当月的汇总行 + 归属员工的拆分行
+                            $del = db()->prepare("DELETE FROM orders WHERE DATE_FORMAT(order_date, '%Y-%m') = ? AND order_scope = 'department' AND employee_id = 0 AND raw_data LIKE ?");
+                            $del->execute([$upload_month, '%\"__dept__\":\"' . $dept_name . '\"%']);
+                            $del2 = db()->prepare("DELETE FROM orders WHERE DATE_FORMAT(order_date, '%Y-%m') = ? AND order_scope = 'personal' AND raw_data LIKE ?");
+                            $del2->execute([$upload_month, '%\"__from_dept__\":\"' . $dept_name . '\"%']);
+                        } else {
+                            // 个人订单：清该员工当月的个人订单（排除部门拆分行 __from_dept__）
+                            $del = db()->prepare("DELETE FROM orders WHERE employee_id = ? AND DATE_FORMAT(order_date, '%Y-%m') = ? AND COALESCE(order_scope, 'personal') = 'personal' AND (raw_data IS NULL OR raw_data NOT LIKE '%\"__from_dept__\"%')");
+                            $del->execute([$employee_id, $upload_month]);
+                        }
+
                         $inserted = 0; $skipped = 0;
                         $stmt = db()->prepare("INSERT INTO orders (employee_id, order_amount, order_date, project, order_no, raw_data, is_abnormal, abnormal_reason, order_scope) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
 
+                        db()->beginTransaction();
+                        try {
                         foreach ($dataRows as $row) {
                             if (count(array_filter($row, fn($v) => trim($v) !== '')) === 0) continue;
 
@@ -251,6 +267,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                 $stmt->execute([$bindEmpId, $amount, $parsedDate, $project, $orderNo, json_encode($rawMap, JSON_UNESCAPED_UNICODE), $isAbn, $abnReason, $order_scope]);
                                 $isAbn ? $skipped++ : $inserted++;
                             }
+                        }
+                        db()->commit();
+                        } catch (Exception $txEx) {
+                            db()->rollBack();
+                            throw $txEx;
                         }
                     } // end if (!empty($rows))
 
@@ -454,7 +475,7 @@ ensureOrderNoColumn(); // 确保 orders.order_no 字段存在
 
 // 基础 WHERE（不含 project 筛选，用于分组汇总）
 // 排除店铺上传的订单（order_scope='department' 且 shop 非空），它们只在店铺管理页展示
-$baseWhere  = " WHERE (o.raw_data IS NULL OR o.raw_data NOT LIKE '%\"__from_dept__%\":%') AND NOT (o.order_scope = 'department' AND o.shop <> '')";
+$baseWhere  = " WHERE NOT (o.order_scope = 'department' AND o.shop <> '')";
 $baseParams = [];
 if ($filter_employee) {
     // 个人订单匹配 employee_id，部门订单（非店铺）不过滤（employee_id=0 不属于任何人，显示给所有人看）
@@ -469,8 +490,7 @@ if ($filter_month)    { $baseWhere .= " AND DATE_FORMAT(o.order_date, '%Y-%m') =
 // 部门订单视图：只看 employee_id=0 的部门汇总订单（用 __dept__ 匹配，绕过 e.department 过滤）
 if ($filter_dept_orders) {
     // 重建 WHERE：去掉 e.department 过滤（部门订单 JOIN 不到员工），改用 __dept__
-    $baseWhere = " WHERE (o.raw_data IS NULL OR o.raw_data NOT LIKE '%\"__from_dept__%\":%')"
-        . " AND NOT (o.order_scope = 'department' AND o.shop <> '')"
+    $baseWhere = " WHERE NOT (o.order_scope = 'department' AND o.shop <> '')"
         . " AND o.employee_id = 0 AND o.order_scope = 'department'"
         . " AND JSON_UNQUOTE(JSON_EXTRACT(o.raw_data, '$.__dept__')) = ?";
     $baseParams = [$filter_dept];
@@ -560,8 +580,7 @@ if ($filter_dept) {
     // 注意：部门订单 employee_id=0，JOIN 不到员工，不能用 e.department 过滤，
     // 要用 raw_data.__dept__ 匹配部门名。重建 WHERE，不复用含 e.department 的 baseWhere。
     $deptSumParams = [];
-    $deptSumWhere = " WHERE (o.raw_data IS NULL OR o.raw_data NOT LIKE '%\"__from_dept__%\":%')"
-        . " AND NOT (o.order_scope = 'department' AND o.shop <> '')"
+    $deptSumWhere = " WHERE NOT (o.order_scope = 'department' AND o.shop <> '')"
         . " AND o.employee_id = 0 AND o.order_scope = 'department'"
         . " AND JSON_UNQUOTE(JSON_EXTRACT(o.raw_data, '$.__dept__')) = ?";
     $deptSumParams[] = $filter_dept;
@@ -1115,6 +1134,12 @@ include __DIR__ . '/../includes/header.php';
                         <button type="button" class="btn btn-sm btn-outline-secondary ml-2" onclick="clearSelection()">取消选择</button>
                     </div>
                     <div class="table-responsive order-detail-table-wrap">
+                        <div class="mb-2">
+                            <small class="text-muted mr-3"><span class="badge badge-primary"><i class="fas fa-user"></i></span> 个人订单</small>
+                            <small class="text-muted mr-3"><span class="badge badge-success"><i class="fas fa-building"></i></span> 部门汇总</small>
+                            <small class="text-muted mr-3"><span class="badge badge-warning"><i class="fas fa-share-alt"></i></span> 部门拆分(员工提成来源)</small>
+                            <small class="text-muted"><span class="badge badge-danger"><i class="fas fa-exclamation-triangle"></i></span> 异常</small>
+                        </div>
                         <table class="table table-sm table-hover mb-0 order-detail-table" id="ordersTable">
                             <thead class="thead-light sticky-top">
                                 <tr>
@@ -1129,10 +1154,21 @@ include __DIR__ . '/../includes/header.php';
                             <tbody>
                             <?php if ($orders): foreach ($orders as $o): ?>
                                 <?php $rawData = !empty($o['raw_data']) ? (json_decode($o['raw_data'], true) ?: []) : []; ?>
-                                <tr class="<?php echo !empty($o['is_abnormal']) ? 'table-danger' : ''; ?>">
+                                <?php $isFromDept = isset($rawData['__from_dept__']); ?>
+                                <?php $isDeptSummary = ($o['order_scope'] === 'department' && (int)$o['employee_id'] === 0); ?>
+                                <tr class="<?php echo !empty($o['is_abnormal']) ? 'table-danger' : ($isFromDept ? 'table-warning' : ($isDeptSummary ? 'table-info' : '')); ?>">
                                     <td><input type="checkbox" class="row-check" name="ids[]" value="<?php echo $o['id']; ?>" onclick="var cbs=document.querySelectorAll('.row-check'),n=0;cbs.forEach(function(c){if(c.checked)n++;});var ca=document.getElementById('checkAll');if(ca){ca.checked=n===cbs.length;ca.indeterminate=n>0&&n<cbs.length;}var bb=document.getElementById('batchBar');if(bb){bb.style.display=n>0?'flex':'none';bb.style.alignItems='center';}var st=document.getElementById('selectedCount');if(st)st.textContent='已选 '+n+' 条';var bd=document.getElementById('batchDelBtn');if(bd)bd.disabled=n===0;"></td>
                                     <td><?php echo $o['id']; ?></td>
-                                    <td><?php if ($o['order_scope'] === 'department'): ?><?php $dept = !empty($o['raw_data']) ? (json_decode($o['raw_data'], true)['__dept__'] ?? '') : ''; ?><span class="badge badge-success"><i class="fas fa-users"></i> <?php echo e($dept ?: '部门'); ?></span><?php else: ?><span class="badge badge-primary"><i class="fas fa-user"></i> <?php echo e($o['name'] ?: '--'); ?></span><?php endif; ?></td>
+                                    <td>
+                                        <?php if ($isDeptSummary): ?>
+                                            <?php $dept = $rawData['__dept__'] ?? ''; ?>
+                                            <span class="badge badge-success" title="部门订单汇总行"><i class="fas fa-building"></i> <?php echo e($dept ?: '部门'); ?></span>
+                                        <?php elseif ($isFromDept): ?>
+                                            <span class="badge badge-warning" title="部门订单拆分到员工（提成来源）"><i class="fas fa-share-alt"></i> <?php echo e($o['name'] ?: '--'); ?></span><small class="text-muted d-block">来自：<?php echo e($rawData['__from_dept__']); ?></small>
+                                        <?php else: ?>
+                                            <span class="badge badge-primary"><i class="fas fa-user"></i> <?php echo e($o['name'] ?: '--'); ?></span>
+                                        <?php endif; ?>
+                                    </td>
                                     <?php foreach ($uploadHeaders as $hdr): ?>
                                         <td><?php echo isset($rawData[$hdr]) && $rawData[$hdr] !== '' ? e($rawData[$hdr]) : '<span class="text-muted small">--</span>'; ?></td>
                                     <?php endforeach; ?>
@@ -1244,57 +1280,68 @@ function loadDeptEmployees(dept) {
     if (dept) addDeptEmpRow();
 }
 
-// 添加一行员工+模块选择（保留下拉，叠加输入过滤）
-function addDeptEmpRow() {
-    var dept = $('#uploadDeptName').val();
-    var empOptions = '<option value="">-- 选择员工 --</option>';
+// 员工名→id 映射（按当前所选部门过滤后重建）
+var deptEmpMap = {};
+function rebuildDeptEmpMap(dept) {
+    deptEmpMap = {};
     allEmployees.forEach(function(emp) {
         if (!dept || emp.department === dept) {
-            empOptions += '<option value="' + emp.id + '" data-name="' + emp.name.replace(/"/g, '&quot;') + '">' + emp.name + '</option>';
+            deptEmpMap[emp.name + '（' + (emp.department || '') + '）'] = emp.id;
+            deptEmpMap[emp.name] = emp.id;
+        }
+    });
+}
+
+var deptEmpSeq = 0;
+// 添加一行员工+模块选择（datalist 搜索下拉，可输入匹配也可直接选）
+function addDeptEmpRow() {
+    var dept = $('#uploadDeptName').val();
+    rebuildDeptEmpMap(dept);
+    var seq = ++deptEmpSeq;
+    var datalistId = 'deptEmpList_' + seq;
+    // 构建 datalist 候选项
+    var opts = '';
+    allEmployees.forEach(function(emp) {
+        if (!dept || emp.department === dept) {
+            var label = emp.name + '（' + (emp.department || '') + '）';
+            opts += '<option value="' + label.replace(/&/g, '&amp;').replace(/"/g, '&quot;') + '">';
         }
     });
     var row = $(
         '<div class="dept-emp-row d-flex align-items-center mb-1" style="gap:6px">' +
             '<div style="flex:1;min-width:0">' +
-                '<input type="text" class="form-control form-control-sm dept-emp-filter mb-1" placeholder="输入姓名过滤…" autocomplete="off">' +
-                '<select class="form-control form-control-sm dept-emp-sel" onchange="loadDeptRowModules(this)">' + empOptions + '</select>' +
+                '<input type="text" class="form-control form-control-sm dept-emp-search" list="' + datalistId + '" placeholder="输入姓名搜索选择…" autocomplete="off">' +
+                '<datalist id="' + datalistId + '">' + opts + '</datalist>' +
+                '<input type="hidden" class="dept-emp-id">' +
             '</div>' +
             '<select class="form-control form-control-sm dept-mod-sel" style="flex:1"><option value="">-- 先选员工 --</option></select>' +
             '<button type="button" class="btn btn-sm btn-outline-danger" onclick="$(this).closest(\'.dept-emp-row\').remove()"><i class="fas fa-times"></i></button>' +
         '</div>'
     );
     $('#deptEmpRows').append(row);
-    attachEmpFilter(row);
-}
 
-// 为一行的输入框绑定过滤行为（过滤同行的 select）
-function attachEmpFilter($row) {
-    var $input = $row.find('.dept-emp-filter');
-    var $sel = $row.find('.dept-emp-sel');
-    $input.on('input', function() {
-        var q = $(this).val().trim().toLowerCase();
-        $sel.find('option').each(function() {
-            var $opt = $(this);
-            if (!$opt.val()) { $opt.show(); return; }
-            var name = ($opt.data('name') || $opt.text()).toLowerCase();
-            $opt.toggle(!q || name.indexOf(q) !== -1 || $opt.val() === q);
-        });
-    });
-}
-
-// 某行员工变化时加载该员工模块
-function loadDeptRowModules(empSel) {
-    var empId = $(empSel).val();
-    var $modSel = $(empSel).closest('.dept-emp-row').find('.dept-mod-sel');
-    $modSel.empty().append('<option value="">-- 不指定 --</option>');
-    if (!empId) return;
-    $.get('<?php echo BASE_URL; ?>/orders/index.php?employee_id=' + empId + '&ajax=modules', function(data) {
-        if (data && data.length) {
-            data.forEach(function(m) {
-                $modSel.append('<option value="' + m.name + '">' + m.label + '</option>');
-            });
+    // 输入/选中后同步 employee_id 并加载该员工的提成模块
+    var $search = row.find('.dept-emp-search');
+    var $id = row.find('.dept-emp-id');
+    var lastEmpId = undefined; // 防止 input+change 重复触发
+    $search.on('input change', function() {
+        var text = $(this).val().trim();
+        var empId = deptEmpMap[text] || '';
+        if (empId === lastEmpId) return; // 同一员工不重复加载
+        lastEmpId = empId;
+        $id.val(empId);
+        var $modSel = row.find('.dept-mod-sel');
+        $modSel.empty().append('<option value="">-- 不指定 --</option>');
+        if (empId) {
+            $.get('<?php echo BASE_URL; ?>/orders/index.php?employee_id=' + empId + '&ajax=modules', function(data) {
+                if (data && data.length) {
+                    data.forEach(function(m) {
+                        $modSel.append('<option value="' + m.name + '">' + m.label + '</option>');
+                    });
+                }
+            }, 'json');
         }
-    }, 'json');
+    });
 }
 
 // 提交前把所有行序列化到隐藏字段
@@ -1303,7 +1350,7 @@ $('#uploadForm').on('submit', function() {
     if (scope === 'department') {
         var rows = [];
         $('#deptEmpRows .dept-emp-row').each(function() {
-            var empId = $(this).find('.dept-emp-sel').val();
+            var empId = $(this).find('.dept-emp-id').val();
             var mod   = $(this).find('.dept-mod-sel').val();
             if (empId) rows.push({employee_id: empId, module: mod});
         });
