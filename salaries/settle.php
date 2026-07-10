@@ -452,13 +452,13 @@ include __DIR__ . '/../includes/header.php';
                     </div>
                     <div class="form-group">
                         <label>选择员工 <span class="required">*</span></label>
-                        <input type="text" id="empSearch" name="employee_id_text" class="form-control" list="empList" placeholder="输入或选择员工…" autocomplete="off" required>
-                        <datalist id="empList">
+                        <input type="text" id="empSearch" class="form-control mb-1" placeholder="输入姓名过滤列表…" autocomplete="off">
+                        <select name="employee_id" id="empSel" class="form-control" required>
+                            <option value="">-- 选择员工 --</option>
                             <?php foreach ($employees as $emp): ?>
-                                <option value="<?php echo e($emp['name']); ?>（<?php echo e($emp['department'] ?? ''); ?>）">
+                                <option value="<?php echo $emp['id']; ?>" data-name="<?php echo e($emp['name']); ?>"><?php echo e($emp['name']); ?>（<?php echo e($emp['department'] ?? ''); ?>）</option>
                             <?php endforeach; ?>
-                        </datalist>
-                        <input type="hidden" name="employee_id" id="empId">
+                        </select>
                     </div>
                     <div class="form-group">
                         <label>选择月份 <span class="required">*</span></label>
@@ -684,59 +684,33 @@ include __DIR__ . '/../includes/header.php';
 
 <script>
 var allEmployees = <?php echo json_encode($employees, JSON_UNESCAPED_UNICODE); ?>;
-// 名字→id 映射表（显示文本完整匹配）
-var empNameMap = {};
-allEmployees.forEach(function(emp) {
-    empNameMap[emp.name + '（' + (emp.department || '') + '）'] = emp.id;
-});
 
-// 选部门后筛选员工候选
+// 选部门后筛选员工下拉
 function loadEmp() {
     var dept = $('#deptSel').val();
-    var $list = $('#empList');
-    $list.empty();
+    var $sel = $('#empSel');
+    $('#empSearch').val('');
+    $sel.empty().append('<option value="">-- 选择员工 --</option>');
     allEmployees.forEach(function(emp) {
         if (!dept || emp.department === dept) {
-            $list.append('<option value="' + emp.name + '（' + (emp.department || '') + '）">');
+            $sel.append('<option value="' + emp.id + '" data-name="' + emp.name.replace(/"/g, '&quot;') + '">' + emp.name + '（' + (emp.department || '') + '）</option>');
         }
     });
 }
 
 $(function() {
     var $input = $('#empSearch');
-    var $hidden = $('#empId');
-    var $form = $('#settleForm');
+    var $sel = $('#empSel');
 
-    function resolveEmpId(text) {
-        text = (text || '').trim();
-        if (!text) return '';
-        // 优先完整文本匹配
-        if (empNameMap[text]) return empNameMap[text];
-        // 退而求其次：前缀匹配员工名
-        for (var key in empNameMap) {
-            if (key.indexOf(text) === 0) return empNameMap[key];
-        }
-        // 最后尝试纯名字匹配（用户可能只输了名字没带部门）
-        for (var i = 0; i < allEmployees.length; i++) {
-            if (allEmployees[i].name === text) return allEmployees[i].id;
-        }
-        return '';
-    }
-
-    // 输入或选择时：把显示文本解析回 employee_id
-    $input.on('input change', function() {
-        $hidden.val(resolveEmpId($(this).val()));
-    });
-
-    // 提交前确保隐藏字段有值
-    $form.on('submit', function(e) {
-        var id = resolveEmpId($input.val());
-        if (!id) {
-            e.preventDefault();
-            alert('无法匹配到员工，请从下拉列表中选择。');
-            return;
-        }
-        $hidden.val(id);
+    // 输入过滤下拉选项
+    $input.on('input', function() {
+        var q = $(this).val().trim().toLowerCase();
+        $sel.find('option').each(function() {
+            var $opt = $(this);
+            if (!$opt.val()) { $opt.show(); return; }
+            var name = ($opt.data('name') || $opt.text()).toLowerCase();
+            $opt.css('display', (!q || name.indexOf(q) !== -1 || $opt.val() === q) ? '' : 'none');
+        });
     });
 });
 </script>
