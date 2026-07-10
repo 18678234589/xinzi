@@ -442,6 +442,15 @@ include __DIR__ . '/../includes/header.php';
                 <form method="post" id="settleForm">
                     <input type="hidden" name="action" value="preview">
                     <div class="form-group">
+                        <label>选择部门</label>
+                        <select name="department" id="deptSel" class="form-control" onchange="loadEmp()">
+                            <option value="">-- 选择部门 --</option>
+                            <?php foreach ($departments as $d): ?>
+                                <option value="<?php echo e($d); ?>"><?php echo e($d); ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+                    <div class="form-group">
                         <label>选择员工 <span class="required">*</span></label>
                         <input type="text" id="empSearch" class="form-control mb-1" placeholder="输入姓名搜索…" autocomplete="off">
                         <select name="employee_id" id="empSel" class="form-control" required>
@@ -674,6 +683,21 @@ include __DIR__ . '/../includes/header.php';
 </div>
 
 <script>
+var allEmployees = <?php echo json_encode($employees, JSON_UNESCAPED_UNICODE); ?>;
+
+// 选部门后筛选员工下拉
+function loadEmp() {
+    var dept = $('#deptSel').val();
+    var $sel = $('#empSel');
+    $('#empSearch').val('');
+    $sel.empty().append('<option value="">-- 选择员工 --</option>');
+    allEmployees.forEach(function(emp) {
+        if (!dept || emp.department === dept) {
+            $sel.append('<option value="' + emp.id + '" data-name="' + emp.name.replace(/"/g, '&quot;') + '" data-dept="' + (emp.department || '').replace(/"/g, '&quot;') + '">' + emp.name + '（' + (emp.department || '') + '）</option>');
+        }
+    });
+}
+
 $(function() {
     var $input = $('#empSearch');
     var $sel = $('#empSel');
@@ -683,7 +707,7 @@ $(function() {
         var q = $(this).val().trim().toLowerCase();
         $sel.find('option').each(function() {
             var $opt = $(this);
-            if (!$opt.val()) { $opt.show(); return; } // 占位项保留
+            if (!$opt.val()) { $opt.show(); return; }
             var name = ($opt.data('name') || $opt.text()).toLowerCase();
             $opt.css('display', (!q || name.indexOf(q) !== -1 || $opt.val() === q) ? '' : 'none');
         });
