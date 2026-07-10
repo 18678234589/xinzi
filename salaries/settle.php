@@ -452,13 +452,15 @@ include __DIR__ . '/../includes/header.php';
                     </div>
                     <div class="form-group">
                         <label>选择员工 <span class="required">*</span></label>
-                        <input type="text" id="empSearch" class="form-control mb-1" placeholder="输入姓名过滤列表…" autocomplete="off">
-                        <select name="employee_id" id="empSel" class="form-control" required>
-                            <option value="">-- 选择员工 --</option>
-                            <?php foreach ($employees as $emp): ?>
-                                <option value="<?php echo $emp['id']; ?>" data-name="<?php echo e($emp['name']); ?>"><?php echo e($emp['name']); ?>（<?php echo e($emp['department'] ?? ''); ?>）</option>
-                            <?php endforeach; ?>
-                        </select>
+                        <div class="input-group" style="flex-direction:column">
+                            <input type="text" id="empSearch" class="form-control border-bottom-0" style="border-radius:0.25rem 0.25rem 0 0" placeholder="输入姓名过滤…" autocomplete="off">
+                            <select name="employee_id" id="empSel" class="form-control" style="border-radius:0 0 0.25rem 0.25rem" required>
+                                <option value="">-- 选择员工 --</option>
+                                <?php foreach ($employees as $emp): ?>
+                                    <option value="<?php echo $emp['id']; ?>" data-name="<?php echo e($emp['name']); ?>"><?php echo e($emp['name']); ?>（<?php echo e($emp['department'] ?? ''); ?>）</option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
                     </div>
                     <div class="form-group">
                         <label>选择月份 <span class="required">*</span></label>
