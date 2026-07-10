@@ -452,9 +452,9 @@ include __DIR__ . '/../includes/header.php';
                     </div>
                     <div class="form-group">
                         <label>选择员工 <span class="required">*</span></label>
-                        <input type="text" id="empSearch" class="form-control" placeholder="输入员工姓名搜索…" autocomplete="off">
-                        <select name="employee_id" id="empSel" class="form-control mt-1" size="1" required>
-                            <option value="">-- 请先选择部门或输入姓名 --</option>
+                        <input type="text" id="empSearch" class="form-control mb-1" placeholder="输入姓名过滤列表…" autocomplete="off">
+                        <select name="employee_id" id="empSel" class="form-control" required>
+                            <option value="">-- 请先选择部门 --</option>
                         </select>
                         <small class="text-muted"><i class="fas fa-info-circle"></i> 可先选部门缩小范围；选中员工后部门自动同步</small>
                     </div>
@@ -687,11 +687,10 @@ var allEmployees = <?php echo json_encode($employees, JSON_UNESCAPED_UNICODE); ?
 function loadEmp() {
     var dept = $('#deptSel').val();
     var $sel = $('#empSel');
-    $sel.attr('size', 1); // 恢复单行下拉
     $sel.empty();
     $('#empSearch').val('');
     if (!dept) {
-        $sel.append('<option value="">-- 请先选择部门或输入姓名 --</option>');
+        $sel.append('<option value="">-- 请先选择部门 --</option>');
         return;
     }
     $sel.append('<option value="">-- 选择员工 --</option>');
@@ -707,48 +706,42 @@ $(function() {
     var $input = $('#empSearch');
     var $sel = $('#empSel');
 
-    // 输入搜索：把匹配结果填入 select 并展开为列表
-    $input.on('input', function() {
-        var q = $(this).val().trim().toLowerCase();
-        var dept = $dept.val();
-        $sel.empty();
-        var matches = allEmployees.filter(function(emp) {
-            if (dept && emp.department !== dept) return false;
-            if (!q) return true;
-            return emp.name.toLowerCase().indexOf(q) !== -1 || String(emp.id) === q;
-        });
-        if (matches.length === 0) {
-            $sel.attr('size', 1);
-            $sel.append('<option value="" disabled>无匹配员工</option>');
+    // 输入过滤下拉选项
+    function filterOptions(q) {
+        q = (q || '').trim().toLowerCase();
+        // 未选部门：把全部匹配员工填入下拉（带部门标注）
+        if (!$dept.val()) {
+            $sel.empty();
+            var any = false;
+            allEmployees.forEach(function(emp) {
+                if (!q || emp.name.toLowerCase().indexOf(q) !== -1 || String(emp.id) === q) {
+                    $sel.append('<option value="' + emp.id + '" data-name="' + emp.name.replace(/"/g, '&quot;') + '" data-dept="' + (emp.department || '').replace(/"/g, '&quot;') + '">' + emp.name + ' (' + (emp.department || '') + ')</option>');
+                    any = true;
+                }
+            });
+            if (!any) $sel.append('<option value="" disabled>无匹配员工</option>');
             return;
         }
-        matches.forEach(function(emp) {
-            $sel.append('<option value="' + emp.id + '" data-name="' + emp.name.replace(/"/g, '&quot;') + '" data-dept="' + (emp.department || '').replace(/"/g, '&quot;') + '">' + emp.name + (dept ? '' : ' (' + (emp.department || '') + ')') + '</option>');
+        // 已选部门：在现有 option 中隐藏不匹配项
+        $sel.find('option').each(function() {
+            var $opt = $(this);
+            if (!$opt.val()) { $opt.show(); return; } // 占位项保留
+            var name = ($opt.data('name') || $opt.text()).toLowerCase();
+            $opt.css('display', (!q || name.indexOf(q) !== -1 || $opt.val() === q) ? '' : 'none');
         });
-        // 展开为可见列表（最多8行）
-        $sel.attr('size', Math.min(matches.length, 8));
-        // 清空已选值
-        $sel.val('');
-    });
+    }
+
+    $input.on('input', function() { filterOptions($(this).val()); });
+    $input.on('focus', function() { if (!$dept.val() && !$(this).val()) filterOptions(''); });
 
     // 选中员工后自动匹配部门
     $sel.on('change', function() {
         var $opt = $sel.find('option:selected');
         var id = $opt.val();
         if (!id) return;
-        $sel.attr('size', 1); // 收回单行
         var optDept = $opt.data('dept');
         if (optDept && $dept.val() !== optDept) {
             $dept.val(optDept);
-        }
-        // 把搜索框显示为员工名
-        $input.val($opt.data('name') || $opt.text());
-    });
-
-    // 禦点搜索框时也展开
-    $input.on('focus', function() {
-        if ($(this).val().trim() === '') {
-            $input.trigger('input'); // 空输入时展示全部
         }
     });
 });
