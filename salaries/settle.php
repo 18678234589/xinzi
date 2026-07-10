@@ -443,8 +443,8 @@ include __DIR__ . '/../includes/header.php';
                     <input type="hidden" name="action" value="preview">
                     <div class="form-group">
                         <label>选择部门</label>
-                        <select name="department" id="deptSel" class="form-control" onchange="loadEmp()">
-                            <option value="">-- 选择部门 --</option>
+                        <select name="department" id="deptSel" class="form-control">
+                            <option value="">-- 全部部门 --</option>
                             <?php foreach ($departments as $d): ?>
                                 <option value="<?php echo e($d); ?>"><?php echo e($d); ?></option>
                             <?php endforeach; ?>
@@ -452,9 +452,12 @@ include __DIR__ . '/../includes/header.php';
                     </div>
                     <div class="form-group">
                         <label>选择员工 <span class="required">*</span></label>
-                        <select name="employee_id" id="empSel" class="form-control" required>
-                            <option value="">-- 请先选择部门 --</option>
-                        </select>
+                        <div class="position-relative">
+                            <input type="text" id="empSearch" class="form-control" placeholder="输入员工姓名搜索…" autocomplete="off" required>
+                            <input type="hidden" name="employee_id" id="empSel" required>
+                            <div id="empSuggest" class="list-group" style="display:none;position:absolute;z-index:1060;max-height:260px;overflow-y:auto;width:100%;box-shadow:0 4px 10px rgba(0,0,0,.2)"></div>
+                        </div>
+                        <small class="text-muted"><i class="fas fa-info-circle"></i> 可先选部门缩小范围；选中员工后部门自动匹配</small>
                     </div>
                     <div class="form-group">
                         <label>选择月份 <span class="required">*</span></label>
@@ -681,21 +684,68 @@ include __DIR__ . '/../includes/header.php';
 <script>
 var allEmployees = <?php echo json_encode($employees, JSON_UNESCAPED_UNICODE); ?>;
 
-function loadEmp() {
-    var dept = $('#deptSel').val();
-    var $sel = $('#empSel');
-    $sel.empty();
-    if (!dept) {
-        $sel.append('<option value="">-- 请先选择部门 --</option>');
-        return;
+$(function() {
+    var $dept = $('#deptSel');
+    var $input = $('#empSearch');
+    var $hidden = $('#empSel');
+    var $drop = $('#empSuggest');
+
+    function showSuggestions(q) {
+        q = (q || '').trim().toLowerCase();
+        var dept = $dept.val();
+        var matches = allEmployees.filter(function(emp) {
+            if (dept && emp.department !== dept) return false;
+            if (!q) return true;
+            return emp.name.toLowerCase().indexOf(q) !== -1 || String(emp.id) === q;
+        });
+        $drop.empty();
+        if (matches.length === 0) {
+            $drop.append('<div class="list-group-item list-group-item-action text-muted small py-2">无匹配员工</div>');
+        } else {
+            matches.forEach(function(emp) {
+                $drop.append(
+                    '<button type="button" class="list-group-item list-group-item-action py-2 px-3" data-id="' + emp.id + '" data-name="' + emp.name.replace(/"/g, '&quot;') + '" data-dept="' + (emp.department || '').replace(/"/g, '&quot;') + '">' +
+                    '<span>' + emp.name + '</span>' +
+                    '<span class="text-muted ml-2 small">' + (emp.department || '') + '</span>' +
+                    '</button>'
+                );
+            });
+        }
+        $drop.show();
     }
-    $sel.append('<option value="">-- 选择员工 --</option>');
-    allEmployees.forEach(function(emp) {
-        if (emp.department === dept) {
-            $sel.append('<option value="' + emp.id + '">' + emp.name + '</option>');
+
+    // 焦点：展示全部（按部门过滤）
+    $input.on('focus', function() { showSuggestions($input.val()); });
+
+    // 输入变化：清空已选值并重新过滤
+    $input.on('input', function() {
+        $hidden.val('');
+        showSuggestions($input.val());
+    });
+
+    // 点击建议项：选中员工，自动回填部门
+    $drop.on('click', 'button[data-id]', function() {
+        var id = $(this).data('id');
+        var name = $(this).data('name');
+        var dept = $(this).data('dept');
+        $hidden.val(id);
+        $input.val(name);
+        $drop.hide();
+        // 自动匹配部门
+        if (dept && $dept.val() !== dept) {
+            $dept.val(dept);
         }
     });
-}
+
+    // 失焦延迟关闭
+    $input.on('blur', function() { setTimeout(function() { $drop.hide(); }, 200); });
+
+    // 切换部门：清空已选员工，便于按新部门重新搜索
+    $dept.on('change', function() {
+        $hidden.val('');
+        $input.val('');
+    });
+});
 </script>
 
 <?php include __DIR__ . '/../includes/footer.php'; ?>
