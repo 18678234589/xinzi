@@ -197,8 +197,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                 $price  = (float)preg_replace('/[^\d.\-]/', '', trim($row[$idxPrice] ?? ''));
                                 $cost   = (float)preg_replace('/[^\d.\-]/', '', trim($row[$idxCost]  ?? ''));
                                 $amount = $price - $cost;
-                                // 部门订单需扣除3%手续费：利润 = 售价 - 售价×3% - 成本
-                                if ($order_scope === 'department') {
+                                // 部门订单：网站售后部需扣除3%手续费：利润 = 售价 - 售价×3% - 成本
+                                if ($order_scope === 'department' && $dept_name === '网站售后部') {
                                     $amount = round($price - $price * 0.03 - $cost, 2);
                                 }
                             }
