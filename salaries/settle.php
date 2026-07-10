@@ -455,7 +455,7 @@ include __DIR__ . '/../includes/header.php';
                         <input type="text" id="empSearch" name="employee_id_text" class="form-control" list="empList" placeholder="输入或选择员工…" autocomplete="off" required>
                         <datalist id="empList">
                             <?php foreach ($employees as $emp): ?>
-                                <option value="<?php echo e($emp['name']); ?>（<?php echo e($emp['department'] ?? ''); ?>）" data-id="<?php echo $emp['id']; ?>" data-name="<?php echo e($emp['name']); ?>" data-dept="<?php echo e($emp['department'] ?? ''); ?>">
+                                <option value="<?php echo e($emp['name']); ?>（<?php echo e($emp['department'] ?? ''); ?>）">
                             <?php endforeach; ?>
                         </datalist>
                         <input type="hidden" name="employee_id" id="empId">
@@ -684,6 +684,11 @@ include __DIR__ . '/../includes/header.php';
 
 <script>
 var allEmployees = <?php echo json_encode($employees, JSON_UNESCAPED_UNICODE); ?>;
+// 名字→id 映射表（显示文本完整匹配）
+var empNameMap = {};
+allEmployees.forEach(function(emp) {
+    empNameMap[emp.name + '（' + (emp.department || '') + '）'] = emp.id;
+});
 
 // 选部门后筛选员工候选
 function loadEmp() {
@@ -692,7 +697,7 @@ function loadEmp() {
     $list.empty();
     allEmployees.forEach(function(emp) {
         if (!dept || emp.department === dept) {
-            $list.append('<option value="' + emp.name + '（' + (emp.department || '') + '）" data-id="' + emp.id + '" data-name="' + emp.name.replace(/"/g, '&quot;') + '" data-dept="' + (emp.department || '').replace(/"/g, '&quot;') + '">');
+            $list.append('<option value="' + emp.name + '（' + (emp.department || '') + '）">');
         }
     });
 }
@@ -706,19 +711,16 @@ $(function() {
         var text = $(this).val().trim();
         $hidden.val('');
         if (!text) return;
-        // 在 datalist option 中匹配 data-name
-        var $opt = $('#empList option').filter(function() {
-            return $(this).data('name') && text.indexOf($(this).data('name')) === 0;
-        }).first();
-        if ($opt.length) {
-            $hidden.val($opt.data('id'));
-        } else {
-            // 也可能用户直接输了员工名（无部门后缀）
-            for (var i = 0; i < allEmployees.length; i++) {
-                if (allEmployees[i].name === text || allEmployees[i].name.indexOf(text) === 0) {
-                    $hidden.val(allEmployees[i].id);
-                    break;
-                }
+        // 优先完整文本匹配（"张宁（网站售后部）"）
+        if (empNameMap[text]) {
+            $hidden.val(empNameMap[text]);
+            return;
+        }
+        // 退而求其次：只匹配员工名（不含部门）
+        for (var name in empNameMap) {
+            if (name.indexOf(text) === 0 || name.indexOf(text + '（') === 0) {
+                $hidden.val(empNameMap[name]);
+                return;
             }
         }
     });
