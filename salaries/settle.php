@@ -452,13 +452,13 @@ include __DIR__ . '/../includes/header.php';
                     </div>
                     <div class="form-group">
                         <label>选择员工 <span class="required">*</span></label>
-                        <input type="text" id="empSearch" class="form-control mb-1" placeholder="输入姓名搜索…" autocomplete="off">
-                        <select name="employee_id" id="empSel" class="form-control" required>
-                            <option value="">-- 选择员工 --</option>
+                        <input type="text" id="empSearch" name="employee_id_text" class="form-control" list="empList" placeholder="输入或选择员工…" autocomplete="off" required>
+                        <datalist id="empList">
                             <?php foreach ($employees as $emp): ?>
-                                <option value="<?php echo $emp['id']; ?>" data-name="<?php echo e($emp['name']); ?>" data-dept="<?php echo e($emp['department'] ?? ''); ?>"><?php echo e($emp['name']); ?>（<?php echo e($emp['department'] ?? ''); ?>）</option>
+                                <option value="<?php echo e($emp['name']); ?>（<?php echo e($emp['department'] ?? ''); ?>）" data-id="<?php echo $emp['id']; ?>" data-name="<?php echo e($emp['name']); ?>" data-dept="<?php echo e($emp['department'] ?? ''); ?>">
                             <?php endforeach; ?>
-                        </select>
+                        </datalist>
+                        <input type="hidden" name="employee_id" id="empId">
                     </div>
                     <div class="form-group">
                         <label>选择月份 <span class="required">*</span></label>
@@ -685,32 +685,42 @@ include __DIR__ . '/../includes/header.php';
 <script>
 var allEmployees = <?php echo json_encode($employees, JSON_UNESCAPED_UNICODE); ?>;
 
-// 选部门后筛选员工下拉
+// 选部门后筛选员工候选
 function loadEmp() {
     var dept = $('#deptSel').val();
-    var $sel = $('#empSel');
-    $('#empSearch').val('');
-    $sel.empty().append('<option value="">-- 选择员工 --</option>');
+    var $list = $('#empList');
+    $list.empty();
     allEmployees.forEach(function(emp) {
         if (!dept || emp.department === dept) {
-            $sel.append('<option value="' + emp.id + '" data-name="' + emp.name.replace(/"/g, '&quot;') + '" data-dept="' + (emp.department || '').replace(/"/g, '&quot;') + '">' + emp.name + '（' + (emp.department || '') + '）</option>');
+            $list.append('<option value="' + emp.name + '（' + (emp.department || '') + '）" data-id="' + emp.id + '" data-name="' + emp.name.replace(/"/g, '&quot;') + '" data-dept="' + (emp.department || '').replace(/"/g, '&quot;') + '">');
         }
     });
 }
 
 $(function() {
     var $input = $('#empSearch');
-    var $sel = $('#empSel');
+    var $hidden = $('#empId');
 
-    // 输入过滤下拉选项
-    $input.on('input', function() {
-        var q = $(this).val().trim().toLowerCase();
-        $sel.find('option').each(function() {
-            var $opt = $(this);
-            if (!$opt.val()) { $opt.show(); return; }
-            var name = ($opt.data('name') || $opt.text()).toLowerCase();
-            $opt.css('display', (!q || name.indexOf(q) !== -1 || $opt.val() === q) ? '' : 'none');
-        });
+    // 输入或选择时：把显示文本解析回 employee_id
+    $input.on('input change', function() {
+        var text = $(this).val().trim();
+        $hidden.val('');
+        if (!text) return;
+        // 在 datalist option 中匹配 data-name
+        var $opt = $('#empList option').filter(function() {
+            return $(this).data('name') && text.indexOf($(this).data('name')) === 0;
+        }).first();
+        if ($opt.length) {
+            $hidden.val($opt.data('id'));
+        } else {
+            // 也可能用户直接输了员工名（无部门后缀）
+            for (var i = 0; i < allEmployees.length; i++) {
+                if (allEmployees[i].name === text || allEmployees[i].name.indexOf(text) === 0) {
+                    $hidden.val(allEmployees[i].id);
+                    break;
+                }
+            }
+        }
     });
 });
 </script>
