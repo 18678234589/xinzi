@@ -193,10 +193,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                 // 直接使用订单金额列（美工部等）
                                 $amount = (float)preg_replace('/[^\d.\-]/', '', trim($row[$idxAmount] ?? ''));
                             } else {
-                                // 金额 = 价格 - 成本（修改部等）
+                                // 金额 = 售价 - 成本
                                 $price  = (float)preg_replace('/[^\d.\-]/', '', trim($row[$idxPrice] ?? ''));
                                 $cost   = (float)preg_replace('/[^\d.\-]/', '', trim($row[$idxCost]  ?? ''));
                                 $amount = $price - $cost;
+                                // 部门订单需扣除3%手续费：利润 = 售价 - 售价×3% - 成本
+                                if ($order_scope === 'department') {
+                                    $amount = round($price - $price * 0.03 - $cost, 2);
+                                }
                             }
 
                             // 日期：优先使用上传时选择的归属月份，忽略Excel中的日期列
