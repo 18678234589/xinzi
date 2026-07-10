@@ -126,14 +126,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if (!$emp) {
                 $error = '员工不存在';
             } else {
-                // 汇总当月订单（排除异常数据、排除拆分记录）
-                $stmt = db()->prepare("SELECT COUNT(*) as cnt, COALESCE(SUM(order_amount),0) as total FROM orders WHERE employee_id = ? AND DATE_FORMAT(order_date, '%Y-%m') = ? AND COALESCE(is_abnormal,0) = 0 AND (raw_data IS NULL OR raw_data NOT LIKE '%\"__from_dept__%\":%')");
+                // 汇总当月订单（排除异常数据；含部门拆分记录 __from_dept__，这些是员工提成的来源）
+                $stmt = db()->prepare("SELECT COUNT(*) as cnt, COALESCE(SUM(order_amount),0) as total FROM orders WHERE employee_id = ? AND DATE_FORMAT(order_date, '%Y-%m') = ? AND COALESCE(is_abnormal,0) = 0");
                 $stmt->execute([$employee_id, $month]);
                 $orderInfo = $stmt->fetch();
 
                 $order_total = (float)$orderInfo['total'];
-                // 获取当月订单明细（排除异常，供算法使用）
-                $ostmt = db()->prepare("SELECT *, order_amount, order_date, project FROM orders WHERE employee_id = ? AND DATE_FORMAT(order_date, '%Y-%m') = ? AND COALESCE(is_abnormal,0) = 0 AND (raw_data IS NULL OR raw_data NOT LIKE '%\"__from_dept__%\":%') ORDER BY order_date");
+                // 获取当月订单明细（排除异常，供算法使用；含 __from_dept__ 拆分记录）
+                $ostmt = db()->prepare("SELECT *, order_amount, order_date, project FROM orders WHERE employee_id = ? AND DATE_FORMAT(order_date, '%Y-%m') = ? AND COALESCE(is_abnormal,0) = 0 ORDER BY order_date");
                 $ostmt->execute([$employee_id, $month]);
                 $orderList = $ostmt->fetchAll();
                 
@@ -252,7 +252,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         $debug_info .= "  未找到包含'老客户'的订单（检查'店铺'列的值）\n";
                     }
                     $debug_info .= "\n";
-                    
+
+                    // 按模块名统计订单匹配情况（帮助排查"某模块¥0"问题）
+                    $projectStats = [];
+                    foreach ($orderList as $o) {
+                        $proj = trim($o['project'] ?? '');
+                        if ($proj === '') $proj = '(空)';
+                        if (!isset($projectStats[$proj])) $projectStats[$proj] = ['cnt' => 0, 'total' => 0];
+                        $projectStats[$proj]['cnt']++;
+                        $projectStats[$proj]['total'] += (float)($o['order_amount'] ?? 0);
+                    }
+                    $debug_info .= "订单按project分布（用于模块匹配）:\n";
+                    foreach ($projectStats as $proj => $st) {
+                        $debug_info .= "  [{$proj}] => {$st['cnt']}笔, ¥" . number_format($st['total'], 2) . "\n";
+                    }
+                    $debug_info .= "\n";
+
                     $debug_info .= "计算结果：\n";
                     foreach (($result['modules'] ?? []) as $mod) {
                         $debug_info .= "  {$mod['name']}: ¥{$mod['amount']} (公式: {$mod['formula']})\n";
@@ -290,11 +305,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if (!$emp) {
                 $error = '员工不存在';
             } else {
-                $stmt = db()->prepare("SELECT COALESCE(SUM(order_amount),0) as total FROM orders WHERE employee_id = ? AND DATE_FORMAT(order_date, '%Y-%m') = ? AND COALESCE(is_abnormal,0) = 0 AND (raw_data IS NULL OR raw_data NOT LIKE '%\"__from_dept__%\":%')");
+                $stmt = db()->prepare("SELECT COALESCE(SUM(order_amount),0) as total FROM orders WHERE employee_id = ? AND DATE_FORMAT(order_date, '%Y-%m') = ? AND COALESCE(is_abnormal,0) = 0");
                 $stmt->execute([$employee_id, $month]);
                 $order_total = (float)$stmt->fetchColumn();
-                // 获取当月订单明细（排除异常，供算法使用）
-                $ostmt = db()->prepare("SELECT *, order_amount, order_date, project FROM orders WHERE employee_id = ? AND DATE_FORMAT(order_date, '%Y-%m') = ? AND COALESCE(is_abnormal,0) = 0 AND (raw_data IS NULL OR raw_data NOT LIKE '%\"__from_dept__%\":%') ORDER BY order_date");
+                // 获取当月订单明细（排除异常，供算法使用；含 __from_dept__ 拆分记录）
+                $ostmt = db()->prepare("SELECT *, order_amount, order_date, project FROM orders WHERE employee_id = ? AND DATE_FORMAT(order_date, '%Y-%m') = ? AND COALESCE(is_abnormal,0) = 0 ORDER BY order_date");
                 $ostmt->execute([$employee_id, $month]);
                 $orderList = $ostmt->fetchAll();
 
