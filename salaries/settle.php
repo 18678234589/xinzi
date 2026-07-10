@@ -452,9 +452,9 @@ include __DIR__ . '/../includes/header.php';
                     </div>
                     <div class="form-group">
                         <label>选择员工 <span class="required">*</span></label>
-                        <div class="input-group" style="flex-direction:column">
-                            <input type="text" id="empSearch" class="form-control border-bottom-0" style="border-radius:0.25rem 0.25rem 0 0" placeholder="输入姓名过滤…" autocomplete="off">
-                            <select name="employee_id" id="empSel" class="form-control" style="border-radius:0 0 0.25rem 0.25rem" required>
+                        <div class="d-flex" style="gap:6px">
+                            <input type="text" id="empSearch" class="form-control" style="flex:0 0 35%" placeholder="输入姓名过滤…" autocomplete="off">
+                            <select name="employee_id" id="empSel" class="form-control" style="flex:1" required>
                                 <option value="">-- 选择员工 --</option>
                                 <?php foreach ($employees as $emp): ?>
                                     <option value="<?php echo $emp['id']; ?>" data-name="<?php echo e($emp['name']); ?>"><?php echo e($emp['name']); ?>（<?php echo e($emp['department'] ?? ''); ?>）</option>
