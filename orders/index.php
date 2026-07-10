@@ -197,9 +197,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                 $price  = (float)preg_replace('/[^\d.\-]/', '', trim($row[$idxPrice] ?? ''));
                                 $cost   = (float)preg_replace('/[^\d.\-]/', '', trim($row[$idxCost]  ?? ''));
                                 $amount = $price - $cost;
-                                // 部门订单：网站售后部需扣除3%手续费：利润 = 售价 - 售价×3% - 成本
-                                if ($order_scope === 'department' && $dept_name === '网站售后部') {
-                                    $amount = round($price - $price * 0.03 - $cost, 2);
+                                // 部门订单：按配置文件扣除手续费：利润 = 售价 - 售价×手续费率 - 成本
+                                if ($order_scope === 'department' && $dept_name !== '') {
+                                    static $deptFeeMap = null;
+                                    if ($deptFeeMap === null) {
+                                        $deptFeeMap = include __DIR__ . '/../config/dept_fee.php';
+                                        if (!is_array($deptFeeMap)) $deptFeeMap = [];
+                                    }
+                                    $feeRate = isset($deptFeeMap[$dept_name]) ? (float)$deptFeeMap[$dept_name] : 0.0;
+                                    if ($feeRate > 0) {
+                                        $amount = round($price - $price * $feeRate - $cost, 2);
+                                    }
                                 }
                             }
 
