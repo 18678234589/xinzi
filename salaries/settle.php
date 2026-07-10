@@ -452,10 +452,10 @@ include __DIR__ . '/../includes/header.php';
                     </div>
                     <div class="form-group">
                         <label>选择员工 <span class="required">*</span></label>
-                        <div class="position-relative">
+                        <div style="position:relative">
                             <input type="text" id="empSearch" class="form-control" placeholder="输入员工姓名搜索…" autocomplete="off" required>
                             <input type="hidden" name="employee_id" id="empId">
-                            <div id="empSuggest" class="list-group position-absolute" style="display:none;z-index:1060;max-height:260px;overflow-y:auto;width:100%;box-shadow:0 4px 10px rgba(0,0,0,.2)"></div>
+                            <div id="empSuggest" style="display:none;position:absolute;top:100%;left:0;right:0;z-index:9999;max-height:260px;overflow-y:auto;box-shadow:0 4px 10px rgba(0,0,0,.2);background:#fff;border:1px solid #dee2e6;border-radius:0 0 0.25rem 0.25rem"></div>
                         </div>
                     </div>
                     <div class="form-group">
@@ -724,15 +724,15 @@ $(function() {
         } else {
             matches.forEach(function(emp) {
                 $drop.append(
-                    '<button type="button" class="list-group-item list-group-item-action py-2 px-3" ' +
-                    'data-id="' + emp.id + '" data-name="' + emp.name.replace(/"/g, '&quot;') + '">' +
+                    '<div class="emp-item" data-id="' + emp.id + '" data-name="' + emp.name.replace(/"/g, '&quot;') + '" ' +
+                    'style="padding:0.5rem 0.75rem;cursor:pointer;border-bottom:1px solid #f1f1f1">' +
                     '<span>' + emp.name + '</span>' +
                     '<span class="text-muted ml-2 small">' + (emp.department || '') + '</span>' +
-                    '</button>'
+                    '</div>'
                 );
             });
         }
-        $drop.show();
+        $drop.css('display', 'block');
     }
 
     $input.on('focus', function() { showSuggestions($input.val()); });
@@ -741,8 +741,10 @@ $(function() {
         showSuggestions($input.val());
     });
 
-    // 点击建议项选中
-    $drop.on('click', 'button[data-id]', function() {
+    // 点击建议项选中 + hover 效果
+    $drop.on('mouseenter', '.emp-item', function() { $(this).css('background', '#f8f9fa'); });
+    $drop.on('mouseleave', '.emp-item', function() { $(this).css('background', '#fff'); });
+    $drop.on('click', '.emp-item', function() {
         var id = $(this).data('id');
         var name = $(this).data('name');
         $hidden.val(id);
