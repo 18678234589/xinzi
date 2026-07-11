@@ -126,14 +126,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if (!$emp) {
                 $error = '员工不存在';
             } else {
-                // 汇总当月订单（排除异常数据、排除拆分记录）
-                $stmt = db()->prepare("SELECT COUNT(*) as cnt, COALESCE(SUM(order_amount),0) as total FROM orders WHERE employee_id = ? AND DATE_FORMAT(order_date, '%Y-%m') = ? AND COALESCE(is_abnormal,0) = 0 AND (raw_data IS NULL OR raw_data NOT LIKE '%\"__from_dept__%\":%')");
+                // 汇总当月订单（排除异常数据；含部门拆分记录 __from_dept__，这些是员工提成的来源）
+                $stmt = db()->prepare("SELECT COUNT(*) as cnt, COALESCE(SUM(order_amount),0) as total FROM orders WHERE employee_id = ? AND DATE_FORMAT(order_date, '%Y-%m') = ? AND COALESCE(is_abnormal,0) = 0");
                 $stmt->execute([$employee_id, $month]);
                 $orderInfo = $stmt->fetch();
 
                 $order_total = (float)$orderInfo['total'];
-                // 获取当月订单明细（排除异常，供算法使用）
-                $ostmt = db()->prepare("SELECT *, order_amount, order_date, project FROM orders WHERE employee_id = ? AND DATE_FORMAT(order_date, '%Y-%m') = ? AND COALESCE(is_abnormal,0) = 0 AND (raw_data IS NULL OR raw_data NOT LIKE '%\"__from_dept__%\":%') ORDER BY order_date");
+                // 获取当月订单明细（排除异常，供算法使用；含 __from_dept__ 拆分记录）
+                $ostmt = db()->prepare("SELECT *, order_amount, order_date, project FROM orders WHERE employee_id = ? AND DATE_FORMAT(order_date, '%Y-%m') = ? AND COALESCE(is_abnormal,0) = 0 ORDER BY order_date");
                 $ostmt->execute([$employee_id, $month]);
                 $orderList = $ostmt->fetchAll();
                 
@@ -252,7 +252,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         $debug_info .= "  未找到包含'老客户'的订单（检查'店铺'列的值）\n";
                     }
                     $debug_info .= "\n";
-                    
+
+                    // 按模块名统计订单匹配情况（帮助排查"某模块¥0"问题）
+                    $projectStats = [];
+                    foreach ($orderList as $o) {
+                        $proj = trim($o['project'] ?? '');
+                        if ($proj === '') $proj = '(空)';
+                        if (!isset($projectStats[$proj])) $projectStats[$proj] = ['cnt' => 0, 'total' => 0];
+                        $projectStats[$proj]['cnt']++;
+                        $projectStats[$proj]['total'] += (float)($o['order_amount'] ?? 0);
+                    }
+                    $debug_info .= "订单按project分布（用于模块匹配）:\n";
+                    foreach ($projectStats as $proj => $st) {
+                        $debug_info .= "  [{$proj}] => {$st['cnt']}笔, ¥" . number_format($st['total'], 2) . "\n";
+                    }
+                    $debug_info .= "\n";
+
                     $debug_info .= "计算结果：\n";
                     foreach (($result['modules'] ?? []) as $mod) {
                         $debug_info .= "  {$mod['name']}: ¥{$mod['amount']} (公式: {$mod['formula']})\n";
@@ -290,11 +305,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if (!$emp) {
                 $error = '员工不存在';
             } else {
-                $stmt = db()->prepare("SELECT COALESCE(SUM(order_amount),0) as total FROM orders WHERE employee_id = ? AND DATE_FORMAT(order_date, '%Y-%m') = ? AND COALESCE(is_abnormal,0) = 0 AND (raw_data IS NULL OR raw_data NOT LIKE '%\"__from_dept__%\":%')");
+                $stmt = db()->prepare("SELECT COALESCE(SUM(order_amount),0) as total FROM orders WHERE employee_id = ? AND DATE_FORMAT(order_date, '%Y-%m') = ? AND COALESCE(is_abnormal,0) = 0");
                 $stmt->execute([$employee_id, $month]);
                 $order_total = (float)$stmt->fetchColumn();
-                // 获取当月订单明细（排除异常，供算法使用）
-                $ostmt = db()->prepare("SELECT *, order_amount, order_date, project FROM orders WHERE employee_id = ? AND DATE_FORMAT(order_date, '%Y-%m') = ? AND COALESCE(is_abnormal,0) = 0 AND (raw_data IS NULL OR raw_data NOT LIKE '%\"__from_dept__%\":%') ORDER BY order_date");
+                // 获取当月订单明细（排除异常，供算法使用；含 __from_dept__ 拆分记录）
+                $ostmt = db()->prepare("SELECT *, order_amount, order_date, project FROM orders WHERE employee_id = ? AND DATE_FORMAT(order_date, '%Y-%m') = ? AND COALESCE(is_abnormal,0) = 0 ORDER BY order_date");
                 $ostmt->execute([$employee_id, $month]);
                 $orderList = $ostmt->fetchAll();
 
@@ -437,9 +452,13 @@ include __DIR__ . '/../includes/header.php';
                     </div>
                     <div class="form-group">
                         <label>选择员工 <span class="required">*</span></label>
-                        <select name="employee_id" id="empSel" class="form-control" required>
-                            <option value="">-- 请先选择部门 --</option>
-                        </select>
+                        <input type="text" id="empSearch" class="form-control" list="empList" placeholder="输入姓名搜索选择…" autocomplete="off" onchange="syncEmpId()" required>
+                        <datalist id="empList">
+                            <?php foreach ($employees as $emp): ?>
+                                <option value="<?php echo e($emp['name']); ?>（<?php echo e($emp['department'] ?? ''); ?>）" data-id="<?php echo $emp['id']; ?>"><?php echo e($emp['name']); ?>（<?php echo e($emp['department'] ?? ''); ?>）</option>
+                            <?php endforeach; ?>
+                        </datalist>
+                        <input type="hidden" name="employee_id" id="empId">
                     </div>
                     <div class="form-group">
                         <label>选择月份 <span class="required">*</span></label>
@@ -663,24 +682,57 @@ include __DIR__ . '/../includes/header.php';
     </div>
 </div>
 
-<script>
-var allEmployees = <?php echo json_encode($employees, JSON_UNESCAPED_UNICODE); ?>;
+<?php include __DIR__ . '/../includes/footer.php'; ?>
 
+<script>
+// 员工名→id 映射（原生JS，不依赖jQuery）
+var empMap = {};
+<?php foreach ($employees as $emp): ?>
+empMap[<?php echo json_encode($emp['name'] . '（' . ($emp['department'] ?? '') . '）', JSON_UNESCAPED_UNICODE); ?>] = <?php echo $emp['id']; ?>;
+empMap[<?php echo json_encode($emp['name'], JSON_UNESCAPED_UNICODE); ?>] = <?php echo $emp['id']; ?>;
+<?php endforeach; ?>
+
+// datalist 选中/输入后同步 employee_id
+function syncEmpId() {
+    var text = document.getElementById('empSearch').value.trim();
+    var hidden = document.getElementById('empId');
+    hidden.value = empMap[text] || '';
+}
+
+// 选部门后筛选 datalist 候选
 function loadEmp() {
-    var dept = $('#deptSel').val();
-    var $sel = $('#empSel');
-    $sel.empty();
-    if (!dept) {
-        $sel.append('<option value="">-- 请先选择部门 --</option>');
-        return;
-    }
-    $sel.append('<option value="">-- 选择员工 --</option>');
-    allEmployees.forEach(function(emp) {
-        if (emp.department === dept) {
-            $sel.append('<option value="' + emp.id + '">' + emp.name + '</option>');
+    var dept = document.getElementById('deptSel').value;
+    var list = document.getElementById('empList');
+    var search = document.getElementById('empSearch');
+    search.value = '';
+    document.getElementById('empId').value = '';
+    list.innerHTML = '';
+    var emps = <?php echo json_encode($employees, JSON_UNESCAPED_UNICODE); ?>;
+    emps.forEach(function(emp) {
+        if (!dept || emp.department === dept) {
+            var opt = document.createElement('option');
+            opt.value = emp.name + '（' + (emp.department || '') + '）';
+            opt.setAttribute('data-id', emp.id);
+            list.appendChild(opt);
         }
     });
 }
-</script>
 
-<?php include __DIR__ . '/../includes/footer.php'; ?>
+// 表单提交前确保 employee_id 有值
+document.addEventListener('DOMContentLoaded', function() {
+    var form = document.getElementById('settleForm');
+    if (form) {
+        form.addEventListener('submit', function(e) {
+            syncEmpId();
+            if (!document.getElementById('empId').value) {
+                e.preventDefault();
+                alert('请从列表中选择一名员工。');
+                document.getElementById('empSearch').focus();
+            }
+        });
+    }
+    // 输入时也实时同步
+    var search = document.getElementById('empSearch');
+    if (search) search.addEventListener('input', syncEmpId);
+});
+</script>
