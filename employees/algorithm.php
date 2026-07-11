@@ -497,6 +497,14 @@ function calcPreview(idx) {
             result.amount = -((cfg.absent_days||0)*(cfg.deduct_per_day||100));
             result.detail = '-' + (cfg.absent_days||0) + '天';
             break;
+        case 'customer_reward':
+            var newCnt = Math.round(orderTotalDemo/5000)||2;
+            var oldCnt = Math.round(orderTotalDemo/8000)||1;
+            var newReward = cfg.new_customer_reward || 50;
+            var oldReward = cfg.old_customer_reward || 30;
+            result.amount = (newCnt * newReward) + (oldCnt * oldReward);
+            result.detail = '新客户'+newCnt+'人 + 老客户'+oldCnt+'人';
+            break;
         default: result.amount = 0; result.detail = '--';
     }
 

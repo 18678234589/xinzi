@@ -178,6 +178,7 @@ class SalaryCalculator
             case 'attendance_full':   return self::calcAttendanceFull($config, $ctx);
             case 'attendance_daily':  return self::calcAttendanceDaily($config, $ctx);
             case 'attendance_deduct': return self::calcAttendanceDeduct($config, $ctx);
+            case 'customer_reward':   return self::calcCustomerReward($config, $ctx, $moduleName);
             default: return null;
         }
     }
@@ -620,6 +621,150 @@ class SalaryCalculator
         ];
     }
 
+    // ---- 新老客户订单奖励 ----
+    private static function calcCustomerReward($cfg, $c, $moduleName = '')
+    {
+        $newReward = (float)($cfg['new_customer_reward'] ?? 50);
+        $oldReward = (float)($cfg['old_customer_reward'] ?? 30);
+        
+        $month = $c['month'] ?? date('Y-m');
+        $employeeId = $c['employee']['id'] ?? 0;
+        
+        $personalWangwangs = [];
+        $shopWangwangs = [];
+        
+        foreach (($c['orders'] ?? []) as $o) {
+            $wangwang = self::extractWangwang($o);
+            if ($wangwang === '') continue;
+            
+            $rawData = is_string($o['raw_data'] ?? '') ? json_decode($o['raw_data'], true) : ($o['raw_data'] ?? []);
+            $isRefund = isset($rawData['__is_refund__']) && $rawData['__is_refund__'] === '1';
+            if ($isRefund) continue;
+            
+            if ($o['employee_id'] == $employeeId) {
+                $personalWangwangs[$wangwang] = true;
+            }
+            
+            if ($o['order_scope'] === 'department') {
+                $shopWangwangs[$wangwang] = true;
+            }
+        }
+        
+        $shopWangwangsFromDb = self::getShopTotalWangwangs($month);
+        foreach ($shopWangwangsFromDb as $ww) {
+            $shopWangwangs[$ww] = true;
+        }
+        
+        $newCustomers = [];
+        $oldCustomers = [];
+        
+        foreach (array_keys($personalWangwangs) as $ww) {
+            if (isset($shopWangwangs[$ww])) {
+                $oldCustomers[] = $ww;
+            } else {
+                $newCustomers[] = $ww;
+            }
+        }
+        
+        $newCount = count($newCustomers);
+        $oldCount = count($oldCustomers);
+        
+        $newAmount = $newCount * $newReward;
+        $oldAmount = $oldCount * $oldReward;
+        $totalAmount = $newAmount + $oldAmount;
+        
+        $formulaParts = [];
+        if ($newCount > 0) {
+            $formulaParts[] = sprintf('新客户%d人×¥%.2f=%.2f', $newCount, $newReward, $newAmount);
+        }
+        if ($oldCount > 0) {
+            $formulaParts[] = sprintf('老客户%d人×¥%.2f=%.2f', $oldCount, $oldReward, $oldAmount);
+        }
+        $formula = implode(' + ', $formulaParts);
+        if (count($formulaParts) === 0) {
+            $formula = '0.00';
+        }
+        
+        return [
+            'amount' => round($totalAmount, 2),
+            'formula' => $formula,
+            'type' => 'customer_reward',
+        ];
+    }
+    
+    private static function extractWangwang($order)
+    {
+        if (!empty($order['wangwang'])) {
+            return trim($order['wangwang']);
+        }
+        
+        $rawData = is_string($order['raw_data'] ?? '') ? json_decode($order['raw_data'], true) : ($order['raw_data'] ?? []);
+        if (is_array($rawData)) {
+            foreach ($rawData as $key => $value) {
+                $lowerKey = strtolower(trim($key));
+                if (strpos($lowerKey, '旺旺') !== false || 
+                    strpos($lowerKey, 'wangwang') !== false ||
+                    strpos($lowerKey, '买家') !== false ||
+                    strpos($lowerKey, '用户') !== false) {
+                    $ww = trim((string)$value);
+                    if ($ww !== '') {
+                        return $ww;
+                    }
+                }
+            }
+        }
+        
+        return '';
+    }
+    
+    private static function getShopTotalWangwangs($month)
+    {
+        $wangwangs = [];
+        try {
+            $stmt = db()->prepare("SELECT DISTINCT wangwang FROM orders WHERE order_scope = 'department' AND DATE_FORMAT(order_date, '%Y-%m') = ? AND wangwang IS NOT NULL AND wangwang != ''");
+            $stmt->execute([$month]);
+            while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
+                $ww = trim($row['wangwang']);
+                if ($ww !== '') {
+                    $wangwangs[] = $ww;
+                }
+            }
+            
+            $stmt2 = db()->prepare("SELECT raw_data FROM orders WHERE order_scope = 'department' AND DATE_FORMAT(order_date, '%Y-%m') = ? AND raw_data IS NOT NULL");
+            $stmt2->execute([$month]);
+            while ($row = $stmt2->fetch(PDO::FETCH_ASSOC)) {
+                $rawData = json_decode($row['raw_data'], true);
+                if (is_array($rawData)) {
+                    $ww = self::extractWangwangFromRaw($rawData);
+                    if ($ww !== '' && !in_array($ww, $wangwangs)) {
+                        $wangwangs[] = $ww;
+                    }
+                }
+            }
+        } catch (\Throwable $e) {
+            error_log("getShopTotalWangwangs error: " . $e->getMessage());
+        }
+        
+        return $wangwangs;
+    }
+    
+    private static function extractWangwangFromRaw($rawData)
+    {
+        foreach ($rawData as $key => $value) {
+            $lowerKey = strtolower(trim($key));
+            if (strpos($lowerKey, '旺旺') !== false || 
+                strpos($lowerKey, 'wangwang') !== false ||
+                strpos($lowerKey, '买家') !== false ||
+                strpos($lowerKey, '用户') !== false) {
+                $ww = trim((string)$value);
+                if ($ww !== '') {
+                    return $ww;
+                }
+            }
+        }
+        return '';
+    }
+
     // ==================== 配置 CRUD ====================
 
     /**
@@ -767,6 +912,17 @@ class SalaryCalculator
                 'desc' => '按订单总额分档的底薪',
                 'fields' => [
                     ['key'=>'_name','label'=>'模块名称（必填）','type'=>'text','placeholder'=>'如：阶梯底薪','default'=>''],
+                ],
+            ],
+            'customer_reward' => [
+                'label' => '新老客户订单奖励',
+                'icon' => 'fa-users',
+                'color' => 'purple',
+                'desc' => '上传的个人订单与店铺总订单比对，按客户旺旺号计算新老客户奖励',
+                'fields' => [
+                    ['key'=>'_name','label'=>'模块名称（必填）','type'=>'text','placeholder'=>'如：新老客户奖励','default'=>''],
+                    ['key'=>'new_customer_reward','label'=>'新客户奖励金额','type'=>'number','step'=>'0.01','min'=>'0','placeholder'=>'每个新客户奖励金额','default'=>'50'],
+                    ['key'=>'old_customer_reward','label'=>'老客户奖励金额','type'=>'number','step'=>'0.01','min'=>'0','placeholder'=>'每个老客户奖励金额','default'=>'30'],
                 ],
             ],
         ];

@@ -1,5 +1,7 @@
 /* 自定义样式补充 */
 .table th { white-space: nowrap; }
+.badge-purple { background-color: #6f42c1; }
+.bg-purple { background-color: #6f42c1; }
 .badge-dept { font-size: .85em; }
 .cursor-pointer { cursor: pointer; }
 .upload-area {
