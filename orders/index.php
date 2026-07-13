@@ -226,9 +226,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             $del2 = db()->prepare("DELETE FROM orders WHERE DATE_FORMAT(order_date, '%Y-%m') = ? AND order_scope = 'personal' AND raw_data LIKE ?");
                             $del2->execute([$upload_month, '%\"__from_dept__\":\"' . $dept_name . '\"%']);
                         } else {
-                            // 个人订单：清该员工当月的个人订单（排除部门拆分行 __from_dept__）
-                            $del = db()->prepare("DELETE FROM orders WHERE employee_id = ? AND DATE_FORMAT(order_date, '%Y-%m') = ? AND COALESCE(order_scope, 'personal') = 'personal' AND (raw_data IS NULL OR raw_data NOT LIKE '%\"__from_dept__\"%')");
-                            $del->execute([$employee_id, $upload_month]);
+                            // 个人订单：清该员工当月旧数据（排除部门拆分行 __from_dept__）
+                            // 如果选了模块，只清这些模块对应的 project，避免多次上传不同表时互相覆盖；
+                            // 如果没选模块，清全部个人订单（整批替换）
+                            if (!empty($projectArr)) {
+                                $placeholders = implode(',', array_fill(0, count($projectArr), '?'));
+                                $del = db()->prepare("DELETE FROM orders WHERE employee_id = ? AND DATE_FORMAT(order_date, '%Y-%m') = ? AND COALESCE(order_scope, 'personal') = 'personal' AND (raw_data IS NULL OR raw_data NOT LIKE '%\"__from_dept__\"%') AND project IN ({$placeholders})");
+                                $del->execute(array_merge([$employee_id, $upload_month], $projectArr));
+                            } else {
+                                $del = db()->prepare("DELETE FROM orders WHERE employee_id = ? AND DATE_FORMAT(order_date, '%Y-%m') = ? AND COALESCE(order_scope, 'personal') = 'personal' AND (raw_data IS NULL OR raw_data NOT LIKE '%\"__from_dept__\"%')");
+                                $del->execute([$employee_id, $upload_month]);
+                            }
                         }
 
                         $inserted = 0; $skipped = 0;
