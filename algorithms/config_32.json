@@ -8,7 +8,16 @@
                 "commission_rate": 0.1,
                 "service_fee_rate": 0.03
             }
+        },
+        {
+            "name": "缺勤扣款",
+            "type": "attendance_deduct",
+            "enabled": true,
+            "config": {
+                "absent_days": 0,
+                "deduct_per_day": 100
+            }
         }
     ],
-    "updated_at": "2026-07-13 16:10:35"
+    "updated_at": "2026-07-13 16:29:45"
 }
