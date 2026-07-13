@@ -291,8 +291,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                             // 异常标记
                             $isAbn = 0; $abnReason = '';
-                            // 退款订单标记：如果金额为负数，标记为退款订单，在raw_data中记录
-                            $isRefund = ($amount < 0);
+                            // 退款订单标记：金额为负数，或金额为0且非纯数量表（纯数量表金额0是正常的）
+                            $isRefund = ($amount < 0) || ($amount == 0 && !$countOnlyModules);
 
                             // 原样存储每列；部门订单额外存入部门名
                             $rawMap = [];

@@ -630,9 +630,10 @@ class SalaryCalculator
                 if ($ono !== '') $seen[$ono] = true;
                 $rd = is_string($o['raw_data'] ?? '') ? json_decode($o['raw_data'], true) : ($o['raw_data'] ?? []);
                 if (!is_array($rd)) $rd = [];
-                // 排除退款订单（金额<=0或标记为退款），退款不计算单量补贴
+                // 排除退款订单（金额<0或标记为退款），退款不计算单量补贴
+                // 注意：纯数量表金额=0是正常的，不应排除
                 $isRefund = isset($rd['__is_refund__']) && $rd['__is_refund__'] === '1';
-                if ($isRefund || (float)($o['order_amount'] ?? 0) <= 0) continue;
+                if ($isRefund || (float)($o['order_amount'] ?? 0) < 0) continue;
                 // 模糊匹配列名：优先精确匹配，找不到则用包含匹配
                 $val = '';
                 if (isset($rd[$countColumn])) {
@@ -688,9 +689,10 @@ class SalaryCalculator
                 if ($ono !== '') $seen[$ono] = true;
                 $rd = is_string($o['raw_data'] ?? '') ? json_decode($o['raw_data'], true) : ($o['raw_data'] ?? []);
                 if (!is_array($rd)) $rd = [];
-                // 排除退款订单（金额<=0或标记为退款），退款不计算拍链接补贴
+                // 排除退款订单（金额<0或标记为退款），退款不计算拍链接补贴
+                // 注意：纯数量表金额=0是正常的，不应排除
                 $isRefund = isset($rd['__is_refund__']) && $rd['__is_refund__'] === '1';
-                if ($isRefund || (float)($o['order_amount'] ?? 0) <= 0) continue;
+                if ($isRefund || (float)($o['order_amount'] ?? 0) < 0) continue;
                 // 模糊匹配列名：优先精确匹配，找不到则用包含匹配
                 $val = '';
                 if (isset($rd[$countColumn])) {
