@@ -734,6 +734,32 @@ $(function(){
         $(this).on('change input', function(){setTimeout(renderAllPreviews,50);});
     });
 });
+
+// ==================== 调试：提交时打印到控制台 ====================
+$('#moduleForm').on('submit', function() {
+    try {
+        var fd = new FormData(this);
+        var dump = {};
+        fd.forEach(function(v, k) {
+            if (dump[k] === undefined) dump[k] = v;
+            else if (Array.isArray(dump[k])) dump[k].push(v);
+            else dump[k] = [dump[k], v];
+        });
+        console.log('[algorithm] 提交数据 mod_type=', dump['mod_type']);
+        console.log('[algorithm] 提交数据 mod_name=', dump['mod_name']);
+        console.log('[algorithm] 提交数据 mod_cfg=', dump['mod_cfg']);
+        console.log('[algorithm] 完整表单=', dump);
+        // 单独高亮引流订单模块
+        var types = dump['mod_type'] || [];
+        types.forEach(function(t, i) {
+            if (t === 'referral_order') {
+                console.log('[algorithm] 引流订单模块 #' + i + ' 配置=', (dump['mod_cfg'] && dump['mod_cfg']['subsidy']) ? dump['mod_cfg']['subsidy'][i] : 'N/A');
+            }
+        });
+    } catch (e) {
+        console.error('[algorithm] 调试打印异常', e);
+    }
+});
 </script>
 
 </body>
