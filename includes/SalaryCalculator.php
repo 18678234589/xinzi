@@ -618,13 +618,40 @@ class SalaryCalculator
     // ---- 每笔固定 ----
     private static function calcPerOrder($cfg, $c, $moduleName = '')
     {
+        // 按指定列计数（如"域名"列去重计数）
+        $countColumn = isset($cfg['count_column']) && trim($cfg['count_column']) !== '' ? trim($cfg['count_column']) : '';
+        if ($countColumn !== '') {
+            $distinct = ($cfg['count_distinct'] ?? '是') !== '否';
+            $seen = [];       // 按 order_no 去重（避免多模块上传导致重复行）
+            $values = [];
+            foreach (($c['orders'] ?? []) as $o) {
+                $ono = trim($o['order_no'] ?? '');
+                if ($ono !== '' && isset($seen[$ono])) continue;
+                if ($ono !== '') $seen[$ono] = true;
+                $rd = is_string($o['raw_data'] ?? '') ? json_decode($o['raw_data'], true) : ($o['raw_data'] ?? []);
+                if (!is_array($rd)) $rd = [];
+                $val = trim($rd[$countColumn] ?? '');
+                if ($val !== '') $values[] = $val;
+            }
+            $cnt = $distinct ? count(array_unique($values)) : count($values);
+            $amt1 = $cnt * (float)($cfg['per_amount'] ?? 50);
+            $amt2 = $cnt * (float)($cfg['per_reward'] ?? 0);
+            $colLabel = $distinct ? "{$countColumn}去重" : "{$countColumn}非空";
+            return [
+                'amount' => round($amt1 + $amt2, 2),
+                'formula' => sprintf('%s%d个×¥%g+¥%g=%.2f', $colLabel, $cnt, $cfg['per_amount']??50, $cfg['per_reward']??0, $amt1+$amt2),
+                'type' => 'per_order',
+            ];
+        }
+
+        // 原有逻辑：按 project 名/金额范围/店铺关键字筛选计数
         $minAmount = isset($cfg['min_amount']) && $cfg['min_amount'] !== '' && $cfg['min_amount'] !== null ? (float)$cfg['min_amount'] : null;
         $maxAmount = isset($cfg['max_amount']) && $cfg['max_amount'] !== '' && $cfg['max_amount'] !== null ? (float)$cfg['max_amount'] : null;
         $shopKeyword = isset($cfg['shop_keyword']) && $cfg['shop_keyword'] !== '' && $cfg['shop_keyword'] !== null ? $cfg['shop_keyword'] : null;
-        
+
         $useFilter = ($minAmount !== null || $maxAmount !== null || $shopKeyword !== null);
         $filterByName = $useFilter ? '' : $moduleName;
-        
+
         $cnt  = self::filterOrderCount($c, $filterByName, $minAmount, $maxAmount, $shopKeyword);
         $amt1 = $cnt * (float)($cfg['per_amount'] ?? 50);
         $amt2 = $cnt * (float)($cfg['per_reward'] ?? 0);
@@ -638,6 +665,42 @@ class SalaryCalculator
     // ---- 引流订单 ----
     private static function calcReferralOrder($cfg, $c, $moduleName = '')
     {
+        // 按指定列+关键词计数（如"建站订单"列值同时包含"拍"+"链接"）
+        $countColumn = isset($cfg['count_column']) && trim($cfg['count_column']) !== '' ? trim($cfg['count_column']) : '';
+        if ($countColumn !== '') {
+            $keywords = array_filter(array_map('trim', explode('+', $cfg['count_keyword'] ?? '')));
+            $seen = [];   // 按 order_no 去重
+            $cnt = 0;
+            foreach (($c['orders'] ?? []) as $o) {
+                $ono = trim($o['order_no'] ?? '');
+                if ($ono !== '' && isset($seen[$ono])) continue;
+                if ($ono !== '') $seen[$ono] = true;
+                $rd = is_string($o['raw_data'] ?? '') ? json_decode($o['raw_data'], true) : ($o['raw_data'] ?? []);
+                if (!is_array($rd)) $rd = [];
+                $val = trim($rd[$countColumn] ?? '');
+                if ($val === '') continue;
+                // 必须同时包含所有关键词
+                $match = true;
+                foreach ($keywords as $kw) {
+                    if (mb_strpos($val, $kw) === false) { $match = false; break; }
+                }
+                if ($match) $cnt++;
+            }
+            $subsidy = (float)($cfg['subsidy'] ?? 0);
+            $subsidyAmt = $cnt * $subsidy;
+            $kwLabel = !empty($keywords) ? "含'" . implode('+', $keywords) . "'" : '非空';
+            $formula = sprintf('%s%s%d单×¥%g(每单补助)=%.2f', $countColumn, $kwLabel, $cnt, $subsidy, $subsidyAmt);
+            if ($cnt === 0) {
+                $formula = sprintf('0.00（%s列无匹配%s的订单）', $countColumn, $kwLabel);
+            }
+            return [
+                'amount' => round($subsidyAmt, 2),
+                'formula' => $formula,
+                'type' => 'referral_order',
+            ];
+        }
+
+        // 原有逻辑：按 project 名/金额范围/店铺关键字筛选计数
         $minAmount = isset($cfg['min_amount']) && $cfg['min_amount'] !== '' && $cfg['min_amount'] !== null ? (float)$cfg['min_amount'] : null;
         $maxAmount = isset($cfg['max_amount']) && $cfg['max_amount'] !== '' && $cfg['max_amount'] !== null ? (float)$cfg['max_amount'] : null;
         $shopKeyword = isset($cfg['shop_keyword']) && $cfg['shop_keyword'] !== '' && $cfg['shop_keyword'] !== null ? $cfg['shop_keyword'] : null;
@@ -1156,6 +1219,8 @@ class SalaryCalculator
                     ['key'=>'_name','label'=>'模块名称（必填）','type'=>'text','placeholder'=>'如：续费单奖、新单奖励','default'=>''],
                     ['key'=>'per_amount','label'=>'每笔提成','type'=>'number','step'=>'0.01','min'=>'0','placeholder'=>'如 80 元','default'=>'80'],
                     ['key'=>'per_reward','label'=>'每笔额外奖励','type'=>'number','step'=>'0.01','min'=>'0','placeholder'=>'可选，如 20','default'=>'0'],
+                    ['key'=>'count_column','label'=>'计数列名','type'=>'text','placeholder'=>'填列名如"域名"，按该列去重计数；留空则按订单笔数','default'=>''],
+                    ['key'=>'count_distinct','label'=>'是否去重','type'=>'select','options'=>['是'=>'是（按列值去重计数）','否'=>'否（按列值非空计数）'],'default'=>'是'],
                 ],
             ],
             'attendance_full' => [
@@ -1228,13 +1293,15 @@ class SalaryCalculator
                 'label' => '引流订单',
                 'icon' => 'fa-bullhorn',
                 'color' => 'purple',
-                'desc' => '设置每单补助金额，工资 = 订单金额×订单数量 + 每单补助×数量',
+                'desc' => '设置每单补助金额，按指定列内容筛选符合条件的订单数量',
                 'fields' => [
                     ['key'=>'_name','label'=>'模块名称（必填）','type'=>'text','placeholder'=>'如：引流、小红书引流','default'=>''],
                     ['key'=>'subsidy','label'=>'每个订单补助金额','type'=>'number','step'=>'0.01','min'=>'0','placeholder'=>'如 5 元/单','default'=>'5'],
                     ['key'=>'min_amount','label'=>'最小订单金额','type'=>'number','step'=>'0.01','placeholder'=>'留空=不限制','default'=>''],
                     ['key'=>'max_amount','label'=>'最大订单金额','type'=>'number','step'=>'0.01','placeholder'=>'留空=不限制','default'=>''],
                     ['key'=>'shop_keyword','label'=>'店铺关键字','type'=>'text','placeholder'=>'留空=不限制，如：老客户','default'=>''],
+                    ['key'=>'count_column','label'=>'计数列名','type'=>'text','placeholder'=>'填列名如"建站订单"，按该列内容筛选计数','default'=>''],
+                    ['key'=>'count_keyword','label'=>'关键词（+分隔）','type'=>'text','placeholder'=>'如"拍+链接"，表示该列值需同时包含这些词','default'=>''],
                 ],
             ],
         ];
