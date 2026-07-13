@@ -73,11 +73,11 @@ function calcProratedBaseSalary($empId, $month, $baseSalary) {
         // 请假≤4天：底薪 − 底薪/30 × 请假天数（基数用30，与满勤天数无关）
         $prorated = round($baseSalary - $baseSalary / 30 * $leaveDays, 2);
         $actualDays = 30 - $leaveDays;             // 显示用：30−请假天数
-        $status = sprintf('请假%.1f天(≤4天)，底薪−底薪/30×请假天数', $leaveDays);
+        $status = sprintf('请假%.2f天(≤4天)，底薪−底薪/30×请假天数', $leaveDays);
     } else {
         // 请假>4天：底薪/30 × 实际出勤天数（实际出勤=满勤天数−请假天数）
         $prorated = round($baseSalary / 30 * $actualDays, 2);
-        $status = sprintf('请假%.1f天(>4天)，底薪/30×实际出勤%.1f天', $leaveDays, $actualDays);
+        $status = sprintf('请假%.2f天(>4天)，底薪/30×实际出勤%.2f天', $leaveDays, $actualDays);
     }
     return ['original' => $baseSalary, 'actual_days' => $actualDays, 'leave_days' => $leaveDays,
             'prorated' => $prorated, 'status' => $status, 'has_att' => true];
@@ -576,9 +576,9 @@ include __DIR__ . '/../includes/header.php';
                             <th>考勤（应出勤/请假）</th>
                             <td colspan="3">
                                 <?php if ($attInfo): ?>
-                                    <span class="text-muted">应出勤 <b><?php echo number_format($attWork, 1); ?>h</b></span>
+                                    <span class="text-muted">应出勤 <b><?php echo number_format($attWork, 2); ?>h</b></span>
                                     <span class="ml-3 <?php echo $attAbsent > 0 ? 'text-warning' : 'text-success'; ?>">
-                                        请假 <b><?php echo number_format($attAbsent, 1); ?>h</b>
+                                        请假 <b><?php echo number_format($attAbsent, 2); ?>h</b>
                                     </span>
                                     <?php if ($attAbsent >= 8): ?>
                                         <span class="badge badge-danger ml-2">全勤奖全部扣除</span>
@@ -607,8 +607,8 @@ include __DIR__ . '/../includes/header.php';
                             <td colspan="3">
                                 <span class="text-muted">原底薪 <b>¥<?php echo money($bi['original']); ?></b></span>
                                 <?php if ($bi['has_att']): ?>
-                                    <span class="ml-3 text-muted">实际出勤 <b><?php echo number_format($bi['actual_days'], 1); ?>天</b></span>
-                                    <span class="ml-3 text-muted">请假 <b><?php echo number_format($bi['leave_days'], 1); ?>天</b></span>
+                                    <span class="ml-3 text-muted">实际出勤 <b><?php echo number_format($bi['actual_days'], 2); ?>天</b></span>
+                                    <span class="ml-3 text-muted">请假 <b><?php echo number_format($bi['leave_days'], 2); ?>天</b></span>
                                 <?php endif; ?>
                                 <span class="ml-3 text-primary font-weight-bold">折算后 ¥<?php echo money($bi['prorated']); ?></span>
                                 <small class="text-muted d-block"><?php echo e($bi['status']); ?></small>
