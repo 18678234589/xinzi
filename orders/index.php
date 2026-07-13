@@ -94,7 +94,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             } else {
                 try {
                     ensureProjectColumn();
-                    $project = trim($_POST['upload_project'] ?? '');
+                    // 对应提成模块（多选，支持比例提成+单量补贴等同时关联）
+                    $projectArr = $_POST['upload_project'] ?? [];
+                    if (!is_array($projectArr)) $projectArr = [$projectArr];
+                    $projectArr = array_values(array_unique(array_filter(array_map('trim', $projectArr))));
 
                     // 部门订单多员工配置：[{employee_id, module}, ...]
                     $deptEmpModules = [];
@@ -253,8 +256,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                             // 部门订单 employee_id 存 0（或为每个归属员工各插一条）
                             if ($order_scope === 'department' && !empty($deptEmpModules)) {
-                                // 先插一条部门汇总记录（employee_id=0）
-                                $stmt->execute([0, $amount, $parsedDate, $project, $orderNo, json_encode($rawMap, JSON_UNESCAPED_UNICODE), $isAbn, $abnReason, $order_scope]);
+                                // 先插一条部门汇总记录（employee_id=0，project 存逗号拼接便于查看）
+                                $deptProjStr = implode(',', $projectArr);
+                                $stmt->execute([0, $amount, $parsedDate, $deptProjStr, $orderNo, json_encode($rawMap, JSON_UNESCAPED_UNICODE), $isAbn, $abnReason, $order_scope]);
                                 $isAbn ? $skipped++ : $inserted++;
                                 // 再为每个归属员工插一条 personal 记录（标记来源于部门订单）
                                 foreach ($deptEmpModules as $dem) {
@@ -264,8 +268,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                 }
                             } else {
                                 $bindEmpId = $order_scope === 'department' ? 0 : $employee_id;
-                                $stmt->execute([$bindEmpId, $amount, $parsedDate, $project, $orderNo, json_encode($rawMap, JSON_UNESCAPED_UNICODE), $isAbn, $abnReason, $order_scope]);
-                                $isAbn ? $skipped++ : $inserted++;
+                                if (empty($projectArr)) {
+                                    // 不指定模块，project 存空
+                                    $stmt->execute([$bindEmpId, $amount, $parsedDate, '', $orderNo, json_encode($rawMap, JSON_UNESCAPED_UNICODE), $isAbn, $abnReason, $order_scope]);
+                                    $isAbn ? $skipped++ : $inserted++;
+                                } else {
+                                    // 多模块：每个选中的模块插一条副本，project 各不相同
+                                    foreach ($projectArr as $proj) {
+                                        $stmt->execute([$bindEmpId, $amount, $parsedDate, $proj, $orderNo, json_encode($rawMap, JSON_UNESCAPED_UNICODE), $isAbn, $abnReason, $order_scope]);
+                                        $isAbn ? $skipped++ : $inserted++;
+                                    }
+                                }
                             }
                         }
                         db()->commit();
@@ -276,13 +289,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     } // end if (!empty($rows))
 
                     if ($error === '') {
+                        $modCount = count($projectArr);
+                        $modNote = $modCount > 1 ? "（{$modCount}个模块，每条订单复制{$modCount}份）" : "";
                         if ($order_scope === 'department') {
                             $empName = $dept_name . '（部门）';
-                            $rq = ['upload_ok' => '1', 'msg' => urlencode("导入完成！为【{$empName}】成功导入 {$inserted} 条" . ($skipped > 0 ? "，{$skipped} 条标记为异常" : ""))];
+                            $rq = ['upload_ok' => '1', 'msg' => urlencode("导入完成！为【{$empName}】成功导入 {$inserted} 条{$modNote}" . ($skipped > 0 ? "，{$skipped} 条标记为异常" : ""))];
                         } else {
                             $emp = get_employee($employee_id);
                             $empName = $emp ? $emp['name'] : '';
-                            $rq = ['employee_id' => $employee_id, 'upload_ok' => '1', 'msg' => urlencode("导入完成！为【{$empName}】成功导入 {$inserted} 条" . ($skipped > 0 ? "，{$skipped} 条标记为异常" : ""))];
+                            $rq = ['employee_id' => $employee_id, 'upload_ok' => '1', 'msg' => urlencode("导入完成！为【{$empName}】成功导入 {$inserted} 条{$modNote}" . ($skipped > 0 ? "，{$skipped} 条标记为异常" : ""))];
                         }
                         if ($per_page !== 20) $rq['per_page'] = $per_page;
                         header('Location: ' . BASE_URL . '/orders/index.php?' . http_build_query($rq));
@@ -783,9 +798,8 @@ include __DIR__ . '/../includes/header.php';
                         <a href="<?php echo BASE_URL; ?>/orders/template_safehou.csv" class="btn btn-sm btn-link text-warning" download><i class="fas fa-download"></i> 下载模板</a>
                     </div>
                     <div class="form-group" id="uploadProjectGroup">
-                        <label><i class="fas fa-percentage text-warning"></i> 对应提成模块 <small class="text-muted">（选择该员工已配置的提成模块，订单会按对应比例结算）</small></label>
-                        <select name="upload_project" id="uploadProject" class="form-control">
-                            <option value="">-- 不指定（按默认全部订单总额） --</option>
+                        <label><i class="fas fa-percentage text-warning"></i> 对应提成模块 <small class="text-muted">（可多选，订单会按选中模块分别结算）</small></label>
+                        <select name="upload_project[]" id="uploadProject" class="form-control" multiple size="4">
                             <?php
                             if ($locked_employee):
                                 $modCfg = SalaryCalculator::readModulesConfig($locked_employee['id']);
@@ -812,6 +826,7 @@ include __DIR__ . '/../includes/header.php';
                             endif;
                             ?>
                         </select>
+                        <small class="text-muted">按住 <kbd>Ctrl</kbd>（Mac用<kbd>⌘</kbd>）可多选；不选则按默认全部订单总额计算</small>
                     </div>
                     <button type="submit" class="btn btn-success btn-block"><i class="fas fa-upload"></i> 开始上传</button>
                 </form>
@@ -1256,10 +1271,10 @@ function loadEmployees(prefix) {
     }
 }
 
-// 选择员工后，加载该员工的提成模块到下拉框
+// 选择员工后，加载该员工的提成模块到多选框
 function loadEmployeeModules(empId, prefix) {
     var $proj = $('#' + prefix + 'Project');
-    $proj.empty().append('<option value="">-- 不指定（按默认全部订单总额） --</option>');
+    $proj.empty();
     if (!empId) return;
     $.get('<?php echo BASE_URL; ?>/orders/index.php?employee_id=' + empId + '&ajax=modules', function(data) {
         if (data && data.length) {
