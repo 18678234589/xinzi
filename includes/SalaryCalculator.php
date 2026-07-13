@@ -885,7 +885,7 @@ class SalaryCalculator
     /**
      * 保存多模块配置（JSON格式）
      */
-    public static function saveModulesConfig($employeeId, $modules)
+    public static function saveModulesConfig($employeeId, $modules, $deptShare = 1)
     {
         $dir = self::dir();
         // 确保目录可写
@@ -935,7 +935,7 @@ class SalaryCalculator
             }
         }
 
-        $data = ['modules' => $modules, 'updated_at' => date('Y-m-d H:i:s')];
+        $data = ['modules' => $modules, 'dept_share' => $deptShare, 'updated_at' => date('Y-m-d H:i:s')];
         $json = json_encode($data, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
         if ($json === false) {
             error_log("SalaryCalculator: json_encode failed for employee $employeeId");
@@ -948,9 +948,22 @@ class SalaryCalculator
             return false;
         }
 
-        // 新增员工首次保存配置时，自动同步部门订单拆分行
-        // 如果该员工没有任何部门拆分行（__from_dept__），但同部门其他员工有，则复制一份
-        self::syncDeptOrdersForEmployee($employeeId, $modules);
+        if ($deptShare) {
+            // 参与部门订单提成：自动同步部门订单拆分行
+            self::syncDeptOrdersForEmployee($employeeId, $modules);
+        } else {
+            // 不参与部门订单提成：删除已有的部门拆分行
+            try {
+                $del = db()->prepare("DELETE FROM orders WHERE employee_id = ? AND raw_data LIKE '%__from_dept__%'");
+                $del->execute([$employeeId]);
+                $deleted = $del->rowCount();
+                if ($deleted > 0) {
+                    error_log("SalaryCalculator: removed {$deleted} dept orders for employee {$employeeId} (dept_share=0)");
+                }
+            } catch (Exception $e) {
+                error_log("SalaryCalculator: failed to remove dept orders: " . $e->getMessage());
+            }
+        }
 
         return true;
     }

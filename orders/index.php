@@ -113,6 +113,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                 }
                             }
                         }
+                        // 过滤掉不参与部门订单提成的员工（dept_share=0）
+                        if (!empty($deptEmpModules)) {
+                            $filtered = [];
+                            foreach ($deptEmpModules as $dem) {
+                                $cfg = SalaryCalculator::readModulesConfig($dem['employee_id']);
+                                $share = $cfg['dept_share'] ?? 1; // 默认参与
+                                if ($share == 1) {
+                                    $filtered[] = $dem;
+                                }
+                            }
+                            $deptEmpModules = $filtered;
+                        }
                     }
                     $rows = [];
 
