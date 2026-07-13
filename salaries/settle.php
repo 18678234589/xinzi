@@ -8,6 +8,10 @@ $success = '';
 $error = '';
 $preview = null;
 
+// 保险扣除配置（全员统一金额，每年修改 config/insurance.php 即可）
+$insuranceConfig = @include __DIR__ . '/../config/insurance.php';
+$insuranceAmount = (float)($insuranceConfig['amount'] ?? 0);
+
 // 计算全勤奖（先加后扣模式）
 // 规则：请假 ≥8h 全扣、≥4h 扣一半、<4h 不扣；无考勤记录或不启用则净额为0
 // 返回 ['base'=>满勤金额, 'deduct'=>扣除, 'net'=>净额, 'status'=>说明, 'has_att'=>是否有考勤]
@@ -185,6 +189,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             ];
                         }
                     }
+
+                    // 保险扣除（勾选时扣除，默认勾选）
+                    $deductInsurance = isset($_POST['deduct_insurance']);
+                    if ($deductInsurance && $insuranceAmount > 0) {
+                        $result['net_pay']      = round($result['net_pay'] - $insuranceAmount, 2);
+                        $result['module_total'] = round(($result['module_total'] ?? 0) - $insuranceAmount, 2);
+                        $result['modules'][] = [
+                            'name'   => '保险扣除',
+                            'amount' => -round($insuranceAmount, 2),
+                            'formula'=> sprintf('保险扣除 -%.2f', $insuranceAmount),
+                            'type'   => 'insurance',
+                        ];
+                    }
                     
                     // DEBUG: 分析订单金额分布
                     $debug_info = "调试信息：\n";
@@ -290,6 +307,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         'formula_text'   => $result['formula_text'],
                         'algorithm_name' => $result['algorithm_name'],
                         'is_custom'      => $result['is_custom'],
+                        'insurance_amount' => ($deductInsurance && $insuranceAmount > 0) ? $insuranceAmount : 0,
                     ];
                 }
             }
@@ -329,6 +347,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $net_pay    = round($result['net_pay'] + $extraAmount + $bonusNet, 2);
                 $commission = round($commission + $extraAmount + $bonusNet, 2);
 
+                // 保险扣除（勾选时扣除，默认勾选）
+                $deductInsurance = isset($_POST['deduct_insurance']);
+                $insuranceDeduct = ($deductInsurance && $insuranceAmount > 0) ? $insuranceAmount : 0;
+                if ($insuranceDeduct > 0) {
+                    $net_pay    = round($net_pay - $insuranceDeduct, 2);
+                    $commission = round($commission - $insuranceDeduct, 2);
+                }
+
                 try {
                     // 确保 salaries 表有 extra_amount / full_attendance_bonus 字段
                     $hasExtra = db()->query("SHOW COLUMNS FROM `salaries` LIKE 'extra_amount'")->fetchAll();
@@ -343,9 +369,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     if (empty($hasBaseAmt)) {
                         db()->exec("ALTER TABLE `salaries` ADD COLUMN `base_salary_amount` DECIMAL(12,2) NOT NULL DEFAULT 0.00 COMMENT '折算后底薪' AFTER `full_attendance_bonus`");
                     }
+                    $hasIns = db()->query("SHOW COLUMNS FROM `salaries` LIKE 'insurance_amount'")->fetchAll();
+                    if (empty($hasIns)) {
+                        db()->exec("ALTER TABLE `salaries` ADD COLUMN `insurance_amount` DECIMAL(12,2) NOT NULL DEFAULT 0.00 COMMENT '保险扣除金额' AFTER `base_salary_amount`");
+                    }
                     $stmt = db()->prepare("
-                        INSERT INTO salaries (employee_id, month, order_total, commission, net_pay, extra_amount, full_attendance_bonus, base_salary_amount)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                        INSERT INTO salaries (employee_id, month, order_total, commission, net_pay, extra_amount, full_attendance_bonus, base_salary_amount, insurance_amount)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                         ON DUPLICATE KEY UPDATE
                             order_total = VALUES(order_total),
                             commission = VALUES(commission),
@@ -353,9 +383,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             extra_amount = VALUES(extra_amount),
                             full_attendance_bonus = VALUES(full_attendance_bonus),
                             base_salary_amount = VALUES(base_salary_amount),
+                            insurance_amount = VALUES(insurance_amount),
                             created_at = CURRENT_TIMESTAMP
                     ");
-                    $stmt->execute([$employee_id, $month, $order_total, $commission, $net_pay, $extraAmount, $bonusNet, $baseInfo['prorated']]);
+                    $stmt->execute([$employee_id, $month, $order_total, $commission, $net_pay, $extraAmount, $bonusNet, $baseInfo['prorated'], $insuranceDeduct]);
                     $success = sprintf('薪资结算成功！%s %s：订单总额 ¥%s，提成 ¥%s，实发 ¥%s（%s）',
                         $emp['name'], $month, money($order_total), money($commission), money($net_pay), $result['algorithm_name']);
 
@@ -377,6 +408,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             ];
                         }
                     }
+                    if ($insuranceDeduct > 0) {
+                        $settleModules[] = [
+                            'name'   => '保险扣除',
+                            'amount' => -round($insuranceDeduct, 2),
+                            'formula'=> sprintf('保险扣除 -%.2f', $insuranceDeduct),
+                            'type'   => 'insurance',
+                        ];
+                    }
 
                     $preview = [
                         'employee'       => $emp,
@@ -395,6 +434,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         'formula_text'   => $result['formula_text'],
                         'algorithm_name' => $result['algorithm_name'],
                         'is_custom'      => $result['is_custom'],
+                        'insurance_amount' => $insuranceDeduct,
                     ];
                     $cstmt = db()->prepare("SELECT COUNT(*) FROM orders WHERE employee_id = ? AND DATE_FORMAT(order_date, '%Y-%m') = ?");
                     $cstmt->execute([$employee_id, $month]);
@@ -479,6 +519,16 @@ include __DIR__ . '/../includes/header.php';
                             <input type="number" name="full_attendance_bonus" class="form-control" step="0.01" value="<?php echo e($_POST['full_attendance_bonus'] ?? ($preview['full_attendance_bonus'] ?? '200')); ?>" placeholder="满勤奖金额，默认200">
                         </div>
                         <small class="text-muted">自动抓取考勤：请假≥4h扣一半，≥8h全扣；无考勤记录不发</small>
+                    </div>
+                    <div class="form-group">
+                        <div class="custom-control custom-checkbox">
+                            <input type="checkbox" name="deduct_insurance" value="1" class="custom-control-input" id="deductIns" checked>
+                            <label class="custom-control-label" for="deductIns">
+                                <i class="fas fa-shield-alt text-info"></i> 扣除保险
+                                <span class="text-muted">¥<?php echo money($insuranceAmount); ?></span>
+                            </label>
+                        </div>
+                        <small class="text-muted">默认勾选扣除，不扣保险的员工请手动取消</small>
                     </div>
                     <div class="form-group">
                         <label><i class="fas fa-money-bill-wave text-primary"></i> 底薪</label>
@@ -590,10 +640,10 @@ include __DIR__ . '/../includes/header.php';
                                     <?php endif; ?>
                                 </td>
                                 <td><span class="badge badge-<?php
-                                    $typeColors = ['standard'=>'primary','tiered'=>'warning','per_order'=>'info','attendance_full'=>'success','attendance_daily'=>'teal','attendance_deduct'=>'danger'];
+                                    $typeColors = ['standard'=>'primary','tiered'=>'warning','per_order'=>'info','attendance_full'=>'success','attendance_daily'=>'teal','attendance_deduct'=>'danger','insurance'=>'dark','refund_deduction'=>'danger','extra_amount'=>'secondary'];
                                     echo $typeColors[$m['type']] ?? 'secondary';
                                 ?>"><?php
-                                    $typeNames = ['standard'=>'标准比例','tiered'=>'阶梯','per_order'=>'每笔奖励','attendance_full'=>'全勤奖','attendance_daily'=>'考勤日薪','attendance_deduct'=>'缺勤扣款'];
+                                    $typeNames = ['standard'=>'标准比例','tiered'=>'阶梯','per_order'=>'每笔奖励','attendance_full'=>'全勤奖','attendance_daily'=>'考勤日薪','attendance_deduct'=>'缺勤扣款','insurance'=>'保险','refund_deduction'=>'退款扣除','extra_amount'=>'自定义'];
                                     echo $typeNames[$m['type']] ?? $m['type'];
                                 ?></span></td>
                                 <td class="font-weight-bold"><?php echo $m['amount'] >= 0 ? '+' : ''; ?>¥<?php echo money(abs($m['amount'])); ?></td>
@@ -619,6 +669,12 @@ include __DIR__ . '/../includes/header.php';
                             </td>
                         </tr>
                         <?php endif; ?>
+                        <?php if (($preview['insurance_amount'] ?? 0) > 0): ?>
+                        <tr class="table-secondary">
+                            <th colspan="3" class="text-right h6 mb-0"><i class="fas fa-shield-alt text-info"></i> 保险扣除</th>
+                            <td class="h6 mb-0 text-danger font-weight-bold">−¥<?php echo money($preview['insurance_amount']); ?></td>
+                        </tr>
+                        <?php endif; ?>
                         <?php if (!empty($preview['base_info']) && abs($preview['base_info']['prorated'] - $preview['base_info']['original']) > 0.001): ?>
                         <tr class="table-light">
                             <th colspan="3" class="text-right h6 mb-0"><i class="fas fa-money-bill-wave text-primary"></i> 底薪折算（<?php echo e($preview['base_info']['status']); ?>）</th>
@@ -628,7 +684,7 @@ include __DIR__ . '/../includes/header.php';
                         </tr>
                         <?php endif; ?>
                         <tr class="table-success">
-                            <th colspan="3" class="text-right h5 mb-0">底薪 + 模块合计 <?php if (abs((float)($preview['extra_amount'] ?? 0)) > 0.001) echo '+ 自定义'; ?> <?php if (!empty($preview['bonus_info']) && $preview['bonus_info']['base'] > 0) echo '+ 全勤奖'; ?> → 实发工资</th>
+                            <th colspan="3" class="text-right h5 mb-0">底薪 + 模块合计 <?php if (abs((float)($preview['extra_amount'] ?? 0)) > 0.001) echo '+ 自定义'; ?> <?php if (!empty($preview['bonus_info']) && $preview['bonus_info']['base'] > 0) echo '+ 全勤奖'; ?> <?php if (($preview['insurance_amount'] ?? 0) > 0) echo '− 保险'; ?> → 实发工资</th>
                             <td class="h4 mb-0 text-success font-weight-bold">¥<?php echo money($preview['net_pay']); ?></td>
                         </tr>
                     </tbody>
@@ -666,6 +722,9 @@ include __DIR__ . '/../includes/header.php';
                     <input type="hidden" name="month" value="<?php echo e($preview['month']); ?>">
                     <input type="hidden" name="extra_amount" value="<?php echo e($preview['extra_amount'] ?? 0); ?>">
                     <input type="hidden" name="full_attendance_bonus" value="<?php echo e($preview['full_attendance_bonus'] ?? 200); ?>">
+                    <?php if (($preview['insurance_amount'] ?? 0) > 0): ?>
+                    <input type="hidden" name="deduct_insurance" value="1">
+                    <?php endif; ?>
                     <button type="submit" class="btn btn-success btn-lg btn-block"
                         onclick="return confirm('确认生成<?php echo e($emp['name']); ?> <?php echo e($preview['month']); ?>月的薪资记录？<?php echo $existing ? '将覆盖已有记录。' : ''; ?>')">
                         <i class="fas fa-check-double"></i> 确认生成薪资记录
