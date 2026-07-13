@@ -357,7 +357,7 @@ include __DIR__ . '/../includes/header.php';
         </h4>
         <span class="badge badge-info ml-2">已录 <?php echo $total; ?> 人</span>
         <span class="badge badge-success ml-1">满勤 <?php echo $fullCount; ?> 人</span>
-        <?php if ($totalAbsent > 0): ?><span class="badge badge-warning ml-1">请假 <?php echo number_format($totalAbsent, 1); ?>h</span><?php endif; ?>
+        <?php if ($totalAbsent > 0): ?><span class="badge badge-warning ml-1">请假 <?php echo number_format($totalAbsent, 2); ?>h</span><?php endif; ?>
     </div>
 </div>
 
@@ -497,9 +497,9 @@ include __DIR__ . '/../includes/header.php';
                                     <td><input type="checkbox" name="ids[]" value="<?php echo $r['id']; ?>" class="row-chk"></td>
                                     <td><strong><?php echo e($r['name']); ?></strong></td>
                                     <td><span class="badge badge-info"><?php echo e($r['department']); ?></span></td>
-                                    <td class="text-right"><?php echo number_format($fullDays, 1); ?>天</td>
-                                    <td class="text-right <?php echo $isFull ? 'text-success' : ''; ?>"><?php echo number_format($actDays, 1); ?>天</td>
-                                    <td class="text-right <?php echo $isFull ? '' : 'text-warning font-weight-bold'; ?>"><?php echo number_format($r['absent_hours'], 1); ?>h</td>
+                                    <td class="text-right"><?php echo number_format($fullDays, 2); ?>天</td>
+                                    <td class="text-right <?php echo $isFull ? 'text-success' : ''; ?>"><?php echo number_format($actDays, 2); ?>天</td>
+                                    <td class="text-right <?php echo $isFull ? '' : 'text-warning font-weight-bold'; ?>"><?php echo number_format($r['absent_hours'], 2); ?>h</td>
                                     <td><small class="text-muted"><?php echo e($r['remark']); ?></small></td>
                                     <td>
                                         <?php if ($isFull): ?>
