@@ -161,8 +161,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     }
 
                     if ($error === '' && !empty($rows)) {
-                        $firstRow = $rows[0];
-                        $dataRows = array_slice($rows, 1);
+                        // 自动查找表头行：第一行可能不是真正的表头（如标题行），往下找含已知列名的行
+                        $headerKeywords = ['姓名', '价格', '售价', '成本', '域名', '建站', '订单', '金额', '日期', '时间', '店铺', '备注', '员工'];
+                        $headerIdx = 0;
+                        for ($hi = 0; $hi < min(count($rows), 5); $hi++) {
+                            $rowText = implode(' ', array_map('trim', $rows[$hi]));
+                            $matchCount = 0;
+                            foreach ($headerKeywords as $kw) {
+                                if (mb_strpos($rowText, $kw) !== false) $matchCount++;
+                            }
+                            if ($matchCount >= 2) { $headerIdx = $hi; break; }
+                        }
+                        $firstRow = $rows[$headerIdx];
+                        $dataRows = array_slice($rows, $headerIdx + 1);
 
                         // 原样保存表头（空列用"列N"占位）
                         $normalizedHeaders = [];

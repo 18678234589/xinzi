@@ -633,7 +633,15 @@ class SalaryCalculator
                 // 排除退款订单（金额<=0或标记为退款），退款不计算单量补贴
                 $isRefund = isset($rd['__is_refund__']) && $rd['__is_refund__'] === '1';
                 if ($isRefund || (float)($o['order_amount'] ?? 0) <= 0) continue;
-                $val = trim($rd[$countColumn] ?? '');
+                // 模糊匹配列名：优先精确匹配，找不到则用包含匹配
+                $val = '';
+                if (isset($rd[$countColumn])) {
+                    $val = trim($rd[$countColumn]);
+                } else {
+                    foreach ($rd as $k => $v) {
+                        if (mb_strpos($k, $countColumn) !== false) { $val = trim($v); break; }
+                    }
+                }
                 if ($val !== '') $values[] = $val;
             }
             $cnt = $distinct ? count(array_unique($values)) : count($values);
@@ -683,7 +691,15 @@ class SalaryCalculator
                 // 排除退款订单（金额<=0或标记为退款），退款不计算拍链接补贴
                 $isRefund = isset($rd['__is_refund__']) && $rd['__is_refund__'] === '1';
                 if ($isRefund || (float)($o['order_amount'] ?? 0) <= 0) continue;
-                $val = trim($rd[$countColumn] ?? '');
+                // 模糊匹配列名：优先精确匹配，找不到则用包含匹配
+                $val = '';
+                if (isset($rd[$countColumn])) {
+                    $val = trim($rd[$countColumn]);
+                } else {
+                    foreach ($rd as $k => $v) {
+                        if (mb_strpos($k, $countColumn) !== false) { $val = trim($v); break; }
+                    }
+                }
                 if ($val === '') continue;
                 // 必须同时包含所有关键词
                 $match = true;
