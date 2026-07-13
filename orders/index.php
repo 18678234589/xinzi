@@ -798,8 +798,8 @@ include __DIR__ . '/../includes/header.php';
                         <a href="<?php echo BASE_URL; ?>/orders/template_safehou.csv" class="btn btn-sm btn-link text-warning" download><i class="fas fa-download"></i> 下载模板</a>
                     </div>
                     <div class="form-group" id="uploadProjectGroup">
-                        <label><i class="fas fa-percentage text-warning"></i> 对应提成模块 <small class="text-muted">（可多选，订单会按选中模块分别结算）</small></label>
-                        <select name="upload_project[]" id="uploadProject" class="form-control" multiple size="4">
+                        <label><i class="fas fa-percentage text-warning"></i> 对应提成模块 <small class="text-muted">（勾选要关联的模块，订单会按勾选模块分别结算）</small></label>
+                        <div id="uploadProject" class="project-checkbox-list">
                             <?php
                             if ($locked_employee):
                                 $modCfg = SalaryCalculator::readModulesConfig($locked_employee['id']);
@@ -819,14 +819,17 @@ include __DIR__ . '/../includes/header.php';
                                             } elseif ($m['type'] === 'referral_order') {
                                                 $extra = ' (每单补助¥' . ($m['config']['subsidy'] ?? 0) . ')';
                                             }
-                                            echo '<option value="' . e($modName) . '">' . e($modName) . $extra . '</option>';
+                                            echo '<div class="custom-control custom-checkbox mb-1">'
+                                               . '<input type="checkbox" name="upload_project[]" value="' . e($modName) . '" class="custom-control-input" id="proj_' . htmlspecialchars($modName, ENT_QUOTES) . '">'
+                                               . '<label class="custom-control-label" for="proj_' . htmlspecialchars($modName, ENT_QUOTES) . '">' . e($modName) . $extra . '</label>'
+                                               . '</div>';
                                         endif;
                                     endforeach;
                                 endif;
                             endif;
                             ?>
-                        </select>
-                        <small class="text-muted">按住 <kbd>Ctrl</kbd>（Mac用<kbd>⌘</kbd>）可多选；不选则按默认全部订单总额计算</small>
+                        </div>
+                        <small class="text-muted">不勾选则按默认全部订单总额计算</small>
                     </div>
                     <button type="submit" class="btn btn-success btn-block"><i class="fas fa-upload"></i> 开始上传</button>
                 </form>
@@ -1271,21 +1274,27 @@ function loadEmployees(prefix) {
     }
 }
 
-// 选择员工后，加载该员工的提成模块到多选框
+// 选择员工后，加载该员工的提成模块为勾选框列表
 function loadEmployeeModules(empId, prefix) {
     var $proj = $('#' + prefix + 'Project');
     $proj.empty();
     if (!empId) return;
     $.get('<?php echo BASE_URL; ?>/orders/index.php?employee_id=' + empId + '&ajax=modules', function(data) {
         if (data && data.length) {
-            data.forEach(function(m) {
-                $proj.append('<option value="' + m.name + '">' + m.label + '</option>');
+            data.forEach(function(m, i) {
+                var cid = prefix + 'Proj_' + i;
+                $proj.append(
+                    '<div class="custom-control custom-checkbox mb-1">' +
+                        '<input type="checkbox" name="upload_project[]" value="' + m.name + '" class="custom-control-input" id="' + cid + '">' +
+                        '<label class="custom-control-label" for="' + cid + '">' + m.label + '</label>' +
+                    '</div>'
+                );
             });
         } else {
-            $proj.append('<option value="" disabled>（该员工未配置提成模块，请先去算法设置）</option>');
+            $proj.append('<p class="text-muted small mb-0">（该员工未配置提成模块，请先去算法设置）</p>');
         }
     }, 'json').fail(function() {
-        $proj.append('<option value="" disabled>加载失败</option>');
+        $proj.append('<p class="text-muted small mb-0">加载失败</p>');
     });
 }
 
@@ -1529,6 +1538,14 @@ window.addEventListener('load', function() {
 .order-detail-modal { max-width: min(1600px, 96vw); }
 .order-detail-modal .modal-content { max-height: 92vh; }
 .order-detail-modal .modal-body { overflow: hidden; }
+.project-checkbox-list {
+    border: 1px solid #dee2e6;
+    border-radius: 6px;
+    padding: 10px 14px;
+    max-height: 160px;
+    overflow-y: auto;
+    background: #fafbfc;
+}
 .order-detail-table-wrap {
     max-height: calc(92vh - 170px);
     overflow: auto;
