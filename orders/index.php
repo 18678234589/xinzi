@@ -406,6 +406,44 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $error = '批量删除失败: ' . $ex->getMessage();
             }
         }
+    } elseif ($action === 'delete_group') {
+        // 按筛选条件批量删除：员工+月份+project（可不指定project则删该员工该月全部）
+        $delEmployeeId = (int)($_POST['del_employee_id'] ?? 0);
+        $delMonth      = $_POST['del_month'] ?? '';
+        $delProject    = $_POST['del_project'] ?? '';
+        $delScope      = $_POST['del_scope'] ?? ''; // 'personal' 或 'department' 或 ''
+        $backQ = [];
+        if ($delEmployeeId) $backQ['employee_id'] = $delEmployeeId;
+        if ($delMonth)      $backQ['month']       = $delMonth;
+        try {
+            $sql = "DELETE FROM orders WHERE 1=1";
+            $params = [];
+            if ($delEmployeeId > 0) {
+                $sql .= " AND employee_id = ?";
+                $params[] = $delEmployeeId;
+            }
+            if ($delMonth !== '') {
+                $sql .= " AND DATE_FORMAT(order_date, '%Y-%m') = ?";
+                $params[] = $delMonth;
+            }
+            if ($delProject !== '') {
+                $sql .= " AND project = ?";
+                $params[] = $delProject;
+            }
+            if ($delScope !== '') {
+                $sql .= " AND COALESCE(order_scope, 'personal') = ?";
+                $params[] = $delScope;
+            }
+            $stmt = db()->prepare($sql);
+            $stmt->execute($params);
+            $deleted = $stmt->rowCount();
+            $rq = $backQ;
+            if ($delProject && $deleted > 0) {} // 删除后回到列表
+            header('Location: ' . BASE_URL . '/orders/index.php?' . http_build_query($rq));
+            exit;
+        } catch (PDOException $ex) {
+            $error = '批量删除失败: ' . $ex->getMessage();
+        }
     }
 }
 
@@ -1103,10 +1141,21 @@ include __DIR__ . '/../includes/header.php';
                         <!-- 月份折叠卡片 -->
                         <div class="card mb-2 border-info">
                             <div class="card-header bg-info text-white py-2">
-                                <h6 class="mb-0">
-                                    <i class="fas fa-calendar"></i> <?php echo date('Y年m月', strtotime($monthData['month'] . '-01')); ?>
-                                    <span class="badge badge-light text-info ml-2"><?php echo $monthData['total_cnt']; ?> 笔</span>
-                                    <span class="float-right">¥<?php echo money($monthData['total_amount']); ?></span>
+                                <h6 class="mb-0 d-flex align-items-center justify-content-between">
+                                    <span>
+                                        <i class="fas fa-calendar"></i> <?php echo date('Y年m月', strtotime($monthData['month'] . '-01')); ?>
+                                        <span class="badge badge-light text-info ml-2"><?php echo $monthData['total_cnt']; ?> 笔</span>
+                                    </span>
+                                    <span class="d-flex align-items-center">
+                                        <span class="text-white mr-3">¥<?php echo money($monthData['total_amount']); ?></span>
+                                        <form method="post" action="" class="d-inline" onsubmit="return confirm('确定删除 <?php echo date('Y年m月', strtotime($monthData['month'] . '-01')); ?> 的全部 <?php echo $monthData['total_cnt']; ?> 条订单？此操作不可恢复！');">
+                                            <input type="hidden" name="action" value="delete_group">
+                                            <input type="hidden" name="del_employee_id" value="<?php echo (int)$filter_employee; ?>">
+                                            <input type="hidden" name="del_month" value="<?php echo e($monthData['month']); ?>">
+                                            <input type="hidden" name="del_project" value="">
+                                            <button type="submit" class="btn btn-sm btn-outline-light py-0 px-2" title="删除该月全部订单"><i class="fas fa-trash-alt"></i> 删除整月</button>
+                                        </form>
+                                    </span>
                                 </h6>
                             </div>
                             <div class="card-body p-2">
@@ -1139,6 +1188,13 @@ include __DIR__ . '/../includes/header.php';
                                         </span>
                                         <span class="text-success font-weight-bold">
                                             ¥<?php echo money($grp['normal_amount']); ?>
+                                            <form method="post" action="" class="d-inline" onsubmit="return confirm('确定删除【<?php echo e($grpName); ?>】的 <?php echo $grp['cnt']; ?> 条订单？此操作不可恢复！');" style="display:inline-block">
+                                                <input type="hidden" name="action" value="delete_group">
+                                                <input type="hidden" name="del_employee_id" value="<?php echo (int)$filter_employee; ?>">
+                                                <input type="hidden" name="del_month" value="<?php echo e($monthData['month']); ?>">
+                                                <input type="hidden" name="del_project" value="<?php echo e($grpName); ?>">
+                                                <button type="submit" class="btn btn-sm btn-outline-danger py-0 px-1 ml-1" title="删除该分组全部订单" onclick="event.preventDefault();event.stopPropagation();if(confirm('确定删除【<?php echo e($grpName); ?>】的 <?php echo $grp['cnt']; ?> 条订单？此操作不可恢复！')){this.form.submit();}"><i class="fas fa-trash-alt"></i></button>
+                                            </form>
                                             <i class="fas fa-chevron-<?php echo $isExpand ? 'up' : 'down'; ?> ml-2 text-muted" style="font-size:.8em"></i>
                                         </span>
                                     </a>
