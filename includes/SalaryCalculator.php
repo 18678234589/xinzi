@@ -13,6 +13,12 @@
 class SalaryCalculator
 {
     private static $dir;
+    private static $lastError = '';
+
+    public static function getLastError()
+    {
+        return self::$lastError;
+    }
 
     private static function dir()
     {
@@ -876,23 +882,27 @@ class SalaryCalculator
     public static function saveModulesConfig($employeeId, $modules)
     {
         $dir = self::dir();
+        self::$lastError = '';
         // 确保目录可写
         if (!is_dir($dir)) {
             @mkdir($dir, 0755, true);
         }
         if (!is_dir($dir) || !is_writable($dir)) {
+            self::$lastError = "算法目录不可写或不存在：{$dir}";
             error_log("SalaryCalculator: algorithms directory not writable: " . $dir);
             return false;
         }
         $data = ['modules' => $modules, 'updated_at' => date('Y-m-d H:i:s')];
         $json = json_encode($data, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
         if ($json === false) {
+            self::$lastError = "配置编码失败（数据格式异常）";
             error_log("SalaryCalculator: json_encode failed for employee $employeeId");
             return false;
         }
         $file = self::getConfigFile($employeeId);
         $result = file_put_contents($file, $json);
         if ($result === false) {
+            self::$lastError = "写入配置文件失败：{$file}";
             error_log("SalaryCalculator: failed to write config to $file");
             return false;
         }

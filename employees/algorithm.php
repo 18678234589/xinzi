@@ -89,7 +89,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $count = count($modules);
                 $success = "已保存 {$count} 个薪资模块";
             } else {
-                $error = '保存失败';
+                $lastErr = SalaryCalculator::getLastError();
+                $error = '保存失败' . ($lastErr ? '：' . $lastErr : '');
             }
         } else {
             $error = '请至少添加一个模块';
