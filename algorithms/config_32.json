@@ -10,16 +10,14 @@
             }
         },
         {
-            "name": "全勤奖金",
-            "type": "attendance_full",
+            "name": "缺勤扣款",
+            "type": "attendance_deduct",
             "enabled": true,
             "config": {
-                "full_amount": 200,
-                "deduct_mode": "none",
-                "work_hours": 176,
-                "absent_hours": 0
+                "absent_days": 0,
+                "deduct_per_day": 100
             }
         }
     ],
-    "updated_at": "2026-07-13 16:04:53"
+    "updated_at": "2026-07-13 16:29:45"
 }
