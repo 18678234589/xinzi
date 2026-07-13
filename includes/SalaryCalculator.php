@@ -900,12 +900,29 @@ class SalaryCalculator
             return false;
         }
         $file = self::getConfigFile($employeeId);
-        $result = file_put_contents($file, $json);
+        // 先写临时文件，再 rename 覆盖目标文件。
+        // 目录可写时，rename 的“删除旧文件”是目录级操作，
+        // 不依赖旧文件自身权限，可绕过“旧文件所有者与 PHP 进程用户不同导致无法覆盖”的问题。
+        $tmp = $file . '.' . getmypid() . '.' . mt_rand(1000, 9999) . '.tmp';
+        $result = file_put_contents($tmp, $json);
         if ($result === false) {
-            self::$lastError = "写入配置文件失败：{$file}";
-            error_log("SalaryCalculator: failed to write config to $file");
+            self::$lastError = "写入临时文件失败：{$tmp}";
+            error_log("SalaryCalculator: failed to write temp config to $tmp");
             return false;
         }
+        // 跨平台 rename 覆盖
+        if (!@rename($tmp, $file)) {
+            // rename 失败（如跨设备），退回到复制+删除临时文件
+            if (!@copy($tmp, $file)) {
+                @unlink($tmp);
+                self::$lastError = "写入配置文件失败：{$file}";
+                error_log("SalaryCalculator: failed to write config to $file");
+                return false;
+            }
+            @unlink($tmp);
+        }
+        // 尽量放宽权限，便于后续覆盖写入
+        @chmod($file, 0664);
         return true;
     }
 
