@@ -337,6 +337,45 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $error = '批量删除失败: ' . $ex->getMessage();
             }
         }
+    } elseif ($action === 'delete_months') {
+        // 按月份批量删除（支持多选月份），仅删除当前视图可见范围
+        $months = array_values(array_filter(array_map('trim', (array)($_POST['months'] ?? []))));
+        $delEmp        = (int)($_POST['employee_id'] ?? 0);
+        $delDept       = trim($_POST['department'] ?? '');
+        $delDeptOrders = ($_POST['dept_orders'] ?? '') === '1';
+        if (empty($months)) {
+            $error = '请先勾选要删除的月份';
+        } else {
+            try {
+                $where  = " WHERE 1=1";
+                $params = [];
+                if ($delEmp > 0) {
+                    $where .= " AND (o.employee_id = ? OR (o.order_scope = 'department' AND (o.shop IS NULL OR o.shop = '')))";
+                    $params[] = $delEmp;
+                } elseif ($delDept !== '') {
+                    $where .= " AND e.department = ?";
+                    $params[] = $delDept;
+                }
+                if ($delDeptOrders) {
+                    $where .= " AND o.order_scope = 'department'";
+                }
+                // 与列表一致：排除店铺上传的订单
+                $where .= " AND (o.raw_data IS NULL OR o.raw_data NOT LIKE '%\"__from_dept__%\":%') AND NOT (o.order_scope = 'department' AND o.shop <> '')";
+                $ph = implode(',', array_fill(0, count($months), '?'));
+                $where .= " AND DATE_FORMAT(o.order_date, '%Y-%m') IN ($ph)";
+                foreach ($months as $m) { $params[] = $m; }
+                $sql = "DELETE o FROM orders o LEFT JOIN employees e ON o.employee_id = e.id" . $where;
+                db()->prepare($sql)->execute($params);
+                $rq = [];
+                if ($delEmp)        $rq['employee_id'] = $delEmp;
+                if ($delDept)       $rq['department']   = $delDept;
+                if ($delDeptOrders) $rq['dept_orders'] = '1';
+                header('Location: ' . BASE_URL . '/orders/index.php?' . http_build_query($rq));
+                exit;
+            } catch (PDOException $ex) {
+                $error = '删除失败: ' . $ex->getMessage();
+            }
+        }
     }
 }
 
@@ -1016,6 +1055,17 @@ include __DIR__ . '/../includes/header.php';
                 
                 <!-- 第三级：按年份-月份-提成模块三级分组（选择了员工/锁定员工/部门订单时显示） -->
                 <?php elseif ($filter_employee || $locked_employee || $filter_dept_orders): ?>
+                <!-- 按月份批量删除（勾选下方各月份前的复选框，可单选/多选后一次性删除） -->
+                <form method="post" id="monthDeleteForm" onsubmit="return confirm('确定删除所选月份的【全部】订单？此操作不可恢复！')">
+                    <input type="hidden" name="action" value="delete_months">
+                    <?php if ($locked_employee): ?><input type="hidden" name="employee_id" value="<?php echo $locked_employee['id']; ?>"><?php endif; ?>
+                    <?php if ($filter_employee): ?><input type="hidden" name="employee_id" value="<?php echo $filter_employee; ?>"><?php endif; ?>
+                    <?php if ($filter_dept): ?><input type="hidden" name="department" value="<?php echo e($filter_dept); ?>"><?php endif; ?>
+                    <?php if ($filter_dept_orders): ?><input type="hidden" name="dept_orders" value="1"><?php endif; ?>
+                    <div class="d-flex align-items-center mb-2 p-2 bg-light border rounded">
+                        <button type="submit" class="btn btn-sm btn-danger"><i class="fas fa-trash-alt"></i> 删除所选月份订单（<span id="monthSelCount">0</span>）</button>
+                        <small class="text-muted ml-2">勾选下方各月份前的复选框，可单选或多选（如 6月 + 4月）后一次性删除该月全部订单</small>
+                    </div>
                 <?php foreach ($yearGroups as $yearData): ?>
                 <!-- 年份卡片 -->
                 <div class="card mb-3 border-primary">
@@ -1032,6 +1082,7 @@ include __DIR__ . '/../includes/header.php';
                         <div class="card mb-2 border-info">
                             <div class="card-header bg-info text-white py-2">
                                 <h6 class="mb-0">
+                                    <input type="checkbox" name="months[]" value="<?php echo $monthData['month']; ?>" class="month-check mr-2 align-middle" title="勾选后可批量删除该月订单">
                                     <i class="fas fa-calendar"></i> <?php echo date('Y年m月', strtotime($monthData['month'] . '-01')); ?>
                                     <span class="badge badge-light text-info ml-2"><?php echo $monthData['total_cnt']; ?> 笔</span>
                                     <span class="float-right">¥<?php echo money($monthData['total_amount']); ?></span>
@@ -1086,6 +1137,7 @@ include __DIR__ . '/../includes/header.php';
                     </div><!-- /card-body for year -->
                 </div><!-- /card for year -->
                 <?php endforeach; // years ?>
+                </form><!-- /monthDeleteForm -->
                 
                 <?php endif; ?> <!-- 结束三级判断 -->
 
@@ -1473,6 +1525,17 @@ window.addEventListener('load', function() {
     }
 });
 <?php endif; ?>
+
+// 月份批量删除：更新已选月份计数
+$(function() {
+    if (typeof $ === 'function' && $('.month-check').length) {
+        $('.month-check').on('change', function() {
+            var n = $('.month-check:checked').length;
+            var sc = document.getElementById('monthSelCount');
+            if (sc) sc.textContent = n;
+        });
+    }
+});
 
 // 取消选择 & 单条删除
 (function() {
