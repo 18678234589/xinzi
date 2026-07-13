@@ -630,6 +630,9 @@ class SalaryCalculator
                 if ($ono !== '') $seen[$ono] = true;
                 $rd = is_string($o['raw_data'] ?? '') ? json_decode($o['raw_data'], true) : ($o['raw_data'] ?? []);
                 if (!is_array($rd)) $rd = [];
+                // 排除退款订单（金额<=0或标记为退款），退款不计算单量补贴
+                $isRefund = isset($rd['__is_refund__']) && $rd['__is_refund__'] === '1';
+                if ($isRefund || (float)($o['order_amount'] ?? 0) <= 0) continue;
                 $val = trim($rd[$countColumn] ?? '');
                 if ($val !== '') $values[] = $val;
             }
@@ -677,6 +680,9 @@ class SalaryCalculator
                 if ($ono !== '') $seen[$ono] = true;
                 $rd = is_string($o['raw_data'] ?? '') ? json_decode($o['raw_data'], true) : ($o['raw_data'] ?? []);
                 if (!is_array($rd)) $rd = [];
+                // 排除退款订单（金额<=0或标记为退款），退款不计算拍链接补贴
+                $isRefund = isset($rd['__is_refund__']) && $rd['__is_refund__'] === '1';
+                if ($isRefund || (float)($o['order_amount'] ?? 0) <= 0) continue;
                 $val = trim($rd[$countColumn] ?? '');
                 if ($val === '') continue;
                 // 必须同时包含所有关键词
