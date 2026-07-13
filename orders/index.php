@@ -161,8 +161,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         // 找价格/成本/时间列（模糊匹配，支持多种表头名称）
                         $idxPrice = null; $idxCost = null; $idxDate = null; $idxAmount = null;
                         foreach ($colMap as $k => $idx) {
-                            // 订单金额列：优先匹配（美工部等直接有金额列的）
-                            if ($idxAmount === null && (mb_strpos($k, '订单金额') !== false || mb_strpos($k, '金额') !== false)) $idxAmount = $idx;
+                            // 订单金额列：精确匹配"订单金额"，排除"分单备注金额"等干扰列
+                            if ($idxAmount === null && (mb_strpos($k, '订单金额') !== false || $k === '金额')) $idxAmount = $idx;
                             // 价格列：支持"价格"或"售价"
                             if ($idxPrice === null && (mb_strpos($k, '价格') !== false || mb_strpos($k, '售价') !== false)) $idxPrice = $idx;
                             // 成本列：支持"成本"或"总成本"

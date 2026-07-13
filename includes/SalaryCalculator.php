@@ -231,121 +231,133 @@ class SalaryCalculator
     // ---- 退款订单独立扣除 ----
     private static function calcRefundDeduction($c)
     {
-        $refundTotal = 0;
-        $refundCount = 0;
-        
         $debugLog = "=== calcRefundDeduction DEBUG START ===\n";
-        
-        // 查找所有退款订单
-        foreach (($c['orders'] ?? []) as $o) {
-            $orderAmt = (float)($o['order_amount'] ?? 0);
-            if ($orderAmt >= 0) continue; // 只处理负数金额
-            
-            $rawData = is_string($o['raw_data'] ?? '') ? json_decode($o['raw_data'], true) : ($o['raw_data'] ?? []);
-            $isRefund = isset($rawData['__is_refund__']) && $rawData['__is_refund__'] === '1';
-            
-            if ($isRefund) {
-                $refundTotal += $orderAmt; // 累加退款金额（负数）
-                $refundCount++;
-            }
-        }
-        
-        $debugLog .= "退款订单统计: 共{$refundCount}笔, 总金额{$refundTotal}\n";
-        
-        if ($refundCount === 0) {
-            return null; // 没有退款订单
-        }
-        
-        // 根据扣款后总额（包含退款）匹配阶梯提成比例
+
+        // 读取员工算法配置，建立 模块名→rate 映射（standard 类型）
         $configFile = self::getConfigFile($c['employee']['id']);
-        $rate = 0.05; // 默认比例
-        $subsidy = 0; // 每笔补贴
-        $foundTiered = false; // 标记是否找到阶梯模块
-        
+        $moduleRates = [];   // 模块名 => rate
+        $tieredModule = null; // 阶梯提成模块（回退用）
+        $subsidy = 0;
+
         $debugLog .= "员工ID: {$c['employee']['id']}\n";
-        $debugLog .= "订单总额(扣款后): {$c['order_total']}\n";
         $debugLog .= "配置文件: $configFile\n";
-        
+
         if (file_exists($configFile)) {
             $raw = json_decode(file_get_contents($configFile), true);
-            $debugLog .= "配置文件已加载, 模块数量: " . count($raw['modules'] ?? []) . "\n\n";
-            
             if ($raw && !empty($raw['modules'])) {
-                // 查找第一个启用的阶梯提成模块
-                foreach ($raw['modules'] as $idx => $mod) {
-                    $debugLog .= "检查模块[$idx]: 名称={$mod['name']}, 类型={$mod['type']}, 启用=" . (($mod['enabled'] ?? true) ? '是' : '否') . "\n";
-                    
+                $debugLog .= "配置文件已加载, 模块数量: " . count($raw['modules']) . "\n\n";
+                foreach ($raw['modules'] as $mod) {
                     if (!($mod['enabled'] ?? true)) continue;
-                    
-                    if ($mod['type'] === 'tiered' && !empty($mod['config']['tiers'])) {
-                        // 使用扣款后总额（包含退款）匹配阶梯
-                        $totalForTier = (float)$c['order_total'];
-                        
-                        // 按阶梯从高到低匹配
-                        $tiers = $mod['config']['tiers'];
-                        usort($tiers, function($a, $b) {
-                            return ((float)($b['threshold'] ?? 0)) - ((float)($a['threshold'] ?? 0));
-                        });
-                        
-                        $debugLog .= "  → 找到阶梯模块: {$mod['name']}\n";
-                        $debugLog .= "  → 匹配总额: $totalForTier\n";
-                        $debugLog .= "  → 阶梯配置: " . json_encode($tiers, JSON_UNESCAPED_UNICODE) . "\n";
-                        
-                        foreach ($tiers as $tier) {
-                            $threshold = (float)($tier['threshold'] ?? 0);
-                            $debugLog .= "  → 测试阶梯: threshold=$threshold, rate={$tier['rate']}, subsidy={$tier['subsidy']}\n";
-                            if ($totalForTier >= $threshold) {
-                                $rate = (float)($tier['rate'] ?? 0.05);
-                                $subsidy = (float)($tier['subsidy'] ?? 0);
-                                $foundTiered = true; // 标记已找到
-                                $debugLog .= "  ✓ 匹配成功! rate=$rate, subsidy=$subsidy\n";
-                                break;
-                            }
-                        }
-                        break; // 找到阶梯提成模块后停止
+                    if ($mod['type'] === 'standard' && isset($mod['config']['rate'])) {
+                        $moduleRates[$mod['name']] = (float)$mod['config']['rate'];
                     }
-                }
-                
-                // 如果没有阶梯提成，查找标准提成
-                if (!$foundTiered) {
-                    $debugLog .= "未找到阶梯模块，尝试标准提成模块\n";
-                    foreach ($raw['modules'] as $mod) {
-                        if (!($mod['enabled'] ?? true)) continue;
-                        if ($mod['type'] === 'standard' && isset($mod['config']['rate'])) {
-                            $rate = (float)$mod['config']['rate'];
-                            $debugLog .= "使用标准提成: rate=$rate\n";
-                            break;
-                        }
+                    if ($mod['type'] === 'tiered' && !empty($mod['config']['tiers']) && $tieredModule === null) {
+                        $tieredModule = $mod;
                     }
                 }
             }
         } else {
             $debugLog .= "配置文件不存在!\n";
         }
-        
-        // 计算扣除：比例扣除 - 补贴扣除（退款时补贴也要扣回）
-        $commissionDeduction = $refundTotal * $rate;
+
+        $debugLog .= "模块率映射: " . json_encode($moduleRates, JSON_UNESCAPED_UNICODE) . "\n";
+        $debugLog .= "是否有阶梯模块: " . ($tieredModule ? '是' : '否') . "\n\n";
+
+        // 按模块名分组收集退款订单，每组单独用对应模块的 rate 计算
+        $refundByModule = []; // module名 => ['total'=>金额, 'count'=>笔数]
+        $refundCount = 0;
+        $refundTotal = 0;
+
+        foreach (($c['orders'] ?? []) as $o) {
+            $orderAmt = (float)($o['order_amount'] ?? 0);
+            if ($orderAmt >= 0) continue; // 只处理负数金额
+
+            $rawData = is_string($o['raw_data'] ?? '') ? json_decode($o['raw_data'], true) : ($o['raw_data'] ?? []);
+            $isRefund = isset($rawData['__is_refund__']) && $rawData['__is_refund__'] === '1';
+
+            if ($isRefund) {
+                $proj = trim($o['project'] ?? '');
+                if ($proj === '') $proj = '(空)';
+                if (!isset($refundByModule[$proj])) {
+                    $refundByModule[$proj] = ['total' => 0, 'count' => 0];
+                }
+                $refundByModule[$proj]['total'] += $orderAmt;
+                $refundByModule[$proj]['count']++;
+                $refundTotal += $orderAmt;
+                $refundCount++;
+            }
+        }
+
+        $debugLog .= "退款订单统计: 共{$refundCount}笔, 总金额{$refundTotal}\n";
+        $debugLog .= "按模块分组: " . json_encode($refundByModule, JSON_UNESCAPED_UNICODE) . "\n\n";
+
+        if ($refundCount === 0) {
+            return null; // 没有退款订单
+        }
+
+        // 阶梯提成：用总额匹配阶梯得到统一 rate + subsidy（回退方案）
+        $tieredRate = null;
+        if ($tieredModule) {
+            $totalForTier = (float)$c['order_total'];
+            $tiers = $tieredModule['config']['tiers'];
+            usort($tiers, function($a, $b) {
+                return ((float)($b['threshold'] ?? 0)) - ((float)($a['threshold'] ?? 0));
+            });
+            foreach ($tiers as $tier) {
+                $threshold = (float)($tier['threshold'] ?? 0);
+                if ($totalForTier >= $threshold) {
+                    $tieredRate = (float)($tier['rate'] ?? 0.05);
+                    $subsidy = (float)($tier['subsidy'] ?? 0);
+                    break;
+                }
+            }
+            $debugLog .= "阶梯匹配: rate=$tieredRate, subsidy=$subsidy\n\n";
+        }
+
+        // 逐模块计算退款扣除，按 project 匹配对应模块的 rate
+        $totalDeduction = 0;
+        $formulaParts = [];
+
+        foreach ($refundByModule as $proj => $info) {
+            // 优先用模块名精确匹配的 rate
+            if (isset($moduleRates[$proj])) {
+                $rate = $moduleRates[$proj];
+            } elseif ($tieredRate !== null) {
+                $rate = $tieredRate;
+            } else {
+                // 回退：取第一个 standard 模块的 rate
+                $rate = count($moduleRates) > 0 ? reset($moduleRates) : 0.05;
+            }
+
+            $deduction = $info['total'] * $rate;
+            $totalDeduction += $deduction;
+            $debugLog .= "模块[{$proj}]: {$info['count']}笔, 金额={$info['total']}, rate={$rate}(" . ($rate*100) . "%), 扣除={$deduction}\n";
+            $formulaParts[] = sprintf('%s:%d笔¥%.2f×%.2f%%=%.2f', $proj, $info['count'], $info['total'], $rate*100, $deduction);
+        }
+
+        // 补贴扣除（退款时补贴也要扣回）
         $subsidyDeduction = $refundCount * $subsidy;
-        $totalDeduction = $commissionDeduction - $subsidyDeduction; // 补贴要减去
-        
-        $debugLog .= "\n最终匹配结果:\n";
-        $debugLog .= "  比例(rate): $rate (" . ($rate*100) . "%)\n";
-        $debugLog .= "  补贴(subsidy): $subsidy\n";
-        $debugLog .= "\n计算过程:\n";
-        $debugLog .= "  提成扣除 = $refundTotal × $rate = $commissionDeduction\n";
-        $debugLog .= "  补贴扣除 = $refundCount × $subsidy = $subsidyDeduction\n";
-        $debugLog .= "  总扣除 = $commissionDeduction - $subsidyDeduction = $totalDeduction\n";
+        $totalDeduction -= $subsidyDeduction;
+
+        $debugLog .= "\n补贴扣除 = {$refundCount}笔 × {$subsidy} = {$subsidyDeduction}\n";
+        $debugLog .= "总扣除 = {$totalDeduction}\n";
         $debugLog .= "=== calcRefundDeduction DEBUG END ===\n";
-        
-        // 将调试日志写入文件
+
         file_put_contents(__DIR__ . '/../debug_refund.txt', $debugLog);
         error_log($debugLog);
-        
-        $formula = sprintf('退款%d笔，¥%.2f×%.2f%%=%.2f', $refundCount, $refundTotal, $rate*100, $commissionDeduction);
+
+        // 公式展示：单模块简洁，多模块分项列出
+        if (count($formulaParts) === 1) {
+            $formula = sprintf('退款%d笔，¥%.2f×%.2f%%=%.2f', $refundCount, $refundTotal,
+                (isset($moduleRates[array_key_first($refundByModule)]) ? $moduleRates[array_key_first($refundByModule)] : ($tieredRate ?? 0.05)) * 100,
+                $totalDeduction + $subsidyDeduction);
+        } else {
+            $formula = '退款' . $refundCount . '笔：' . implode('；', $formulaParts);
+        }
         if ($subsidy > 0) {
             $formula .= sprintf(' - %d笔×¥%.2f=%.2f', $refundCount, $subsidy, $subsidyDeduction);
         }
-        
+
         return [
             'amount' => round($totalDeduction, 2), // 负数
             'formula' => $formula,
@@ -884,6 +896,45 @@ class SalaryCalculator
             error_log("SalaryCalculator: algorithms directory not writable: " . $dir);
             return false;
         }
+
+        // 对比新旧配置，模块名变更时自动同步订单 project
+        $oldConfig = self::readModulesConfig($employeeId);
+        if ($oldConfig && !empty($oldConfig['modules'])) {
+            $oldNames = [];
+            foreach ($oldConfig['modules'] as $m) {
+                $oldNames[$m['name']] = $m;
+            }
+            foreach ($modules as $newMod) {
+                $newName = $newMod['name'] ?? '';
+                if ($newName === '') continue;
+                // 新模块名不在旧配置里，检查是否有旧模块名出现在订单 project 中但新名没有
+                // 这种情况下无法自动判断对应关系，跳过
+            }
+            // 按模块位置顺序匹配旧→新（假设用户不会增删模块只改名）
+            $oldMods = $oldConfig['modules'];
+            $renameMap = []; // 旧名 => 新名
+            $count = min(count($oldMods), count($modules));
+            for ($i = 0; $i < $count; $i++) {
+                $oldName = $oldMods[$i]['name'] ?? '';
+                $newName = $modules[$i]['name'] ?? '';
+                if ($oldName !== '' && $newName !== '' && $oldName !== $newName) {
+                    $renameMap[$oldName] = $newName;
+                }
+            }
+            // 同步数据库订单 project
+            if (!empty($renameMap)) {
+                try {
+                    foreach ($renameMap as $oldName => $newName) {
+                        $stmt = db()->prepare("UPDATE orders SET project = ? WHERE employee_id = ? AND project = ?");
+                        $stmt->execute([$newName, $employeeId, $oldName]);
+                    }
+                    error_log("SalaryCalculator: synced project names for employee $employeeId: " . json_encode($renameMap, JSON_UNESCAPED_UNICODE));
+                } catch (Exception $e) {
+                    error_log("SalaryCalculator: failed to sync project names: " . $e->getMessage());
+                }
+            }
+        }
+
         $data = ['modules' => $modules, 'updated_at' => date('Y-m-d H:i:s')];
         $json = json_encode($data, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
         if ($json === false) {
