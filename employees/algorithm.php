@@ -89,7 +89,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $count = count($modules);
                 $success = "已保存 {$count} 个薪资模块";
             } else {
-                $error = '保存失败';
+                $lastErr = SalaryCalculator::getLastError();
+                $error = '保存失败' . ($lastErr ? '：' . $lastErr : '');
             }
         } else {
             $error = '请至少添加一个模块';
@@ -732,6 +733,72 @@ $(function(){
         var idx=$(this).data('index'), type=$(this).find("[name='mod_type\\["+idx+"\\]']").val();
         $(this).on('change input', function(){setTimeout(renderAllPreviews,50);});
     });
+});
+
+// ==================== 调试：提交时打印到控制台 + 持久化 ====================
+function collectFormDump(form) {
+    var fd = new FormData(form);
+    var dump = {};
+    fd.forEach(function(v, k) {
+        if (dump[k] === undefined) dump[k] = v;
+        else if (Array.isArray(dump[k])) dump[k].push(v);
+        else dump[k] = [dump[k], v];
+    });
+    return dump;
+}
+
+$('#moduleForm').on('submit', function() {
+    try {
+        var dump = collectFormDump(this);
+        // 持久化到 sessionStorage，刷新后也能看到
+        sessionStorage.setItem('alg_debug_dump', JSON.stringify(dump));
+        console.log('[algorithm] 提交数据 mod_type=', dump['mod_type']);
+        console.log('[algorithm] 提交数据 mod_name=', dump['mod_name']);
+        console.log('[algorithm] 提交数据 mod_cfg=', dump['mod_cfg']);
+        // 单独高亮引流订单模块
+        var types = dump['mod_type'] || [];
+        types.forEach(function(t, i) {
+            if (t === 'referral_order') {
+                console.log('[algorithm] 引流订单模块 #' + i + ' 配置=', (dump['mod_cfg'] && dump['mod_cfg']['subsidy']) ? dump['mod_cfg']['subsidy'][i] : 'N/A');
+            }
+        });
+        console.log('[algorithm] 完整表单=', dump);
+    } catch (e) {
+        console.error('[algorithm] 调试打印异常', e);
+    }
+});
+
+// 刷新后：把上次提交的调试信息显示成持久化面板（不会被刷新冲掉）
+$(function() {
+    var raw = sessionStorage.getItem('alg_debug_dump');
+    if (!raw) return;
+    sessionStorage.removeItem('alg_debug_dump');
+    try {
+        var dump = JSON.parse(raw);
+        var types = dump['mod_type'] || [];
+        var html = '<div class="card border-warning mb-3"><div class="card-header bg-warning text-dark"><i class="fas fa-bug"></i> 上次提交调试信息（持久化）</div><div class="card-body small">';
+        html += '<div><strong>mod_type:</strong> ' + JSON.stringify(types) + '</div>';
+        html += '<div><strong>mod_name:</strong> ' + JSON.stringify(dump['mod_name']) + '</div>';
+        // 重点展示引流订单模块
+        types.forEach(function(t, i) {
+            if (t === 'referral_order') {
+                var cfg = dump['mod_cfg'] || {};
+                html += '<div class="mt-2 p-2 bg-light rounded"><strong class="text-primary">引流订单模块 #' + i + '</strong><br>';
+                html += 'subsidy(每单补助): ' + JSON.stringify(cfg['subsidy'] ? cfg['subsidy'][i] : 'N/A') + '<br>';
+                html += 'min_amount: ' + JSON.stringify(cfg['min_amount'] ? cfg['min_amount'][i] : 'N/A') + ' / ';
+                html += 'max_amount: ' + JSON.stringify(cfg['max_amount'] ? cfg['max_amount'][i] : 'N/A') + ' / ';
+                html += 'shop_keyword: ' + JSON.stringify(cfg['shop_keyword'] ? cfg['shop_keyword'][i] : 'N/A') + '</div>';
+            }
+        });
+        html += '<div class="mt-2"><strong>完整表单:</strong><pre class="bg-dark text-light p-2" style="max-height:240px;overflow:auto;">' + JSON.stringify(dump, null, 2) + '</pre></div>';
+        html += '</div></div>';
+        // 插入到标题下方
+        var $box = $(html);
+        $('#moduleList').before($box);
+        console.log('[algorithm] 上次提交调试信息已还原（见页面黄色面板）', dump);
+    } catch (e) {
+        console.error('[algorithm] 调试面板渲染异常', e);
+    }
 });
 </script>
 

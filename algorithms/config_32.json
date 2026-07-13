@@ -8,7 +8,18 @@
                 "commission_rate": 0.1,
                 "service_fee_rate": 0.03
             }
+        },
+        {
+            "name": "全勤奖金",
+            "type": "attendance_full",
+            "enabled": true,
+            "config": {
+                "full_amount": 200,
+                "deduct_mode": "none",
+                "work_hours": 176,
+                "absent_hours": 0
+            }
         }
     ],
-    "updated_at": "2026-07-09 14:29:57"
+    "updated_at": "2026-07-13 16:04:53"
 }
