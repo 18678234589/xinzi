@@ -12,6 +12,17 @@ $preview = null;
 $insuranceConfig = @include __DIR__ . '/../config/insurance.php';
 $insuranceAmount = (float)($insuranceConfig['amount'] ?? 0);
 
+// 如果前端传入了新的保险金额且与配置不同，则保存到配置文件
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['insurance_amount'])) {
+    $newInsAmt = round((float)$_POST['insurance_amount'], 2);
+    if (abs($newInsAmt - $insuranceAmount) > 0.001) {
+        $configPath = __DIR__ . '/../config/insurance.php';
+        $configContent = "<?php\n/**\n * 保险扣除配置\n *\n * amount = 每月保险扣除金额（全员统一）\n * 每年基数变化时，只需修改此金额即可。\n */\nreturn [\n    'amount' => " . var_export($newInsAmt, true) . ",\n];\n";
+        @file_put_contents($configPath, $configContent);
+        $insuranceAmount = $newInsAmt;
+    }
+}
+
 // 计算全勤奖（先加后扣模式）
 // 规则：请假 ≥8h 全扣、≥4h 扣一半、<4h 不扣；无考勤记录或不启用则净额为0
 // 返回 ['base'=>满勤金额, 'deduct'=>扣除, 'net'=>净额, 'status'=>说明, 'has_att'=>是否有考勤]
@@ -525,10 +536,13 @@ include __DIR__ . '/../includes/header.php';
                             <input type="checkbox" name="deduct_insurance" value="1" class="custom-control-input" id="deductIns" checked>
                             <label class="custom-control-label" for="deductIns">
                                 <i class="fas fa-shield-alt text-info"></i> 扣除保险
-                                <span class="text-muted">¥<?php echo money($insuranceAmount); ?></span>
                             </label>
                         </div>
-                        <small class="text-muted">默认勾选扣除，不扣保险的员工请手动取消</small>
+                        <div class="input-group mt-1" style="max-width:180px;">
+                            <div class="input-group-prepend"><span class="input-group-text">¥</span></div>
+                            <input type="number" name="insurance_amount" class="form-control" step="0.01" value="<?php echo e($_POST['insurance_amount'] ?? $insuranceAmount); ?>" placeholder="保险金额">
+                        </div>
+                        <small class="text-muted">修改金额后预览计算即可保存，明年改基数直接在这里改；不扣保险的员工取消勾选</small>
                     </div>
                     <div class="form-group">
                         <label><i class="fas fa-money-bill-wave text-primary"></i> 底薪</label>
@@ -724,6 +738,7 @@ include __DIR__ . '/../includes/header.php';
                     <input type="hidden" name="full_attendance_bonus" value="<?php echo e($preview['full_attendance_bonus'] ?? 200); ?>">
                     <?php if (($preview['insurance_amount'] ?? 0) > 0): ?>
                     <input type="hidden" name="deduct_insurance" value="1">
+                    <input type="hidden" name="insurance_amount" value="<?php echo e($preview['insurance_amount']); ?>">
                     <?php endif; ?>
                     <button type="submit" class="btn btn-success btn-lg btn-block"
                         onclick="return confirm('确认生成<?php echo e($emp['name']); ?> <?php echo e($preview['month']); ?>月的薪资记录？<?php echo $existing ? '将覆盖已有记录。' : ''; ?>')">
