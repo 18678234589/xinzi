@@ -947,7 +947,132 @@ class SalaryCalculator
             error_log("SalaryCalculator: failed to write config to $file");
             return false;
         }
+
+        // 新增员工首次保存配置时，自动同步部门订单拆分行
+        // 如果该员工没有任何部门拆分行（__from_dept__），但同部门其他员工有，则复制一份
+        self::syncDeptOrdersForEmployee($employeeId, $modules);
+
         return true;
+    }
+
+    /**
+     * 自动同步部门订单拆分行到新员工
+     * 场景：新员工刚配置算法，之前上传部门订单时还没选她，现在自动补上
+     */
+    private static function syncDeptOrdersForEmployee($employeeId, $modules)
+    {
+        try {
+            // 检查该员工是否已有部门拆分行
+            $cntStmt = db()->prepare("SELECT COUNT(*) FROM orders WHERE employee_id = ? AND raw_data LIKE '%__from_dept__%'");
+            $cntStmt->execute([$employeeId]);
+            if ((int)$cntStmt->fetchColumn() > 0) {
+                return; // 已有拆分行，不需要同步
+            }
+
+            // 查员工所属部门
+            $emp = db()->prepare("SELECT department FROM employees WHERE id = ?");
+            $emp->execute([$employeeId]);
+            $empRow = $emp->fetch();
+            if (!$empRow || empty($empRow['department'])) return;
+            $deptName = $empRow['department'];
+
+            // 找同部门其他员工的拆分行作为模板（取第一个有的）
+            $tplStmt = db()->prepare(
+                "SELECT o.order_amount, o.order_date, o.order_no, o.raw_data, o.is_abnormal, o.abnormal_reason
+                 FROM orders o
+                 INNER JOIN employees e ON o.employee_id = e.id
+                 WHERE o.raw_data LIKE ? AND o.employee_id != ? AND e.department = ?
+                 LIMIT 1"
+            );
+            $tplStmt->execute(['%__from_dept__%', $employeeId, $deptName]);
+            $tplRow = $tplStmt->fetch();
+            if (!$tplRow) return; // 同部门没人有拆分行，说明还没上传过部门订单
+
+            $tplEmpStmt = db()->prepare(
+                "SELECT o.order_amount, o.order_date, o.order_no, o.raw_data, o.is_abnormal, o.abnormal_reason
+                 FROM orders o
+                 WHERE o.employee_id = ? AND o.raw_data LIKE '%__from_dept__%'"
+            );
+            // 用模板员工的 id 查全部拆分行
+            $tplEmpIdStmt = db()->prepare(
+                "SELECT o.employee_id FROM orders o
+                 INNER JOIN employees e ON o.employee_id = e.id
+                 WHERE o.raw_data LIKE ? AND o.employee_id != ? AND e.department = ?
+                 LIMIT 1"
+            );
+            $tplEmpIdStmt->execute(['%__from_dept__%', $employeeId, $deptName]);
+            $tplEmpId = (int)$tplEmpIdStmt->fetchColumn();
+            if ($tplEmpId <= 0) return;
+
+            $tplEmpStmt->execute([$tplEmpId]);
+            $templateOrders = $tplEmpStmt->fetchAll();
+            if (empty($templateOrders)) return;
+
+            // 从新配置中找出 standard 类型模块名（用于 project）
+            $moduleNames = [];
+            foreach ($modules as $m) {
+                if (($m['type'] ?? '') === 'standard' && !empty($m['name'])) {
+                    $moduleNames[] = $m['name'];
+                }
+            }
+            if (empty($moduleNames)) return;
+
+            // 按模板订单的 project 做模糊匹配：如果模板 project 含"续费"，找新配置里含"续费"的模块名
+            $insertStmt = db()->prepare(
+                "INSERT INTO orders (employee_id, order_amount, order_date, project, order_no, raw_data, is_abnormal, abnormal_reason, order_scope)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'personal')"
+            );
+            $inserted = 0;
+            foreach ($templateOrders as $o) {
+                $rd = json_decode($o['raw_data'] ?? '', true) ?: [];
+                $rd['__from_dept__'] = $deptName;
+
+                // 匹配 project：模板订单的 project → 新配置的模块名
+                $tplProj = trim($o['project'] ?? '');
+                $newProj = self::matchModuleByName($tplProj, $moduleNames);
+                if ($newProj === null) {
+                    // 无法匹配的用第一个 standard 模块
+                    $newProj = $moduleNames[0];
+                }
+
+                $insertStmt->execute([
+                    $employeeId,
+                    $o['order_amount'],
+                    $o['order_date'],
+                    $newProj,
+                    $o['order_no'],
+                    json_encode($rd, JSON_UNESCAPED_UNICODE),
+                    $o['is_abnormal'],
+                    $o['abnormal_reason'],
+                ]);
+                $inserted++;
+            }
+            error_log("SalaryCalculator: auto-synced {$inserted} dept orders for employee {$employeeId} (dept={$deptName}, template={$tplEmpId})");
+        } catch (Exception $e) {
+            error_log("SalaryCalculator: syncDeptOrdersForEmployee failed: " . $e->getMessage());
+        }
+    }
+
+    /**
+     * 模糊匹配模块名：旧 project 名 → 新模块名
+     * 如 "续费1.9%" → "续费1%"（都含"续费"）
+     */
+    private static function matchModuleByName($oldName, $newNames)
+    {
+        $oldName = trim($oldName);
+        if ($oldName === '') return null;
+        // 精确匹配
+        if (in_array($oldName, $newNames)) return $oldName;
+        // 模糊匹配：取关键词（去掉数字和%）
+        $keyword = preg_replace('/[\d.%]/u', '', $oldName);
+        if ($keyword === '') return null;
+        foreach ($newNames as $newName) {
+            $newKeyword = preg_replace('/[\d.%]/u', '', $newName);
+            if ($keyword === $newKeyword || mb_strpos($newName, $keyword) !== false || mb_strpos($keyword, $newKeyword) !== false) {
+                return $newName;
+            }
+        }
+        return null;
     }
 
     /**
