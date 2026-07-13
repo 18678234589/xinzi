@@ -175,7 +175,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         }
                         
                         // 校验：要么有订单金额列，要么有价格和成本列
-                        if ($idxAmount === null && ($idxPrice === null || $idxCost === null)) {
+                        // 例外：如果选中的模块全部是"按数量计算"类型（单量补贴/引流订单），则不需要金额列
+                        $countOnlyModules = false;
+                        if (!empty($projectArr) && $idxAmount === null && ($idxPrice === null || $idxCost === null)) {
+                            $modCfg = SalaryCalculator::readModulesConfig($employee_id);
+                            $modTypeMap = [];
+                            if ($modCfg && !empty($modCfg['modules'])) {
+                                foreach ($modCfg['modules'] as $m) {
+                                    $modTypeMap[trim($m['name'])] = $m['type'] ?? '';
+                                }
+                            }
+                            $allCountBased = true;
+                            foreach ($projectArr as $proj) {
+                                $type = $modTypeMap[$proj] ?? '';
+                                if (!in_array($type, ['per_order', 'referral_order'])) {
+                                    $allCountBased = false;
+                                    break;
+                                }
+                            }
+                            $countOnlyModules = $allCountBased;
+                        }
+                        if (!$countOnlyModules && $idxAmount === null && ($idxPrice === null || $idxCost === null)) {
                             $error = '表头缺少金额字段：需要"订单金额"列，或同时有"价格/售价"和"成本/总成本"列';
                             goto upload_done;
                         }
@@ -211,7 +231,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             if ($idxAmount !== null) {
                                 // 直接使用订单金额列（美工部等）
                                 $amount = (float)preg_replace('/[^\d.\-]/', '', trim($row[$idxAmount] ?? ''));
-                            } else {
+                            } elseif ($idxPrice !== null && $idxCost !== null) {
                                 // 金额 = 售价 - 成本
                                 $price  = (float)preg_replace('/[^\d.\-]/', '', trim($row[$idxPrice] ?? ''));
                                 $cost   = (float)preg_replace('/[^\d.\-]/', '', trim($row[$idxCost]  ?? ''));
@@ -228,6 +248,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                         $amount = round($price - $price * $feeRate - $cost, 2);
                                     }
                                 }
+                            } else {
+                                // 纯数量表（无金额列）：订单金额存0，按数量计算的模块只数笔数
+                                $amount = 0;
                             }
 
                             // 日期：优先使用上传时选择的归属月份，忽略Excel中的日期列
