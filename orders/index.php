@@ -1157,8 +1157,13 @@ include __DIR__ . '/../includes/header.php';
                                                 <span class="badge badge-danger ml-1 abnormal-filter-badge" title="只看异常订单" onclick="event.preventDefault();event.stopPropagation();location.href='<?php echo '?' . http_build_query($abnQ); ?>';"><i class="fas fa-exclamation-triangle"></i> <?php echo $grp['abn_cnt']; ?></span>
                                             <?php endif; ?>
                                         </span>
-                                        <span class="text-success font-weight-bold">
-                                            ¥<?php echo money($grp['normal_amount']); ?>
+                                        <span class="text-success font-weight-bold d-flex align-items-center">
+                                            <span>¥<?php echo money($grp['normal_amount']); ?></span>
+                                            <button type="button" class="btn btn-link text-danger p-0 ml-2" style="font-size:.75em;line-height:1"
+                                                title="删除此模块全部订单"
+                                                onclick="event.preventDefault();event.stopPropagation();deleteProject(<?php echo json_encode($grpName, JSON_UNESCAPED_UNICODE); ?>, <?php echo (int)$grp['cnt']; ?>, <?php echo (int)($locked_employee ? $locked_employee['id'] : $filter_employee); ?>, <?php echo json_encode($filter_dept, JSON_UNESCAPED_UNICODE); ?>, <?php echo json_encode($filter_dept_orders ? '1' : '', JSON_UNESCAPED_UNICODE); ?>)">
+                                                <i class="fas fa-trash-alt"></i>
+                                            </button>
                                             <i class="fas fa-chevron-<?php echo $isExpand ? 'up' : 'down'; ?> ml-2 text-muted" style="font-size:.8em"></i>
                                         </span>
                                     </a>
@@ -1169,13 +1174,6 @@ include __DIR__ . '/../includes/header.php';
                                         </div>
                                     <?php endif; ?>
 
-                                    <!-- 删除此模块全部订单 -->
-                                    <div class="d-flex justify-content-end px-2 pb-1">
-                                        <button type="button" class="btn btn-xs btn-outline-danger py-0"
-                                            onclick='deleteProject(<?php echo json_encode($grpName, JSON_UNESCAPED_UNICODE); ?>, <?php echo (int)$grp['cnt']; ?>, <?php echo (int)($locked_employee ? $locked_employee['id'] : $filter_employee); ?>, <?php echo json_encode($filter_dept, JSON_UNESCAPED_UNICODE); ?>, <?php echo json_encode($filter_dept_orders ? '1' : '', JSON_UNESCAPED_UNICODE); ?>)'>
-                                            <i class="fas fa-trash-alt"></i> 删除此模块
-                                        </button>
-                                    </div>
 
                 </div><!-- /order-group -->
                 <?php endforeach; // projects in month ?>
