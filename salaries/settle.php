@@ -649,6 +649,7 @@ include __DIR__ . '/../includes/header.php';
                         }
                     }
                     foreach ($mods as $m) {
+                        if (($m['type'] ?? '') === 'base_salary') continue;
                         $parts[] = ($m['amount']>=0?'':'') . money(abs($m['amount'])) . '(' . e($m['name']) . ')';
                     }
                     echo implode(' + ', $parts);
