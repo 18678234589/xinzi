@@ -1165,7 +1165,7 @@ include __DIR__ . '/../includes/header.php';
                                     </a>
                                     <button type="button" class="btn btn-link text-danger p-0 px-2 d-flex align-items-center" style="font-size:.8em;border-left:1px solid #dee2e6"
                                         title="删除此模块全部订单"
-                                        onclick="deleteProject(<?php echo json_encode($grpName, JSON_UNESCAPED_UNICODE); ?>, <?php echo (int)$grp['cnt']; ?>, <?php echo (int)($locked_employee ? $locked_employee['id'] : $filter_employee); ?>, <?php echo json_encode($filter_dept, JSON_UNESCAPED_UNICODE); ?>, <?php echo json_encode($filter_dept_orders ? '1' : '', JSON_UNESCAPED_UNICODE); ?>)">
+                                        onclick='deleteProject(<?php echo json_encode($grpName, JSON_UNESCAPED_UNICODE); ?>, <?php echo (int)$grp['cnt']; ?>, <?php echo (int)($locked_employee ? $locked_employee['id'] : $filter_employee); ?>, <?php echo json_encode($filter_dept, JSON_UNESCAPED_UNICODE); ?>, <?php echo json_encode($filter_dept_orders ? '1' : '', JSON_UNESCAPED_UNICODE); ?>)'>
                                         <i class="fas fa-trash-alt"></i>
                                     </button>
                                     </div>
