@@ -156,7 +156,7 @@ class SalaryCalculator
                 // module_total 不含 base_salary（base_salary 单独计入 net_pay）
                 $moduleTotal = array_sum(array_column(array_filter($results, fn($r) => ($r['type'] ?? '') !== 'base_salary'), 'amount'));
                 $formulaParts = [$baseSalary];
-                foreach ($results as $r) {
+                foreach (array_filter($results, fn($r) => ($r['type'] ?? '') !== 'base_salary') as $r) {
                     $formulaParts[] = "+{$r['amount']}({$r['name']})";
                 }
 
