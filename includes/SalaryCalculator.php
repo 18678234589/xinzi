@@ -443,6 +443,7 @@ class SalaryCalculator
 
         $totalProfit = 0;
         $totalPrice  = 0;
+        $totalCost   = 0;
         $count       = 0;
 
         foreach (($c['orders'] ?? []) as $o) {
@@ -494,11 +495,12 @@ class SalaryCalculator
             }
 
             $totalProfit += $profit;
-            $totalPrice  += $price;
+            $totalPrice  += $orderAmt;
+            $totalCost   += $cost;
             $count++;
         }
 
-        $amt = ($totalProfit - $totalPrice * $serviceFeeRate) * $commissionRate;
+        $amt = (($totalPrice - $totalCost) - $totalPrice * $serviceFeeRate) * $commissionRate;
 
         $rangeLabel = '';
         if ($minAmount !== null || $maxAmount !== null) {
@@ -516,7 +518,7 @@ class SalaryCalculator
 
         return [
             'amount' => round($amt, 2),
-            'formula' => sprintf('%s(利润¥%.2f - 售价¥%.2f×%.2f%%) ×%.2f%% = %.2f', $rangeLabel, $totalProfit, $totalPrice, $serviceFeeRate*100, $commissionRate*100, $amt),
+            'formula' => sprintf('%s((订单金额¥%.2f - 成本¥%.2f) - 订单金额¥%.2f×%.2f%%) ×%.2f%% = %.2f', $rangeLabel, $totalPrice, $totalCost, $totalPrice, $serviceFeeRate*100, $commissionRate*100, $amt),
             'type' => 'profit_commission',
         ];
     }
@@ -1043,7 +1045,7 @@ class SalaryCalculator
                 'label' => '成本比例提成',
                 'icon' => 'fa-coins',
                 'color' => 'info',
-                'desc' => '基于利润和成本计算：(总利润 - 总售价×服务费比例) × 提成比例',
+                'desc' => '基于订单金额和成本计算：((订单金额 - 成本) - 订单金额×服务费比例) × 提成比例',
                 'fields' => [
                     ['key'=>'_name','label'=>'模块名称（必填）','type'=>'text','placeholder'=>'如：成本提成A','default'=>''],
                     ['key'=>'commission_rate','label'=>'提成比例(小数)','type'=>'number','step'=>'any','placeholder'=>'0.1=10%','default'=>''],
