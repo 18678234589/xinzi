@@ -370,6 +370,47 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 if ($delEmp)        $rq['employee_id'] = $delEmp;
                 if ($delDept)       $rq['department']   = $delDept;
                 if ($delDeptOrders) $rq['dept_orders'] = '1';
+                $rq['upload_ok'] = '1';
+                $rq['msg'] = urlencode('已删除所选月份订单');
+                header('Location: ' . BASE_URL . '/orders/index.php?' . http_build_query($rq));
+                exit;
+            } catch (PDOException $ex) {
+                $error = '删除失败: ' . $ex->getMessage();
+            }
+        }
+    } elseif ($action === 'delete_project') {
+        // 删除指定模块（project）的全部订单
+        $delProject    = trim($_POST['project'] ?? '');
+        $delEmp        = (int)($_POST['employee_id'] ?? 0);
+        $delDept       = trim($_POST['department'] ?? '');
+        $delDeptOrders = ($_POST['dept_orders'] ?? '') === '1';
+        if ($delProject === '') {
+            $error = '缺少模块名称';
+        } else {
+            try {
+                $where  = " WHERE o.project = ?";
+                $params = [$delProject];
+                if ($delEmp > 0) {
+                    $where .= " AND (o.employee_id = ? OR (o.order_scope = 'department' AND (o.shop IS NULL OR o.shop = '')))";
+                    $params[] = $delEmp;
+                } elseif ($delDept !== '') {
+                    $where .= " AND e.department = ?";
+                    $params[] = $delDept;
+                }
+                if ($delDeptOrders) {
+                    $where .= " AND o.order_scope = 'department'";
+                }
+                $where .= " AND (o.raw_data IS NULL OR o.raw_data NOT LIKE '%\"__from_dept__%\":%') AND NOT (o.order_scope = 'department' AND o.shop <> '')";
+                $sql = "DELETE o FROM orders o LEFT JOIN employees e ON o.employee_id = e.id" . $where;
+                $stmt = db()->prepare($sql);
+                $stmt->execute($params);
+                $deleted = $stmt->rowCount();
+                $rq = [];
+                if ($delEmp)        $rq['employee_id'] = $delEmp;
+                if ($delDept)       $rq['department']   = $delDept;
+                if ($delDeptOrders) $rq['dept_orders'] = '1';
+                $rq['upload_ok'] = '1';
+                $rq['msg'] = urlencode("已删除模块「{$delProject}」{$deleted}条订单");
                 header('Location: ' . BASE_URL . '/orders/index.php?' . http_build_query($rq));
                 exit;
             } catch (PDOException $ex) {
@@ -377,9 +418,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
         }
     }
-}
-
-// 订单列表查询：锁定员工时只显示该员工订单
+}：锁定员工时只显示该员工订单
 
 /**
  * 确保 orders 表有 project 字段（自动升级，兼容旧表结构）
@@ -1128,6 +1167,14 @@ include __DIR__ . '/../includes/header.php';
                                         </div>
                                     <?php endif; ?>
 
+                                    <!-- 删除此模块全部订单 -->
+                                    <div class="d-flex justify-content-end px-2 pb-1">
+                                        <button type="button" class="btn btn-xs btn-outline-danger py-0"
+                                            onclick='deleteProject(<?php echo json_encode($grpName, JSON_UNESCAPED_UNICODE); ?>, <?php echo (int)$grp['cnt']; ?>, <?php echo (int)($locked_employee ? $locked_employee['id'] : $filter_employee); ?>, <?php echo json_encode($filter_dept, JSON_UNESCAPED_UNICODE); ?>, <?php echo json_encode($filter_dept_orders ? '1' : '', JSON_UNESCAPED_UNICODE); ?>)'>
+                                            <i class="fas fa-trash-alt"></i> 删除此模块
+                                        </button>
+                                    </div>
+
                 </div><!-- /order-group -->
                 <?php endforeach; // projects in month ?>
                 
@@ -1536,6 +1583,22 @@ $(function() {
         });
     }
 });
+
+// 删除模块全部订单
+var jsEscape = function(s) { return s.replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/"/g,'\\"'); };
+function deleteProject(project, count, empId, dept, deptOrders) {
+    if (!confirm('确定删除模块「' + project + '」的全部 ' + count + ' 条订单？此操作不可恢复！')) return;
+    var f = document.createElement('form');
+    f.method = 'post';
+    var html = '<input type="hidden" name="action" value="delete_project">'
+        + '<input type="hidden" name="project" value="' + jsEscape(project) + '">';
+    if (empId > 0) html += '<input type="hidden" name="employee_id" value="' + empId + '">';
+    if (dept) html += '<input type="hidden" name="department" value="' + jsEscape(dept) + '">';
+    if (deptOrders) html += '<input type="hidden" name="dept_orders" value="1">';
+    f.innerHTML = html;
+    document.body.appendChild(f);
+    f.submit();
+}
 
 // 取消选择 & 单条删除
 (function() {
