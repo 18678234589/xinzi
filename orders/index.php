@@ -1024,7 +1024,7 @@ include __DIR__ . '/../includes/header.php';
                                 <li class="breadcrumb-item active"><i class="fas fa-users text-warning"></i> 部门订单</li>
                             <?php endif; ?>
                             <?php if ($filter_employee): ?>
-                                <?php $emp = array_filter($employees, fn($e) => $e['id'] == $filter_employee)[0] ?? null; ?>
+                                <?php $emp = get_employee($filter_employee); ?>
                                 <li class="breadcrumb-item active"><?php echo $emp ? e($emp['name']) : '员工'.$filter_employee; ?></li>
                             <?php endif; ?>
                         </ol>
