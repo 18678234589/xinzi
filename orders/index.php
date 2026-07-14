@@ -360,7 +360,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $where .= " AND o.order_scope = 'department'";
                 }
                 // 与列表一致：排除店铺上传的订单
-                $where .= " AND (o.raw_data IS NULL OR o.raw_data NOT LIKE '%\"__from_dept__%\":%') AND NOT (o.order_scope = 'department' AND o.shop <> '')";
+                $where .= " AND NOT (o.order_scope = 'department' AND o.shop <> '')";
                 $ph = implode(',', array_fill(0, count($months), '?'));
                 $where .= " AND DATE_FORMAT(o.order_date, '%Y-%m') IN ($ph)";
                 foreach ($months as $m) { $params[] = $m; }
@@ -388,8 +388,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $error = '缺少模块名称';
         } else {
             try {
-                $where  = " WHERE o.project = ?";
+                $where  = " WHERE (o.project = ?";
                 $params = [$delProject];
+                if ($delProject === '订单') {
+                    $where .= " OR o.project = '' OR o.project IS NULL";
+                }
+                $where .= ")";
                 if ($delEmp > 0) {
                     $where .= " AND (o.employee_id = ? OR (o.order_scope = 'department' AND (o.shop IS NULL OR o.shop = '')))";
                     $params[] = $delEmp;
@@ -400,7 +404,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 if ($delDeptOrders) {
                     $where .= " AND o.order_scope = 'department'";
                 }
-                $where .= " AND (o.raw_data IS NULL OR o.raw_data NOT LIKE '%\"__from_dept__%\":%') AND NOT (o.order_scope = 'department' AND o.shop <> '')";
+                // 与列表一致：排除店铺上传的订单
+                $where .= " AND NOT (o.order_scope = 'department' AND o.shop <> '')";
                 $sql = "DELETE o FROM orders o LEFT JOIN employees e ON o.employee_id = e.id" . $where;
                 $stmt = db()->prepare($sql);
                 $stmt->execute($params);
