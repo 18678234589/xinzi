@@ -1140,8 +1140,9 @@ include __DIR__ . '/../includes/header.php';
                                 ?>
                                 <div class="order-group mb-2">
                                     <!-- 分组标题行：点击展开/收起 -->
+                                    <div class="d-flex align-items-stretch">
                                     <a href="<?php echo '?' . http_build_query($isExpand ? $collapseQ : $grpQ); ?>"
-                                       class="order-group-header d-flex align-items-center justify-content-between px-3 py-2 text-decoration-none <?php echo $isExpand ? 'expanded' : ''; ?>"
+                                       class="order-group-header d-flex align-items-center justify-content-between flex-grow-1 px-3 py-2 text-decoration-none <?php echo $isExpand ? 'expanded' : ''; ?>"
                                        <?php if ($isExpand): ?>data-toggle="modal" data-target="#orderDetailModal"<?php endif; ?>>
                                         <span>
                                             <i class="fas fa-<?php echo $isExpand ? 'folder-open' : 'folder'; ?> mr-2 text-warning"></i>
@@ -1158,15 +1159,16 @@ include __DIR__ . '/../includes/header.php';
                                             <?php endif; ?>
                                         </span>
                                         <span class="text-success font-weight-bold d-flex align-items-center">
-                                            <span>¥<?php echo money($grp['normal_amount']); ?></span>
-                                            <button type="button" class="btn btn-link text-danger p-0 ml-2" style="font-size:.75em;line-height:1"
-                                                title="删除此模块全部订单"
-                                                onclick="event.preventDefault();event.stopPropagation();deleteProject(<?php echo json_encode($grpName, JSON_UNESCAPED_UNICODE); ?>, <?php echo (int)$grp['cnt']; ?>, <?php echo (int)($locked_employee ? $locked_employee['id'] : $filter_employee); ?>, <?php echo json_encode($filter_dept, JSON_UNESCAPED_UNICODE); ?>, <?php echo json_encode($filter_dept_orders ? '1' : '', JSON_UNESCAPED_UNICODE); ?>)">
-                                                <i class="fas fa-trash-alt"></i>
-                                            </button>
+                                            ¥<?php echo money($grp['normal_amount']); ?>
                                             <i class="fas fa-chevron-<?php echo $isExpand ? 'up' : 'down'; ?> ml-2 text-muted" style="font-size:.8em"></i>
                                         </span>
                                     </a>
+                                    <button type="button" class="btn btn-link text-danger p-0 px-2 d-flex align-items-center" style="font-size:.8em;border-left:1px solid #dee2e6"
+                                        title="删除此模块全部订单"
+                                        onclick="deleteProject(<?php echo json_encode($grpName, JSON_UNESCAPED_UNICODE); ?>, <?php echo (int)$grp['cnt']; ?>, <?php echo (int)($locked_employee ? $locked_employee['id'] : $filter_employee); ?>, <?php echo json_encode($filter_dept, JSON_UNESCAPED_UNICODE); ?>, <?php echo json_encode($filter_dept_orders ? '1' : '', JSON_UNESCAPED_UNICODE); ?>)">
+                                        <i class="fas fa-trash-alt"></i>
+                                    </button>
+                                    </div>
 
                                     <?php if ($isExpand): ?>
                                         <div class="small text-muted px-3 py-1 bg-light border-left border-right border-bottom rounded-bottom">
