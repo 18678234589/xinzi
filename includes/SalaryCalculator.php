@@ -149,7 +149,12 @@ class SalaryCalculator
                         $results[] = array_merge($result, ['name' => $mod['name']]);
                     }
                 }
-                $moduleTotal = array_sum(array_column($results, 'amount'));
+                // 将 base_salary 模块加入明细列表（显示但不重复计入 module_total）
+                if ($customBase !== null) {
+                    array_unshift($results, array_merge($customBase, ['name' => $raw['modules'][$customBaseIdx]['name']]));
+                }
+                // module_total 不含 base_salary（base_salary 单独计入 net_pay）
+                $moduleTotal = array_sum(array_column(array_filter($results, fn($r) => ($r['type'] ?? '') !== 'base_salary'), 'amount'));
                 $formulaParts = [$baseSalary];
                 foreach ($results as $r) {
                     $formulaParts[] = "+{$r['amount']}({$r['name']})";
