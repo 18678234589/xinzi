@@ -588,36 +588,15 @@ class SalaryCalculator
     // ---- 引流订单 ----
     private static function calcReferralOrder($cfg, $c, $moduleName = '')
     {
-        $minAmount = isset($cfg['min_amount']) && $cfg['min_amount'] !== '' && $cfg['min_amount'] !== null ? (float)$cfg['min_amount'] : null;
-        $maxAmount = isset($cfg['max_amount']) && $cfg['max_amount'] !== '' && $cfg['max_amount'] !== null ? (float)$cfg['max_amount'] : null;
-        $shopKeyword = isset($cfg['shop_keyword']) && $cfg['shop_keyword'] !== '' && $cfg['shop_keyword'] !== null ? $cfg['shop_keyword'] : null;
-
-        $useFilter = ($minAmount !== null || $maxAmount !== null || $shopKeyword !== null);
-        $filterByName = $useFilter ? '' : $moduleName;
-
-        $total = self::filterOrderTotal($c, $filterByName, $minAmount, $maxAmount, $shopKeyword);
-        $count = self::filterOrderCount($c, $filterByName, $minAmount, $maxAmount, $shopKeyword);
+        $total = self::filterOrderTotal($c, $moduleName);
+        $count = self::filterOrderCount($c, $moduleName);
 
         $subsidy = (float)($cfg['subsidy'] ?? 0);
         // 引流订单工资 = 每单补助金额 × 订单数量（订单金额仅用于筛选/展示）
         $subsidyAmt = $count * $subsidy;
         $amt = $subsidyAmt;
 
-        $rangeLabel = '';
-        if ($minAmount !== null || $maxAmount !== null) {
-            if ($minAmount !== null && $maxAmount !== null) {
-                $rangeLabel = sprintf('[¥%.0f-¥%.0f]', $minAmount, $maxAmount);
-            } elseif ($minAmount !== null) {
-                $rangeLabel = sprintf('[≥¥%.0f]', $minAmount);
-            } else {
-                $rangeLabel = sprintf('[≤¥%.0f]', $maxAmount);
-            }
-        }
-        if ($shopKeyword !== null) {
-            $rangeLabel .= "[店铺含:{$shopKeyword}]";
-        }
-
-        $formula = sprintf('%s%d单×¥%g(每单补助)=%.2f', $rangeLabel, $count, $subsidy, $subsidyAmt);
+        $formula = sprintf('%d单×¥%g(每单补助)=%.2f', $count, $subsidy, $subsidyAmt);
         if ($count === 0) {
             $formula = '0.00（无匹配订单）';
         }
@@ -996,7 +975,7 @@ class SalaryCalculator
                 ],
             ],
             'profit_commission' => [
-                'label' => '成本比例提成',
+                'label' => '标书提成',
                 'icon' => 'fa-coins',
                 'color' => 'info',
                 'desc' => '基于订单金额和成本计算：((订单金额 - 成本) - 订单金额×服务费比例) × 提成比例',
@@ -1023,9 +1002,6 @@ class SalaryCalculator
                 'fields' => [
                     ['key'=>'_name','label'=>'模块名称（必填）','type'=>'text','placeholder'=>'如：引流、小红书引流','default'=>''],
                     ['key'=>'subsidy','label'=>'每个订单补助金额','type'=>'number','step'=>'0.01','min'=>'0','placeholder'=>'如 5 元/单','default'=>'5'],
-                    ['key'=>'min_amount','label'=>'最小订单金额','type'=>'number','step'=>'0.01','placeholder'=>'留空=不限制','default'=>''],
-                    ['key'=>'max_amount','label'=>'最大订单金额','type'=>'number','step'=>'0.01','placeholder'=>'留空=不限制','default'=>''],
-                    ['key'=>'shop_keyword','label'=>'店铺关键字','type'=>'text','placeholder'=>'留空=不限制，如：老客户','default'=>''],
                 ],
             ],
         ];
