@@ -26,7 +26,7 @@ if (($_GET['ajax'] ?? '') === 'modules' && $ajax_employee_id > 0) {
     $result = [];
     if ($modCfg && !empty($modCfg['modules'])) {
         foreach ($modCfg['modules'] as $m) {
-            if (in_array($m['type'], ['standard','tiered','per_order','profit_commission','referral_order','customer_reward']) && ($m['enabled'] ?? true)) {
+            if (in_array($m['type'], ['standard','tiered','per_order','profit_commission','referral_order','customer_reward','miniprogram_commission']) && ($m['enabled'] ?? true)) {
                 $extra = '';
                 if ($m['type'] === 'standard' && isset($m['config']['rate']) && $m['config']['rate'] !== '') {
                     $rVal = (float)$m['config']['rate'];
@@ -34,6 +34,9 @@ if (($_GET['ajax'] ?? '') === 'modules' && $ajax_employee_id > 0) {
                 } elseif ($m['type'] === 'profit_commission' && isset($m['config']['commission_rate']) && $m['config']['commission_rate'] !== '') {
                     $cVal = (float)$m['config']['commission_rate'];
                     $extra = ' (成本提成' . rtrim(rtrim(number_format($cVal * 100, 4, '.', ''), '0'), '.') . '%)';
+                } elseif ($m['type'] === 'miniprogram_commission' && isset($m['config']['commission_rate']) && $m['config']['commission_rate'] !== '') {
+                    $cVal = (float)$m['config']['commission_rate'];
+                    $extra = ' (小程序提成' . rtrim(rtrim(number_format($cVal * 100, 4, '.', ''), '0'), '.') . '%)';
                 } elseif ($m['type'] === 'tiered') {
                     $extra = ' (阶梯)';
                 } elseif ($m['type'] === 'per_order') {
@@ -1376,21 +1379,9 @@ include __DIR__ . '/../includes/header.php';
                                         </span>
                                         <span class="text-success font-weight-bold d-flex align-items-center">
                                             ¥<?php echo money($grp['normal_amount']); ?>
-                                            <form method="post" action="" class="d-inline" onsubmit="return confirm('确定删除【<?php echo e($grpName); ?>】的 <?php echo $grp['cnt']; ?> 条订单？此操作不可恢复！');" style="display:inline-block">
-                                                <input type="hidden" name="action" value="delete_group">
-                                                <input type="hidden" name="del_employee_id" value="<?php echo (int)$filter_employee; ?>">
-                                                <input type="hidden" name="del_month" value="<?php echo e($monthData['month']); ?>">
-                                                <input type="hidden" name="del_project" value="<?php echo e($grpName); ?>">
-                                                <button type="submit" class="btn btn-sm btn-outline-danger py-0 px-1 ml-1" title="删除该分组全部订单" onclick="event.preventDefault();event.stopPropagation();if(confirm('确定删除【<?php echo e($grpName); ?>】的 <?php echo $grp['cnt']; ?> 条订单？此操作不可恢复！')){this.form.submit();}"><i class="fas fa-trash-alt"></i></button>
-                                            </form>
                                             <i class="fas fa-chevron-<?php echo $isExpand ? 'up' : 'down'; ?> ml-2 text-muted" style="font-size:.8em"></i>
                                         </span>
                                     </a>
-                                    <button type="button" class="btn btn-link text-danger p-0 px-2 d-flex align-items-center" style="font-size:.8em;border-left:1px solid #dee2e6"
-                                        title="删除此模块全部订单"
-                                        onclick='deleteProject(<?php echo json_encode($grpName, JSON_UNESCAPED_UNICODE); ?>, <?php echo (int)$grp['cnt']; ?>, <?php echo (int)($locked_employee ? $locked_employee['id'] : $filter_employee); ?>, <?php echo json_encode($filter_dept, JSON_UNESCAPED_UNICODE); ?>, <?php echo json_encode($filter_dept_orders ? '1' : '', JSON_UNESCAPED_UNICODE); ?>)'>
-                                        <i class="fas fa-trash-alt"></i>
-                                    </button>
                                     </div>
 
                                     <?php if ($isExpand): ?>
