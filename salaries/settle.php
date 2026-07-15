@@ -219,8 +219,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $order_total = $loaded['order_total'];
 
                 if (count($orderList) === 0) {
-                    $error = "未找到该员工在 {$month} 的订单记录";
-                } else {
+                    // 文员等无订单员工：不报错，继续计算（底薪+考勤+保险等不依赖订单）
+                    $orderList = [];
+                    $order_total = 0;
+                }
+
+                {
                     // 自定义额外金额（正数加、负数减）
                     $extraAmount = (float)($_POST['extra_amount'] ?? 0);
 
@@ -370,7 +374,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $preview = [
                         'employee'       => $emp,
                         'month'          => $month,
-                        'order_count'    => $orderInfo['cnt'],
+                        'order_count'    => count($orderList),
                         'order_total'    => $order_total,
                         'commission'     => $result['module_total'] ?? $result['commission'],
                         'net_pay'        => $result['net_pay'],
