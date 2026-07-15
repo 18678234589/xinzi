@@ -6,7 +6,7 @@
             "enabled": true,
             "config": {
                 "rate": 0.2425,
-                "comment": "前端外包提成=(售价-域名-SSL)×25%。无域名SSL时≈售价×25%，有成本扣除后约24.25%"
+                "comment": "前端外包标准比例：(售价-域名-SSL)×25%"
             }
         },
         {
@@ -15,10 +15,24 @@
             "enabled": true,
             "config": {
                 "rate": 0.2425,
-                "comment": "网站定制前端外包，同算法"
+                "comment": "网站定制前端外包标准比例：(售价-域名-SSL)×25%"
+            }
+        },
+        {
+            "name": "阶梯提成",
+            "type": "tiered",
+            "enabled": true,
+            "config": {
+                "min_amount": 0.01,
+                "tiers": [
+                    {"threshold": 30000, "rate": 0.25, "subsidy": 0},
+                    {"threshold": 10000, "rate": 0.20, "subsidy": 0},
+                    {"threshold": 0, "rate": 0.15, "subsidy": 0}
+                ],
+                "comment": "阶梯提成：0-9999元15%，10000-29999元20%，30000元以上25%"
             }
         }
     ],
     "updated_at": "2026-07-10",
-    "description": "李仁超（定制前端外包）：底薪10460.14 + (售价-域名-SSL)×25%。5月：售价32720，域名320，SSL90，利润32310，提成8077.5"
+    "description": "李仁超（定制前端外包）：底薪10460.14 + 标准比例(售价-域名-SSL)×25% + 阶梯提成（0-1万15%，1万-3万20%，3万以上25%）"
 }
