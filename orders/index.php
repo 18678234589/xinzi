@@ -96,6 +96,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     ensureProjectColumn();
                     $project = trim($_POST['upload_project'] ?? '');
 
+                    // 部门订单归属匹配字段（从前端接收，逗号分隔的Excel列名）
+                    $ownershipFields = [];
+                    if ($order_scope === 'department') {
+                        $ownFieldsRaw = trim($_POST['ownership_fields'] ?? '');
+                        if ($ownFieldsRaw !== '') {
+                            $ownershipFields = array_values(array_filter(array_map('trim', explode(',', $ownFieldsRaw))));
+                        }
+                    }
+
                     // 部门订单多员工配置：[{employee_id, module}, ...]
                     $deptEmpModules = [];
                     if ($order_scope === 'department') {
@@ -257,7 +266,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                 $stmt->execute([0, $amount, $parsedDate, $project, $orderNo, json_encode($rawMap, JSON_UNESCAPED_UNICODE), $isAbn, $abnReason, $order_scope]);
                                 $isAbn ? $skipped++ : $inserted++;
 
-                                // 归属字段匹配：遍历Excel所有列值，按员工姓名匹配
+                                // 归属字段匹配：只在指定的列中查找员工姓名
                                 $matchedEmps = [];
                                 // 构建员工姓名→模块配置的映射
                                 $empNameMap = [];
@@ -267,10 +276,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                         $empNameMap[$emp['name']] = $dem;
                                     }
                                 }
-                                // 遍历rawMap中的所有列值，查找匹配的员工姓名
-                                foreach ($rawMap as $k => $v) {
-                                    $v = trim((string)$v);
-                                    if ($v === '' || strpos($k, '__') === 0) continue;
+                                // 只在指定的归属字段列中匹配员工姓名
+                                $scanKeys = !empty($ownershipFields) ? $ownershipFields : array_keys($rawMap);
+                                foreach ($scanKeys as $field) {
+                                    if (!isset($rawMap[$field])) continue;
+                                    $v = trim((string)$rawMap[$field]);
+                                    if ($v === '') continue;
                                     if (isset($empNameMap[$v])) {
                                         $dem = $empNameMap[$v];
                                         // 去重：同一员工不重复添加
@@ -891,7 +902,12 @@ include __DIR__ . '/../includes/header.php';
                                 </div>
                                 <button type="button" class="btn btn-sm btn-outline-primary mt-1" onclick="addDeptEmpRow()"><i class="fas fa-plus"></i> 添加员工</button>
                                 <input type="hidden" name="dept_emp_modules" id="deptEmpModules">
-                                <small class="text-muted d-block mt-1"><i class="fas fa-info-circle"></i> 上传时自动按员工姓名匹配Excel列值，匹配到的订单归属到对应员工，各按各的模块计算提成</small>
+                            </div>
+                            <div class="form-group" id="ownershipFieldsGroup" style="display:none">
+                                <label><i class="fas fa-link text-info"></i> 归属匹配字段 <small class="text-muted">（指定Excel中用于匹配员工姓名的列名，逗号分隔）</small></label>
+                                <input type="text" class="form-control form-control-sm" id="ownershipFields" placeholder="如：客服,制作技术">
+                                <small class="text-muted">系统只在这些列中查找员工姓名，匹配成功则将订单归属到该员工</small>
+                                <input type="hidden" name="ownership_fields" id="ownershipFieldsHidden">
                             </div>
                         </div>
                     <?php endif; ?>
@@ -1429,6 +1445,7 @@ function loadEmployeeModules(empId, prefix) {
 // 部门订单：选部门后重置员工行
 function loadDeptEmployees(dept) {
     $('#deptEmpRows').empty();
+    $('#ownershipFieldsGroup').toggle(!!dept);
     if (dept) addDeptEmpRow();
 }
 
@@ -1507,6 +1524,7 @@ $('#uploadForm').on('submit', function() {
             if (empId) rows.push({employee_id: empId, module: mod});
         });
         $('#deptEmpModules').val(JSON.stringify(rows));
+        $('#ownershipFieldsHidden').val($('#ownershipFields').val().trim());
     }
 });
 
