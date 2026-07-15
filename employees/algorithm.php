@@ -568,6 +568,14 @@ function calcPreview(idx) {
             result.amount = ((demoAmount - demoCost) - demoAmount * sf) * cr;
             result.detail = '((订单金额¥' + number_format(demoAmount,0) + ' - 成本¥' + number_format(demoCost,0) + ') - 订单金额¥' + number_format(demoAmount,0) + '×' + (sf*100).toFixed(2) + '%) ×' + (cr*100).toFixed(2) + '%';
             break;
+        case 'customer_reward':
+            var newCnt = Math.round(orderTotalDemo/5000)||2;
+            var oldCnt = Math.round(orderTotalDemo/8000)||1;
+            var newReward = cfg.new_customer_reward || 50;
+            var oldReward = cfg.old_customer_reward || 30;
+            result.amount = (newCnt * newReward) + (oldCnt * oldReward);
+            result.detail = '新客户'+newCnt+'人 + 老客户'+oldCnt+'人';
+            break;
         default: result.amount = 0; result.detail = '--';
     }
 
