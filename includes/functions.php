@@ -28,13 +28,13 @@ function extract_order_no($rawMap)
         'order number', 'Order Number', 'orderno', 'orderNo.',
     ];
     foreach ($candidates as $key) {
-        if (isset($rawMap[$key]) && trim($rawMap[$key]) !== '') {
+        if (isset($rawMap[$key]) && is_string($rawMap[$key]) && trim($rawMap[$key]) !== '') {
             return trim($rawMap[$key]);
         }
     }
     // 模糊匹配：含"订单号"/"单号"/"order"/"编号"/"流水"的列
     foreach ($rawMap as $k => $v) {
-        if (is_string($k) && trim($v) !== '') {
+        if (is_string($k) && is_string($v) && trim($v) !== '') {
             if (strpos($k, '__') === 0) continue; // 跳过内部标记字段
             if (mb_strpos($k, '订单号') !== false || mb_strpos($k, '单号') !== false
                 || mb_strpos($k, '流水') !== false || mb_strpos($k, '单据') !== false
