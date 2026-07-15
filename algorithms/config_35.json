@@ -5,12 +5,28 @@
             "type": "tiered",
             "enabled": true,
             "config": {
+                "service_fee_rate": 0,
+                "domain_cost_per": 23,
+                "ssl_cost_per": 0,
                 "tiers": [
-                    {"threshold": 30000, "rate": 0.25, "subsidy": 0},
-                    {"threshold": 10000, "rate": 0.20, "subsidy": 0},
-                    {"threshold": 0, "rate": 0.15, "subsidy": 0}
+                    {
+                        "threshold": 30000,
+                        "rate": 0.25,
+                        "subsidy": 0
+                    },
+                    {
+                        "threshold": 10000,
+                        "rate": 0.2,
+                        "subsidy": 0
+                    },
+                    {
+                        "threshold": 0,
+                        "rate": 0.15,
+                        "subsidy": 0
+                    }
                 ],
-                "comment": "阶梯提成：0-9999元15%，10000-29999元20%，30000元以上(含3万)25%"
+                "comment": "阶梯提成，利润=售价-域名成本(23元/个)-SSL成本(从raw_data读取金额)。无服务费扣除",
+                "ssl_from_rawdata": true
             }
         },
         {
@@ -18,15 +34,31 @@
             "type": "tiered",
             "enabled": true,
             "config": {
+                "service_fee_rate": 0,
+                "domain_cost_per": 23,
+                "ssl_cost_per": 0,
                 "tiers": [
-                    {"threshold": 30000, "rate": 0.25, "subsidy": 0},
-                    {"threshold": 10000, "rate": 0.20, "subsidy": 0},
-                    {"threshold": 0, "rate": 0.15, "subsidy": 0}
+                    {
+                        "threshold": 30000,
+                        "rate": 0.25,
+                        "subsidy": 0
+                    },
+                    {
+                        "threshold": 10000,
+                        "rate": 0.2,
+                        "subsidy": 0
+                    },
+                    {
+                        "threshold": 0,
+                        "rate": 0.15,
+                        "subsidy": 0
+                    }
                 ],
-                "comment": "阶梯提成：0-9999元15%，10000-29999元20%，30000元以上(含3万)25%"
+                "comment": "阶梯提成，利润=售价-域名成本(23元/个)-SSL成本(从raw_data读取金额)。无服务费扣除",
+                "ssl_from_rawdata": true
             }
         }
     ],
     "updated_at": "2026-07-10",
-    "description": "李仁超（定制前端外包）：底薪10460.14 + 阶梯提成（0-1万15%，1万-3万20%，3万以上25%）。按project匹配业务类型。"
+    "description": "李仁超（定制前端外包）：底薪10460.14 + 阶梯提成(利润×分档比例)。利润=售价-域名23元/个-SSL成本。5月：售价32720-域名320-SSL90=利润32310×25%=8077.5"
 }

@@ -498,6 +498,11 @@ class SalaryCalculator
         $maxAmount = isset($cfg['max_amount']) && $cfg['max_amount'] !== '' && $cfg['max_amount'] !== null ? (float)$cfg['max_amount'] : null;
         $shopKeyword = isset($cfg['shop_keyword']) && $cfg['shop_keyword'] !== '' && $cfg['shop_keyword'] !== null ? $cfg['shop_keyword'] : null;
         
+        // 成本扣除参数（网站定制专用）
+        $serviceFeeRate = isset($cfg['service_fee_rate']) && $cfg['service_fee_rate'] !== '' && $cfg['service_fee_rate'] !== null ? (float)$cfg['service_fee_rate'] : 0;
+        $domainCostPer  = isset($cfg['domain_cost_per']) && $cfg['domain_cost_per'] !== '' && $cfg['domain_cost_per'] !== null ? (float)$cfg['domain_cost_per'] : 0;
+        $sslCostPer     = isset($cfg['ssl_cost_per']) && $cfg['ssl_cost_per'] !== '' && $cfg['ssl_cost_per'] !== null ? (float)$cfg['ssl_cost_per'] : 0;
+        
         // 如果配置了金额范围或店铺关键字，则忽略模块名筛选
         $useFilter = ($minAmount !== null || $maxAmount !== null || $shopKeyword !== null);
         $filterByName = $useFilter ? '' : $moduleName;
@@ -541,7 +546,84 @@ class SalaryCalculator
                 break; 
             }
         }
-        $commissionAmt = $total * $rate;
+        
+        // 成本扣除：服务费、域名、SSL
+        $serviceFee = $total * $serviceFeeRate;
+        
+        // 统计有域名和SSL的订单数（从raw_data中读取）
+        $domainCount = 0;
+        $sslCount = 0;
+        $domainCostTotal = 0;
+        $sslCostTotal = 0;
+        
+        if ($domainCostPer > 0 || $sslCostPer > 0 || (isset($cfg['ssl_from_rawdata']) && $cfg['ssl_from_rawdata'])) {
+            foreach (($c['orders'] ?? []) as $o) {
+                // 模块名过滤
+                if ($filterByName !== '' && trim($o['project'] ?? '') !== $filterByName) continue;
+                
+                $rawData = is_string($o['raw_data'] ?? '') ? json_decode($o['raw_data'], true) : ($o['raw_data'] ?? []);
+                $isRefund = isset($rawData['__is_refund__']) && $rawData['__is_refund__'] === '1';
+                if ($isRefund) continue;
+                
+                // 金额范围过滤
+                $orderAmt = (float)($o['order_amount'] ?? 0);
+                if ($minAmount !== null && $orderAmt < $minAmount) continue;
+                if ($maxAmount !== null && $orderAmt > $maxAmount) continue;
+                
+                // 检查域名使用
+                if ($domainCostPer > 0) {
+                    $domainUsed = false;
+                    foreach ($rawData as $k => $v) {
+                        if (mb_strpos($k, '域名') !== false) {
+                            $val = trim(strval($v));
+                            if ($val === '是' || $val === '1' || $val === 'true') {
+                                $domainUsed = true;
+                                break;
+                            }
+                        }
+                    }
+                    if ($domainUsed) {
+                        $domainCount++;
+                        $domainCostTotal += $domainCostPer;
+                    }
+                }
+                
+                // 检查SSL证书使用
+                if ($sslCostPer > 0 || (isset($cfg['ssl_from_rawdata']) && $cfg['ssl_from_rawdata'])) {
+                    $sslUsed = false;
+                    foreach ($rawData as $k => $v) {
+                        if (mb_strpos($k, 'SSL') !== false || mb_strpos($k, 'ssl') !== false) {
+                            $val = trim(strval($v));
+                            if (is_numeric($val) && floatval($val) > 0) {
+                                // SSL列有金额值，直接使用该值
+                                $sslCostTotal += floatval($val);
+                                $sslUsed = true;
+                                break;
+                            }
+                        }
+                    }
+                    if (!$sslUsed) {
+                        // 没有找到SSL金额，按固定单价计算
+                        foreach ($rawData as $k => $v) {
+                            if (mb_strpos($k, 'SSL') !== false || mb_strpos($k, 'ssl') !== false) {
+                                $val = trim(strval($v));
+                                if ($val === '是' || $val === '1' || $val === 'true') {
+                                    $sslCount++;
+                                    $sslCostTotal += $sslCostPer;
+                                    $sslUsed = true;
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        // 利润 = 售价总额 - 服务费 - 域名成本 - SSL成本
+        $profit = $total - $serviceFee - $domainCostTotal - $sslCostTotal;
+        
+        $commissionAmt = $profit * $rate;
         $subsidyAmt = $count * $subsidy;
         $amt = $commissionAmt + $subsidyAmt;
         $label = $moduleName ? "{$moduleName}({$count}笔)" : "({$count}笔)";
@@ -561,8 +643,27 @@ class SalaryCalculator
         }
         
         $formulaParts = [];
+        // 显示成本扣除明细
+        $costLabel = '';
+        $costDetailParts = [];
+        if ($serviceFeeRate > 0) {
+            $costLabel .= sprintf('服务费%.0f%%', $serviceFeeRate * 100);
+            $costDetailParts[] = sprintf('%.2f', $serviceFee);
+        }
+        if ($domainCostTotal > 0) {
+            $costLabel .= ($costLabel ? '+' : '') . sprintf('域名¥%g×%d', $domainCostPer, $domainCount);
+            $costDetailParts[] = sprintf('%.2f', $domainCostTotal);
+        }
+        if ($sslCostTotal > 0) {
+            $costLabel .= ($costLabel ? '+' : '') . sprintf('SSL¥%.2f', $sslCostTotal);
+            $costDetailParts[] = sprintf('%.2f', $sslCostTotal);
+        }
         if ($commissionAmt > 0) {
-            $formulaParts[] = sprintf('%s%.2f×%.2f%%=%.2f', $rangeLabel, $total, $rate*100, $commissionAmt);
+            if (count($costDetailParts) > 0) {
+                $formulaParts[] = sprintf('%.2f-%s=%.2f×%.2f%%=%.2f', $total, implode('-', $costDetailParts), $profit, $rate*100, $commissionAmt);
+            } else {
+                $formulaParts[] = sprintf('%.2f×%.2f%%=%.2f', $total, $rate*100, $commissionAmt);
+            }
         }
         if ($subsidyAmt > 0) {
             $formulaParts[] = sprintf('%d单×¥%g=%.2f', $count, $subsidy, $subsidyAmt);
