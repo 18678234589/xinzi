@@ -1,0 +1,51 @@
+{
+    "modules": [
+        {
+            "name": "底薪800",
+            "type": "base_salary",
+            "enabled": true,
+            "config": {
+                "base_amount": 800
+            }
+        },
+        {
+            "name": "每笔订单奖励5元",
+            "type": "per_order",
+            "enabled": true,
+            "config": {
+                "per_amount": 5,
+                "per_reward": 0,
+                "count_column": "域名",
+                "count_distinct": "是"
+            }
+        },
+        {
+            "name": "拍建站链接0.5元",
+            "type": "referral_order",
+            "enabled": true,
+            "config": {
+                "subsidy": 0.5,
+                "count_column": "建站订单",
+                "count_keyword": "拍+链接"
+            }
+        },
+        {
+            "name": "利润20%",
+            "type": "standard",
+            "enabled": true,
+            "config": {
+                "rate": 0.2
+            }
+        },
+        {
+            "name": "单量1元",
+            "type": "referral_order",
+            "enabled": true,
+            "config": {
+                "subsidy": 1
+            }
+        }
+    ],
+    "dept_share": 0,
+    "updated_at": "2026-07-13 15:15:01"
+}

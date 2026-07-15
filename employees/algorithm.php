@@ -85,9 +85,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
 
         if (!empty($modules)) {
-            if (SalaryCalculator::saveModulesConfig($employee_id, $modules)) {
+            $deptShare = isset($_POST['dept_share']) ? 1 : 0;
+            if (SalaryCalculator::saveModulesConfig($employee_id, $modules, $deptShare)) {
                 $count = count($modules);
-                $success = "已保存 {$count} 个薪资模块";
+                $success = "已保存 {$count} 个薪资模块" . ($deptShare ? '' : '（不参与部门订单提成）');
             } else {
                 $lastErr = SalaryCalculator::getLastError();
                 $error = '保存失败' . ($lastErr ? '：' . $lastErr : '');
@@ -142,6 +143,21 @@ include __DIR__ . '/../includes/header.php';
 <!-- ====== 模块管理区域 ====== -->
 <form method="post" id="moduleForm">
 <input type="hidden" name="action" value="save">
+
+<!-- 部门订单提成开关 -->
+<div class="card mb-3 border-left-4 border-left-info">
+    <div class="card-body py-2 d-flex align-items-center">
+        <div class="custom-control custom-checkbox">
+            <input type="checkbox" name="dept_share" value="1" class="custom-control-input" id="deptShare"
+                <?php echo (($savedConfig['dept_share'] ?? 1) == 1) ? 'checked' : ''; ?>>
+            <label class="custom-control-label" for="deptShare">
+                <i class="fas fa-sitemap text-info"></i> 参与部门订单提成
+            </label>
+        </div>
+        <small class="text-muted ml-3">勾选后，上传部门订单时自动为该员工生成提成拆分行；取消勾选则不参与部门订单提成（如仅有单量补贴的员工）</small>
+    </div>
+</div>
+
 <div id="moduleList">
 
     <?php if (empty($currentMods)): ?>

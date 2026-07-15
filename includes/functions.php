@@ -8,7 +8,11 @@
  */
 function e($str)
 {
-    return htmlspecialchars($str, ENT_QUOTES, 'UTF-8');
+    if (is_array($str)) {
+        // 数组值（如 __dept_modules__）序列化为可读字符串
+        return htmlspecialchars(json_encode($str, JSON_UNESCAPED_UNICODE), ENT_QUOTES, 'UTF-8');
+    }
+    return htmlspecialchars((string)$str, ENT_QUOTES, 'UTF-8');
 }
 
 /**
@@ -34,8 +38,9 @@ function extract_order_no($rawMap)
     }
     // 模糊匹配：含"订单号"/"单号"/"order"/"编号"/"流水"的列
     foreach ($rawMap as $k => $v) {
-        if (is_string($k) && is_string($v) && trim($v) !== '') {
-            if (strpos($k, '__') === 0) continue; // 跳过内部标记字段
+        if (strpos($k, '__') === 0) continue; // 跳过内部标记字段（含 __dept_modules__ 等数组值）
+        if (!is_string($v)) continue;         // 跳过非字符串值（如 __dept_modules__ 数组）
+        if (trim($v) !== '') {
             if (mb_strpos($k, '订单号') !== false || mb_strpos($k, '单号') !== false
                 || mb_strpos($k, '流水') !== false || mb_strpos($k, '单据') !== false
                 || mb_strpos($k, '编号') !== false
@@ -255,7 +260,7 @@ function get_abnormal_orders($shopName = '', $month = '')
     }
 
     // 店铺订单（department + shop）
-    $shopWhere = " WHERE o.order_scope = 'department' AND o.order_no <> '' ";
+    $shopWhere = " WHERE o.order_scope = 'department' AND o.order_no <> '' AND COALESCE(o.is_deleted, 0) = 0 ";
     if ($shopName !== '') {
         $shopWhere .= " AND o.shop = ? ";
         $params[] = $shopName;
@@ -266,7 +271,7 @@ function get_abnormal_orders($shopName = '', $month = '')
     }
 
     // 员工上传订单（personal，排除从部门派生的）
-    $empWhere = " WHERE e.order_scope = 'personal' AND e.order_no <> '' ";
+    $empWhere = " WHERE e.order_scope = 'personal' AND e.order_no <> '' AND COALESCE(e.is_deleted, 0) = 0 ";
     $empParams = [];
     if ($month !== '') {
         $empWhere .= " AND DATE_FORMAT(e.order_date, '%Y-%m') = ? ";
@@ -405,7 +410,7 @@ function get_shops()
 function get_shop_list()
 {
     try {
-        $stmt = db()->query("SELECT s.*, (SELECT COUNT(*) FROM orders o WHERE o.shop = s.name) AS order_count FROM shops s ORDER BY s.sort ASC, s.id ASC");
+        $stmt = db()->query("SELECT s.*, (SELECT COUNT(*) FROM orders o WHERE o.shop = s.name AND COALESCE(o.is_deleted, 0) = 0) AS order_count FROM shops s ORDER BY s.sort ASC, s.id ASC");
         return $stmt->fetchAll();
     } catch (PDOException $e) {
         return [];

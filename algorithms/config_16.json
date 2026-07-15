@@ -1,0 +1,43 @@
+{
+    "modules": [
+        {
+            "name": "续费1.9%",
+            "type": "standard",
+            "enabled": true,
+            "config": {
+                "rate": 0.019
+            }
+        },
+        {
+            "name": "底薪800",
+            "type": "base_salary",
+            "enabled": true,
+            "config": {
+                "base_amount": 800
+            }
+        },
+        {
+            "name": "单量补贴1元",
+            "type": "referral_order",
+            "enabled": true,
+            "config": {
+                "subsidy": 1,
+                "count_mode": "staff_match"
+            }
+        },
+        {
+            "name": "拍建站链接0.5元",
+            "type": "referral_order",
+            "enabled": true,
+            "config": {
+                "subsidy": 0.5,
+                "count_column": "拍建站",
+                "count_keyword": "网站链接+小程序链接",
+                "count_keyword_match": "any",
+                "count_mode": "staff_match"
+            }
+        }
+    ],
+    "dept_share": 1,
+    "updated_at": "2026-07-14 11:06:10"
+}

@@ -208,8 +208,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $idxFullDays = $idxActualDays = null;
                     foreach ($colMap as $k => $idx) {
                         if ($idxName === null && (mb_strpos($k, '姓名') !== false || mb_strpos($k, '员工') !== false || mb_strpos($k, '名字') !== false || stripos($k, 'name') !== false)) $idxName = $idx;
-                        // 满勤天数（新格式）
-                        if ($idxFullDays === null && (mb_strpos($k, '满勤天数') !== false || mb_strpos($k, '满勤') !== false || mb_strpos($k, '应出勤天数') !== false || mb_strpos($k, '应出勤') !== false)) $idxFullDays = $idx;
+                        // 满勤天数（新格式）—— 支持"满勤天数/满勤/应出勤天数/应出勤/全勤天数/全勤"等多种表头
+                        if ($idxFullDays === null && (mb_strpos($k, '满勤天数') !== false || mb_strpos($k, '满勤') !== false || mb_strpos($k, '应出勤天数') !== false || mb_strpos($k, '应出勤') !== false || mb_strpos($k, '全勤天数') !== false || mb_strpos($k, '全勤') !== false)) $idxFullDays = $idx;
                         // 实际出勤天数（新格式）
                         if ($idxActualDays === null && (mb_strpos($k, '实际出勤') !== false || mb_strpos($k, '实到') !== false || mb_strpos($k, '实际') !== false || mb_strpos($k, '出勤天数') !== false)) $idxActualDays = $idx;
                         // 应出勤小时（旧格式兼容）
@@ -262,6 +262,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                               VALUES (?, ?, ?, ?, ?, ?)
                                               ON DUPLICATE KEY UPDATE work_hours=VALUES(work_hours), absent_hours=VALUES(absent_hours), remark=VALUES(remark)");
                         db()->beginTransaction();
+                        // 解析天数/小时值，支持 "25+2.5" 这类简单加减表达式（避免被 preg_replace 误拼成 252.5）
+                        $parseNum = function($val) {
+                            $cleaned = preg_replace('/[^\d.+\-]/', '', trim($val ?? ''));
+                            if ($cleaned === '' || !preg_match('/\d/', $cleaned)) return 0.0;
+                            $sum = 0.0;
+                            foreach (explode('+', $cleaned) as $part) {
+                                $sub = explode('-', $part);
+                                $partSum = (float)array_shift($sub);
+                                foreach ($sub as $neg) $partSum -= (float)$neg;
+                                $sum += $partSum;
+                            }
+                            return $sum;
+                        };
                         foreach ($dataRows as $r) {
                             if (count(array_filter($r, fn($v) => trim($v) !== '')) === 0) continue;
                             $empName = trim($r[$idxName] ?? '');
@@ -271,8 +284,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                             // 优先按"天数"格式计算（满勤天数 × 8 = 应出勤小时；请假小时 = (满勤-实际)×8）
                             if ($idxFullDays !== null || $idxActualDays !== null) {
-                                $fullDays  = $idxFullDays  !== null ? (float)preg_replace('/[^\d.]/', '', trim($r[$idxFullDays]  ?? '')) : 0;
-                                $actDays   = $idxActualDays !== null ? (float)preg_replace('/[^\d.]/', '', trim($r[$idxActualDays] ?? '')) : $fullDays;
+                                $fullDays  = $idxFullDays  !== null ? $parseNum($r[$idxFullDays]  ?? '') : 0;
+                                $actDays   = $idxActualDays !== null ? $parseNum($r[$idxActualDays] ?? '') : $fullDays;
                                 $wh  = $fullDays * 8;                       // 应出勤小时 = 满勤天数 × 8
                                 $ah  = max(0, ($fullDays - $actDays) * 8);  // 请假小时 = (满勤-实际出勤) × 8
                             } elseif ($autoDayMode) {
@@ -291,8 +304,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                 $ah = max(0, ($fullDays - $actDays) * 8);
                             } else {
                                 // 旧格式：直接读小时数
-                                $wh = $idxWork !== null ? (float)preg_replace('/[^\d.]/', '', trim($r[$idxWork] ?? '')) : 0;
-                                $ah = $idxAbsent !== null ? (float)preg_replace('/[^\d.]/', '', trim($r[$idxAbsent] ?? '')) : 0;
+                                $wh = $idxWork !== null ? $parseNum($r[$idxWork] ?? '') : 0;
+                                $ah = $idxAbsent !== null ? $parseNum($r[$idxAbsent] ?? '') : 0;
                             }
                             $rm = $idxRemark !== null ? trim($r[$idxRemark] ?? '') : '';
                             $ins->execute([$empId, $year, $month, $wh, $ah, $rm]);
@@ -344,7 +357,7 @@ include __DIR__ . '/../includes/header.php';
         </h4>
         <span class="badge badge-info ml-2">已录 <?php echo $total; ?> 人</span>
         <span class="badge badge-success ml-1">满勤 <?php echo $fullCount; ?> 人</span>
-        <?php if ($totalAbsent > 0): ?><span class="badge badge-warning ml-1">请假 <?php echo number_format($totalAbsent, 1); ?>h</span><?php endif; ?>
+        <?php if ($totalAbsent > 0): ?><span class="badge badge-warning ml-1">请假 <?php echo number_format($totalAbsent, 2); ?>h</span><?php endif; ?>
     </div>
 </div>
 
@@ -484,9 +497,9 @@ include __DIR__ . '/../includes/header.php';
                                     <td><input type="checkbox" name="ids[]" value="<?php echo $r['id']; ?>" class="row-chk"></td>
                                     <td><strong><?php echo e($r['name']); ?></strong></td>
                                     <td><span class="badge badge-info"><?php echo e($r['department']); ?></span></td>
-                                    <td class="text-right"><?php echo number_format($fullDays, 1); ?>天</td>
-                                    <td class="text-right <?php echo $isFull ? 'text-success' : ''; ?>"><?php echo number_format($actDays, 1); ?>天</td>
-                                    <td class="text-right <?php echo $isFull ? '' : 'text-warning font-weight-bold'; ?>"><?php echo number_format($r['absent_hours'], 1); ?>h</td>
+                                    <td class="text-right"><?php echo number_format($fullDays, 2); ?>天</td>
+                                    <td class="text-right <?php echo $isFull ? 'text-success' : ''; ?>"><?php echo number_format($actDays, 2); ?>天</td>
+                                    <td class="text-right <?php echo $isFull ? '' : 'text-warning font-weight-bold'; ?>"><?php echo number_format($r['absent_hours'], 2); ?>h</td>
                                     <td><small class="text-muted"><?php echo e($r['remark']); ?></small></td>
                                     <td>
                                         <?php if ($isFull): ?>

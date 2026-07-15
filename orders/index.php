@@ -94,7 +94,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             } else {
                 try {
                     ensureProjectColumn();
-                    $project = trim($_POST['upload_project'] ?? '');
+                    // 对应提成模块（多选，支持比例提成+单量补贴等同时关联）
+                    $projectArr = $_POST['upload_project'] ?? [];
+                    if (!is_array($projectArr)) $projectArr = [$projectArr];
+                    $projectArr = array_values(array_unique(array_filter(array_map('trim', $projectArr))));
 
                     // 部门订单多员工配置：[{employee_id, module}, ...]
                     $deptEmpModules = [];
@@ -109,6 +112,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                     if ($eid > 0) $deptEmpModules[] = ['employee_id' => $eid, 'module' => $mod];
                                 }
                             }
+                        }
+                        // 过滤掉不参与部门订单提成的员工（dept_share=0）
+                        if (!empty($deptEmpModules)) {
+                            $filtered = [];
+                            foreach ($deptEmpModules as $dem) {
+                                $cfg = SalaryCalculator::readModulesConfig($dem['employee_id']);
+                                $share = $cfg['dept_share'] ?? 1; // 默认参与
+                                if ($share == 1) {
+                                    $filtered[] = $dem;
+                                }
+                            }
+                            $deptEmpModules = $filtered;
                         }
                     }
                     $rows = [];
@@ -146,8 +161,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     }
 
                     if ($error === '' && !empty($rows)) {
-                        $firstRow = $rows[0];
-                        $dataRows = array_slice($rows, 1);
+                        // 自动查找表头行：第一行可能不是真正的表头（如标题行），往下找含已知列名的行
+                        $headerKeywords = ['姓名', '价格', '售价', '成本', '域名', '建站', '订单', '金额', '日期', '时间', '店铺', '备注', '员工'];
+                        $headerIdx = 0;
+                        for ($hi = 0; $hi < min(count($rows), 5); $hi++) {
+                            $rowText = implode(' ', array_map('trim', $rows[$hi]));
+                            $matchCount = 0;
+                            foreach ($headerKeywords as $kw) {
+                                if (mb_strpos($rowText, $kw) !== false) $matchCount++;
+                            }
+                            if ($matchCount >= 2) { $headerIdx = $hi; break; }
+                        }
+                        $firstRow = $rows[$headerIdx];
+                        $dataRows = array_slice($rows, $headerIdx + 1);
 
                         // 原样保存表头（空列用"列N"占位）
                         $normalizedHeaders = [];
@@ -161,8 +187,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         // 找价格/成本/时间列（模糊匹配，支持多种表头名称）
                         $idxPrice = null; $idxCost = null; $idxDate = null; $idxAmount = null;
                         foreach ($colMap as $k => $idx) {
-                            // 订单金额列：优先匹配（美工部等直接有金额列的）
-                            if ($idxAmount === null && (mb_strpos($k, '订单金额') !== false || mb_strpos($k, '金额') !== false)) $idxAmount = $idx;
+                            // 订单金额列：精确匹配"订单金额"，排除"分单备注金额"等干扰列
+                            if ($idxAmount === null && (mb_strpos($k, '订单金额') !== false || $k === '金额')) $idxAmount = $idx;
                             // 价格列：支持"价格"或"售价"
                             if ($idxPrice === null && (mb_strpos($k, '价格') !== false || mb_strpos($k, '售价') !== false)) $idxPrice = $idx;
                             // 成本列：支持"成本"或"总成本"
@@ -172,7 +198,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         }
                         
                         // 校验：要么有订单金额列，要么有价格和成本列
-                        if ($idxAmount === null && ($idxPrice === null || $idxCost === null)) {
+                        // 例外：如果选中的模块全部是"按数量计算"类型（单量补贴/引流订单），则不需要金额列
+                        $countOnlyModules = false;
+                        if (!empty($projectArr) && $idxAmount === null && ($idxPrice === null || $idxCost === null)) {
+                            $modCfg = SalaryCalculator::readModulesConfig($employee_id);
+                            $modTypeMap = [];
+                            if ($modCfg && !empty($modCfg['modules'])) {
+                                foreach ($modCfg['modules'] as $m) {
+                                    $modTypeMap[trim($m['name'])] = $m['type'] ?? '';
+                                }
+                            }
+                            $allCountBased = true;
+                            foreach ($projectArr as $proj) {
+                                $type = $modTypeMap[$proj] ?? '';
+                                if (!in_array($type, ['per_order', 'referral_order'])) {
+                                    $allCountBased = false;
+                                    break;
+                                }
+                            }
+                            $countOnlyModules = $allCountBased;
+                        }
+                        if (!$countOnlyModules && $idxAmount === null && ($idxPrice === null || $idxCost === null)) {
                             $error = '表头缺少金额字段：需要"订单金额"列，或同时有"价格/售价"和"成本/总成本"列';
                             goto upload_done;
                         }
@@ -185,19 +231,33 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         // 清空当月同模块旧数据，避免重复上传导致数据累加（不同模块互不影响）
                         $monthPattern = $upload_month . '%';
                         if ($order_scope === 'department' && $dept_name !== '') {
-                            // 部门订单：清该部门当月该模块的汇总行 + 归属员工的拆分行
-                            $del = db()->prepare("DELETE FROM orders WHERE DATE_FORMAT(order_date, '%Y-%m') = ? AND project = ? AND order_scope = 'department' AND employee_id = 0 AND raw_data LIKE ?");
-                            $del->execute([$upload_month, $project, '%\"__dept__\":\"' . $dept_name . '\"%']);
-                            $del2 = db()->prepare("DELETE FROM orders WHERE DATE_FORMAT(order_date, '%Y-%m') = ? AND project = ? AND order_scope = 'personal' AND raw_data LIKE ?");
-                            $del2->execute([$upload_month, $project, '%\"__from_dept__\":\"' . $dept_name . '\"%']);
+                            // 部门订单：软删除该部门当月的汇总行 + 归属员工的拆分行（移入回收站）
+                            $del = db()->prepare("UPDATE orders SET is_deleted=1 WHERE DATE_FORMAT(order_date, '%Y-%m') = ? AND order_scope = 'department' AND employee_id = 0 AND raw_data LIKE ?");
+                            $del->execute([$upload_month, '%\"__dept__\":\"' . $dept_name . '\"%']);
+                            $del2 = db()->prepare("UPDATE orders SET is_deleted=1 WHERE DATE_FORMAT(order_date, '%Y-%m') = ? AND order_scope = 'personal' AND raw_data LIKE ?");
+                            $del2->execute([$upload_month, '%\"__from_dept__\":\"' . $dept_name . '\"%']);
                         } else {
-                            // 个人订单：清该员工当月该模块的个人订单（排除部门拆分行 __from_dept__）
-                            $del = db()->prepare("DELETE FROM orders WHERE employee_id = ? AND project = ? AND DATE_FORMAT(order_date, '%Y-%m') = ? AND COALESCE(order_scope, 'personal') = 'personal' AND (raw_data IS NULL OR raw_data NOT LIKE '%\"__from_dept__\"%')");
-                            $del->execute([$employee_id, $project, $upload_month]);
+                            // 个人订单：软删除该员工当月旧数据（移入回收站，排除部门拆分行 __from_dept__）
+                            // 如果选了模块，只清这些模块对应的 project，避免多次上传不同表时互相覆盖；
+                            // 如果没选模块，清全部个人订单（整批替换）
+                            if (!empty($projectArr)) {
+                                $placeholders = implode(',', array_fill(0, count($projectArr), '?'));
+                                $del = db()->prepare("UPDATE orders SET is_deleted=1 WHERE employee_id = ? AND DATE_FORMAT(order_date, '%Y-%m') = ? AND COALESCE(order_scope, 'personal') = 'personal' AND (raw_data IS NULL OR raw_data NOT LIKE '%\"__from_dept__\"%') AND project IN ({$placeholders})");
+                                $del->execute(array_merge([$employee_id, $upload_month], $projectArr));
+                            } else {
+                                $del = db()->prepare("UPDATE orders SET is_deleted=1 WHERE employee_id = ? AND DATE_FORMAT(order_date, '%Y-%m') = ? AND COALESCE(order_scope, 'personal') = 'personal' AND (raw_data IS NULL OR raw_data NOT LIKE '%\"__from_dept__\"%')");
+                                $del->execute([$employee_id, $upload_month]);
+                            }
                         }
 
                         $inserted = 0; $skipped = 0;
                         $stmt = db()->prepare("INSERT INTO orders (employee_id, order_amount, order_date, project, order_no, raw_data, is_abnormal, abnormal_reason, order_scope) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
+
+                        // 部门汇总行 project：优先用勾选模块名，为空则从 deptEmpModules 取
+                        $deptProjStr = '';
+                        if ($order_scope === 'department' && !empty($deptEmpModules)) {
+                            $deptProjStr = !empty($projectArr) ? implode(',', $projectArr) : implode(',', array_values(array_unique(array_filter(array_map(fn($d) => trim($d['module']), $deptEmpModules)))));
+                        }
 
                         db()->beginTransaction();
                         try {
@@ -208,7 +268,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             if ($idxAmount !== null) {
                                 // 直接使用订单金额列（美工部等）
                                 $amount = (float)preg_replace('/[^\d.\-]/', '', trim($row[$idxAmount] ?? ''));
-                            } else {
+                            } elseif ($idxPrice !== null && $idxCost !== null) {
                                 // 金额 = 售价 - 成本
                                 $price  = (float)preg_replace('/[^\d.\-]/', '', trim($row[$idxPrice] ?? ''));
                                 $cost   = (float)preg_replace('/[^\d.\-]/', '', trim($row[$idxCost]  ?? ''));
@@ -225,6 +285,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                         $amount = round($price - $price * $feeRate - $cost, 2);
                                     }
                                 }
+                            } else {
+                                // 纯数量表（无金额列）：订单金额存0，按数量计算的模块只数笔数
+                                $amount = 0;
                             }
 
                             // 日期：优先使用上传时选择的归属月份，忽略Excel中的日期列
@@ -234,8 +297,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                             // 异常标记
                             $isAbn = 0; $abnReason = '';
-                            // 退款订单标记：如果金额为负数，标记为退款订单，在raw_data中记录
-                            $isRefund = ($amount < 0);
+                            // 退款订单标记：金额为负数，或金额为0且非纯数量表（纯数量表金额0是正常的）
+                            $isRefund = ($amount < 0) || ($amount == 0 && !$countOnlyModules);
 
                             // 原样存储每列；部门订单额外存入部门名
                             $rawMap = [];
@@ -244,6 +307,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             }
                             if ($order_scope === 'department') {
                                 $rawMap['__dept__'] = $dept_name;
+                                // 存储员工-模块映射，结算时虚拟生成拆分行（不再物理插入N条拆分记录）
+                                if (!empty($deptEmpModules)) {
+                                    $rawMap['__dept_modules__'] = $deptEmpModules;
+                                }
                             }
                             if ($isRefund) {
                                 $rawMap['__is_refund__'] = '1'; // 标记为退款订单
@@ -251,21 +318,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             // 提取订单号（用于后续店铺/员工订单对比）
                             $orderNo = extract_order_no($rawMap);
 
-                            // 部门订单 employee_id 存 0（或为每个归属员工各插一条）
+                            // 部门订单只插一条汇总记录（employee_id=0），结算时按 __dept_modules__ 虚拟拆分
                             if ($order_scope === 'department' && !empty($deptEmpModules)) {
-                                // 先插一条部门汇总记录（employee_id=0）
-                                $stmt->execute([0, $amount, $parsedDate, $project, $orderNo, json_encode($rawMap, JSON_UNESCAPED_UNICODE), $isAbn, $abnReason, $order_scope]);
+                                $stmt->execute([0, $amount, $parsedDate, $deptProjStr, $orderNo, json_encode($rawMap, JSON_UNESCAPED_UNICODE), $isAbn, $abnReason, $order_scope]);
                                 $isAbn ? $skipped++ : $inserted++;
-                                // 再为每个归属员工插一条 personal 记录（标记来源于部门订单）
-                                foreach ($deptEmpModules as $dem) {
-                                    $demRawMap = $rawMap;
-                                    $demRawMap['__from_dept__'] = $dept_name;
-                                    $stmt->execute([$dem['employee_id'], $amount, $parsedDate, $dem['module'], $orderNo, json_encode($demRawMap, JSON_UNESCAPED_UNICODE), $isAbn, $abnReason, 'personal']);
-                                }
                             } else {
                                 $bindEmpId = $order_scope === 'department' ? 0 : $employee_id;
-                                $stmt->execute([$bindEmpId, $amount, $parsedDate, $project, $orderNo, json_encode($rawMap, JSON_UNESCAPED_UNICODE), $isAbn, $abnReason, $order_scope]);
-                                $isAbn ? $skipped++ : $inserted++;
+                                if (empty($projectArr)) {
+                                    // 不指定模块，project 存空
+                                    $stmt->execute([$bindEmpId, $amount, $parsedDate, '', $orderNo, json_encode($rawMap, JSON_UNESCAPED_UNICODE), $isAbn, $abnReason, $order_scope]);
+                                    $isAbn ? $skipped++ : $inserted++;
+                                } else {
+                                    // 多模块：每个选中的模块插一条副本，project 各不相同
+                                    foreach ($projectArr as $proj) {
+                                        $stmt->execute([$bindEmpId, $amount, $parsedDate, $proj, $orderNo, json_encode($rawMap, JSON_UNESCAPED_UNICODE), $isAbn, $abnReason, $order_scope]);
+                                        $isAbn ? $skipped++ : $inserted++;
+                                    }
+                                }
                             }
                         }
                         db()->commit();
@@ -276,13 +345,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     } // end if (!empty($rows))
 
                     if ($error === '') {
+                        $modCount = count($projectArr);
+                        $modNote = $modCount > 1 ? "（{$modCount}个模块，每条订单复制{$modCount}份）" : "";
                         if ($order_scope === 'department') {
                             $empName = $dept_name . '（部门）';
-                            $rq = ['upload_ok' => '1', 'msg' => urlencode("导入完成！为【{$empName}】成功导入 {$inserted} 条" . ($skipped > 0 ? "，{$skipped} 条标记为异常" : ""))];
+                            $rq = ['upload_ok' => '1', 'msg' => urlencode("导入完成！为【{$empName}】成功导入 {$inserted} 条{$modNote}" . ($skipped > 0 ? "，{$skipped} 条标记为异常" : ""))];
                         } else {
                             $emp = get_employee($employee_id);
                             $empName = $emp ? $emp['name'] : '';
-                            $rq = ['employee_id' => $employee_id, 'upload_ok' => '1', 'msg' => urlencode("导入完成！为【{$empName}】成功导入 {$inserted} 条" . ($skipped > 0 ? "，{$skipped} 条标记为异常" : ""))];
+                            $rq = ['employee_id' => $employee_id, 'upload_ok' => '1', 'msg' => urlencode("导入完成！为【{$empName}】成功导入 {$inserted} 条{$modNote}" . ($skipped > 0 ? "，{$skipped} 条标记为异常" : ""))];
                         }
                         if ($per_page !== 20) $rq['per_page'] = $per_page;
                         header('Location: ' . BASE_URL . '/orders/index.php?' . http_build_query($rq));
@@ -302,7 +373,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $backEmployeeId = (int)($_POST['_employee_id'] ?? 0);
         $backProject    = $_POST['_project'] ?? '';
         try {
-            db()->prepare("DELETE FROM orders WHERE id = ?")->execute([$oid]);
+            db()->prepare("UPDATE orders SET is_deleted=1 WHERE id = ?")->execute([$oid]);
             $rq = ['page' => $backPage];
             if ($backEmployeeId) $rq['employee_id'] = $backEmployeeId;
             if ($backMonth)      $rq['month']       = $backMonth;
@@ -325,7 +396,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } else {
             try {
                 $placeholders = implode(',', array_fill(0, count($ids), '?'));
-                db()->prepare("DELETE FROM orders WHERE id IN ({$placeholders})")->execute($ids);
+                db()->prepare("UPDATE orders SET is_deleted=1 WHERE id IN ({$placeholders})")->execute($ids);
                 $rq = ['page' => $backPage];
                 if ($backEmployeeId) $rq['employee_id'] = $backEmployeeId;
                 if ($backMonth)      $rq['month']       = $backMonth;
@@ -337,8 +408,46 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $error = '批量删除失败: ' . $ex->getMessage();
             }
         }
+    } elseif ($action === 'delete_group') {
+        // 按筛选条件批量删除：员工+月份+project（可不指定project则删该员工该月全部）
+        $delEmployeeId = (int)($_POST['del_employee_id'] ?? 0);
+        $delMonth      = $_POST['del_month'] ?? '';
+        $delProject    = $_POST['del_project'] ?? '';
+        $delScope      = $_POST['del_scope'] ?? ''; // 'personal' 或 'department' 或 ''
+        $backQ = [];
+        if ($delEmployeeId) $backQ['employee_id'] = $delEmployeeId;
+        if ($delMonth)      $backQ['month']       = $delMonth;
+        try {
+            $sql = "UPDATE orders SET is_deleted=1 WHERE 1=1";
+            $params = [];
+            if ($delEmployeeId > 0) {
+                $sql .= " AND employee_id = ?";
+                $params[] = $delEmployeeId;
+            }
+            if ($delMonth !== '') {
+                $sql .= " AND DATE_FORMAT(order_date, '%Y-%m') = ?";
+                $params[] = $delMonth;
+            }
+            if ($delProject !== '') {
+                $sql .= " AND project = ?";
+                $params[] = $delProject;
+            }
+            if ($delScope !== '') {
+                $sql .= " AND COALESCE(order_scope, 'personal') = ?";
+                $params[] = $delScope;
+            }
+            $stmt = db()->prepare($sql);
+            $stmt->execute($params);
+            $deleted = $stmt->rowCount();
+            $rq = $backQ;
+            if ($delProject && $deleted > 0) {} // 删除后回到列表
+            header('Location: ' . BASE_URL . '/orders/index.php?' . http_build_query($rq));
+            exit;
+        } catch (PDOException $ex) {
+            $error = '批量删除失败: ' . $ex->getMessage();
+        }
     } elseif ($action === 'delete_months') {
-        // 按月份批量删除（支持多选月份），仅删除当前视图可见范围
+        // 按月份批量删除（支持多选月份），仅删除当前视图可见范围（软删除→回收站）
         $months = array_values(array_filter(array_map('trim', (array)($_POST['months'] ?? []))));
         $delEmp        = (int)($_POST['employee_id'] ?? 0);
         $delDept       = trim($_POST['department'] ?? '');
@@ -364,7 +473,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $ph = implode(',', array_fill(0, count($months), '?'));
                 $where .= " AND DATE_FORMAT(o.order_date, '%Y-%m') IN ($ph)";
                 foreach ($months as $m) { $params[] = $m; }
-                $sql = "DELETE o FROM orders o LEFT JOIN employees e ON o.employee_id = e.id" . $where;
+                $sql = "UPDATE orders o LEFT JOIN employees e ON o.employee_id = e.id SET o.is_deleted=1" . $where;
                 db()->prepare($sql)->execute($params);
                 $rq = [];
                 if ($delEmp)        $rq['employee_id'] = $delEmp;
@@ -379,7 +488,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
         }
     } elseif ($action === 'delete_project') {
-        // 删除指定模块（project）的全部订单
+        // 删除指定模块（project）的全部订单（软删除→回收站）
         $delProject    = trim($_POST['project'] ?? '');
         $delEmp        = (int)($_POST['employee_id'] ?? 0);
         $delDept       = trim($_POST['department'] ?? '');
@@ -406,7 +515,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
                 // 与列表一致：排除店铺上传的订单
                 $where .= " AND NOT (o.order_scope = 'department' AND o.shop <> '')";
-                $sql = "DELETE o FROM orders o LEFT JOIN employees e ON o.employee_id = e.id" . $where;
+                $sql = "UPDATE orders o LEFT JOIN employees e ON o.employee_id = e.id SET o.is_deleted=1" . $where;
                 $stmt = db()->prepare($sql);
                 $stmt->execute($params);
                 $deleted = $stmt->rowCount();
@@ -510,6 +619,12 @@ function ensureProjectColumn() {
         if (empty($scopeCols)) {
             db()->exec("ALTER TABLE `orders` ADD COLUMN `order_scope` VARCHAR(20) NOT NULL DEFAULT 'personal' COMMENT 'personal=个人,department=部门' AFTER `created_at`");
         }
+        // 回收站：软删除标记
+        $delCols = db()->query("SHOW COLUMNS FROM `orders` LIKE 'is_deleted'")->fetchAll();
+        if (empty($delCols)) {
+            db()->exec("ALTER TABLE `orders` ADD COLUMN `is_deleted` TINYINT(1) NOT NULL DEFAULT 0 COMMENT '0=正常 1=已删除(回收站)' AFTER `order_scope`");
+            db()->exec("ALTER TABLE `orders` ADD INDEX `idx_deleted` (`is_deleted`)");
+        }
         // 售后部扩展字段
         $remarkCols = db()->query("SHOW COLUMNS FROM `orders` LIKE 'remark'")->fetchAll();
         if (empty($remarkCols)) {
@@ -544,6 +659,7 @@ $filter_month = $_GET['month'] ?? '';  // 空字符串=不限月份
 $filter_project = $_GET['project'] ?? ''; // 展开某个模块时使用
 $filter_dept_orders = isset($_GET['dept_orders']) && $_GET['dept_orders'] === '1';
 $filter_abnormal = (($_GET['abnormal'] ?? '') === '1') ? 1 : 0;
+$filter_refund   = (($_GET['refund'] ?? '') === '1') ? 1 : 0;
 $page     = max(1, (int)($_GET['page'] ?? 1));
 $allowed_per_page = [20, 50, 100, 200, 500, 1000];
 $_pp = (int)($_GET['per_page'] ?? 20);
@@ -560,7 +676,8 @@ ensureOrderNoColumn(); // 确保 orders.order_no 字段存在
 
 // 基础 WHERE（不含 project 筛选，用于分组汇总）
 // 排除店铺上传的订单（order_scope='department' 且 shop 非空），它们只在店铺管理页展示
-$baseWhere  = " WHERE NOT (o.order_scope = 'department' AND o.shop <> '')";
+// 排除已软删除的订单（回收站）
+$baseWhere  = " WHERE NOT (o.order_scope = 'department' AND o.shop <> '') AND COALESCE(o.is_deleted, 0) = 0";
 $baseParams = [];
 if ($filter_employee) {
     // 个人订单匹配 employee_id，部门订单（非店铺）不过滤（employee_id=0 不属于任何人，显示给所有人看）
@@ -568,7 +685,9 @@ if ($filter_employee) {
     $baseParams[] = $filter_employee;
 }
 if ($filter_dept) {
-    $baseWhere .= " AND e.department = ?";
+    // 按部门过滤：员工部门匹配 + 部门汇总行（employee_id=0，通过 __dept__ 匹配）
+    $baseWhere .= " AND (e.department = ? OR (o.employee_id = 0 AND o.order_scope = 'department' AND JSON_UNQUOTE(JSON_EXTRACT(o.raw_data, '$.__dept__')) = ?))";
+    $baseParams[] = $filter_dept;
     $baseParams[] = $filter_dept;
 }
 if ($filter_month)    { $baseWhere .= " AND DATE_FORMAT(o.order_date, '%Y-%m') = ?"; $baseParams[] = $filter_month; }
@@ -576,6 +695,7 @@ if ($filter_month)    { $baseWhere .= " AND DATE_FORMAT(o.order_date, '%Y-%m') =
 if ($filter_dept_orders) {
     // 重建 WHERE：去掉 e.department 过滤（部门订单 JOIN 不到员工），改用 __dept__
     $baseWhere = " WHERE NOT (o.order_scope = 'department' AND o.shop <> '')"
+        . " AND COALESCE(o.is_deleted, 0) = 0"
         . " AND o.employee_id = 0 AND o.order_scope = 'department'"
         . " AND JSON_UNQUOTE(JSON_EXTRACT(o.raw_data, '$.__dept__')) = ?";
     $baseParams = [$filter_dept];
@@ -666,6 +786,7 @@ if ($filter_dept) {
     // 要用 raw_data.__dept__ 匹配部门名。重建 WHERE，不复用含 e.department 的 baseWhere。
     $deptSumParams = [];
     $deptSumWhere = " WHERE NOT (o.order_scope = 'department' AND o.shop <> '')"
+        . " AND COALESCE(o.is_deleted, 0) = 0"
         . " AND o.employee_id = 0 AND o.order_scope = 'department'"
         . " AND JSON_UNQUOTE(JSON_EXTRACT(o.raw_data, '$.__dept__')) = ?";
     $deptSumParams[] = $filter_dept;
@@ -705,6 +826,7 @@ if ($expand_project !== '') {
     $detailParams = $baseParams;
     $detailQ = array_merge($baseQ, ['project' => $expand_project, 'page' => 1]);
     if ($filter_abnormal) $detailQ['abnormal'] = '1';
+    if ($filter_refund) $detailQ['refund'] = '1';
     if ($expand_project === '订单') {
         $detailWhere .= " AND (o.project = '' OR o.project IS NULL)";
     } else {
@@ -713,6 +835,9 @@ if ($expand_project !== '') {
     }
     if ($filter_abnormal) {
         $detailWhere .= " AND o.is_abnormal = 1";
+    }
+    if ($filter_refund) {
+        $detailWhere .= " AND JSON_UNQUOTE(JSON_EXTRACT(o.raw_data, '$.__is_refund__')) = '1'";
     }
 
     $cntRow = db()->prepare("SELECT COUNT(*) as cnt, COALESCE(SUM(o.order_amount),0) as total FROM orders o LEFT JOIN employees e ON o.employee_id = e.id" . $detailWhere);
@@ -735,7 +860,7 @@ if ($expand_project !== '') {
             $rd = json_decode($o['raw_data'], true);
             if (is_array($rd)) {
                 $uploadHeaders = array_values(array_filter(array_keys($rd), function($h) {
-                    return $h !== '__amount__' && !preg_match('/^列\d+$/', $h);
+                    return strpos($h, '__') !== 0 && !preg_match('/^列\d+$/', $h);
                 }));
                 break;
             }
@@ -765,6 +890,10 @@ include __DIR__ . '/../includes/header.php';
     <?php if ($locked_employee): ?>
         <a href="<?php echo BASE_URL; ?>/employees/index.php" class="btn btn-outline-secondary btn-sm">
             <i class="fas fa-arrow-left"></i> 返回员工管理
+        </a>
+    <?php else: ?>
+        <a href="<?php echo BASE_URL; ?>/orders/recycle.php" class="btn btn-outline-warning btn-sm">
+            <i class="fas fa-recycle"></i> 回收站
         </a>
     <?php endif; ?>
 </div>
@@ -868,9 +997,8 @@ include __DIR__ . '/../includes/header.php';
                         <a href="<?php echo BASE_URL; ?>/orders/template_safehou.csv" class="btn btn-sm btn-link text-warning" download><i class="fas fa-download"></i> 下载模板</a>
                     </div>
                     <div class="form-group" id="uploadProjectGroup">
-                        <label><i class="fas fa-percentage text-warning"></i> 对应提成模块 <small class="text-muted">（选择该员工已配置的提成模块，订单会按对应比例结算）</small></label>
-                        <select name="upload_project" id="uploadProject" class="form-control">
-                            <option value="">-- 不指定（按默认全部订单总额） --</option>
+                        <label><i class="fas fa-percentage text-warning"></i> 对应提成模块 <small class="text-muted">（勾选要关联的模块，订单会按勾选模块分别结算）</small></label>
+                        <div id="uploadProject" class="project-checkbox-list">
                             <?php
                             if ($locked_employee):
                                 $modCfg = SalaryCalculator::readModulesConfig($locked_employee['id']);
@@ -890,13 +1018,17 @@ include __DIR__ . '/../includes/header.php';
                                             } elseif ($m['type'] === 'referral_order') {
                                                 $extra = ' (每单补助¥' . ($m['config']['subsidy'] ?? 0) . ')';
                                             }
-                                            echo '<option value="' . e($modName) . '">' . e($modName) . $extra . '</option>';
+                                            echo '<div class="custom-control custom-checkbox mb-1">'
+                                               . '<input type="checkbox" name="upload_project[]" value="' . e($modName) . '" class="custom-control-input" id="proj_' . htmlspecialchars($modName, ENT_QUOTES) . '">'
+                                               . '<label class="custom-control-label" for="proj_' . htmlspecialchars($modName, ENT_QUOTES) . '">' . e($modName) . $extra . '</label>'
+                                               . '</div>';
                                         endif;
                                     endforeach;
                                 endif;
                             endif;
                             ?>
-                        </select>
+                        </div>
+                        <small class="text-muted">不勾选则按默认全部订单总额计算</small>
                     </div>
                     <button type="submit" class="btn btn-success btn-block"><i class="fas fa-upload"></i> 开始上传</button>
                 </form>
@@ -1127,11 +1259,22 @@ include __DIR__ . '/../includes/header.php';
                         <!-- 月份折叠卡片 -->
                         <div class="card mb-2 border-info">
                             <div class="card-header bg-info text-white py-2">
-                                <h6 class="mb-0">
-                                    <input type="checkbox" name="months[]" value="<?php echo $monthData['month']; ?>" class="month-check mr-2 align-middle" title="勾选后可批量删除该月订单">
-                                    <i class="fas fa-calendar"></i> <?php echo date('Y年m月', strtotime($monthData['month'] . '-01')); ?>
-                                    <span class="badge badge-light text-info ml-2"><?php echo $monthData['total_cnt']; ?> 笔</span>
-                                    <span class="float-right">¥<?php echo money($monthData['total_amount']); ?></span>
+                                <h6 class="mb-0 d-flex align-items-center justify-content-between">
+                                    <span>
+                                        <input type="checkbox" name="months[]" value="<?php echo $monthData['month']; ?>" class="month-check mr-2 align-middle" title="勾选后可批量删除该月订单">
+                                        <i class="fas fa-calendar"></i> <?php echo date('Y年m月', strtotime($monthData['month'] . '-01')); ?>
+                                        <span class="badge badge-light text-info ml-2"><?php echo $monthData['total_cnt']; ?> 笔</span>
+                                    </span>
+                                    <span class="d-flex align-items-center">
+                                        <span class="text-white mr-3">¥<?php echo money($monthData['total_amount']); ?></span>
+                                        <form method="post" action="" class="d-inline" onsubmit="return confirm('确定删除 <?php echo date('Y年m月', strtotime($monthData['month'] . '-01')); ?> 的全部 <?php echo $monthData['total_cnt']; ?> 条订单？此操作不可恢复！');">
+                                            <input type="hidden" name="action" value="delete_group">
+                                            <input type="hidden" name="del_employee_id" value="<?php echo (int)$filter_employee; ?>">
+                                            <input type="hidden" name="del_month" value="<?php echo e($monthData['month']); ?>">
+                                            <input type="hidden" name="del_project" value="">
+                                            <button type="submit" class="btn btn-sm btn-outline-light py-0 px-2" title="删除该月全部订单"><i class="fas fa-trash-alt"></i> 删除整月</button>
+                                        </form>
+                                    </span>
                                 </h6>
                             </div>
                             <div class="card-body p-2">
@@ -1165,6 +1308,13 @@ include __DIR__ . '/../includes/header.php';
                                         </span>
                                         <span class="text-success font-weight-bold d-flex align-items-center">
                                             ¥<?php echo money($grp['normal_amount']); ?>
+                                            <form method="post" action="" class="d-inline" onsubmit="return confirm('确定删除【<?php echo e($grpName); ?>】的 <?php echo $grp['cnt']; ?> 条订单？此操作不可恢复！');" style="display:inline-block">
+                                                <input type="hidden" name="action" value="delete_group">
+                                                <input type="hidden" name="del_employee_id" value="<?php echo (int)$filter_employee; ?>">
+                                                <input type="hidden" name="del_month" value="<?php echo e($monthData['month']); ?>">
+                                                <input type="hidden" name="del_project" value="<?php echo e($grpName); ?>">
+                                                <button type="submit" class="btn btn-sm btn-outline-danger py-0 px-1 ml-1" title="删除该分组全部订单" onclick="event.preventDefault();event.stopPropagation();if(confirm('确定删除【<?php echo e($grpName); ?>】的 <?php echo $grp['cnt']; ?> 条订单？此操作不可恢复！')){this.form.submit();}"><i class="fas fa-trash-alt"></i></button>
+                                            </form>
                                             <i class="fas fa-chevron-<?php echo $isExpand ? 'up' : 'down'; ?> ml-2 text-muted" style="font-size:.8em"></i>
                                         </span>
                                     </a>
@@ -1203,14 +1353,14 @@ include __DIR__ . '/../includes/header.php';
 </div>
 
 <?php if ($expand_project !== ''): ?>
-<?php $detailAllQ = $detailQ; unset($detailAllQ['abnormal']); $detailAbnormalQ = array_merge($detailQ, ['abnormal' => '1', 'page' => 1]); ?>
+<?php $detailAllQ = $detailQ; unset($detailAllQ['abnormal'], $detailAllQ['refund']); $detailAbnormalQ = array_merge($detailQ, ['abnormal' => '1', 'page' => 1]); $detailRefundQ = array_merge($detailQ, ['refund' => '1', 'page' => 1]); ?>
 <div class="modal fade" id="orderDetailModal" tabindex="-1" role="dialog" aria-labelledby="orderDetailModalLabel" aria-hidden="true">
     <div class="modal-dialog modal-xl order-detail-modal" role="document">
         <div class="modal-content">
             <div class="modal-header py-2">
                 <div>
                     <h5 class="modal-title mb-0" id="orderDetailModalLabel"><i class="fas fa-list text-info"></i> <?php echo e($expand_project); ?> 明细</h5>
-                    <small class="text-muted">共 <?php echo $detail_count; ?> 条，¥<?php echo money($detail_amount); ?><?php if ($filter_abnormal): ?> <span class="badge badge-danger ml-1">仅异常</span><?php endif; ?></small>
+                    <small class="text-muted">共 <?php echo $detail_count; ?> 条，¥<?php echo money($detail_amount); ?><?php if ($filter_abnormal): ?> <span class="badge badge-danger ml-1">仅异常</span><?php endif; ?><?php if ($filter_refund): ?> <span class="badge badge-secondary ml-1">仅退款</span><?php endif; ?></small>
                 </div>
                 <div class="d-flex align-items-center flex-wrap justify-content-end">
                     <select class="form-control form-control-sm mr-2" style="width:auto" onchange="location.href='<?php echo '?' . http_build_query(array_merge($detailQ, ['per_page' => '__PP__'])); ?>'.replace('__PP__', this.value)">
@@ -1219,7 +1369,8 @@ include __DIR__ . '/../includes/header.php';
                         <?php endforeach; ?>
                     </select>
                     <a class="btn btn-sm <?php echo $filter_abnormal ? 'btn-danger' : 'btn-outline-danger'; ?> mr-2" href="<?php echo '?' . http_build_query($detailAbnormalQ); ?>"><i class="fas fa-exclamation-triangle"></i> 只看异常</a>
-                    <?php if ($filter_abnormal): ?>
+                    <a class="btn btn-sm <?php echo $filter_refund ? 'btn-secondary' : 'btn-outline-secondary'; ?> mr-2" href="<?php echo '?' . http_build_query($detailRefundQ); ?>"><i class="fas fa-undo-alt"></i> 只看退款</a>
+                    <?php if ($filter_abnormal || $filter_refund): ?>
                         <a class="btn btn-sm btn-outline-primary mr-2" href="<?php echo '?' . http_build_query($detailAllQ); ?>">全部订单</a>
                     <?php endif; ?>
                     <a class="btn btn-sm btn-outline-secondary mr-2" href="<?php echo '?' . http_build_query($baseQ); ?>">退出明细</a>
@@ -1362,21 +1513,27 @@ function loadEmployees(prefix) {
     }
 }
 
-// 选择员工后，加载该员工的提成模块到下拉框
+// 选择员工后，加载该员工的提成模块为勾选框列表
 function loadEmployeeModules(empId, prefix) {
     var $proj = $('#' + prefix + 'Project');
-    $proj.empty().append('<option value="">-- 不指定（按默认全部订单总额） --</option>');
+    $proj.empty();
     if (!empId) return;
     $.get('<?php echo BASE_URL; ?>/orders/index.php?employee_id=' + empId + '&ajax=modules', function(data) {
         if (data && data.length) {
-            data.forEach(function(m) {
-                $proj.append('<option value="' + m.name + '">' + m.label + '</option>');
+            data.forEach(function(m, i) {
+                var cid = prefix + 'Proj_' + i;
+                $proj.append(
+                    '<div class="custom-control custom-checkbox mb-1">' +
+                        '<input type="checkbox" name="upload_project[]" value="' + m.name + '" class="custom-control-input" id="' + cid + '">' +
+                        '<label class="custom-control-label" for="' + cid + '">' + m.label + '</label>' +
+                    '</div>'
+                );
             });
         } else {
-            $proj.append('<option value="" disabled>（该员工未配置提成模块，请先去算法设置）</option>');
+            $proj.append('<p class="text-muted small mb-0">（该员工未配置提成模块，请先去算法设置）</p>');
         }
     }, 'json').fail(function() {
-        $proj.append('<option value="" disabled>加载失败</option>');
+        $proj.append('<p class="text-muted small mb-0">加载失败</p>');
     });
 }
 
@@ -1647,6 +1804,14 @@ function deleteProject(project, count, empId, dept, deptOrders) {
 .order-detail-modal { max-width: min(1600px, 96vw); }
 .order-detail-modal .modal-content { max-height: 92vh; }
 .order-detail-modal .modal-body { overflow: hidden; }
+.project-checkbox-list {
+    border: 1px solid #dee2e6;
+    border-radius: 6px;
+    padding: 10px 14px;
+    max-height: 160px;
+    overflow-y: auto;
+    background: #fafbfc;
+}
 .order-detail-table-wrap {
     max-height: calc(92vh - 170px);
     overflow: auto;
