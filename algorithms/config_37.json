@@ -6,7 +6,6 @@
             "enabled": true,
             "config": {
                 "service_fee_rate": 0.06,
-                "domain_cost_per": 23,
                 "ssl_cost_per": 0,
                 "tiers": [
                     {
@@ -46,7 +45,9 @@
                     }
                 ],
                 "comment": "阶梯提成，利润=售价-6%服务费-域名成本(23元/个,域名使用=是)-SSL成本(从raw_data读取金额)",
-                "ssl_from_rawdata": true
+                "ssl_from_rawdata": true,
+                "cost_role": "frontend",
+                "domain_total_cost": 80
             }
         }
     ],

@@ -502,6 +502,10 @@ class SalaryCalculator
         $serviceFeeRate = isset($cfg['service_fee_rate']) && $cfg['service_fee_rate'] !== '' && $cfg['service_fee_rate'] !== null ? (float)$cfg['service_fee_rate'] : 0;
         $domainCostPer  = isset($cfg['domain_cost_per']) && $cfg['domain_cost_per'] !== '' && $cfg['domain_cost_per'] !== null ? (float)$cfg['domain_cost_per'] : 0;
         $sslCostPer     = isset($cfg['ssl_cost_per']) && $cfg['ssl_cost_per'] !== '' && $cfg['ssl_cost_per'] !== null ? (float)$cfg['ssl_cost_per'] : 0;
+        // 成本分摊角色：frontend=前端（分摊50%，后端无则承担100%），backend=后端（分摊50%，后端无则0%）
+        $costRole       = isset($cfg['cost_role']) && $cfg['cost_role'] !== '' ? $cfg['cost_role'] : 'frontend';
+        // 域名总成本（前端40+后端40=80，后端无则前端承担80）
+        $domainTotalCost = isset($cfg['domain_total_cost']) && $cfg['domain_total_cost'] !== '' && $cfg['domain_total_cost'] !== null ? (float)$cfg['domain_total_cost'] : 80;
         
         // 如果配置了金额范围或店铺关键字，则忽略模块名筛选
         $useFilter = ($minAmount !== null || $maxAmount !== null || $shopKeyword !== null);
@@ -556,7 +560,7 @@ class SalaryCalculator
         $domainCostTotal = 0;
         $sslCostTotal = 0;
         
-        if ($domainCostPer > 0 || $sslCostPer > 0 || (isset($cfg['ssl_from_rawdata']) && $cfg['ssl_from_rawdata'])) {
+        if ($domainCostPer > 0 || $sslCostPer > 0 || (isset($cfg['ssl_from_rawdata']) && $cfg['ssl_from_rawdata']) || $domainTotalCost > 0) {
             foreach (($c['orders'] ?? []) as $o) {
                 // 模块名过滤
                 if ($filterByName !== '' && trim($o['project'] ?? '') !== $filterByName) continue;
@@ -570,8 +574,18 @@ class SalaryCalculator
                 if ($minAmount !== null && $orderAmt < $minAmount) continue;
                 if ($maxAmount !== null && $orderAmt > $maxAmount) continue;
                 
+                // 读取后端字段值
+                $backendVal = '';
+                foreach ($rawData as $k => $v) {
+                    if (mb_strpos($k, '后端') !== false) {
+                        $backendVal = trim(strval($v));
+                        break;
+                    }
+                }
+                $backendIsNone = ($backendVal === '无' || $backendVal === '' || $backendVal === 'none');
+                
                 // 检查域名使用
-                if ($domainCostPer > 0) {
+                if ($domainTotalCost > 0) {
                     $domainUsed = false;
                     foreach ($rawData as $k => $v) {
                         if (mb_strpos($k, '域名') !== false) {
@@ -584,33 +598,50 @@ class SalaryCalculator
                     }
                     if ($domainUsed) {
                         $domainCount++;
-                        $domainCostTotal += $domainCostPer;
+                        if ($costRole === 'frontend') {
+                            // 前端：后端有则分摊50%，后端无则承担100%
+                            $domainCostTotal += $backendIsNone ? $domainTotalCost : ($domainTotalCost / 2);
+                        } elseif ($costRole === 'backend') {
+                            // 后端：后端有则分摊50%，后端无则0%
+                            $domainCostTotal += $backendIsNone ? 0 : ($domainTotalCost / 2);
+                        }
                     }
                 }
                 
                 // 检查SSL证书使用
                 if ($sslCostPer > 0 || (isset($cfg['ssl_from_rawdata']) && $cfg['ssl_from_rawdata'])) {
                     $sslUsed = false;
+                    $sslAmount = 0;
                     foreach ($rawData as $k => $v) {
                         if (mb_strpos($k, 'SSL') !== false || mb_strpos($k, 'ssl') !== false) {
                             $val = trim(strval($v));
                             if (is_numeric($val) && floatval($val) > 0) {
-                                // SSL列有金额值，直接使用该值
-                                $sslCostTotal += floatval($val);
+                                $sslAmount = floatval($val);
                                 $sslUsed = true;
                                 break;
                             }
                         }
                     }
-                    if (!$sslUsed) {
+                    if ($sslUsed && $sslAmount > 0) {
+                        if ($costRole === 'frontend') {
+                            // 前端：后端有则平分，后端无则全部
+                            $sslCostTotal += $backendIsNone ? $sslAmount : ($sslAmount / 2);
+                        } elseif ($costRole === 'backend') {
+                            // 后端：后端有则平分，后端无则0
+                            $sslCostTotal += $backendIsNone ? 0 : ($sslAmount / 2);
+                        }
+                    } elseif (!$sslUsed) {
                         // 没有找到SSL金额，按固定单价计算
                         foreach ($rawData as $k => $v) {
                             if (mb_strpos($k, 'SSL') !== false || mb_strpos($k, 'ssl') !== false) {
                                 $val = trim(strval($v));
                                 if ($val === '是' || $val === '1' || $val === 'true') {
+                                    if ($costRole === 'frontend') {
+                                        $sslCostTotal += $backendIsNone ? $sslCostPer : ($sslCostPer / 2);
+                                    } elseif ($costRole === 'backend') {
+                                        $sslCostTotal += $backendIsNone ? 0 : ($sslCostPer / 2);
+                                    }
                                     $sslCount++;
-                                    $sslCostTotal += $sslCostPer;
-                                    $sslUsed = true;
                                     break;
                                 }
                             }
@@ -651,7 +682,7 @@ class SalaryCalculator
             $costDetailParts[] = sprintf('%.2f', $serviceFee);
         }
         if ($domainCostTotal > 0) {
-            $costLabel .= ($costLabel ? '+' : '') . sprintf('域名¥%g×%d', $domainCostPer, $domainCount);
+            $costLabel .= ($costLabel ? '+' : '') . sprintf('域名%d个×%s=%.2f', $domainCount, $costRole === 'frontend' ? '前端分摊' : '后端分摊', $domainCostTotal);
             $costDetailParts[] = sprintf('%.2f', $domainCostTotal);
         }
         if ($sslCostTotal > 0) {
