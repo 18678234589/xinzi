@@ -1,0 +1,29 @@
+{
+    "modules": [
+        {
+            "name": "修改20%",
+            "type": "standard",
+            "enabled": true,
+            "config": {
+                "rate": 0.2
+            }
+        },
+        {
+            "name": "续费1.8%",
+            "type": "standard",
+            "enabled": true,
+            "config": {
+                "rate": 0.018
+            }
+        },
+        {
+            "name": "底薪800",
+            "type": "base_salary",
+            "enabled": true,
+            "config": {
+                "base_amount": 800
+            }
+        }
+    ],
+    "updated_at": "2026-07-13 10:50:46"
+}

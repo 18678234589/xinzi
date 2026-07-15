@@ -9,11 +9,11 @@
             }
         },
         {
-            "name": "每笔订单奖励1元",
+            "name": "每笔订单奖励5元",
             "type": "per_order",
             "enabled": true,
             "config": {
-                "per_amount": 1,
+                "per_amount": 5,
                 "per_reward": 0,
                 "count_column": "域名",
                 "count_distinct": "是"
@@ -36,8 +36,16 @@
             "config": {
                 "rate": 0.2
             }
+        },
+        {
+            "name": "单量1元",
+            "type": "referral_order",
+            "enabled": true,
+            "config": {
+                "subsidy": 1
+            }
         }
     ],
     "dept_share": 0,
-    "updated_at": "2026-07-13 14:43:35"
+    "updated_at": "2026-07-13 15:15:01"
 }

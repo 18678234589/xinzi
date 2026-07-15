@@ -33,6 +33,13 @@ function ensureShopColumn()
 ensureShopColumn();
 ensureOrderNoColumn();
 
+// 确保有 is_deleted 字段（回收站）
+$delCols = db()->query("SHOW COLUMNS FROM `orders` LIKE 'is_deleted'")->fetchAll();
+if (empty($delCols)) {
+    db()->exec("ALTER TABLE `orders` ADD COLUMN `is_deleted` TINYINT(1) NOT NULL DEFAULT 0 COMMENT '0=正常 1=已删除(回收站)' AFTER `order_scope`");
+    db()->exec("ALTER TABLE `orders` ADD INDEX `idx_deleted` (`is_deleted`)");
+}
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = $_POST['action'] ?? '';
 
@@ -40,9 +47,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($action === 'delete_order') {
         $order_id = (int)($_POST['order_id'] ?? 0);
         try {
-            $stmt = db()->prepare("DELETE FROM orders WHERE id = ? AND shop = ?");
+            $stmt = db()->prepare("UPDATE orders SET is_deleted=1 WHERE id = ? AND shop = ?");
             $stmt->execute([$order_id, $shop['name']]);
-            $success = '订单已删除';
+            $success = '订单已删除（移入回收站）';
         } catch (PDOException $ex) {
             $error = '删除失败: ' . $ex->getMessage();
         }
@@ -56,9 +63,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             try {
                 $placeholders = implode(',', array_fill(0, count($ids), '?'));
                 $params = array_merge($ids, [$shop['name']]);
-                $stmt = db()->prepare("DELETE FROM orders WHERE id IN ($placeholders) AND shop = ?");
+                $stmt = db()->prepare("UPDATE orders SET is_deleted=1 WHERE id IN ($placeholders) AND shop = ?");
                 $stmt->execute($params);
-                $success = '已批量删除 ' . $stmt->rowCount() . ' 条订单';
+                $success = '已批量删除 ' . $stmt->rowCount() . ' 条订单（移入回收站）';
             } catch (PDOException $ex) {
                 $error = '批量删除失败: ' . $ex->getMessage();
             }
@@ -214,7 +221,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 // 查询该店铺已有订单（按月份分组汇总）
 $filter_month = $_GET['month'] ?? '';
-$baseWhere  = " WHERE o.shop = ?";
+$baseWhere  = " WHERE o.shop = ? AND COALESCE(o.is_deleted, 0) = 0";
 $baseParams = [$shop['name']];
 if ($filter_month) { $baseWhere .= " AND DATE_FORMAT(o.order_date, '%Y-%m') = ?"; $baseParams[] = $filter_month; }
 
@@ -241,14 +248,14 @@ if (!in_array($page_size, [10, 20, 50, 100])) $page_size = 20;
 
 if ($detail_month !== '') {
     // 该月份的订单总数
-    $cStmt = db()->prepare("SELECT COUNT(*) FROM orders WHERE shop = ? AND DATE_FORMAT(order_date, '%Y-%m') = ?");
+    $cStmt = db()->prepare("SELECT COUNT(*) FROM orders WHERE shop = ? AND DATE_FORMAT(order_date, '%Y-%m') = ? AND COALESCE(is_deleted, 0) = 0");
     $cStmt->execute([$shop['name'], $detail_month]);
     $detail_total = (int)$cStmt->fetchColumn();
 
     $offset = ($page - 1) * $page_size;
     $dStmt = db()->prepare("SELECT id, order_amount, order_date, order_no, is_abnormal, abnormal_reason, raw_data
                             FROM orders
-                            WHERE shop = ? AND DATE_FORMAT(order_date, '%Y-%m') = ?
+                            WHERE shop = ? AND DATE_FORMAT(order_date, '%Y-%m') = ? AND COALESCE(is_deleted, 0) = 0
                             ORDER BY order_date DESC, id DESC
                             LIMIT $page_size OFFSET $offset");
     $dStmt->execute([$shop['name'], $detail_month]);

@@ -78,11 +78,11 @@ $pdo->query("SELECT COUNT(*) FROM employees")->fetchColumn();
 $results['COUNT employees'] = round((microtime(true) - $t) * 1000);
 
 $t = microtime(true);
-$pdo->query("SELECT COUNT(*) FROM orders")->fetchColumn();
+$pdo->query("SELECT COUNT(*) FROM orders WHERE COALESCE(is_deleted, 0) = 0")->fetchColumn();
 $results['COUNT orders'] = round((microtime(true) - $t) * 1000);
 
 $t = microtime(true);
-$pdo->query("SELECT COALESCE(SUM(order_amount),0) FROM orders")->fetchColumn();
+$pdo->query("SELECT COALESCE(SUM(order_amount),0) FROM orders WHERE COALESCE(is_deleted, 0) = 0")->fetchColumn();
 $results['SUM orders'] = round((microtime(true) - $t) * 1000);
 
 // 5. 文件包含耗时
@@ -132,14 +132,14 @@ echo sprintf("\n%-30s %s ms\n", 'PHP后端总耗时(估)', $total);
 echo "\n===== 模拟首页完整加载 =====\n";
 $t = microtime(true);
 $emp_count = (int)$pdo->query("SELECT COUNT(*) FROM employees")->fetchColumn();
-$order_count = (int)$pdo->query("SELECT COUNT(*) FROM orders")->fetchColumn();
-$order_total = (float)$pdo->query("SELECT COALESCE(SUM(order_amount),0) FROM orders")->fetchColumn();
+$order_count = (int)$pdo->query("SELECT COUNT(*) FROM orders WHERE COALESCE(is_deleted, 0) = 0")->fetchColumn();
+$order_total = (float)$pdo->query("SELECT COALESCE(SUM(order_amount),0) FROM orders WHERE COALESCE(is_deleted, 0) = 0")->fetchColumn();
 $salary_count = (int)$pdo->query("SELECT COUNT(*) FROM salaries")->fetchColumn();
 $dept_stats = $pdo->query("SELECT department, COUNT(*) as cnt, SUM(base_salary) as total_salary FROM employees GROUP BY department ORDER BY department")->fetchAll();
 $this_month = date('Y-m');
 $month_start = $this_month . '-01';
 $month_end = date('Y-m-t', strtotime($month_start));
-$stmt = $pdo->prepare("SELECT e.name, e.department, COUNT(o.id) as order_cnt, COALESCE(SUM(o.order_amount),0) as amount FROM employees e LEFT JOIN orders o ON o.employee_id = e.id AND o.order_date BETWEEN ? AND ? GROUP BY e.id ORDER BY amount DESC LIMIT 10");
+$stmt = $pdo->prepare("SELECT e.name, e.department, COUNT(o.id) as order_cnt, COALESCE(SUM(o.order_amount),0) as amount FROM employees e LEFT JOIN orders o ON o.employee_id = e.id AND o.order_date BETWEEN ? AND ? AND COALESCE(o.is_deleted, 0) = 0 GROUP BY e.id ORDER BY amount DESC LIMIT 10");
 $stmt->execute([$month_start, $month_end]);
 $month_orders = $stmt->fetchAll();
 $fullTime = round((microtime(true) - $t) * 1000);

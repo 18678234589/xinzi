@@ -64,8 +64,11 @@ function calcProratedBaseSalary($empId, $month, $baseSalary) {
     }
     $workH   = (float)$attInfo['work_hours'];
     $absentH = (float)$attInfo['absent_hours'];
-    $leaveDays  = $absentH / 8;                    // 请假天数
-    $actualDays = max(0, ($workH - $absentH) / 8); // 实际出勤天数（满勤天数−请假天数）
+    // 以考勤表显示值为准：满勤天数、实际出勤天数各自保留2位小数后，
+    // 请假天数 = 满勤天数 − 实际出勤天数（用显示值相减，与考勤表完全一致）
+    $fullDays   = round($workH / 8, 2);                          // 满勤天数（考勤表显示值）
+    $actualDays = round(max(0, ($workH - $absentH) / 8), 2);     // 实际出勤天数（考勤表显示值）
+    $leaveDays  = round($fullDays - $actualDays, 2);             // 请假天数 = 满勤 − 实际出勤
     if ($leaveDays <= 0) {
         $prorated = $baseSalary;                   // 满勤不折
         $status   = '满勤，底薪全额发放';
@@ -115,6 +118,83 @@ function applyProratedBaseSalary(&$result, $empId, $month) {
     return $baseInfo;
 }
 
+/**
+ * 加载员工当月订单（含部门订单虚拟拆分）
+ * 1. 查该员工当月个人订单（排除旧的物理拆分行 __from_dept__）
+ * 2. 查该员工所在部门的汇总行（employee_id=0, __dept__=部门名），按 __dept_modules__ 虚拟生成拆分行
+ * 3. 合并返回订单列表和总金额
+ *
+ * @param int    $employeeId
+ * @param string $month     'YYYY-MM'
+ * @param string $deptName  员工所属部门名
+ * @param bool   $deptShare 是否参与部门订单提成（false 则跳过虚拟拆分）
+ * @return array ['orders'=>[], 'order_total'=>float]
+ */
+function loadEmployeeOrdersWithDept($employeeId, $month, $deptName, $deptShare = true) {
+    // 1. 个人订单（排除旧的物理拆分行，避免与虚拟拆分重复；排除已软删除的）
+    $ostmt = db()->prepare(
+        "SELECT *, order_amount, order_date, project FROM orders
+         WHERE employee_id = ? AND DATE_FORMAT(order_date, '%Y-%m') = ?
+         AND COALESCE(is_abnormal, 0) = 0
+         AND COALESCE(is_deleted, 0) = 0
+         AND (raw_data IS NULL OR raw_data NOT LIKE '%\"__from_dept__\"%')
+         ORDER BY order_date"
+    );
+    $ostmt->execute([$employeeId, $month]);
+    $personalOrders = $ostmt->fetchAll();
+
+    $orders = $personalOrders;
+
+    // 2. 部门订单虚拟拆分
+    if ($deptShare && $deptName !== '') {
+        // 用 JSON_EXTRACT 精确匹配部门名
+        $dstmt = db()->prepare(
+            "SELECT *, order_amount, order_date, project, raw_data FROM orders
+             WHERE employee_id = 0 AND order_scope = 'department'
+             AND DATE_FORMAT(order_date, '%Y-%m') = ?
+             AND COALESCE(is_abnormal, 0) = 0
+             AND COALESCE(is_deleted, 0) = 0
+             AND JSON_UNQUOTE(JSON_EXTRACT(raw_data, '$.__dept__')) = ?"
+        );
+        $dstmt->execute([$month, $deptName]);
+        $deptOrders = $dstmt->fetchAll();
+
+        foreach ($deptOrders as $do) {
+            $rd = is_string($do['raw_data'] ?? '') ? json_decode($do['raw_data'], true) : ($do['raw_data'] ?? []);
+            if (!is_array($rd)) $rd = [];
+            $modules = $rd['__dept_modules__'] ?? null;
+            if (!is_array($modules)) continue;
+
+            // 找到该员工的模块
+            $myModule = null;
+            foreach ($modules as $m) {
+                if ((int)($m['employee_id'] ?? 0) === (int)$employeeId) {
+                    $myModule = trim($m['module'] ?? '');
+                    break;
+                }
+            }
+            if ($myModule === null) continue; // 该员工不参与此部门订单
+
+            // 虚拟生成拆分行
+            $vRaw = $rd;
+            $vRaw['__from_dept__'] = $deptName;
+            $virtualRow = $do;
+            $virtualRow['employee_id'] = $employeeId;
+            $virtualRow['project']     = $myModule;
+            $virtualRow['raw_data']    = json_encode($vRaw, JSON_UNESCAPED_UNICODE);
+            $orders[] = $virtualRow;
+        }
+    }
+
+    // 3. 计算总金额
+    $orderTotal = 0;
+    foreach ($orders as $o) {
+        $orderTotal += (float)($o['order_amount'] ?? 0);
+    }
+
+    return ['orders' => $orders, 'order_total' => round($orderTotal, 2)];
+}
+
 // 处理结算
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = $_POST['action'] ?? '';
@@ -130,17 +210,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if (!$emp) {
                 $error = '员工不存在';
             } else {
-                // 汇总当月订单（排除异常数据；含部门拆分记录 __from_dept__，这些是员工提成的来源）
-                $stmt = db()->prepare("SELECT COUNT(*) as cnt, COALESCE(SUM(order_amount),0) as total FROM orders WHERE employee_id = ? AND DATE_FORMAT(order_date, '%Y-%m') = ? AND COALESCE(is_abnormal,0) = 0");
-                $stmt->execute([$employee_id, $month]);
-                $orderInfo = $stmt->fetch();
+                // 加载当月订单（个人订单 + 部门订单虚拟拆分）
+                $deptShare = true;
+                $cfgData = SalaryCalculator::readModulesConfig($employee_id);
+                if (($cfgData['dept_share'] ?? 1) == 0) $deptShare = false;
+                $loaded = loadEmployeeOrdersWithDept($employee_id, $month, $emp['department'] ?? '', $deptShare);
+                $orderList = $loaded['orders'];
+                $order_total = $loaded['order_total'];
 
-                $order_total = (float)$orderInfo['total'];
-                // 获取当月订单明细（排除异常，供算法使用；含 __from_dept__ 拆分记录）
-                $ostmt = db()->prepare("SELECT *, order_amount, order_date, project FROM orders WHERE employee_id = ? AND DATE_FORMAT(order_date, '%Y-%m') = ? AND COALESCE(is_abnormal,0) = 0 ORDER BY order_date");
-                $ostmt->execute([$employee_id, $month]);
-                $orderList = $ostmt->fetchAll();
-                
                 if (count($orderList) === 0) {
                     $error = "未找到该员工在 {$month} 的订单记录";
                 } else {
@@ -323,13 +400,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if (!$emp) {
                 $error = '员工不存在';
             } else {
-                $stmt = db()->prepare("SELECT COALESCE(SUM(order_amount),0) as total FROM orders WHERE employee_id = ? AND DATE_FORMAT(order_date, '%Y-%m') = ? AND COALESCE(is_abnormal,0) = 0");
-                $stmt->execute([$employee_id, $month]);
-                $order_total = (float)$stmt->fetchColumn();
-                // 获取当月订单明细（排除异常，供算法使用；含 __from_dept__ 拆分记录）
-                $ostmt = db()->prepare("SELECT *, order_amount, order_date, project FROM orders WHERE employee_id = ? AND DATE_FORMAT(order_date, '%Y-%m') = ? AND COALESCE(is_abnormal,0) = 0 ORDER BY order_date");
-                $ostmt->execute([$employee_id, $month]);
-                $orderList = $ostmt->fetchAll();
+                // 加载当月订单（个人订单 + 部门订单虚拟拆分）
+                $deptShare = true;
+                $cfgData = SalaryCalculator::readModulesConfig($employee_id);
+                if (($cfgData['dept_share'] ?? 1) == 0) $deptShare = false;
+                $loaded = loadEmployeeOrdersWithDept($employee_id, $month, $emp['department'] ?? '', $deptShare);
+                $orderList = $loaded['orders'];
+                $order_total = $loaded['order_total'];
 
                 // 调用薪资算法
                 $result = SalaryCalculator::calculate($emp, $orderList, $order_total, $month);

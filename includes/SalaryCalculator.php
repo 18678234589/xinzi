@@ -677,10 +677,127 @@ class SalaryCalculator
     // ---- 引流订单 ----
     private static function calcReferralOrder($cfg, $c, $moduleName = '')
     {
+        // count_mode: 'keyword'(默认，按列+关键词计数) / 'staff_match'(接单客服匹配员工姓名+旺旺日期去重)
+        $countMode = $cfg['count_mode'] ?? 'keyword';
+
+        if ($countMode === 'staff_match') {
+            // 接单客服出现员工姓名 → 该表订单归属此员工 → 计算单量（旺旺+日期去重）
+            // 可选：配置 count_column + count_keyword 时，先按该列关键词筛选，再去重计数
+            $employeeName = trim($c['employee']['name'] ?? '');
+            $subsidy = (float)($cfg['subsidy'] ?? 0);
+
+            // 拍建站列关键词筛选（可选）
+            $filterColumn = isset($cfg['count_column']) && trim($cfg['count_column']) !== '' ? trim($cfg['count_column']) : '';
+            $filterKeywords = $filterColumn !== '' ? array_filter(array_map('trim', explode('+', $cfg['count_keyword'] ?? ''))) : [];
+            $filterMatch = $cfg['count_keyword_match'] ?? 'all'; // all=AND / any=OR
+
+            // 辅助：模糊匹配列名取值
+            $getCol = function($rd, $colName) {
+                if (isset($rd[$colName])) return trim($rd[$colName]);
+                foreach ($rd as $k => $v) {
+                    if (mb_strpos($k, $colName) !== false) return trim($v);
+                }
+                return '';
+            };
+
+            // 第一步：扫描所有订单，判断接单客服列是否出现过员工姓名
+            $ownsTable = false;
+            foreach (($c['orders'] ?? []) as $o) {
+                $rd = is_string($o['raw_data'] ?? '') ? json_decode($o['raw_data'], true) : ($o['raw_data'] ?? []);
+                if (!is_array($rd)) $rd = [];
+                $kefu = $getCol($rd, '接单客服');
+                if ($kefu === '') continue;
+                $names = array_map('trim', explode(',', $kefu));
+                if (in_array($employeeName, $names, true)) { $ownsTable = true; break; }
+            }
+
+            if (!$ownsTable) {
+                return [
+                    'amount' => 0,
+                    'formula' => sprintf('0.00（接单客服无匹配%s的订单）', $employeeName),
+                    'type' => 'referral_order',
+                ];
+            }
+
+            // 第二步：接单客服匹配到员工姓名，该表订单归属此员工，计算单量
+            // - 配置了 count_column（如"拍建站链接"按单补助）：按 order_no 去重，每条匹配订单算1单
+            //   （不要求付费旺旺/日期非空，这类数量表常不填旺旺日期，否则会少算）
+            // - 未配置 count_column（如"单量补贴"，统计独立客户单量）：按 付费旺旺+日期 去重
+            $cnt = 0;
+            $seen = []; // key 视去重方式而定
+            $dedupByOrderNo = ($filterColumn !== '');
+            foreach (($c['orders'] ?? []) as $o) {
+                $rd = is_string($o['raw_data'] ?? '') ? json_decode($o['raw_data'], true) : ($o['raw_data'] ?? []);
+                if (!is_array($rd)) $rd = [];
+                // 排除退款订单
+                $isRefund = isset($rd['__is_refund__']) && $rd['__is_refund__'] === '1';
+                if ($isRefund || (float)($o['order_amount'] ?? 0) < 0) continue;
+                // 按 order_no 去重（避免多模块上传导致重复行）
+                if ($dedupByOrderNo) {
+                    $ono = trim($o['order_no'] ?? '');
+                    if ($ono !== '' && isset($seen[$ono])) continue;
+                }
+                // 可选：按拍建站列关键词筛选
+                if ($filterColumn !== '') {
+                    $val = $getCol($rd, $filterColumn);
+                    if ($val === '') continue;
+                    if (!empty($filterKeywords)) {
+                        if ($filterMatch === 'any') {
+                            $match = false;
+                            foreach ($filterKeywords as $kw) {
+                                if (mb_strpos($val, $kw) !== false) { $match = true; break; }
+                            }
+                        } else {
+                            $match = true;
+                            foreach ($filterKeywords as $kw) {
+                                if (mb_strpos($val, $kw) === false) { $match = false; break; }
+                            }
+                        }
+                        if (!$match) continue;
+                    }
+                }
+                if ($dedupByOrderNo) {
+                    // 按单补助：每条匹配订单算1单，按 order_no 去重
+                    $ono = trim($o['order_no'] ?? '');
+                    if ($ono !== '') $seen[$ono] = true;
+                    $cnt++;
+                } else {
+                    // 单量补贴：读取"付费旺旺"和"日期"列，同旺旺同日期只算1单
+                    $wangwang = $getCol($rd, '付费旺旺');
+                    $dateVal  = $getCol($rd, '日期');
+                    // 旺旺或日期为空的不计入单量
+                    if ($wangwang === '' || $dateVal === '') continue;
+                    $key = $wangwang . '|' . $dateVal;
+                    if (isset($seen[$key])) continue;
+                    $seen[$key] = true;
+                    $cnt++;
+                }
+            }
+            $subsidyAmt = $cnt * $subsidy;
+            // 公式描述
+            if ($filterColumn !== '' && !empty($filterKeywords)) {
+                $kwLabel = ($filterMatch === 'any' ? "含任一'" : "含全部'") . implode('+', $filterKeywords) . "'";
+                $formula = sprintf('接单客服匹配%s %s%s %d单×¥%g(每单补助)=%.2f', $employeeName, $filterColumn, $kwLabel, $cnt, $subsidy, $subsidyAmt);
+            } else {
+                $formula = sprintf('接单客服匹配%s %d单×¥%g(每单补助)=%.2f', $employeeName, $cnt, $subsidy, $subsidyAmt);
+            }
+            if ($cnt === 0) {
+                $formula = $filterColumn !== ''
+                    ? sprintf('0.00（接单客服匹配%s但%s列无命中订单）', $employeeName, $filterColumn)
+                    : sprintf('0.00（接单客服匹配%s但无有效订单）', $employeeName);
+            }
+            return [
+                'amount' => round($subsidyAmt, 2),
+                'formula' => $formula,
+                'type' => 'referral_order',
+            ];
+        }
+
         // 按指定列+关键词计数（如"建站订单"列值同时包含"拍"+"链接"）
         $countColumn = isset($cfg['count_column']) && trim($cfg['count_column']) !== '' ? trim($cfg['count_column']) : '';
         if ($countColumn !== '') {
             $keywords = array_filter(array_map('trim', explode('+', $cfg['count_keyword'] ?? '')));
+            $kwMatch  = $cfg['count_keyword_match'] ?? 'all'; // all=同时包含(AND) / any=任一包含(OR)
             $seen = [];   // 按 order_no 去重
             $cnt = 0;
             foreach (($c['orders'] ?? []) as $o) {
@@ -703,16 +820,29 @@ class SalaryCalculator
                     }
                 }
                 if ($val === '') continue;
-                // 必须同时包含所有关键词
-                $match = true;
-                foreach ($keywords as $kw) {
-                    if (mb_strpos($val, $kw) === false) { $match = false; break; }
+                // 关键词匹配：all=同时包含所有，any=包含任一即可
+                if (empty($keywords)) {
+                    $match = true; // 无关键词则只需列值非空
+                } elseif ($kwMatch === 'any') {
+                    $match = false;
+                    foreach ($keywords as $kw) {
+                        if (mb_strpos($val, $kw) !== false) { $match = true; break; }
+                    }
+                } else {
+                    $match = true;
+                    foreach ($keywords as $kw) {
+                        if (mb_strpos($val, $kw) === false) { $match = false; break; }
+                    }
                 }
                 if ($match) $cnt++;
             }
             $subsidy = (float)($cfg['subsidy'] ?? 0);
             $subsidyAmt = $cnt * $subsidy;
-            $kwLabel = !empty($keywords) ? "含'" . implode('+', $keywords) . "'" : '非空';
+            if (!empty($keywords)) {
+                $kwLabel = ($kwMatch === 'any' ? "含任一'" : "含全部'") . implode('+', $keywords) . "'";
+            } else {
+                $kwLabel = '非空';
+            }
             $formula = sprintf('%s%s%d单×¥%g(每单补助)=%.2f', $countColumn, $kwLabel, $cnt, $subsidy, $subsidyAmt);
             if ($cnt === 0) {
                 $formula = sprintf('0.00（%s列无匹配%s的订单）', $countColumn, $kwLabel);
@@ -1036,16 +1166,16 @@ class SalaryCalculator
         }
 
         if ($deptShare) {
-            // 参与部门订单提成：自动同步部门订单拆分行
-            self::syncDeptOrdersForEmployee($employeeId, $modules);
+            // 参与部门订单提成：部门汇总行已在 orders 表中，结算时通过 __dept_modules__ 虚拟拆分，
+            // 新员工配置后自动生效，无需物理同步拆分行
         } else {
-            // 不参与部门订单提成：删除已有的部门拆分行
+            // 不参与部门订单提成：清理旧的物理拆分行（历史数据，新数据不再产生拆分行）
             try {
-                $del = db()->prepare("DELETE FROM orders WHERE employee_id = ? AND raw_data LIKE '%__from_dept__%'");
+                $del = db()->prepare("UPDATE orders SET is_deleted=1 WHERE employee_id = ? AND raw_data LIKE '%__from_dept__%'");
                 $del->execute([$employeeId]);
                 $deleted = $del->rowCount();
                 if ($deleted > 0) {
-                    error_log("SalaryCalculator: removed {$deleted} dept orders for employee {$employeeId} (dept_share=0)");
+                    error_log("SalaryCalculator: removed {$deleted} legacy dept split orders for employee {$employeeId} (dept_share=0)");
                 }
             } catch (Exception $e) {
                 error_log("SalaryCalculator: failed to remove dept orders: " . $e->getMessage());
@@ -1053,126 +1183,6 @@ class SalaryCalculator
         }
 
         return true;
-    }
-
-    /**
-     * 自动同步部门订单拆分行到新员工
-     * 场景：新员工刚配置算法，之前上传部门订单时还没选她，现在自动补上
-     */
-    private static function syncDeptOrdersForEmployee($employeeId, $modules)
-    {
-        try {
-            // 检查该员工是否已有部门拆分行
-            $cntStmt = db()->prepare("SELECT COUNT(*) FROM orders WHERE employee_id = ? AND raw_data LIKE '%__from_dept__%'");
-            $cntStmt->execute([$employeeId]);
-            if ((int)$cntStmt->fetchColumn() > 0) {
-                return; // 已有拆分行，不需要同步
-            }
-
-            // 查员工所属部门
-            $emp = db()->prepare("SELECT department FROM employees WHERE id = ?");
-            $emp->execute([$employeeId]);
-            $empRow = $emp->fetch();
-            if (!$empRow || empty($empRow['department'])) return;
-            $deptName = $empRow['department'];
-
-            // 找同部门其他员工的拆分行作为模板（取第一个有的）
-            $tplStmt = db()->prepare(
-                "SELECT o.order_amount, o.order_date, o.order_no, o.raw_data, o.is_abnormal, o.abnormal_reason
-                 FROM orders o
-                 INNER JOIN employees e ON o.employee_id = e.id
-                 WHERE o.raw_data LIKE ? AND o.employee_id != ? AND e.department = ?
-                 LIMIT 1"
-            );
-            $tplStmt->execute(['%__from_dept__%', $employeeId, $deptName]);
-            $tplRow = $tplStmt->fetch();
-            if (!$tplRow) return; // 同部门没人有拆分行，说明还没上传过部门订单
-
-            $tplEmpStmt = db()->prepare(
-                "SELECT o.order_amount, o.order_date, o.order_no, o.raw_data, o.is_abnormal, o.abnormal_reason
-                 FROM orders o
-                 WHERE o.employee_id = ? AND o.raw_data LIKE '%__from_dept__%'"
-            );
-            // 用模板员工的 id 查全部拆分行
-            $tplEmpIdStmt = db()->prepare(
-                "SELECT o.employee_id FROM orders o
-                 INNER JOIN employees e ON o.employee_id = e.id
-                 WHERE o.raw_data LIKE ? AND o.employee_id != ? AND e.department = ?
-                 LIMIT 1"
-            );
-            $tplEmpIdStmt->execute(['%__from_dept__%', $employeeId, $deptName]);
-            $tplEmpId = (int)$tplEmpIdStmt->fetchColumn();
-            if ($tplEmpId <= 0) return;
-
-            $tplEmpStmt->execute([$tplEmpId]);
-            $templateOrders = $tplEmpStmt->fetchAll();
-            if (empty($templateOrders)) return;
-
-            // 从新配置中找出 standard 类型模块名（用于 project）
-            $moduleNames = [];
-            foreach ($modules as $m) {
-                if (($m['type'] ?? '') === 'standard' && !empty($m['name'])) {
-                    $moduleNames[] = $m['name'];
-                }
-            }
-            if (empty($moduleNames)) return;
-
-            // 按模板订单的 project 做模糊匹配：如果模板 project 含"续费"，找新配置里含"续费"的模块名
-            $insertStmt = db()->prepare(
-                "INSERT INTO orders (employee_id, order_amount, order_date, project, order_no, raw_data, is_abnormal, abnormal_reason, order_scope)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'personal')"
-            );
-            $inserted = 0;
-            foreach ($templateOrders as $o) {
-                $rd = json_decode($o['raw_data'] ?? '', true) ?: [];
-                $rd['__from_dept__'] = $deptName;
-
-                // 匹配 project：模板订单的 project → 新配置的模块名
-                $tplProj = trim($o['project'] ?? '');
-                $newProj = self::matchModuleByName($tplProj, $moduleNames);
-                if ($newProj === null) {
-                    // 无法匹配的用第一个 standard 模块
-                    $newProj = $moduleNames[0];
-                }
-
-                $insertStmt->execute([
-                    $employeeId,
-                    $o['order_amount'],
-                    $o['order_date'],
-                    $newProj,
-                    $o['order_no'],
-                    json_encode($rd, JSON_UNESCAPED_UNICODE),
-                    $o['is_abnormal'],
-                    $o['abnormal_reason'],
-                ]);
-                $inserted++;
-            }
-            error_log("SalaryCalculator: auto-synced {$inserted} dept orders for employee {$employeeId} (dept={$deptName}, template={$tplEmpId})");
-        } catch (Exception $e) {
-            error_log("SalaryCalculator: syncDeptOrdersForEmployee failed: " . $e->getMessage());
-        }
-    }
-
-    /**
-     * 模糊匹配模块名：旧 project 名 → 新模块名
-     * 如 "续费1.9%" → "续费1%"（都含"续费"）
-     */
-    private static function matchModuleByName($oldName, $newNames)
-    {
-        $oldName = trim($oldName);
-        if ($oldName === '') return null;
-        // 精确匹配
-        if (in_array($oldName, $newNames)) return $oldName;
-        // 模糊匹配：取关键词（去掉数字和%）
-        $keyword = preg_replace('/[\d.%]/u', '', $oldName);
-        if ($keyword === '') return null;
-        foreach ($newNames as $newName) {
-            $newKeyword = preg_replace('/[\d.%]/u', '', $newName);
-            if ($keyword === $newKeyword || mb_strpos($newName, $keyword) !== false || mb_strpos($keyword, $newKeyword) !== false) {
-                return $newName;
-            }
-        }
-        return null;
     }
 
     /**
@@ -1325,7 +1335,9 @@ class SalaryCalculator
                     ['key'=>'max_amount','label'=>'最大订单金额','type'=>'number','step'=>'0.01','placeholder'=>'留空=不限制','default'=>''],
                     ['key'=>'shop_keyword','label'=>'店铺关键字','type'=>'text','placeholder'=>'留空=不限制，如：老客户','default'=>''],
                     ['key'=>'count_column','label'=>'计数列名','type'=>'text','placeholder'=>'填列名如"建站订单"，按该列内容筛选计数','default'=>''],
-                    ['key'=>'count_keyword','label'=>'关键词（+分隔）','type'=>'text','placeholder'=>'如"拍+链接"，表示该列值需同时包含这些词','default'=>''],
+                    ['key'=>'count_keyword','label'=>'关键词（+分隔）','type'=>'text','placeholder'=>'如"拍+链接"，按下方匹配方式筛选该列值','default'=>''],
+                    ['key'=>'count_keyword_match','label'=>'关键词匹配方式','type'=>'select','options'=>['all'=>'同时包含所有词(且)','any'=>'包含任一词(或)'],'default'=>'all'],
+                    ['key'=>'count_mode','label'=>'计数模式','type'=>'select','options'=>['keyword'=>'关键词匹配(按列+关键词计数)','staff_match'=>'接单客服匹配(按员工姓名匹配+旺旺日期去重)'],'default'=>'keyword'],
                 ],
             ],
         ];
