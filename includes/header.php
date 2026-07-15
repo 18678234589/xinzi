@@ -21,6 +21,7 @@ $is_abnormal    = (strpos($_rel, 'abnormal/') === 0);
 $is_attendance  = (strpos($_rel, 'attendance/') === 0);
 $is_settle      = ($_rel === 'salaries/settle.php');
 $is_query       = ($_rel === 'salaries/query.php');
+$is_insurance   = (strpos($_rel, 'insurance/') === 0);
 ?>
 <!DOCTYPE html>
 <html lang="zh-CN">
@@ -76,6 +77,7 @@ $is_query       = ($_rel === 'salaries/query.php');
     <a href="<?php echo BASE_URL; ?>/orders/index.php" class="<?php echo $is_orders ? 'active' : ''; ?>"><i class="fas fa-file-upload"></i> 订单上传</a>
     <a href="<?php echo BASE_URL; ?>/abnormal/index.php" class="<?php echo $is_abnormal ? 'active' : ''; ?>"><i class="fas fa-exclamation-triangle"></i> 异常订单</a>
     <a href="<?php echo BASE_URL; ?>/attendance/index.php" class="<?php echo $is_attendance ? 'active' : ''; ?>"><i class="fas fa-calendar-check"></i> 考勤表</a>
+    <a href="<?php echo BASE_URL; ?>/insurance/index.php" class="<?php echo $is_insurance ? 'active' : ''; ?>"><i class="fas fa-shield-alt"></i> 保险管理</a>
     <a href="<?php echo BASE_URL; ?>/salaries/settle.php" class="<?php echo $is_settle ? 'active' : ''; ?>"><i class="fas fa-calculator"></i> 薪资结算</a>
     <a href="<?php echo BASE_URL; ?>/salaries/query.php" class="<?php echo $is_query ? 'active' : ''; ?>"><i class="fas fa-search-dollar"></i> 薪资查询</a>
 </div>

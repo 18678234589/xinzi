@@ -4,8 +4,8 @@ require_login();
 
 // 统计数据
 $emp_count    = (int)db()->query("SELECT COUNT(*) FROM employees")->fetchColumn();
-$order_count  = (int)db()->query("SELECT COUNT(*) FROM orders")->fetchColumn();
-$order_total  = (float)db()->query("SELECT COALESCE(SUM(order_amount),0) FROM orders")->fetchColumn();
+$order_count  = (int)db()->query("SELECT COUNT(*) FROM orders WHERE COALESCE(is_deleted, 0) = 0")->fetchColumn();
+$order_total  = (float)db()->query("SELECT COALESCE(SUM(order_amount),0) FROM orders WHERE COALESCE(is_deleted, 0) = 0")->fetchColumn();
 $salary_count = (int)db()->query("SELECT COUNT(*) FROM salaries")->fetchColumn();
 
 // 各部门人数
@@ -19,7 +19,7 @@ $this_month = date('Y-m');
 $stmt = db()->prepare("
     SELECT e.name, e.department, COUNT(o.id) as order_cnt, COALESCE(SUM(o.order_amount),0) as amount
     FROM employees e
-    LEFT JOIN orders o ON o.employee_id = e.id AND DATE_FORMAT(o.order_date, '%Y-%m') = ?
+    LEFT JOIN orders o ON o.employee_id = e.id AND DATE_FORMAT(o.order_date, '%Y-%m') = ? AND COALESCE(o.is_deleted, 0) = 0
     GROUP BY e.id
     ORDER BY amount DESC
     LIMIT 10

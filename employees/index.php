@@ -27,7 +27,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     if ($password === '') $password = '123456'; // 默认密码
                     $stmt = db()->prepare("INSERT INTO employees (name, department, base_salary, commission_rate, password) VALUES (?, ?, ?, ?, MD5(?))");
                     $stmt->execute([$name, $department, $base_salary, $commission_rate, $password]);
+                    $newId = (int)db()->lastInsertId();
+                    // 自动补录之前因员工不存在而暂存的考勤记录
+                    $backfilled = backfill_pending_attendance($newId, $name);
                     $success = '员工添加成功，默认密码: ' . ($password === '123456' ? '123456' : '已设置');
+                    if ($backfilled > 0) $success .= "，已自动补录 {$backfilled} 条考勤记录";
                 } else {
                     if ($password !== '') {
                         $stmt = db()->prepare("UPDATE employees SET name=?, department=?, base_salary=?, commission_rate=?, password=MD5(?) WHERE id=?");
@@ -36,6 +40,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         $stmt = db()->prepare("UPDATE employees SET name=?, department=?, base_salary=?, commission_rate=? WHERE id=?");
                         $stmt->execute([$name, $department, $base_salary, $commission_rate, $id]);
                     }
+                    // 改名后尝试补录新姓名对应的暂存考勤
+                    backfill_pending_attendance($id, $name);
                     $success = '员工信息更新成功';
                 }
             } catch (PDOException $ex) {
@@ -48,7 +54,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             // orders 表的员工外键已被移除（部门订单需存 employee_id=0，见 orders/index.php 的 ensureProjectColumn），
             // ON DELETE CASCADE 已失效，这里手动清理关联数据，避免留下指向不存在员工的孤儿订单/薪资记录。
             db()->beginTransaction();
-            db()->prepare("DELETE FROM orders WHERE employee_id = ?")->execute([$id]);
+            // 订单软删除（移入回收站，可恢复），薪资和员工记录物理删除
+            db()->prepare("UPDATE orders SET is_deleted=1 WHERE employee_id = ?")->execute([$id]);
             db()->prepare("DELETE FROM salaries WHERE employee_id = ?")->execute([$id]);
             db()->prepare("DELETE FROM employees WHERE id = ?")->execute([$id]);
             db()->commit();

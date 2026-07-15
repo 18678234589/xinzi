@@ -208,8 +208,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $idxFullDays = $idxActualDays = null;
                     foreach ($colMap as $k => $idx) {
                         if ($idxName === null && (mb_strpos($k, '姓名') !== false || mb_strpos($k, '员工') !== false || mb_strpos($k, '名字') !== false || stripos($k, 'name') !== false)) $idxName = $idx;
-                        // 满勤天数（新格式）
-                        if ($idxFullDays === null && (mb_strpos($k, '满勤天数') !== false || mb_strpos($k, '满勤') !== false || mb_strpos($k, '应出勤天数') !== false || mb_strpos($k, '应出勤') !== false)) $idxFullDays = $idx;
+                        // 满勤天数（新格式）—— 支持"满勤天数/满勤/应出勤天数/应出勤/全勤天数/全勤"等多种表头
+                        if ($idxFullDays === null && (mb_strpos($k, '满勤天数') !== false || mb_strpos($k, '满勤') !== false || mb_strpos($k, '应出勤天数') !== false || mb_strpos($k, '应出勤') !== false || mb_strpos($k, '全勤天数') !== false || mb_strpos($k, '全勤') !== false)) $idxFullDays = $idx;
                         // 实际出勤天数（新格式）
                         if ($idxActualDays === null && (mb_strpos($k, '实际出勤') !== false || mb_strpos($k, '实到') !== false || mb_strpos($k, '实际') !== false || mb_strpos($k, '出勤天数') !== false)) $idxActualDays = $idx;
                         // 应出勤小时（旧格式兼容）
@@ -256,23 +256,38 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                         // 上传前清空该月所有考勤记录，确保上传的数据就是最终数据
                         db()->prepare("DELETE FROM attendances WHERE year=? AND month=?")->execute([$year, $month]);
+                        // 同步清空该月的待匹配记录（避免重复堆积）
+                        db()->prepare("DELETE FROM attendance_pending WHERE year=? AND month=?")->execute([$year, $month]);
 
                         $inserted = 0; $skipped = 0; $notFound = [];
                         $ins = db()->prepare("INSERT INTO attendances (employee_id, year, month, work_hours, absent_hours, remark)
                                               VALUES (?, ?, ?, ?, ?, ?)
                                               ON DUPLICATE KEY UPDATE work_hours=VALUES(work_hours), absent_hours=VALUES(absent_hours), remark=VALUES(remark)");
+                        $insPending = db()->prepare("INSERT INTO attendance_pending (employee_name, year, month, work_hours, absent_hours, remark)
+                                                     VALUES (?, ?, ?, ?, ?, ?)");
                         db()->beginTransaction();
+                        // 解析天数/小时值，支持 "25+2.5" 这类简单加减表达式（避免被 preg_replace 误拼成 252.5）
+                        $parseNum = function($val) {
+                            $cleaned = preg_replace('/[^\d.+\-]/', '', trim($val ?? ''));
+                            if ($cleaned === '' || !preg_match('/\d/', $cleaned)) return 0.0;
+                            $sum = 0.0;
+                            foreach (explode('+', $cleaned) as $part) {
+                                $sub = explode('-', $part);
+                                $partSum = (float)array_shift($sub);
+                                foreach ($sub as $neg) $partSum -= (float)$neg;
+                                $sum += $partSum;
+                            }
+                            return $sum;
+                        };
                         foreach ($dataRows as $r) {
                             if (count(array_filter($r, fn($v) => trim($v) !== '')) === 0) continue;
                             $empName = trim($r[$idxName] ?? '');
                             if ($empName === '') continue;
-                            $empId = $empByName[$empName] ?? 0;
-                            if ($empId <= 0) { $notFound[] = $empName; $skipped++; continue; }
 
                             // 优先按"天数"格式计算（满勤天数 × 8 = 应出勤小时；请假小时 = (满勤-实际)×8）
                             if ($idxFullDays !== null || $idxActualDays !== null) {
-                                $fullDays  = $idxFullDays  !== null ? (float)preg_replace('/[^\d.]/', '', trim($r[$idxFullDays]  ?? '')) : 0;
-                                $actDays   = $idxActualDays !== null ? (float)preg_replace('/[^\d.]/', '', trim($r[$idxActualDays] ?? '')) : $fullDays;
+                                $fullDays  = $idxFullDays  !== null ? $parseNum($r[$idxFullDays]  ?? '') : 0;
+                                $actDays   = $idxActualDays !== null ? $parseNum($r[$idxActualDays] ?? '') : $fullDays;
                                 $wh  = $fullDays * 8;                       // 应出勤小时 = 满勤天数 × 8
                                 $ah  = max(0, ($fullDays - $actDays) * 8);  // 请假小时 = (满勤-实际出勤) × 8
                             } elseif ($autoDayMode) {
@@ -291,16 +306,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                 $ah = max(0, ($fullDays - $actDays) * 8);
                             } else {
                                 // 旧格式：直接读小时数
-                                $wh = $idxWork !== null ? (float)preg_replace('/[^\d.]/', '', trim($r[$idxWork] ?? '')) : 0;
-                                $ah = $idxAbsent !== null ? (float)preg_replace('/[^\d.]/', '', trim($r[$idxAbsent] ?? '')) : 0;
+                                $wh = $idxWork !== null ? $parseNum($r[$idxWork] ?? '') : 0;
+                                $ah = $idxAbsent !== null ? $parseNum($r[$idxAbsent] ?? '') : 0;
                             }
                             $rm = $idxRemark !== null ? trim($r[$idxRemark] ?? '') : '';
+
+                            $empId = $empByName[$empName] ?? 0;
+                            if ($empId <= 0) {
+                                // 员工尚未添加：暂存到待匹配表，员工添加后自动补录
+                                $notFound[] = $empName;
+                                $skipped++;
+                                $insPending->execute([$empName, $year, $month, $wh, $ah, $rm]);
+                                continue;
+                            }
                             $ins->execute([$empId, $year, $month, $wh, $ah, $rm]);
                             $inserted++;
                         }
                         db()->commit();
                         $msg = "导入完成：成功 {$inserted} 条";
-                        if ($skipped > 0) $msg .= "，跳过 {$skipped} 条";
+                        if ($skipped > 0) $msg .= "，暂存待匹配 {$skipped} 条（员工添加后自动补录）";
                         if (!empty($notFound)) $msg .= "，未匹配员工：" . implode('、', array_slice($notFound, 0, 5)) . (count($notFound) > 5 ? ' 等' : '');
                         // 附加识别信息便于排查
                         $mode = $autoDayMode ? '自动统计(每日打卡列)' : '天数列直读';
@@ -330,6 +354,15 @@ $totalAbsent = array_sum(array_column($records, 'absent_hours'));
 $fullCount = 0;
 foreach ($records as $r) if ((float)$r['absent_hours'] == 0) $fullCount++;
 
+// 待匹配考勤（上传时员工尚未添加的行，员工添加后自动补录）
+$pendingRows = [];
+try {
+    $ps = db()->prepare("SELECT * FROM attendance_pending WHERE year=? AND month=? ORDER BY employee_name");
+    $ps->execute([$year, $month]);
+    $pendingRows = $ps->fetchAll();
+} catch (\Throwable $e) {}
+$pendingCount = count($pendingRows);
+
 define('BASE_PATH', dirname(__DIR__));
 include __DIR__ . '/../includes/header.php';
 ?>
@@ -344,9 +377,29 @@ include __DIR__ . '/../includes/header.php';
         </h4>
         <span class="badge badge-info ml-2">已录 <?php echo $total; ?> 人</span>
         <span class="badge badge-success ml-1">满勤 <?php echo $fullCount; ?> 人</span>
-        <?php if ($totalAbsent > 0): ?><span class="badge badge-warning ml-1">请假 <?php echo number_format($totalAbsent, 1); ?>h</span><?php endif; ?>
+        <?php if ($totalAbsent > 0): ?><span class="badge badge-warning ml-1">请假 <?php echo number_format($totalAbsent, 2); ?>h</span><?php endif; ?>
+        <?php if ($pendingCount > 0): ?><span class="badge badge-secondary ml-1" title="上传考勤时这些员工尚未添加，已暂存；添加员工后自动补录">待匹配 <?php echo $pendingCount; ?> 人</span><?php endif; ?>
     </div>
 </div>
+
+<?php if ($pendingCount > 0): ?>
+<div class="alert alert-info py-2">
+    <a class="d-flex justify-content-between align-items-center text-decoration-none text-info" data-toggle="collapse" href="#pendingCollapse" role="button" aria-expanded="false" aria-controls="pendingCollapse">
+        <span><i class="fas fa-info-circle"></i> <strong><?php echo $pendingCount; ?> 人</strong>的考勤已暂存（上传时员工尚未添加）。在<a href="<?php echo BASE_URL; ?>/employees/index.php" onclick="event.stopPropagation();">员工管理</a>中添加对应姓名的员工后，考勤会自动补录。</span>
+        <i class="fas fa-chevron-down ml-2"></i>
+    </a>
+    <div class="collapse" id="pendingCollapse">
+        <table class="table table-sm table-bordered mt-2 mb-0" style="max-width:600px">
+            <thead><tr><th>姓名</th><th>应出勤(h)</th><th>请假(h)</th><th>备注</th></tr></thead>
+            <tbody>
+            <?php foreach ($pendingRows as $p): ?>
+                <tr><td><?php echo e($p['employee_name']); ?></td><td><?php echo e($p['work_hours']); ?></td><td><?php echo e($p['absent_hours']); ?></td><td><?php echo e($p['remark']); ?></td></tr>
+            <?php endforeach; ?>
+            </tbody>
+        </table>
+    </div>
+</div>
+<?php endif; ?>
 
 <?php if ($success): ?>
     <div class="alert alert-success alert-dismissible fade show"><i class="fas fa-check-circle"></i> <?php echo e($success); ?><button type="button" class="close" data-dismiss="alert">&times;</button></div>
@@ -484,9 +537,9 @@ include __DIR__ . '/../includes/header.php';
                                     <td><input type="checkbox" name="ids[]" value="<?php echo $r['id']; ?>" class="row-chk"></td>
                                     <td><strong><?php echo e($r['name']); ?></strong></td>
                                     <td><span class="badge badge-info"><?php echo e($r['department']); ?></span></td>
-                                    <td class="text-right"><?php echo number_format($fullDays, 1); ?>天</td>
-                                    <td class="text-right <?php echo $isFull ? 'text-success' : ''; ?>"><?php echo number_format($actDays, 1); ?>天</td>
-                                    <td class="text-right <?php echo $isFull ? '' : 'text-warning font-weight-bold'; ?>"><?php echo number_format($r['absent_hours'], 1); ?>h</td>
+                                    <td class="text-right"><?php echo number_format($fullDays, 2); ?>天</td>
+                                    <td class="text-right <?php echo $isFull ? 'text-success' : ''; ?>"><?php echo number_format($actDays, 2); ?>天</td>
+                                    <td class="text-right <?php echo $isFull ? '' : 'text-warning font-weight-bold'; ?>"><?php echo number_format($r['absent_hours'], 2); ?>h</td>
                                     <td><small class="text-muted"><?php echo e($r['remark']); ?></small></td>
                                     <td>
                                         <?php if ($isFull): ?>

@@ -1,0 +1,56 @@
+{
+    "modules": [
+        {
+            "name": "网站定制",
+            "type": "tiered",
+            "enabled": true,
+            "config": {
+                "service_fee_rate": 0.06,
+                "ssl_cost_per": 0,
+                "tiers": [
+                    {
+                        "threshold": 35000,
+                        "rate": 0.15,
+                        "subsidy": 0
+                    },
+                    {
+                        "threshold": 30000,
+                        "rate": 0.14,
+                        "subsidy": 0
+                    },
+                    {
+                        "threshold": 25000,
+                        "rate": 0.13,
+                        "subsidy": 0
+                    },
+                    {
+                        "threshold": 20000,
+                        "rate": 0.12,
+                        "subsidy": 0
+                    },
+                    {
+                        "threshold": 15000,
+                        "rate": 0.09,
+                        "subsidy": 0
+                    },
+                    {
+                        "threshold": 10000,
+                        "rate": 0.07,
+                        "subsidy": 0
+                    },
+                    {
+                        "threshold": 0,
+                        "rate": 0.05,
+                        "subsidy": 0
+                    }
+                ],
+                "comment": "阶梯提成，利润=售价-6%服务费-域名成本(23元/个,域名使用=是)-SSL成本(从raw_data读取金额)",
+                "ssl_from_rawdata": true,
+                "cost_role": "frontend",
+                "domain_total_cost": 80
+            }
+        }
+    ],
+    "updated_at": "2026-07-10",
+    "description": "刘帅（定制前端）：底薪10460.14 + 阶梯提成(利润×分档比例)。利润=售价-6%服务费-域名23元/个-SSL成本。5月：售价28450-服务费1707-域名360-SSL195=利润26188×13%=3404.44"
+}

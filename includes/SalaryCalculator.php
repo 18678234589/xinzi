@@ -222,6 +222,7 @@ class SalaryCalculator
             case 'attendance_full':   return self::calcAttendanceFull($config, $ctx);
             case 'attendance_daily':  return self::calcAttendanceDaily($config, $ctx);
             case 'attendance_deduct': return self::calcAttendanceDeduct($config, $ctx);
+            case 'customer_reward':   return self::calcCustomerReward($config, $ctx, $moduleName);
             default: return null;
         }
     }
@@ -242,121 +243,133 @@ class SalaryCalculator
     // ---- 退款订单独立扣除 ----
     private static function calcRefundDeduction($c)
     {
-        $refundTotal = 0;
-        $refundCount = 0;
-        
         $debugLog = "=== calcRefundDeduction DEBUG START ===\n";
-        
-        // 查找所有退款订单
-        foreach (($c['orders'] ?? []) as $o) {
-            $orderAmt = (float)($o['order_amount'] ?? 0);
-            if ($orderAmt >= 0) continue; // 只处理负数金额
-            
-            $rawData = is_string($o['raw_data'] ?? '') ? json_decode($o['raw_data'], true) : ($o['raw_data'] ?? []);
-            $isRefund = isset($rawData['__is_refund__']) && $rawData['__is_refund__'] === '1';
-            
-            if ($isRefund) {
-                $refundTotal += $orderAmt; // 累加退款金额（负数）
-                $refundCount++;
-            }
-        }
-        
-        $debugLog .= "退款订单统计: 共{$refundCount}笔, 总金额{$refundTotal}\n";
-        
-        if ($refundCount === 0) {
-            return null; // 没有退款订单
-        }
-        
-        // 根据扣款后总额（包含退款）匹配阶梯提成比例
+
+        // 读取员工算法配置，建立 模块名→rate 映射（standard 类型）
         $configFile = self::getConfigFile($c['employee']['id']);
-        $rate = 0.05; // 默认比例
-        $subsidy = 0; // 每笔补贴
-        $foundTiered = false; // 标记是否找到阶梯模块
-        
+        $moduleRates = [];   // 模块名 => rate
+        $tieredModule = null; // 阶梯提成模块（回退用）
+        $subsidy = 0;
+
         $debugLog .= "员工ID: {$c['employee']['id']}\n";
-        $debugLog .= "订单总额(扣款后): {$c['order_total']}\n";
         $debugLog .= "配置文件: $configFile\n";
-        
+
         if (file_exists($configFile)) {
             $raw = json_decode(file_get_contents($configFile), true);
-            $debugLog .= "配置文件已加载, 模块数量: " . count($raw['modules'] ?? []) . "\n\n";
-            
             if ($raw && !empty($raw['modules'])) {
-                // 查找第一个启用的阶梯提成模块
-                foreach ($raw['modules'] as $idx => $mod) {
-                    $debugLog .= "检查模块[$idx]: 名称={$mod['name']}, 类型={$mod['type']}, 启用=" . (($mod['enabled'] ?? true) ? '是' : '否') . "\n";
-                    
+                $debugLog .= "配置文件已加载, 模块数量: " . count($raw['modules']) . "\n\n";
+                foreach ($raw['modules'] as $mod) {
                     if (!($mod['enabled'] ?? true)) continue;
-                    
-                    if ($mod['type'] === 'tiered' && !empty($mod['config']['tiers'])) {
-                        // 使用扣款后总额（包含退款）匹配阶梯
-                        $totalForTier = (float)$c['order_total'];
-                        
-                        // 按阶梯从高到低匹配
-                        $tiers = $mod['config']['tiers'];
-                        usort($tiers, function($a, $b) {
-                            return ((float)($b['threshold'] ?? 0)) - ((float)($a['threshold'] ?? 0));
-                        });
-                        
-                        $debugLog .= "  → 找到阶梯模块: {$mod['name']}\n";
-                        $debugLog .= "  → 匹配总额: $totalForTier\n";
-                        $debugLog .= "  → 阶梯配置: " . json_encode($tiers, JSON_UNESCAPED_UNICODE) . "\n";
-                        
-                        foreach ($tiers as $tier) {
-                            $threshold = (float)($tier['threshold'] ?? 0);
-                            $debugLog .= "  → 测试阶梯: threshold=$threshold, rate={$tier['rate']}, subsidy={$tier['subsidy']}\n";
-                            if ($totalForTier >= $threshold) {
-                                $rate = (float)($tier['rate'] ?? 0.05);
-                                $subsidy = (float)($tier['subsidy'] ?? 0);
-                                $foundTiered = true; // 标记已找到
-                                $debugLog .= "  ✓ 匹配成功! rate=$rate, subsidy=$subsidy\n";
-                                break;
-                            }
-                        }
-                        break; // 找到阶梯提成模块后停止
+                    if ($mod['type'] === 'standard' && isset($mod['config']['rate'])) {
+                        $moduleRates[$mod['name']] = (float)$mod['config']['rate'];
                     }
-                }
-                
-                // 如果没有阶梯提成，查找标准提成
-                if (!$foundTiered) {
-                    $debugLog .= "未找到阶梯模块，尝试标准提成模块\n";
-                    foreach ($raw['modules'] as $mod) {
-                        if (!($mod['enabled'] ?? true)) continue;
-                        if ($mod['type'] === 'standard' && isset($mod['config']['rate'])) {
-                            $rate = (float)$mod['config']['rate'];
-                            $debugLog .= "使用标准提成: rate=$rate\n";
-                            break;
-                        }
+                    if ($mod['type'] === 'tiered' && !empty($mod['config']['tiers']) && $tieredModule === null) {
+                        $tieredModule = $mod;
                     }
                 }
             }
         } else {
             $debugLog .= "配置文件不存在!\n";
         }
-        
-        // 计算扣除：比例扣除 - 补贴扣除（退款时补贴也要扣回）
-        $commissionDeduction = $refundTotal * $rate;
+
+        $debugLog .= "模块率映射: " . json_encode($moduleRates, JSON_UNESCAPED_UNICODE) . "\n";
+        $debugLog .= "是否有阶梯模块: " . ($tieredModule ? '是' : '否') . "\n\n";
+
+        // 按模块名分组收集退款订单，每组单独用对应模块的 rate 计算
+        $refundByModule = []; // module名 => ['total'=>金额, 'count'=>笔数]
+        $refundCount = 0;
+        $refundTotal = 0;
+
+        foreach (($c['orders'] ?? []) as $o) {
+            $orderAmt = (float)($o['order_amount'] ?? 0);
+            if ($orderAmt >= 0) continue; // 只处理负数金额
+
+            $rawData = is_string($o['raw_data'] ?? '') ? json_decode($o['raw_data'], true) : ($o['raw_data'] ?? []);
+            $isRefund = isset($rawData['__is_refund__']) && $rawData['__is_refund__'] === '1';
+
+            if ($isRefund) {
+                $proj = trim($o['project'] ?? '');
+                if ($proj === '') $proj = '(空)';
+                if (!isset($refundByModule[$proj])) {
+                    $refundByModule[$proj] = ['total' => 0, 'count' => 0];
+                }
+                $refundByModule[$proj]['total'] += $orderAmt;
+                $refundByModule[$proj]['count']++;
+                $refundTotal += $orderAmt;
+                $refundCount++;
+            }
+        }
+
+        $debugLog .= "退款订单统计: 共{$refundCount}笔, 总金额{$refundTotal}\n";
+        $debugLog .= "按模块分组: " . json_encode($refundByModule, JSON_UNESCAPED_UNICODE) . "\n\n";
+
+        if ($refundCount === 0) {
+            return null; // 没有退款订单
+        }
+
+        // 阶梯提成：用总额匹配阶梯得到统一 rate + subsidy（回退方案）
+        $tieredRate = null;
+        if ($tieredModule) {
+            $totalForTier = (float)$c['order_total'];
+            $tiers = $tieredModule['config']['tiers'];
+            usort($tiers, function($a, $b) {
+                return ((float)($b['threshold'] ?? 0)) - ((float)($a['threshold'] ?? 0));
+            });
+            foreach ($tiers as $tier) {
+                $threshold = (float)($tier['threshold'] ?? 0);
+                if ($totalForTier >= $threshold) {
+                    $tieredRate = (float)($tier['rate'] ?? 0.05);
+                    $subsidy = (float)($tier['subsidy'] ?? 0);
+                    break;
+                }
+            }
+            $debugLog .= "阶梯匹配: rate=$tieredRate, subsidy=$subsidy\n\n";
+        }
+
+        // 逐模块计算退款扣除，按 project 匹配对应模块的 rate
+        $totalDeduction = 0;
+        $formulaParts = [];
+
+        foreach ($refundByModule as $proj => $info) {
+            // 优先用模块名精确匹配的 rate
+            if (isset($moduleRates[$proj])) {
+                $rate = $moduleRates[$proj];
+            } elseif ($tieredRate !== null) {
+                $rate = $tieredRate;
+            } else {
+                // 回退：取第一个 standard 模块的 rate
+                $rate = count($moduleRates) > 0 ? reset($moduleRates) : 0.05;
+            }
+
+            $deduction = $info['total'] * $rate;
+            $totalDeduction += $deduction;
+            $debugLog .= "模块[{$proj}]: {$info['count']}笔, 金额={$info['total']}, rate={$rate}(" . ($rate*100) . "%), 扣除={$deduction}\n";
+            $formulaParts[] = sprintf('%s:%d笔¥%.2f×%.2f%%=%.2f', $proj, $info['count'], $info['total'], $rate*100, $deduction);
+        }
+
+        // 补贴扣除（退款时补贴也要扣回）
         $subsidyDeduction = $refundCount * $subsidy;
-        $totalDeduction = $commissionDeduction - $subsidyDeduction; // 补贴要减去
-        
-        $debugLog .= "\n最终匹配结果:\n";
-        $debugLog .= "  比例(rate): $rate (" . ($rate*100) . "%)\n";
-        $debugLog .= "  补贴(subsidy): $subsidy\n";
-        $debugLog .= "\n计算过程:\n";
-        $debugLog .= "  提成扣除 = $refundTotal × $rate = $commissionDeduction\n";
-        $debugLog .= "  补贴扣除 = $refundCount × $subsidy = $subsidyDeduction\n";
-        $debugLog .= "  总扣除 = $commissionDeduction - $subsidyDeduction = $totalDeduction\n";
+        $totalDeduction -= $subsidyDeduction;
+
+        $debugLog .= "\n补贴扣除 = {$refundCount}笔 × {$subsidy} = {$subsidyDeduction}\n";
+        $debugLog .= "总扣除 = {$totalDeduction}\n";
         $debugLog .= "=== calcRefundDeduction DEBUG END ===\n";
-        
-        // 将调试日志写入文件
+
         file_put_contents(__DIR__ . '/../debug_refund.txt', $debugLog);
         error_log($debugLog);
-        
-        $formula = sprintf('退款%d笔，¥%.2f×%.2f%%=%.2f', $refundCount, $refundTotal, $rate*100, $commissionDeduction);
+
+        // 公式展示：单模块简洁，多模块分项列出
+        if (count($formulaParts) === 1) {
+            $formula = sprintf('退款%d笔，¥%.2f×%.2f%%=%.2f', $refundCount, $refundTotal,
+                (isset($moduleRates[array_key_first($refundByModule)]) ? $moduleRates[array_key_first($refundByModule)] : ($tieredRate ?? 0.05)) * 100,
+                $totalDeduction + $subsidyDeduction);
+        } else {
+            $formula = '退款' . $refundCount . '笔：' . implode('；', $formulaParts);
+        }
         if ($subsidy > 0) {
             $formula .= sprintf(' - %d笔×¥%.2f=%.2f', $refundCount, $subsidy, $subsidyDeduction);
         }
-        
+
         return [
             'amount' => round($totalDeduction, 2), // 负数
             'formula' => $formula,
@@ -485,6 +498,15 @@ class SalaryCalculator
         $maxAmount = isset($cfg['max_amount']) && $cfg['max_amount'] !== '' && $cfg['max_amount'] !== null ? (float)$cfg['max_amount'] : null;
         $shopKeyword = isset($cfg['shop_keyword']) && $cfg['shop_keyword'] !== '' && $cfg['shop_keyword'] !== null ? $cfg['shop_keyword'] : null;
         
+        // 成本扣除参数（网站定制专用）
+        $serviceFeeRate = isset($cfg['service_fee_rate']) && $cfg['service_fee_rate'] !== '' && $cfg['service_fee_rate'] !== null ? (float)$cfg['service_fee_rate'] : 0;
+        $domainCostPer  = isset($cfg['domain_cost_per']) && $cfg['domain_cost_per'] !== '' && $cfg['domain_cost_per'] !== null ? (float)$cfg['domain_cost_per'] : 0;
+        $sslCostPer     = isset($cfg['ssl_cost_per']) && $cfg['ssl_cost_per'] !== '' && $cfg['ssl_cost_per'] !== null ? (float)$cfg['ssl_cost_per'] : 0;
+        // 成本分摊角色：frontend=前端（分摊50%，后端无则承担100%），backend=后端（分摊50%，后端无则0%）
+        $costRole       = isset($cfg['cost_role']) && $cfg['cost_role'] !== '' ? $cfg['cost_role'] : 'frontend';
+        // 域名总成本（前端40+后端40=80，后端无则前端承担80）
+        $domainTotalCost = isset($cfg['domain_total_cost']) && $cfg['domain_total_cost'] !== '' && $cfg['domain_total_cost'] !== null ? (float)$cfg['domain_total_cost'] : 80;
+        
         // 如果配置了金额范围或店铺关键字，则忽略模块名筛选
         $useFilter = ($minAmount !== null || $maxAmount !== null || $shopKeyword !== null);
         $filterByName = $useFilter ? '' : $moduleName;
@@ -528,7 +550,111 @@ class SalaryCalculator
                 break; 
             }
         }
-        $commissionAmt = $total * $rate;
+        
+        // 成本扣除：服务费、域名、SSL
+        $serviceFee = $total * $serviceFeeRate;
+        
+        // 统计有域名和SSL的订单数（从raw_data中读取）
+        $domainCount = 0;
+        $sslCount = 0;
+        $domainCostTotal = 0;
+        $sslCostTotal = 0;
+        
+        if ($domainCostPer > 0 || $sslCostPer > 0 || (isset($cfg['ssl_from_rawdata']) && $cfg['ssl_from_rawdata']) || $domainTotalCost > 0) {
+            foreach (($c['orders'] ?? []) as $o) {
+                // 模块名过滤
+                if ($filterByName !== '' && trim($o['project'] ?? '') !== $filterByName) continue;
+                
+                $rawData = is_string($o['raw_data'] ?? '') ? json_decode($o['raw_data'], true) : ($o['raw_data'] ?? []);
+                $isRefund = isset($rawData['__is_refund__']) && $rawData['__is_refund__'] === '1';
+                if ($isRefund) continue;
+                
+                // 金额范围过滤
+                $orderAmt = (float)($o['order_amount'] ?? 0);
+                if ($minAmount !== null && $orderAmt < $minAmount) continue;
+                if ($maxAmount !== null && $orderAmt > $maxAmount) continue;
+                
+                // 读取后端字段值
+                $backendVal = '';
+                foreach ($rawData as $k => $v) {
+                    if (mb_strpos($k, '后端') !== false) {
+                        $backendVal = trim(strval($v));
+                        break;
+                    }
+                }
+                $backendIsNone = ($backendVal === '无' || $backendVal === '' || $backendVal === 'none');
+                
+                // 检查域名使用
+                if ($domainTotalCost > 0) {
+                    $domainUsed = false;
+                    foreach ($rawData as $k => $v) {
+                        if (mb_strpos($k, '域名') !== false) {
+                            $val = trim(strval($v));
+                            if ($val === '是' || $val === '1' || $val === 'true') {
+                                $domainUsed = true;
+                                break;
+                            }
+                        }
+                    }
+                    if ($domainUsed) {
+                        $domainCount++;
+                        if ($costRole === 'frontend') {
+                            // 前端：后端有则分摊50%，后端无则承担100%
+                            $domainCostTotal += $backendIsNone ? $domainTotalCost : ($domainTotalCost / 2);
+                        } elseif ($costRole === 'backend') {
+                            // 后端：后端有则分摊50%，后端无则0%
+                            $domainCostTotal += $backendIsNone ? 0 : ($domainTotalCost / 2);
+                        }
+                    }
+                }
+                
+                // 检查SSL证书使用
+                if ($sslCostPer > 0 || (isset($cfg['ssl_from_rawdata']) && $cfg['ssl_from_rawdata'])) {
+                    $sslUsed = false;
+                    $sslAmount = 0;
+                    foreach ($rawData as $k => $v) {
+                        if (mb_strpos($k, 'SSL') !== false || mb_strpos($k, 'ssl') !== false) {
+                            $val = trim(strval($v));
+                            if (is_numeric($val) && floatval($val) > 0) {
+                                $sslAmount = floatval($val);
+                                $sslUsed = true;
+                                break;
+                            }
+                        }
+                    }
+                    if ($sslUsed && $sslAmount > 0) {
+                        if ($costRole === 'frontend') {
+                            // 前端：后端有则平分，后端无则全部
+                            $sslCostTotal += $backendIsNone ? $sslAmount : ($sslAmount / 2);
+                        } elseif ($costRole === 'backend') {
+                            // 后端：后端有则平分，后端无则0
+                            $sslCostTotal += $backendIsNone ? 0 : ($sslAmount / 2);
+                        }
+                    } elseif (!$sslUsed) {
+                        // 没有找到SSL金额，按固定单价计算
+                        foreach ($rawData as $k => $v) {
+                            if (mb_strpos($k, 'SSL') !== false || mb_strpos($k, 'ssl') !== false) {
+                                $val = trim(strval($v));
+                                if ($val === '是' || $val === '1' || $val === 'true') {
+                                    if ($costRole === 'frontend') {
+                                        $sslCostTotal += $backendIsNone ? $sslCostPer : ($sslCostPer / 2);
+                                    } elseif ($costRole === 'backend') {
+                                        $sslCostTotal += $backendIsNone ? 0 : ($sslCostPer / 2);
+                                    }
+                                    $sslCount++;
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        // 利润 = 售价总额 - 服务费 - 域名成本 - SSL成本
+        $profit = $total - $serviceFee - $domainCostTotal - $sslCostTotal;
+        
+        $commissionAmt = $profit * $rate;
         $subsidyAmt = $count * $subsidy;
         $amt = $commissionAmt + $subsidyAmt;
         $label = $moduleName ? "{$moduleName}({$count}笔)" : "({$count}笔)";
@@ -548,8 +674,27 @@ class SalaryCalculator
         }
         
         $formulaParts = [];
+        // 显示成本扣除明细
+        $costLabel = '';
+        $costDetailParts = [];
+        if ($serviceFeeRate > 0) {
+            $costLabel .= sprintf('服务费%.0f%%', $serviceFeeRate * 100);
+            $costDetailParts[] = sprintf('%.2f', $serviceFee);
+        }
+        if ($domainCostTotal > 0) {
+            $costLabel .= ($costLabel ? '+' : '') . sprintf('域名%d个×%s=%.2f', $domainCount, $costRole === 'frontend' ? '前端分摊' : '后端分摊', $domainCostTotal);
+            $costDetailParts[] = sprintf('%.2f', $domainCostTotal);
+        }
+        if ($sslCostTotal > 0) {
+            $costLabel .= ($costLabel ? '+' : '') . sprintf('SSL¥%.2f', $sslCostTotal);
+            $costDetailParts[] = sprintf('%.2f', $sslCostTotal);
+        }
         if ($commissionAmt > 0) {
-            $formulaParts[] = sprintf('%s%.2f×%.2f%%=%.2f', $rangeLabel, $total, $rate*100, $commissionAmt);
+            if (count($costDetailParts) > 0) {
+                $formulaParts[] = sprintf('%.2f-%s=%.2f×%.2f%%=%.2f', $total, implode('-', $costDetailParts), $profit, $rate*100, $commissionAmt);
+            } else {
+                $formulaParts[] = sprintf('%.2f×%.2f%%=%.2f', $total, $rate*100, $commissionAmt);
+            }
         }
         if ($subsidyAmt > 0) {
             $formulaParts[] = sprintf('%d单×¥%g=%.2f', $count, $subsidy, $subsidyAmt);
@@ -568,13 +713,52 @@ class SalaryCalculator
     // ---- 每笔固定 ----
     private static function calcPerOrder($cfg, $c, $moduleName = '')
     {
+        // 按指定列计数（如"域名"列去重计数）
+        $countColumn = isset($cfg['count_column']) && trim($cfg['count_column']) !== '' ? trim($cfg['count_column']) : '';
+        if ($countColumn !== '') {
+            $distinct = ($cfg['count_distinct'] ?? '是') !== '否';
+            $seen = [];       // 按 order_no 去重（避免多模块上传导致重复行）
+            $values = [];
+            foreach (($c['orders'] ?? []) as $o) {
+                $ono = trim($o['order_no'] ?? '');
+                if ($ono !== '' && isset($seen[$ono])) continue;
+                if ($ono !== '') $seen[$ono] = true;
+                $rd = is_string($o['raw_data'] ?? '') ? json_decode($o['raw_data'], true) : ($o['raw_data'] ?? []);
+                if (!is_array($rd)) $rd = [];
+                // 排除退款订单（金额<0或标记为退款），退款不计算单量补贴
+                // 注意：纯数量表金额=0是正常的，不应排除
+                $isRefund = isset($rd['__is_refund__']) && $rd['__is_refund__'] === '1';
+                if ($isRefund || (float)($o['order_amount'] ?? 0) < 0) continue;
+                // 模糊匹配列名：优先精确匹配，找不到则用包含匹配
+                $val = '';
+                if (isset($rd[$countColumn])) {
+                    $val = trim($rd[$countColumn]);
+                } else {
+                    foreach ($rd as $k => $v) {
+                        if (mb_strpos($k, $countColumn) !== false) { $val = trim($v); break; }
+                    }
+                }
+                if ($val !== '') $values[] = $val;
+            }
+            $cnt = $distinct ? count(array_unique($values)) : count($values);
+            $amt1 = $cnt * (float)($cfg['per_amount'] ?? 50);
+            $amt2 = $cnt * (float)($cfg['per_reward'] ?? 0);
+            $colLabel = $distinct ? "{$countColumn}去重" : "{$countColumn}非空";
+            return [
+                'amount' => round($amt1 + $amt2, 2),
+                'formula' => sprintf('%s%d个×¥%g+¥%g=%.2f', $colLabel, $cnt, $cfg['per_amount']??50, $cfg['per_reward']??0, $amt1+$amt2),
+                'type' => 'per_order',
+            ];
+        }
+
+        // 原有逻辑：按 project 名/金额范围/店铺关键字筛选计数
         $minAmount = isset($cfg['min_amount']) && $cfg['min_amount'] !== '' && $cfg['min_amount'] !== null ? (float)$cfg['min_amount'] : null;
         $maxAmount = isset($cfg['max_amount']) && $cfg['max_amount'] !== '' && $cfg['max_amount'] !== null ? (float)$cfg['max_amount'] : null;
         $shopKeyword = isset($cfg['shop_keyword']) && $cfg['shop_keyword'] !== '' && $cfg['shop_keyword'] !== null ? $cfg['shop_keyword'] : null;
-        
+
         $useFilter = ($minAmount !== null || $maxAmount !== null || $shopKeyword !== null);
         $filterByName = $useFilter ? '' : $moduleName;
-        
+
         $cnt  = self::filterOrderCount($c, $filterByName, $minAmount, $maxAmount, $shopKeyword);
         $amt1 = $cnt * (float)($cfg['per_amount'] ?? 50);
         $amt2 = $cnt * (float)($cfg['per_reward'] ?? 0);
@@ -588,6 +772,184 @@ class SalaryCalculator
     // ---- 引流订单 ----
     private static function calcReferralOrder($cfg, $c, $moduleName = '')
     {
+        // count_mode: 'keyword'(默认，按列+关键词计数) / 'staff_match'(接单客服匹配员工姓名+旺旺日期去重)
+        $countMode = $cfg['count_mode'] ?? 'keyword';
+
+        if ($countMode === 'staff_match') {
+            // 接单客服出现员工姓名 → 该表订单归属此员工 → 计算单量（旺旺+日期去重）
+            // 可选：配置 count_column + count_keyword 时，先按该列关键词筛选，再去重计数
+            $employeeName = trim($c['employee']['name'] ?? '');
+            $subsidy = (float)($cfg['subsidy'] ?? 0);
+
+            // 拍建站列关键词筛选（可选）
+            $filterColumn = isset($cfg['count_column']) && trim($cfg['count_column']) !== '' ? trim($cfg['count_column']) : '';
+            $filterKeywords = $filterColumn !== '' ? array_filter(array_map('trim', explode('+', $cfg['count_keyword'] ?? ''))) : [];
+            $filterMatch = $cfg['count_keyword_match'] ?? 'all'; // all=AND / any=OR
+
+            // 辅助：模糊匹配列名取值
+            $getCol = function($rd, $colName) {
+                if (isset($rd[$colName])) return trim($rd[$colName]);
+                foreach ($rd as $k => $v) {
+                    if (mb_strpos($k, $colName) !== false) return trim($v);
+                }
+                return '';
+            };
+
+            // 第一步：扫描所有订单，判断接单客服列是否出现过员工姓名
+            $ownsTable = false;
+            foreach (($c['orders'] ?? []) as $o) {
+                $rd = is_string($o['raw_data'] ?? '') ? json_decode($o['raw_data'], true) : ($o['raw_data'] ?? []);
+                if (!is_array($rd)) $rd = [];
+                $kefu = $getCol($rd, '接单客服');
+                if ($kefu === '') continue;
+                $names = array_map('trim', explode(',', $kefu));
+                if (in_array($employeeName, $names, true)) { $ownsTable = true; break; }
+            }
+
+            if (!$ownsTable) {
+                return [
+                    'amount' => 0,
+                    'formula' => sprintf('0.00（接单客服无匹配%s的订单）', $employeeName),
+                    'type' => 'referral_order',
+                ];
+            }
+
+            // 第二步：接单客服匹配到员工姓名，该表订单归属此员工，计算单量
+            // - 配置了 count_column（如"拍建站链接"按单补助）：按 order_no 去重，每条匹配订单算1单
+            //   （不要求付费旺旺/日期非空，这类数量表常不填旺旺日期，否则会少算）
+            // - 未配置 count_column（如"单量补贴"，统计独立客户单量）：按 付费旺旺+日期 去重
+            $cnt = 0;
+            $seen = []; // key 视去重方式而定
+            $dedupByOrderNo = ($filterColumn !== '');
+            foreach (($c['orders'] ?? []) as $o) {
+                $rd = is_string($o['raw_data'] ?? '') ? json_decode($o['raw_data'], true) : ($o['raw_data'] ?? []);
+                if (!is_array($rd)) $rd = [];
+                // 排除退款订单
+                $isRefund = isset($rd['__is_refund__']) && $rd['__is_refund__'] === '1';
+                if ($isRefund || (float)($o['order_amount'] ?? 0) < 0) continue;
+                // 按 order_no 去重（避免多模块上传导致重复行）
+                if ($dedupByOrderNo) {
+                    $ono = trim($o['order_no'] ?? '');
+                    if ($ono !== '' && isset($seen[$ono])) continue;
+                }
+                // 可选：按拍建站列关键词筛选
+                if ($filterColumn !== '') {
+                    $val = $getCol($rd, $filterColumn);
+                    if ($val === '') continue;
+                    if (!empty($filterKeywords)) {
+                        if ($filterMatch === 'any') {
+                            $match = false;
+                            foreach ($filterKeywords as $kw) {
+                                if (mb_strpos($val, $kw) !== false) { $match = true; break; }
+                            }
+                        } else {
+                            $match = true;
+                            foreach ($filterKeywords as $kw) {
+                                if (mb_strpos($val, $kw) === false) { $match = false; break; }
+                            }
+                        }
+                        if (!$match) continue;
+                    }
+                }
+                if ($dedupByOrderNo) {
+                    // 按单补助：每条匹配订单算1单，按 order_no 去重
+                    $ono = trim($o['order_no'] ?? '');
+                    if ($ono !== '') $seen[$ono] = true;
+                    $cnt++;
+                } else {
+                    // 单量补贴：读取"付费旺旺"和"日期"列，同旺旺同日期只算1单
+                    $wangwang = $getCol($rd, '付费旺旺');
+                    $dateVal  = $getCol($rd, '日期');
+                    // 旺旺或日期为空的不计入单量
+                    if ($wangwang === '' || $dateVal === '') continue;
+                    $key = $wangwang . '|' . $dateVal;
+                    if (isset($seen[$key])) continue;
+                    $seen[$key] = true;
+                    $cnt++;
+                }
+            }
+            $subsidyAmt = $cnt * $subsidy;
+            // 公式描述
+            if ($filterColumn !== '' && !empty($filterKeywords)) {
+                $kwLabel = ($filterMatch === 'any' ? "含任一'" : "含全部'") . implode('+', $filterKeywords) . "'";
+                $formula = sprintf('接单客服匹配%s %s%s %d单×¥%g(每单补助)=%.2f', $employeeName, $filterColumn, $kwLabel, $cnt, $subsidy, $subsidyAmt);
+            } else {
+                $formula = sprintf('接单客服匹配%s %d单×¥%g(每单补助)=%.2f', $employeeName, $cnt, $subsidy, $subsidyAmt);
+            }
+            if ($cnt === 0) {
+                $formula = $filterColumn !== ''
+                    ? sprintf('0.00（接单客服匹配%s但%s列无命中订单）', $employeeName, $filterColumn)
+                    : sprintf('0.00（接单客服匹配%s但无有效订单）', $employeeName);
+            }
+            return [
+                'amount' => round($subsidyAmt, 2),
+                'formula' => $formula,
+                'type' => 'referral_order',
+            ];
+        }
+
+        // 按指定列+关键词计数（如"建站订单"列值同时包含"拍"+"链接"）
+        $countColumn = isset($cfg['count_column']) && trim($cfg['count_column']) !== '' ? trim($cfg['count_column']) : '';
+        if ($countColumn !== '') {
+            $keywords = array_filter(array_map('trim', explode('+', $cfg['count_keyword'] ?? '')));
+            $kwMatch  = $cfg['count_keyword_match'] ?? 'all'; // all=同时包含(AND) / any=任一包含(OR)
+            $seen = [];   // 按 order_no 去重
+            $cnt = 0;
+            foreach (($c['orders'] ?? []) as $o) {
+                $ono = trim($o['order_no'] ?? '');
+                if ($ono !== '' && isset($seen[$ono])) continue;
+                if ($ono !== '') $seen[$ono] = true;
+                $rd = is_string($o['raw_data'] ?? '') ? json_decode($o['raw_data'], true) : ($o['raw_data'] ?? []);
+                if (!is_array($rd)) $rd = [];
+                // 排除退款订单（金额<0或标记为退款），退款不计算拍链接补贴
+                // 注意：纯数量表金额=0是正常的，不应排除
+                $isRefund = isset($rd['__is_refund__']) && $rd['__is_refund__'] === '1';
+                if ($isRefund || (float)($o['order_amount'] ?? 0) < 0) continue;
+                // 模糊匹配列名：优先精确匹配，找不到则用包含匹配
+                $val = '';
+                if (isset($rd[$countColumn])) {
+                    $val = trim($rd[$countColumn]);
+                } else {
+                    foreach ($rd as $k => $v) {
+                        if (mb_strpos($k, $countColumn) !== false) { $val = trim($v); break; }
+                    }
+                }
+                if ($val === '') continue;
+                // 关键词匹配：all=同时包含所有，any=包含任一即可
+                if (empty($keywords)) {
+                    $match = true; // 无关键词则只需列值非空
+                } elseif ($kwMatch === 'any') {
+                    $match = false;
+                    foreach ($keywords as $kw) {
+                        if (mb_strpos($val, $kw) !== false) { $match = true; break; }
+                    }
+                } else {
+                    $match = true;
+                    foreach ($keywords as $kw) {
+                        if (mb_strpos($val, $kw) === false) { $match = false; break; }
+                    }
+                }
+                if ($match) $cnt++;
+            }
+            $subsidy = (float)($cfg['subsidy'] ?? 0);
+            $subsidyAmt = $cnt * $subsidy;
+            if (!empty($keywords)) {
+                $kwLabel = ($kwMatch === 'any' ? "含任一'" : "含全部'") . implode('+', $keywords) . "'";
+            } else {
+                $kwLabel = '非空';
+            }
+            $formula = sprintf('%s%s%d单×¥%g(每单补助)=%.2f', $countColumn, $kwLabel, $cnt, $subsidy, $subsidyAmt);
+            if ($cnt === 0) {
+                $formula = sprintf('0.00（%s列无匹配%s的订单）', $countColumn, $kwLabel);
+            }
+            return [
+                'amount' => round($subsidyAmt, 2),
+                'formula' => $formula,
+                'type' => 'referral_order',
+            ];
+        }
+
+        // 原有逻辑：按 project 名筛选订单（不再支持金额范围/店铺关键字过滤）
         $total = self::filterOrderTotal($c, $moduleName);
         $count = self::filterOrderCount($c, $moduleName);
 
@@ -809,12 +1171,156 @@ class SalaryCalculator
         ];
     }
 
+    // ---- 新老客户订单奖励 ----
+    private static function calcCustomerReward($cfg, $c, $moduleName = '')
+    {
+        $newReward = (float)($cfg['new_customer_reward'] ?? 50);
+        $oldReward = (float)($cfg['old_customer_reward'] ?? 30);
+        
+        $month = $c['month'] ?? date('Y-m');
+        $employeeId = $c['employee']['id'] ?? 0;
+        
+        $personalWangwangs = [];
+        $shopWangwangs = [];
+        
+        foreach (($c['orders'] ?? []) as $o) {
+            $wangwang = self::extractWangwang($o);
+            if ($wangwang === '') continue;
+            
+            $rawData = is_string($o['raw_data'] ?? '') ? json_decode($o['raw_data'], true) : ($o['raw_data'] ?? []);
+            $isRefund = isset($rawData['__is_refund__']) && $rawData['__is_refund__'] === '1';
+            if ($isRefund) continue;
+            
+            if ($o['employee_id'] == $employeeId) {
+                $personalWangwangs[$wangwang] = true;
+            }
+            
+            if ($o['order_scope'] === 'department') {
+                $shopWangwangs[$wangwang] = true;
+            }
+        }
+        
+        $shopWangwangsFromDb = self::getShopTotalWangwangs($month);
+        foreach ($shopWangwangsFromDb as $ww) {
+            $shopWangwangs[$ww] = true;
+        }
+        
+        $newCustomers = [];
+        $oldCustomers = [];
+        
+        foreach (array_keys($personalWangwangs) as $ww) {
+            if (isset($shopWangwangs[$ww])) {
+                $oldCustomers[] = $ww;
+            } else {
+                $newCustomers[] = $ww;
+            }
+        }
+        
+        $newCount = count($newCustomers);
+        $oldCount = count($oldCustomers);
+        
+        $newAmount = $newCount * $newReward;
+        $oldAmount = $oldCount * $oldReward;
+        $totalAmount = $newAmount + $oldAmount;
+        
+        $formulaParts = [];
+        if ($newCount > 0) {
+            $formulaParts[] = sprintf('新客户%d人×¥%.2f=%.2f', $newCount, $newReward, $newAmount);
+        }
+        if ($oldCount > 0) {
+            $formulaParts[] = sprintf('老客户%d人×¥%.2f=%.2f', $oldCount, $oldReward, $oldAmount);
+        }
+        $formula = implode(' + ', $formulaParts);
+        if (count($formulaParts) === 0) {
+            $formula = '0.00';
+        }
+        
+        return [
+            'amount' => round($totalAmount, 2),
+            'formula' => $formula,
+            'type' => 'customer_reward',
+        ];
+    }
+    
+    private static function extractWangwang($order)
+    {
+        if (!empty($order['wangwang'])) {
+            return trim($order['wangwang']);
+        }
+        
+        $rawData = is_string($order['raw_data'] ?? '') ? json_decode($order['raw_data'], true) : ($order['raw_data'] ?? []);
+        if (is_array($rawData)) {
+            foreach ($rawData as $key => $value) {
+                $lowerKey = strtolower(trim($key));
+                if (strpos($lowerKey, '旺旺') !== false || 
+                    strpos($lowerKey, 'wangwang') !== false ||
+                    strpos($lowerKey, '买家') !== false ||
+                    strpos($lowerKey, '用户') !== false) {
+                    $ww = trim((string)$value);
+                    if ($ww !== '') {
+                        return $ww;
+                    }
+                }
+            }
+        }
+        
+        return '';
+    }
+    
+    private static function getShopTotalWangwangs($month)
+    {
+        $wangwangs = [];
+        try {
+            $stmt = db()->prepare("SELECT DISTINCT wangwang FROM orders WHERE order_scope = 'department' AND DATE_FORMAT(order_date, '%Y-%m') = ? AND wangwang IS NOT NULL AND wangwang != ''");
+            $stmt->execute([$month]);
+            while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
+                $ww = trim($row['wangwang']);
+                if ($ww !== '') {
+                    $wangwangs[] = $ww;
+                }
+            }
+            
+            $stmt2 = db()->prepare("SELECT raw_data FROM orders WHERE order_scope = 'department' AND DATE_FORMAT(order_date, '%Y-%m') = ? AND raw_data IS NOT NULL");
+            $stmt2->execute([$month]);
+            while ($row = $stmt2->fetch(PDO::FETCH_ASSOC)) {
+                $rawData = json_decode($row['raw_data'], true);
+                if (is_array($rawData)) {
+                    $ww = self::extractWangwangFromRaw($rawData);
+                    if ($ww !== '' && !in_array($ww, $wangwangs)) {
+                        $wangwangs[] = $ww;
+                    }
+                }
+            }
+        } catch (\Throwable $e) {
+            error_log("getShopTotalWangwangs error: " . $e->getMessage());
+        }
+        
+        return $wangwangs;
+    }
+    
+    private static function extractWangwangFromRaw($rawData)
+    {
+        foreach ($rawData as $key => $value) {
+            $lowerKey = strtolower(trim($key));
+            if (strpos($lowerKey, '旺旺') !== false || 
+                strpos($lowerKey, 'wangwang') !== false ||
+                strpos($lowerKey, '买家') !== false ||
+                strpos($lowerKey, '用户') !== false) {
+                $ww = trim((string)$value);
+                if ($ww !== '') {
+                    return $ww;
+                }
+            }
+        }
+        return '';
+    }
+
     // ==================== 配置 CRUD ====================
 
     /**
      * 保存多模块配置（JSON格式）
      */
-    public static function saveModulesConfig($employeeId, $modules)
+    public static function saveModulesConfig($employeeId, $modules, $deptShare = 1)
     {
         $dir = self::dir();
         self::$lastError = '';
@@ -827,7 +1333,46 @@ class SalaryCalculator
             error_log("SalaryCalculator: algorithms directory not writable: " . $dir);
             return false;
         }
-        $data = ['modules' => $modules, 'updated_at' => date('Y-m-d H:i:s')];
+
+        // 对比新旧配置，模块名变更时自动同步订单 project
+        $oldConfig = self::readModulesConfig($employeeId);
+        if ($oldConfig && !empty($oldConfig['modules'])) {
+            $oldNames = [];
+            foreach ($oldConfig['modules'] as $m) {
+                $oldNames[$m['name']] = $m;
+            }
+            foreach ($modules as $newMod) {
+                $newName = $newMod['name'] ?? '';
+                if ($newName === '') continue;
+                // 新模块名不在旧配置里，检查是否有旧模块名出现在订单 project 中但新名没有
+                // 这种情况下无法自动判断对应关系，跳过
+            }
+            // 按模块位置顺序匹配旧→新（假设用户不会增删模块只改名）
+            $oldMods = $oldConfig['modules'];
+            $renameMap = []; // 旧名 => 新名
+            $count = min(count($oldMods), count($modules));
+            for ($i = 0; $i < $count; $i++) {
+                $oldName = $oldMods[$i]['name'] ?? '';
+                $newName = $modules[$i]['name'] ?? '';
+                if ($oldName !== '' && $newName !== '' && $oldName !== $newName) {
+                    $renameMap[$oldName] = $newName;
+                }
+            }
+            // 同步数据库订单 project
+            if (!empty($renameMap)) {
+                try {
+                    foreach ($renameMap as $oldName => $newName) {
+                        $stmt = db()->prepare("UPDATE orders SET project = ? WHERE employee_id = ? AND project = ?");
+                        $stmt->execute([$newName, $employeeId, $oldName]);
+                    }
+                    error_log("SalaryCalculator: synced project names for employee $employeeId: " . json_encode($renameMap, JSON_UNESCAPED_UNICODE));
+                } catch (Exception $e) {
+                    error_log("SalaryCalculator: failed to sync project names: " . $e->getMessage());
+                }
+            }
+        }
+
+        $data = ['modules' => $modules, 'dept_share' => $deptShare, 'updated_at' => date('Y-m-d H:i:s')];
         $json = json_encode($data, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
         if ($json === false) {
             self::$lastError = "配置编码失败（数据格式异常）";
@@ -858,6 +1403,24 @@ class SalaryCalculator
         }
         // 尽量放宽权限，便于后续覆盖写入
         @chmod($file, 0664);
+
+        if ($deptShare) {
+            // 参与部门订单提成：部门汇总行已在 orders 表中，结算时通过 __dept_modules__ 虚拟拆分，
+            // 新员工配置后自动生效，无需物理同步拆分行
+        } else {
+            // 不参与部门订单提成：清理旧的物理拆分行（历史数据，新数据不再产生拆分行）
+            try {
+                $del = db()->prepare("UPDATE orders SET is_deleted=1 WHERE employee_id = ? AND raw_data LIKE '%__from_dept__%'");
+                $del->execute([$employeeId]);
+                $deleted = $del->rowCount();
+                if ($deleted > 0) {
+                    error_log("SalaryCalculator: removed {$deleted} legacy dept split orders for employee {$employeeId} (dept_share=0)");
+                }
+            } catch (Exception $e) {
+                error_log("SalaryCalculator: failed to remove dept orders: " . $e->getMessage());
+            }
+        }
+
         return true;
     }
 
@@ -929,6 +1492,8 @@ class SalaryCalculator
                     ['key'=>'_name','label'=>'模块名称（必填）','type'=>'text','placeholder'=>'如：续费单奖、新单奖励','default'=>''],
                     ['key'=>'per_amount','label'=>'每笔提成','type'=>'number','step'=>'0.01','min'=>'0','placeholder'=>'如 80 元','default'=>'80'],
                     ['key'=>'per_reward','label'=>'每笔额外奖励','type'=>'number','step'=>'0.01','min'=>'0','placeholder'=>'可选，如 20','default'=>'0'],
+                    ['key'=>'count_column','label'=>'计数列名','type'=>'text','placeholder'=>'填列名如"域名"，按该列去重计数；留空则按订单笔数','default'=>''],
+                    ['key'=>'count_distinct','label'=>'是否去重','type'=>'select','options'=>['是'=>'是（按列值去重计数）','否'=>'否（按列值非空计数）'],'default'=>'是'],
                 ],
             ],
             'attendance_full' => [
@@ -998,10 +1563,25 @@ class SalaryCalculator
                 'label' => '引流订单',
                 'icon' => 'fa-bullhorn',
                 'color' => 'purple',
-                'desc' => '设置每单补助金额，工资 = 订单金额×订单数量 + 每单补助×数量',
+                'desc' => '设置每单补助金额，按指定列内容筛选符合条件的订单数量',
                 'fields' => [
                     ['key'=>'_name','label'=>'模块名称（必填）','type'=>'text','placeholder'=>'如：引流、小红书引流','default'=>''],
                     ['key'=>'subsidy','label'=>'每个订单补助金额','type'=>'number','step'=>'0.01','min'=>'0','placeholder'=>'如 5 元/单','default'=>'5'],
+                    ['key'=>'count_column','label'=>'计数列名','type'=>'text','placeholder'=>'填列名如"建站订单"，按该列内容筛选计数','default'=>''],
+                    ['key'=>'count_keyword','label'=>'关键词（+分隔）','type'=>'text','placeholder'=>'如"拍+链接"，按下方匹配方式筛选该列值','default'=>''],
+                    ['key'=>'count_keyword_match','label'=>'关键词匹配方式','type'=>'select','options'=>['all'=>'同时包含所有词(且)','any'=>'包含任一词(或)'],'default'=>'all'],
+                    ['key'=>'count_mode','label'=>'计数模式','type'=>'select','options'=>['keyword'=>'关键词匹配(按列+关键词计数)','staff_match'=>'接单客服匹配(按员工姓名匹配+旺旺日期去重)'],'default'=>'keyword'],
+                ],
+            ],
+            'customer_reward' => [
+                'label' => '新老客户订单奖励',
+                'icon' => 'fa-users',
+                'color' => 'purple',
+                'desc' => '上传的个人订单与店铺总订单比对，按客户旺旺号计算新老客户奖励',
+                'fields' => [
+                    ['key'=>'_name','label'=>'模块名称（必填）','type'=>'text','placeholder'=>'如：新老客户奖励','default'=>''],
+                    ['key'=>'new_customer_reward','label'=>'新客户奖励金额','type'=>'number','step'=>'0.01','min'=>'0','placeholder'=>'每个新客户奖励金额','default'=>'50'],
+                    ['key'=>'old_customer_reward','label'=>'老客户奖励金额','type'=>'number','step'=>'0.01','min'=>'0','placeholder'=>'每个老客户奖励金额','default'=>'30'],
                 ],
             ],
         ];

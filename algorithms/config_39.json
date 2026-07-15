@@ -1,0 +1,42 @@
+{
+    "modules": [
+        {
+            "name": "网站定制",
+            "type": "standard",
+            "enabled": true,
+            "config": {
+                "rate": 0.0922,
+                "comment": "后端提成=(售价-6%服务费-域名-SSL)×10%。售价×94%×10%≈9.4%，含域名SSL扣除后约9.22%",
+                "cost_role": "backend",
+                "domain_total_cost": 80,
+                "ssl_from_rawdata": true
+            }
+        },
+        {
+            "name": "博山定制",
+            "type": "standard",
+            "enabled": true,
+            "config": {
+                "rate": 0.0922,
+                "comment": "博山定制后端，同算法",
+                "cost_role": "backend",
+                "domain_total_cost": 80,
+                "ssl_from_rawdata": true
+            }
+        },
+        {
+            "name": "网站技术服务",
+            "type": "standard",
+            "enabled": true,
+            "config": {
+                "rate": 0.0922,
+                "comment": "网站技术服务后端提成",
+                "cost_role": "backend",
+                "domain_total_cost": 80,
+                "ssl_from_rawdata": true
+            }
+        }
+    ],
+    "updated_at": "2026-07-10",
+    "description": "于海波（定制后端）：底薪10460.14 + (售价-6%服务费-域名-SSL)×10%。5月：售价24550，服务费1473，域名280，SSL195，利润22602，提成2260.2"
+}

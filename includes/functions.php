@@ -8,7 +8,11 @@
  */
 function e($str)
 {
-    return htmlspecialchars($str, ENT_QUOTES, 'UTF-8');
+    if (is_array($str)) {
+        // 数组值（如 __dept_modules__）序列化为可读字符串
+        return htmlspecialchars(json_encode($str, JSON_UNESCAPED_UNICODE), ENT_QUOTES, 'UTF-8');
+    }
+    return htmlspecialchars((string)$str, ENT_QUOTES, 'UTF-8');
 }
 
 /**
@@ -34,8 +38,9 @@ function extract_order_no($rawMap)
     }
     // 模糊匹配：含"订单号"/"单号"/"order"/"编号"/"流水"的列
     foreach ($rawMap as $k => $v) {
-        if (is_string($k) && is_string($v) && trim($v) !== '') {
-            if (strpos($k, '__') === 0) continue; // 跳过内部标记字段
+        if (strpos($k, '__') === 0) continue; // 跳过内部标记字段（含 __dept_modules__ 等数组值）
+        if (!is_string($v)) continue;         // 跳过非字符串值（如 __dept_modules__ 数组）
+        if (trim($v) !== '') {
             if (mb_strpos($k, '订单号') !== false || mb_strpos($k, '单号') !== false
                 || mb_strpos($k, '流水') !== false || mb_strpos($k, '单据') !== false
                 || mb_strpos($k, '编号') !== false
@@ -129,6 +134,22 @@ function ensureAttendanceTable()
             `added_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT '考勤卡片自定义年份'");
     }
+    // 考勤待匹配表：上传考勤时员工尚未添加的行暂存于此，员工添加后自动补录
+    try {
+        db()->query("SELECT 1 FROM `attendance_pending` LIMIT 1");
+    } catch (\Throwable $e) {
+        db()->exec("CREATE TABLE IF NOT EXISTS `attendance_pending` (
+            `id` INT AUTO_INCREMENT PRIMARY KEY,
+            `employee_name` VARCHAR(100) NOT NULL COMMENT '考勤表中的姓名',
+            `year` SMALLINT NOT NULL,
+            `month` TINYINT NOT NULL,
+            `work_hours` DECIMAL(6,1) NOT NULL DEFAULT 0,
+            `absent_hours` DECIMAL(6,1) NOT NULL DEFAULT 0,
+            `remark` VARCHAR(500) DEFAULT '',
+            `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            INDEX `idx_name_ym` (`employee_name`, `year`, `month`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT '考勤待匹配记录（员工添加后自动补录）'");
+    }
 }
 
 /**
@@ -181,6 +202,45 @@ function get_attendance($employeeId, $year, $month)
     $stmt = db()->prepare("SELECT * FROM attendances WHERE employee_id=? AND year=? AND month=?");
     $stmt->execute([$employeeId, $year, $month]);
     return $stmt->fetch();
+}
+
+/**
+ * 将待匹配考勤记录中姓名匹配的行补录到 attendances 表
+ * 在添加/更新员工时调用，自动补回之前因员工不存在而跳过的考勤数据
+ * @param int $employeeId  员工ID
+ * @param string $employeeName  员工姓名
+ * @return int 补录条数
+ */
+function backfill_pending_attendance($employeeId, $employeeName)
+{
+    $employeeId = (int)$employeeId;
+    $employeeName = trim($employeeName);
+    if ($employeeId <= 0 || $employeeName === '') return 0;
+
+    try {
+        $rows = db()->prepare("SELECT * FROM attendance_pending WHERE employee_name = ?");
+        $rows->execute([$employeeName]);
+        $pending = $rows->fetchAll();
+        if (empty($pending)) return 0;
+
+        $ins = db()->prepare("INSERT INTO attendances (employee_id, year, month, work_hours, absent_hours, remark)
+                              VALUES (?, ?, ?, ?, ?, ?)
+                              ON DUPLICATE KEY UPDATE work_hours=VALUES(work_hours), absent_hours=VALUES(absent_hours), remark=VALUES(remark)");
+        $del = db()->prepare("DELETE FROM attendance_pending WHERE id = ?");
+        db()->beginTransaction();
+        $count = 0;
+        foreach ($pending as $p) {
+            $ins->execute([$employeeId, $p['year'], $p['month'], $p['work_hours'], $p['absent_hours'], $p['remark']]);
+            $del->execute([$p['id']]);
+            $count++;
+        }
+        db()->commit();
+        return $count;
+    } catch (\Throwable $e) {
+        if (db()->inTransaction()) db()->rollBack();
+        error_log("backfill_pending_attendance error: " . $e->getMessage());
+        return 0;
+    }
 }
 
 /**
@@ -255,7 +315,7 @@ function get_abnormal_orders($shopName = '', $month = '')
     }
 
     // 店铺订单（department + shop）
-    $shopWhere = " WHERE o.order_scope = 'department' AND o.order_no <> '' ";
+    $shopWhere = " WHERE o.order_scope = 'department' AND o.order_no <> '' AND COALESCE(o.is_deleted, 0) = 0 ";
     if ($shopName !== '') {
         $shopWhere .= " AND o.shop = ? ";
         $params[] = $shopName;
@@ -266,7 +326,7 @@ function get_abnormal_orders($shopName = '', $month = '')
     }
 
     // 员工上传订单（personal，排除从部门派生的）
-    $empWhere = " WHERE e.order_scope = 'personal' AND e.order_no <> '' ";
+    $empWhere = " WHERE e.order_scope = 'personal' AND e.order_no <> '' AND COALESCE(e.is_deleted, 0) = 0 ";
     $empParams = [];
     if ($month !== '') {
         $empWhere .= " AND DATE_FORMAT(e.order_date, '%Y-%m') = ? ";
@@ -405,7 +465,7 @@ function get_shops()
 function get_shop_list()
 {
     try {
-        $stmt = db()->query("SELECT s.*, (SELECT COUNT(*) FROM orders o WHERE o.shop = s.name) AS order_count FROM shops s ORDER BY s.sort ASC, s.id ASC");
+        $stmt = db()->query("SELECT s.*, (SELECT COUNT(*) FROM orders o WHERE o.shop = s.name AND COALESCE(o.is_deleted, 0) = 0) AS order_count FROM shops s ORDER BY s.sort ASC, s.id ASC");
         return $stmt->fetchAll();
     } catch (PDOException $e) {
         return [];

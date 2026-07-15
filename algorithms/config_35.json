@@ -1,0 +1,66 @@
+{
+    "modules": [
+        {
+            "name": "博山定制",
+            "type": "tiered",
+            "enabled": true,
+            "config": {
+                "service_fee_rate": 0,
+                "ssl_cost_per": 0,
+                "tiers": [
+                    {
+                        "threshold": 30000,
+                        "rate": 0.25,
+                        "subsidy": 0
+                    },
+                    {
+                        "threshold": 10000,
+                        "rate": 0.2,
+                        "subsidy": 0
+                    },
+                    {
+                        "threshold": 0,
+                        "rate": 0.15,
+                        "subsidy": 0
+                    }
+                ],
+                "comment": "阶梯提成，利润=售价-域名成本(23元/个)-SSL成本(从raw_data读取金额)。无服务费扣除",
+                "ssl_from_rawdata": true,
+                "cost_role": "frontend",
+                "domain_total_cost": 80
+            }
+        },
+        {
+            "name": "网站定制",
+            "type": "tiered",
+            "enabled": true,
+            "config": {
+                "service_fee_rate": 0,
+                "ssl_cost_per": 0,
+                "tiers": [
+                    {
+                        "threshold": 30000,
+                        "rate": 0.25,
+                        "subsidy": 0
+                    },
+                    {
+                        "threshold": 10000,
+                        "rate": 0.2,
+                        "subsidy": 0
+                    },
+                    {
+                        "threshold": 0,
+                        "rate": 0.15,
+                        "subsidy": 0
+                    }
+                ],
+                "comment": "阶梯提成，利润=售价-域名成本(23元/个)-SSL成本(从raw_data读取金额)。无服务费扣除",
+                "ssl_from_rawdata": true,
+                "cost_role": "frontend",
+                "domain_total_cost": 80
+            }
+        }
+    ],
+    "updated_at": "2026-07-10",
+    "description": "李仁超（定制前端外包）：底薪10460.14 + 阶梯提成(利润×分档比例)。利润=售价-域名23元/个-SSL成本。5月：售价32720-域名320-SSL90=利润32310×25%=8077.5"
+}
