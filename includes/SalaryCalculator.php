@@ -454,8 +454,19 @@ class SalaryCalculator
             // 模块名过滤
             if ($moduleName !== '' && trim($o['project'] ?? '') !== $moduleName) continue;
 
-            // 金额范围过滤（基于 order_amount）
+            // 从 raw_data 提取成本
             $orderAmt = (float)($o['order_amount'] ?? 0);
+            $cost = 0;
+            foreach ($rawData as $k => $v) {
+                if (mb_strpos($k, '成本') !== false) {
+                    $cost = (float)preg_replace('/[^\d.\-]/', '', trim($v));
+                }
+            }
+
+            $totalPrice  += $orderAmt;
+            $totalCost   += $cost;
+            $count++;
+        }
 
         $amt = (($totalPrice - $totalCost) - $totalPrice * $serviceFeeRate) * $commissionRate;
 
