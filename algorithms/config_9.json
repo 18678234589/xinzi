@@ -1,0 +1,15 @@
+{
+    "modules": [
+        {
+            "name": "新老客户订单奖励",
+            "type": "customer_reward",
+            "enabled": true,
+            "config": {
+                "new_customer_reward": 6,
+                "old_customer_reward": 3
+            }
+        }
+    ],
+    "dept_share": 1,
+    "updated_at": "2026-07-15 15:45:25"
+}

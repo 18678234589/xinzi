@@ -118,11 +118,11 @@ class SalaryCalculator
                 
                 file_put_contents(__DIR__ . '/../debug_config.txt', json_encode($raw['modules'], JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE));
                 
-                // 先计算退款订单的独立扣除
-                $refundDeduction = self::calcRefundDeduction($context);
-                if ($refundDeduction !== null && $refundDeduction['amount'] != 0) {
-                    $results[] = $refundDeduction;
-                }
+                // 已禁用自动退款扣除
+                // $refundDeduction = self::calcRefundDeduction($context);
+                // if ($refundDeduction !== null && $refundDeduction['amount'] != 0) {
+                //     $results[] = $refundDeduction;
+                // }
                 
                 // 再计算各个提成模块（排除退款订单）
                 // 先找出 base_salary 模块（自定义底薪，覆盖员工表底薪）
@@ -1177,13 +1177,14 @@ class SalaryCalculator
         $newReward = (float)($cfg['new_customer_reward'] ?? 50);
         $oldReward = (float)($cfg['old_customer_reward'] ?? 30);
         
-        $month = $c['month'] ?? date('Y-m');
         $employeeId = $c['employee']['id'] ?? 0;
         
-        $personalWangwangs = [];
-        $shopWangwangs = [];
+        // 记录每个旺旺号的客户类型：true=新客户, false=老客户
+        $customerTypes = [];
         
         foreach (($c['orders'] ?? []) as $o) {
+            if ($o['employee_id'] != $employeeId) continue;
+            
             $wangwang = self::extractWangwang($o);
             if ($wangwang === '') continue;
             
@@ -1191,33 +1192,41 @@ class SalaryCalculator
             $isRefund = isset($rawData['__is_refund__']) && $rawData['__is_refund__'] === '1';
             if ($isRefund) continue;
             
-            if ($o['employee_id'] == $employeeId) {
-                $personalWangwangs[$wangwang] = true;
+            // 获取备注内容
+            $remark = strtolower(trim($o['remark'] ?? ''));
+            $rawRemark = '';
+            if (is_array($rawData)) {
+                foreach ($rawData as $key => $value) {
+                    $lowerKey = strtolower(trim($key));
+                    if (strpos($lowerKey, '备注') !== false) {
+                        $rawRemark = strtolower(trim((string)$value));
+                        break;
+                    }
+                }
             }
             
-            if ($o['order_scope'] === 'department') {
-                $shopWangwangs[$wangwang] = true;
+            // 判断是否新客户：备注包含"新客户"
+            $isNewCustomer = strpos($remark, '新客户') !== false || strpos($rawRemark, '新客户') !== false;
+            
+            // 如果已是新客户，保持不变；否则根据当前订单更新
+            if ($isNewCustomer) {
+                $customerTypes[$wangwang] = true;
+            } elseif (!isset($customerTypes[$wangwang])) {
+                // 没有标记新客户，且尚未记录过，则归为老客户
+                $customerTypes[$wangwang] = false;
             }
         }
         
-        $shopWangwangsFromDb = self::getShopTotalWangwangs($month);
-        foreach ($shopWangwangsFromDb as $ww) {
-            $shopWangwangs[$ww] = true;
-        }
-        
-        $newCustomers = [];
-        $oldCustomers = [];
-        
-        foreach (array_keys($personalWangwangs) as $ww) {
-            if (isset($shopWangwangs[$ww])) {
-                $oldCustomers[] = $ww;
+        // 统计新客户和老客户数量
+        $newCount = 0;
+        $oldCount = 0;
+        foreach ($customerTypes as $wangwang => $isNew) {
+            if ($isNew) {
+                $newCount++;
             } else {
-                $newCustomers[] = $ww;
+                $oldCount++;
             }
         }
-        
-        $newCount = count($newCustomers);
-        $oldCount = count($oldCustomers);
         
         $newAmount = $newCount * $newReward;
         $oldAmount = $oldCount * $oldReward;
@@ -1264,54 +1273,6 @@ class SalaryCalculator
             }
         }
         
-        return '';
-    }
-    
-    private static function getShopTotalWangwangs($month)
-    {
-        $wangwangs = [];
-        try {
-            $stmt = db()->prepare("SELECT DISTINCT wangwang FROM orders WHERE order_scope = 'department' AND DATE_FORMAT(order_date, '%Y-%m') = ? AND wangwang IS NOT NULL AND wangwang != ''");
-            $stmt->execute([$month]);
-            while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
-                $ww = trim($row['wangwang']);
-                if ($ww !== '') {
-                    $wangwangs[] = $ww;
-                }
-            }
-            
-            $stmt2 = db()->prepare("SELECT raw_data FROM orders WHERE order_scope = 'department' AND DATE_FORMAT(order_date, '%Y-%m') = ? AND raw_data IS NOT NULL");
-            $stmt2->execute([$month]);
-            while ($row = $stmt2->fetch(PDO::FETCH_ASSOC)) {
-                $rawData = json_decode($row['raw_data'], true);
-                if (is_array($rawData)) {
-                    $ww = self::extractWangwangFromRaw($rawData);
-                    if ($ww !== '' && !in_array($ww, $wangwangs)) {
-                        $wangwangs[] = $ww;
-                    }
-                }
-            }
-        } catch (\Throwable $e) {
-            error_log("getShopTotalWangwangs error: " . $e->getMessage());
-        }
-        
-        return $wangwangs;
-    }
-    
-    private static function extractWangwangFromRaw($rawData)
-    {
-        foreach ($rawData as $key => $value) {
-            $lowerKey = strtolower(trim($key));
-            if (strpos($lowerKey, '旺旺') !== false || 
-                strpos($lowerKey, 'wangwang') !== false ||
-                strpos($lowerKey, '买家') !== false ||
-                strpos($lowerKey, '用户') !== false) {
-                $ww = trim((string)$value);
-                if ($ww !== '') {
-                    return $ww;
-                }
-            }
-        }
         return '';
     }
 
@@ -1577,7 +1538,7 @@ class SalaryCalculator
                 'label' => '新老客户订单奖励',
                 'icon' => 'fa-users',
                 'color' => 'purple',
-                'desc' => '上传的个人订单与店铺总订单比对，按客户旺旺号计算新老客户奖励',
+                'desc' => '根据个人订单备注识别新老客户，按客户旺旺号去重计算奖励',
                 'fields' => [
                     ['key'=>'_name','label'=>'模块名称（必填）','type'=>'text','placeholder'=>'如：新老客户奖励','default'=>''],
                     ['key'=>'new_customer_reward','label'=>'新客户奖励金额','type'=>'number','step'=>'0.01','min'=>'0','placeholder'=>'每个新客户奖励金额','default'=>'50'],
