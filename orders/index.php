@@ -349,15 +349,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             try {
                 $where  = " WHERE 1=1";
                 $params = [];
-                if ($delEmp > 0) {
+                if ($delDeptOrders) {
+                    // 部门订单视图：employee_id=0，用 raw_data.__dept__ 匹配部门
+                    $where .= " AND o.employee_id = 0 AND o.order_scope = 'department'"
+                            . " AND JSON_UNQUOTE(JSON_EXTRACT(o.raw_data, '$.__dept__')) = ?";
+                    $params[] = $delDept;
+                } elseif ($delEmp > 0) {
                     $where .= " AND (o.employee_id = ? OR (o.order_scope = 'department' AND (o.shop IS NULL OR o.shop = '')))";
                     $params[] = $delEmp;
                 } elseif ($delDept !== '') {
                     $where .= " AND e.department = ?";
                     $params[] = $delDept;
-                }
-                if ($delDeptOrders) {
-                    $where .= " AND o.order_scope = 'department'";
                 }
                 // 与列表一致：排除店铺上传的订单
                 $where .= " AND NOT (o.order_scope = 'department' AND o.shop <> '')";
@@ -394,15 +396,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $where .= " OR o.project = '' OR o.project IS NULL";
                 }
                 $where .= ")";
-                if ($delEmp > 0) {
+                if ($delDeptOrders) {
+                    // 部门订单视图：employee_id=0，用 raw_data.__dept__ 匹配部门
+                    $where .= " AND o.employee_id = 0 AND o.order_scope = 'department'"
+                            . " AND JSON_UNQUOTE(JSON_EXTRACT(o.raw_data, '$.__dept__')) = ?";
+                    $params[] = $delDept;
+                } elseif ($delEmp > 0) {
                     $where .= " AND (o.employee_id = ? OR (o.order_scope = 'department' AND (o.shop IS NULL OR o.shop = '')))";
                     $params[] = $delEmp;
                 } elseif ($delDept !== '') {
                     $where .= " AND e.department = ?";
                     $params[] = $delDept;
-                }
-                if ($delDeptOrders) {
-                    $where .= " AND o.order_scope = 'department'";
                 }
                 // 与列表一致：排除店铺上传的订单
                 $where .= " AND NOT (o.order_scope = 'department' AND o.shop <> '')";
