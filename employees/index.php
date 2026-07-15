@@ -27,7 +27,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     if ($password === '') $password = '123456'; // 默认密码
                     $stmt = db()->prepare("INSERT INTO employees (name, department, base_salary, commission_rate, password) VALUES (?, ?, ?, ?, MD5(?))");
                     $stmt->execute([$name, $department, $base_salary, $commission_rate, $password]);
+                    $newId = (int)db()->lastInsertId();
+                    // 自动补录之前因员工不存在而暂存的考勤记录
+                    $backfilled = backfill_pending_attendance($newId, $name);
                     $success = '员工添加成功，默认密码: ' . ($password === '123456' ? '123456' : '已设置');
+                    if ($backfilled > 0) $success .= "，已自动补录 {$backfilled} 条考勤记录";
                 } else {
                     if ($password !== '') {
                         $stmt = db()->prepare("UPDATE employees SET name=?, department=?, base_salary=?, commission_rate=?, password=MD5(?) WHERE id=?");
@@ -36,6 +40,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         $stmt = db()->prepare("UPDATE employees SET name=?, department=?, base_salary=?, commission_rate=? WHERE id=?");
                         $stmt->execute([$name, $department, $base_salary, $commission_rate, $id]);
                     }
+                    // 改名后尝试补录新姓名对应的暂存考勤
+                    backfill_pending_attendance($id, $name);
                     $success = '员工信息更新成功';
                 }
             } catch (PDOException $ex) {

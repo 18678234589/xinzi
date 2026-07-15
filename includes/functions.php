@@ -134,6 +134,22 @@ function ensureAttendanceTable()
             `added_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT '考勤卡片自定义年份'");
     }
+    // 考勤待匹配表：上传考勤时员工尚未添加的行暂存于此，员工添加后自动补录
+    try {
+        db()->query("SELECT 1 FROM `attendance_pending` LIMIT 1");
+    } catch (\Throwable $e) {
+        db()->exec("CREATE TABLE IF NOT EXISTS `attendance_pending` (
+            `id` INT AUTO_INCREMENT PRIMARY KEY,
+            `employee_name` VARCHAR(100) NOT NULL COMMENT '考勤表中的姓名',
+            `year` SMALLINT NOT NULL,
+            `month` TINYINT NOT NULL,
+            `work_hours` DECIMAL(6,1) NOT NULL DEFAULT 0,
+            `absent_hours` DECIMAL(6,1) NOT NULL DEFAULT 0,
+            `remark` VARCHAR(500) DEFAULT '',
+            `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            INDEX `idx_name_ym` (`employee_name`, `year`, `month`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT '考勤待匹配记录（员工添加后自动补录）'");
+    }
 }
 
 /**
@@ -186,6 +202,45 @@ function get_attendance($employeeId, $year, $month)
     $stmt = db()->prepare("SELECT * FROM attendances WHERE employee_id=? AND year=? AND month=?");
     $stmt->execute([$employeeId, $year, $month]);
     return $stmt->fetch();
+}
+
+/**
+ * 将待匹配考勤记录中姓名匹配的行补录到 attendances 表
+ * 在添加/更新员工时调用，自动补回之前因员工不存在而跳过的考勤数据
+ * @param int $employeeId  员工ID
+ * @param string $employeeName  员工姓名
+ * @return int 补录条数
+ */
+function backfill_pending_attendance($employeeId, $employeeName)
+{
+    $employeeId = (int)$employeeId;
+    $employeeName = trim($employeeName);
+    if ($employeeId <= 0 || $employeeName === '') return 0;
+
+    try {
+        $rows = db()->prepare("SELECT * FROM attendance_pending WHERE employee_name = ?");
+        $rows->execute([$employeeName]);
+        $pending = $rows->fetchAll();
+        if (empty($pending)) return 0;
+
+        $ins = db()->prepare("INSERT INTO attendances (employee_id, year, month, work_hours, absent_hours, remark)
+                              VALUES (?, ?, ?, ?, ?, ?)
+                              ON DUPLICATE KEY UPDATE work_hours=VALUES(work_hours), absent_hours=VALUES(absent_hours), remark=VALUES(remark)");
+        $del = db()->prepare("DELETE FROM attendance_pending WHERE id = ?");
+        db()->beginTransaction();
+        $count = 0;
+        foreach ($pending as $p) {
+            $ins->execute([$employeeId, $p['year'], $p['month'], $p['work_hours'], $p['absent_hours'], $p['remark']]);
+            $del->execute([$p['id']]);
+            $count++;
+        }
+        db()->commit();
+        return $count;
+    } catch (\Throwable $e) {
+        if (db()->inTransaction()) db()->rollBack();
+        error_log("backfill_pending_attendance error: " . $e->getMessage());
+        return 0;
+    }
 }
 
 /**
