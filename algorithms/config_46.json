@@ -1,0 +1,75 @@
+{
+    "modules": [
+        {
+            "name": "全勤奖金",
+            "type": "attendance_full",
+            "enabled": true,
+            "config": {
+                "full_amount": 200
+            }
+        },
+        {
+            "name": "起名",
+            "type": "standard",
+            "enabled": true,
+            "config": {
+                "_name": "起名",
+                "rate": 0.1261,
+                "comment": "起名业绩×13%×97%（扣3%服务费）= 0.1261"
+            }
+        },
+        {
+            "name": "图片",
+            "type": "standard",
+            "enabled": true,
+            "config": {
+                "_name": "图片",
+                "rate": 0.0485,
+                "comment": "图片营业额×5%×97%（扣3%服务费）= 0.0485"
+            }
+        },
+        {
+            "name": "视频",
+            "type": "standard",
+            "enabled": true,
+            "config": {
+                "_name": "视频",
+                "rate": 0.0485,
+                "comment": "视频营业额×5%×97%（扣3%服务费）= 0.0485"
+            }
+        },
+        {
+            "name": "视频单量",
+            "type": "per_order",
+            "enabled": true,
+            "config": {
+                "_name": "视频单量",
+                "per_amount": 2,
+                "per_reward": 0,
+                "comment": "视频单量×2元（同一客户拍多单算一单）"
+            }
+        },
+        {
+            "name": "代写",
+            "type": "standard",
+            "enabled": true,
+            "config": {
+                "_name": "代写",
+                "rate": 0.1261,
+                "comment": "代写提成+单量补助"
+            }
+        },
+        {
+            "name": "留学",
+            "type": "standard",
+            "enabled": true,
+            "config": {
+                "_name": "留学",
+                "rate": 0.1261,
+                "comment": "留学业务提成（同起名比例13%扣3%服务费）"
+            }
+        }
+    ],
+    "updated_at": "2026-07-10",
+    "description": "刘洋洋工资核算：底薪800 + 全勤200 + 起名(收入×13%×97%) + 图片(营业额×5%×97%) + 视频(营业额×5%×97%) + 视频单量×2元 + 代写 + 留学。上传订单时project字段需填对应业务名（起名/图片/视频/代写/留学）"
+}

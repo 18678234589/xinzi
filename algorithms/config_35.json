@@ -1,0 +1,24 @@
+{
+    "modules": [
+        {
+            "name": "博山定制",
+            "type": "standard",
+            "enabled": true,
+            "config": {
+                "rate": 0.2425,
+                "comment": "前端外包提成=(售价-域名-SSL)×25%。无域名SSL时≈售价×25%，有成本扣除后约24.25%"
+            }
+        },
+        {
+            "name": "网站定制",
+            "type": "standard",
+            "enabled": true,
+            "config": {
+                "rate": 0.2425,
+                "comment": "网站定制前端外包，同算法"
+            }
+        }
+    ],
+    "updated_at": "2026-07-10",
+    "description": "李仁超（定制前端外包）：底薪10460.14 + (售价-域名-SSL)×25%。5月：售价32720，域名320，SSL90，利润32310，提成8077.5"
+}

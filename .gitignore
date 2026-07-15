@@ -1,5 +1,6 @@
 # Debug logs
 debug_*.txt
+php_server.log
 
 
 # System files
