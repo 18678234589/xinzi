@@ -384,16 +384,20 @@ include __DIR__ . '/../includes/header.php';
 
 <?php if ($pendingCount > 0): ?>
 <div class="alert alert-info py-2">
-    <i class="fas fa-info-circle"></i> 以下 <strong><?php echo $pendingCount; ?> 人</strong>的考勤已暂存（上传时员工尚未添加）。
-    在<a href="<?php echo BASE_URL; ?>/employees/index.php">员工管理</a>中添加对应姓名的员工后，考勤会自动补录。
-    <table class="table table-sm table-bordered mt-2 mb-0" style="max-width:600px">
-        <thead><tr><th>姓名</th><th>应出勤(h)</th><th>请假(h)</th><th>备注</th></tr></thead>
-        <tbody>
-        <?php foreach ($pendingRows as $p): ?>
-            <tr><td><?php echo e($p['employee_name']); ?></td><td><?php echo e($p['work_hours']); ?></td><td><?php echo e($p['absent_hours']); ?></td><td><?php echo e($p['remark']); ?></td></tr>
-        <?php endforeach; ?>
-        </tbody>
-    </table>
+    <a class="d-flex justify-content-between align-items-center text-decoration-none text-info" data-toggle="collapse" href="#pendingCollapse" role="button" aria-expanded="false" aria-controls="pendingCollapse">
+        <span><i class="fas fa-info-circle"></i> <strong><?php echo $pendingCount; ?> 人</strong>的考勤已暂存（上传时员工尚未添加）。在<a href="<?php echo BASE_URL; ?>/employees/index.php" onclick="event.stopPropagation();">员工管理</a>中添加对应姓名的员工后，考勤会自动补录。</span>
+        <i class="fas fa-chevron-down ml-2"></i>
+    </a>
+    <div class="collapse" id="pendingCollapse">
+        <table class="table table-sm table-bordered mt-2 mb-0" style="max-width:600px">
+            <thead><tr><th>姓名</th><th>应出勤(h)</th><th>请假(h)</th><th>备注</th></tr></thead>
+            <tbody>
+            <?php foreach ($pendingRows as $p): ?>
+                <tr><td><?php echo e($p['employee_name']); ?></td><td><?php echo e($p['work_hours']); ?></td><td><?php echo e($p['absent_hours']); ?></td><td><?php echo e($p['remark']); ?></td></tr>
+            <?php endforeach; ?>
+            </tbody>
+        </table>
+    </div>
 </div>
 <?php endif; ?>
 
