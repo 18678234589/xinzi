@@ -96,16 +96,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     ensureProjectColumn();
                     $project = trim($_POST['upload_project'] ?? '');
 
-                    // 部门订单归属字段配置
+                    // 部门订单归属字段配置（从前端接收）
                     $ownershipConfig = [];
                     if ($order_scope === 'department' && $dept_name !== '') {
-                        $allOwnership = include __DIR__ . '/../config/dept_ownership.php';
-                        if (is_array($allOwnership) && isset($allOwnership[$dept_name])) {
-                            $ownershipConfig = $allOwnership[$dept_name];
+                        $ownFieldsRaw = trim($_POST['ownership_fields'] ?? '');
+                        if ($ownFieldsRaw !== '') {
+                            $ownFields = array_map('trim', explode(',', $ownFieldsRaw));
+                            $ownFields = array_filter($ownFields);
+                            if (!empty($ownFields)) {
+                                $ownershipConfig['fields'] = array_values($ownFields);
+                            }
                         }
                     }
 
-                    // 部门订单多员工配置：[{employee_id, module}, ...]
+                    // 部门订单多员工配置：[{employee_id, module, ownership_value}, ...]
                     $deptEmpModules = [];
                     if ($order_scope === 'department') {
                         $dem = trim($_POST['dept_emp_modules'] ?? '');
@@ -115,7 +119,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                 foreach ($decoded as $item) {
                                     $eid = (int)($item['employee_id'] ?? 0);
                                     $mod = trim($item['module'] ?? '');
-                                    if ($eid > 0) $deptEmpModules[] = ['employee_id' => $eid, 'module' => $mod];
+                                    $ownVal = trim($item['ownership_value'] ?? '');
+                                    if ($eid > 0) $deptEmpModules[] = ['employee_id' => $eid, 'module' => $mod, 'ownership_value' => $ownVal];
                                 }
                             }
                         }
@@ -268,20 +273,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                                 // 归属字段匹配：尝试将订单归属到具体员工
                                 $matchedEmps = [];
-                                if (!empty($ownershipConfig['fields']) && !empty($ownershipConfig['mapping'])) {
+                                if (!empty($ownershipConfig['fields'])) {
                                     foreach ($ownershipConfig['fields'] as $field) {
                                         $fieldVal = trim($rawMap[$field] ?? '');
-                                        if ($fieldVal !== '' && isset($ownershipConfig['mapping'][$field][$fieldVal])) {
-                                            $matchedEmpId = (int)$ownershipConfig['mapping'][$field][$fieldVal];
-                                            // 从 deptEmpModules 中找到该员工的模块配置
-                                            foreach ($deptEmpModules as $dem) {
-                                                if ((int)$dem['employee_id'] === $matchedEmpId) {
-                                                    $matchedEmps[] = $dem;
-                                                    break;
-                                                }
+                                        if ($fieldVal === '') continue;
+                                        // 在归属员工中查找匹配的归属值
+                                        foreach ($deptEmpModules as $dem) {
+                                            $ownVal = trim($dem['ownership_value'] ?? '');
+                                            if ($ownVal !== '' && $ownVal === $fieldVal) {
+                                                $matchedEmps[] = $dem;
                                             }
                                         }
                                     }
+                                    // 去重（同一员工可能被多个字段匹配到）
+                                    $seen = [];
+                                    $matchedEmps = array_filter($matchedEmps, function($m) use (&$seen) {
+                                        $key = (int)$m['employee_id'];
+                                        if (isset($seen[$key])) return false;
+                                        $seen[$key] = true;
+                                        return true;
+                                    });
+                                    $matchedEmps = array_values($matchedEmps);
                                 }
 
                                 // 有匹配的员工：只为匹配到的员工创建拆分行
@@ -586,17 +598,35 @@ $filter_month = $_GET['month'] ?? '';  // 空字符串=不限月份
 $filter_project = $_GET['project'] ?? ''; // 展开某个模块时使用
 $filter_dept_orders = isset($_GET['dept_orders']) && $_GET['dept_orders'] === '1';
 $filter_abnormal = (($_GET['abnormal'] ?? '') === '1') ? 1 : 0;
-// 归属字段筛选（动态）
+// 归属字段筛选（从已上传数据动态发现）
 $filter_ownership = [];
 $ownershipFilters = [];
-if ($filter_dept !== '') {
-    $allOwnership = include __DIR__ . '/../config/dept_ownership.php';
-    if (is_array($allOwnership) && isset($allOwnership[$filter_dept])) {
-        $ownershipFilters = $allOwnership[$filter_dept]['fields'] ?? [];
-        foreach ($ownershipFilters as $field) {
-            $val = $_GET['own_' . $field] ?? '';
-            if ($val !== '') $filter_ownership[$field] = $val;
+if ($filter_dept !== '' && $filter_dept_orders) {
+    // 从数据库查询该部门订单中常见的 raw_data 字段（排除系统字段）
+    $discoverSql = "SELECT raw_data FROM orders WHERE raw_data IS NOT NULL"
+        . " AND JSON_UNQUOTE(JSON_EXTRACT(raw_data, '$.__dept__')) = ?"
+        . " AND employee_id = 0 AND order_scope = 'department'"
+        . " LIMIT 50";
+    $discoverStmt = db()->prepare($discoverSql);
+    $discoverStmt->execute([$filter_dept]);
+    $fieldCounts = [];
+    while ($dRow = $discoverStmt->fetch(PDO::FETCH_ASSOC)) {
+        $rd = json_decode($dRow['raw_data'], true);
+        if (!is_array($rd)) continue;
+        foreach ($rd as $k => $v) {
+            if (strpos($k, '__') === 0) continue; // 跳过系统字段
+            if (!is_string($v) || $v === '') continue;
+            if (!isset($fieldCounts[$k])) $fieldCounts[$k] = 0;
+            $fieldCounts[$k]++;
         }
+    }
+    // 出现超过2次的字段视为归属字段候选
+    arsort($fieldCounts);
+    $ownershipFilters = array_keys(array_filter($fieldCounts, fn($c) => $c >= 2));
+    $ownershipFilters = array_slice($ownershipFilters, 0, 5); // 最多5个
+    foreach ($ownershipFilters as $field) {
+        $val = $_GET['own_' . $field] ?? '';
+        if ($val !== '') $filter_ownership[$field] = $val;
     }
 }
 $page     = max(1, (int)($_GET['page'] ?? 1));
@@ -911,23 +941,12 @@ include __DIR__ . '/../includes/header.php';
                                 <button type="button" class="btn btn-sm btn-outline-primary mt-1" onclick="addDeptEmpRow()"><i class="fas fa-plus"></i> 添加员工</button>
                                 <input type="hidden" name="dept_emp_modules" id="deptEmpModules">
                             </div>
-                            <?php
-                            // 显示归属字段配置说明
-                            $allOwnership = include __DIR__ . '/../config/dept_ownership.php';
-                            if (is_array($allOwnership) && !empty($allOwnership)):
-                            ?>
-                            <div class="alert alert-info py-2 mb-2" id="ownershipInfo" style="display:none">
-                                <i class="fas fa-info-circle"></i> <strong>归属自动匹配</strong>
-                                <small class="text-muted d-block mt-1">
-                                    已配置归属字段的部门上传时会自动匹配员工：
-                                    <?php foreach ($allOwnership as $dept => $cfg): ?>
-                                        <span class="badge badge-info"><?php echo e($dept); ?></span>
-                                        <?php echo e(implode('、', $cfg['fields'] ?? [])); ?>
-                                    <?php endforeach; ?>
-                                </small>
-                                <small class="text-muted d-block">未匹配的订单将分配给所有归属员工（兼容旧模式）</small>
+                            <div class="form-group" id="ownershipFieldsGroup" style="display:none">
+                                <label><i class="fas fa-link text-info"></i> 归属匹配字段 <small class="text-muted">（指定Excel中用于匹配员工的列名，逗号分隔）</small></label>
+                                <input type="text" class="form-control form-control-sm" id="ownershipFields" placeholder="如：客服,制作技术（Excel表头名称）">
+                                <small class="text-muted">系统会用这些列的值自动匹配下方员工的"归属值"，匹配成功的订单只归属到对应员工</small>
+                                <input type="hidden" name="ownership_fields" id="ownershipFieldsHidden">
                             </div>
-                            <?php endif; ?>
                         </div>
                     <?php endif; ?>
                     
@@ -1484,10 +1503,9 @@ function loadEmployeeModules(empId, prefix) {
 // 部门订单：选部门后重置员工行
 function loadDeptEmployees(dept) {
     $('#deptEmpRows').empty();
+    // 显示/隐藏归属字段配置
+    $('#ownershipFieldsGroup').toggle(!!dept);
     if (dept) addDeptEmpRow();
-    // 显示/隐藏归属配置说明
-    var ownershipDepts = <?php echo json_encode(array_keys(array_filter(is_array($allOwnership ?? null) ? $allOwnership : [])), JSON_UNESCAPED_UNICODE); ?>;
-    $('#ownershipInfo').toggle(ownershipDepts.indexOf(dept) >= 0);
 }
 
 // 员工名→id 映射（按当前所选部门过滤后重建）
@@ -1524,7 +1542,8 @@ function addDeptEmpRow() {
                 '<datalist id="' + datalistId + '">' + opts + '</datalist>' +
                 '<input type="hidden" class="dept-emp-id">' +
             '</div>' +
-            '<select class="form-control form-control-sm dept-mod-sel" style="flex:1"><option value="">-- 先选员工 --</option></select>' +
+            '<select class="form-control form-control-sm dept-mod-sel" style="flex:1"><option value="">-- 不指定 --</option></select>' +
+            '<input type="text" class="form-control form-control-sm dept-emp-ownval" style="width:100px" placeholder="归属值">' +
             '<button type="button" class="btn btn-sm btn-outline-danger" onclick="$(this).closest(\'.dept-emp-row\').remove()"><i class="fas fa-times"></i></button>' +
         '</div>'
     );
@@ -1558,13 +1577,18 @@ function addDeptEmpRow() {
 $('#uploadForm').on('submit', function() {
     var scope = $('input[name="order_scope"]:checked').val();
     if (scope === 'department') {
+        // 序列化归属员工配置
         var rows = [];
         $('#deptEmpRows .dept-emp-row').each(function() {
             var empId = $(this).find('.dept-emp-id').val();
             var mod   = $(this).find('.dept-mod-sel').val();
-            if (empId) rows.push({employee_id: empId, module: mod});
+            var ownVal = $(this).find('.dept-emp-ownval').val().trim();
+            if (empId) rows.push({employee_id: empId, module: mod, ownership_value: ownVal});
         });
         $('#deptEmpModules').val(JSON.stringify(rows));
+        // 序列化归属字段名
+        var fields = $('#ownershipFields').val().trim();
+        $('#ownershipFieldsHidden').val(fields);
     }
 });
 
