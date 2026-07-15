@@ -2,28 +2,18 @@
     "modules": [
         {
             "name": "网站定制",
-            "type": "standard",
-            "enabled": true,
-            "config": {
-                "rate": 0.194,
-                "comment": "前端外包标准比例：(售价-域名-SSL)×20%"
-            }
-        },
-        {
-            "name": "阶梯提成",
             "type": "tiered",
             "enabled": true,
             "config": {
-                "min_amount": 0.01,
                 "tiers": [
                     {"threshold": 30000, "rate": 0.25, "subsidy": 0},
                     {"threshold": 10000, "rate": 0.20, "subsidy": 0},
                     {"threshold": 0, "rate": 0.15, "subsidy": 0}
                 ],
-                "comment": "阶梯提成：0-9999元15%，10000-29999元20%，30000元以上25%"
+                "comment": "阶梯提成：0-9999元15%，10000-29999元20%，30000元以上(含3万)25%"
             }
         }
     ],
     "updated_at": "2026-07-10",
-    "description": "孙磊（定制前端外包）：底薪10460.14 + 标准比例(售价-域名-SSL)×20% + 阶梯提成（0-1万15%，1万-3万20%，3万以上25%）"
+    "description": "孙磊（定制前端外包）：底薪10460.14 + 阶梯提成（0-1万15%，1万-3万20%，3万以上25%）。按project匹配业务类型。"
 }
