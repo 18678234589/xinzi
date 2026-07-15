@@ -6,10 +6,28 @@
             "enabled": true,
             "config": {
                 "rate": 0.1196,
-                "comment": "前端提成=(售价-6%服务费-域名-SSL)×13%。售价×94%×13%≈12.22%，含域名SSL扣除后约11.96%"
+                "comment": "标准比例：(售价-6%服务费-域名-SSL)×13%"
+            }
+        },
+        {
+            "name": "网站定制阶梯提成",
+            "type": "tiered",
+            "enabled": true,
+            "config": {
+                "min_amount": 0.01,
+                "tiers": [
+                    {"threshold": 35000, "rate": 0.15, "subsidy": 0},
+                    {"threshold": 30000, "rate": 0.14, "subsidy": 0},
+                    {"threshold": 25000, "rate": 0.13, "subsidy": 0},
+                    {"threshold": 20000, "rate": 0.12, "subsidy": 0},
+                    {"threshold": 15000, "rate": 0.09, "subsidy": 0},
+                    {"threshold": 10000, "rate": 0.07, "subsidy": 0},
+                    {"threshold": 0, "rate": 0.05, "subsidy": 0}
+                ],
+                "comment": "阶梯提成：按当月订单总额分档。min_amount=0.01用于跳过模块名过滤。1万以内5%，1万-1.5万7%，1.5万-2万9%，2万-2.5万12%，2.5万-3万13%，3万-3.5万14%，3.5万以上15%"
             }
         }
     ],
     "updated_at": "2026-07-10",
-    "description": "刘帅（定制前端）：底薪10460.14 + (售价-6%服务费-域名-SSL)×13%。5月：售价28450，服务费1707，域名360，SSL195，利润26188，提成3404.44"
+    "description": "刘帅（定制前端）：底薪10460.14 + 标准比例(售价-6%服务费-域名-SSL)×13% + 阶梯提成（按业绩总额分档5%~15%）"
 }
