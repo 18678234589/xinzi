@@ -13,6 +13,12 @@
 class SalaryCalculator
 {
     private static $dir;
+    private static $lastError = '';
+
+    public static function getLastError()
+    {
+        return self::$lastError;
+    }
 
     private static function dir()
     {
@@ -143,9 +149,14 @@ class SalaryCalculator
                         $results[] = array_merge($result, ['name' => $mod['name']]);
                     }
                 }
-                $moduleTotal = array_sum(array_column($results, 'amount'));
+                // 将 base_salary 模块加入明细列表（显示但不重复计入 module_total）
+                if ($customBase !== null) {
+                    array_unshift($results, array_merge($customBase, ['name' => $raw['modules'][$customBaseIdx]['name']]));
+                }
+                // module_total 不含 base_salary（base_salary 单独计入 net_pay）
+                $moduleTotal = array_sum(array_column(array_filter($results, fn($r) => ($r['type'] ?? '') !== 'base_salary'), 'amount'));
                 $formulaParts = [$baseSalary];
-                foreach ($results as $r) {
+                foreach (array_filter($results, fn($r) => ($r['type'] ?? '') !== 'base_salary') as $r) {
                     $formulaParts[] = "+{$r['amount']}({$r['name']})";
                 }
 
@@ -439,16 +450,10 @@ class SalaryCalculator
     {
         $commissionRate = (float)($cfg['commission_rate'] ?? 0);
         $serviceFeeRate = (float)($cfg['service_fee_rate'] ?? 0);
-        $minAmount = isset($cfg['min_amount']) && $cfg['min_amount'] !== '' && $cfg['min_amount'] !== null ? (float)$cfg['min_amount'] : null;
-        $maxAmount = isset($cfg['max_amount']) && $cfg['max_amount'] !== '' && $cfg['max_amount'] !== null ? (float)$cfg['max_amount'] : null;
-        $shopKeyword = isset($cfg['shop_keyword']) && $cfg['shop_keyword'] !== '' && $cfg['shop_keyword'] !== null ? $cfg['shop_keyword'] : null;
-
-        // 配置了金额范围或店铺关键字则忽略模块名筛选，与 calcStandard 一致
-        $useFilter = ($minAmount !== null || $maxAmount !== null || $shopKeyword !== null);
-        $filterByName = $useFilter ? '' : $moduleName;
 
         $totalProfit = 0;
         $totalPrice  = 0;
+        $totalCost   = 0;
         $count       = 0;
 
         foreach (($c['orders'] ?? []) as $o) {
@@ -459,70 +464,27 @@ class SalaryCalculator
             if ($isRefund) continue;
 
             // 模块名过滤
-            if ($filterByName !== '' && trim($o['project'] ?? '') !== $filterByName) continue;
+            if ($moduleName !== '' && trim($o['project'] ?? '') !== $moduleName) continue;
 
-            // 金额范围过滤（基于 order_amount）
+            // 从 raw_data 提取成本
             $orderAmt = (float)($o['order_amount'] ?? 0);
-            if ($minAmount !== null && $orderAmt < $minAmount) continue;
-            if ($maxAmount !== null && $orderAmt > $maxAmount) continue;
-
-            // 店铺关键字过滤
-            if ($shopKeyword !== null) {
-                $shop = '';
-                if (isset($rawData[$shopKeyword])) {
-                    $shop = trim($rawData[$shopKeyword]);
-                } else {
-                    foreach ($rawData as $k => $v) {
-                        if (mb_strpos($k, '店铺') !== false || mb_strpos($k, '店名') !== false) {
-                            $shop = trim($v);
-                            break;
-                        }
-                    }
-                }
-                if ($shop === '') continue;
-            }
-
-            // 从 raw_data 模糊匹配列名提取售价/成本/利润
-            $price = 0; $cost = 0; $profit = null; $hasProfitCol = false;
+            $cost = 0;
             foreach ($rawData as $k => $v) {
-                if (mb_strpos($k, '利润') !== false) {
-                    $profit = (float)preg_replace('/[^\d.\-]/', '', trim($v));
-                    $hasProfitCol = true;
-                } elseif (mb_strpos($k, '售价') !== false || mb_strpos($k, '价格') !== false) {
-                    $price = (float)preg_replace('/[^\d.\-]/', '', trim($v));
-                } elseif (mb_strpos($k, '成本') !== false) {
+                if (mb_strpos($k, '成本') !== false) {
                     $cost = (float)preg_replace('/[^\d.\-]/', '', trim($v));
                 }
             }
-            // 无利润列时回退售价-成本
-            if (!$hasProfitCol) {
-                $profit = $price - $cost;
-            }
 
-            $totalProfit += $profit;
-            $totalPrice  += $price;
+            $totalPrice  += $orderAmt;
+            $totalCost   += $cost;
             $count++;
         }
 
-        $amt = ($totalProfit - $totalPrice * $serviceFeeRate) * $commissionRate;
-
-        $rangeLabel = '';
-        if ($minAmount !== null || $maxAmount !== null) {
-            if ($minAmount !== null && $maxAmount !== null) {
-                $rangeLabel = sprintf('[¥%.0f-¥%.0f]', $minAmount, $maxAmount);
-            } elseif ($minAmount !== null) {
-                $rangeLabel = sprintf('[≥¥%.0f]', $minAmount);
-            } else {
-                $rangeLabel = sprintf('[≤¥%.0f]', $maxAmount);
-            }
-        }
-        if ($shopKeyword !== null) {
-            $rangeLabel .= "[店铺:{$shopKeyword}]";
-        }
+        $amt = (($totalPrice - $totalCost) - $totalPrice * $serviceFeeRate) * $commissionRate;
 
         return [
             'amount' => round($amt, 2),
-            'formula' => sprintf('%s(利润¥%.2f - 售价¥%.2f×%.2f%%) ×%.2f%% = %.2f', $rangeLabel, $totalProfit, $totalPrice, $serviceFeeRate*100, $commissionRate*100, $amt),
+            'formula' => sprintf('((订单金额¥%.2f - 成本¥%.2f) - 订单金额¥%.2f×%.2f%%) ×%.2f%% = %.2f', $totalPrice, $totalCost, $totalPrice, $serviceFeeRate*100, $commissionRate*100, $amt),
             'type' => 'profit_commission',
         ];
     }
@@ -854,37 +816,16 @@ class SalaryCalculator
             ];
         }
 
-        // 原有逻辑：按 project 名/金额范围/店铺关键字筛选计数
-        $minAmount = isset($cfg['min_amount']) && $cfg['min_amount'] !== '' && $cfg['min_amount'] !== null ? (float)$cfg['min_amount'] : null;
-        $maxAmount = isset($cfg['max_amount']) && $cfg['max_amount'] !== '' && $cfg['max_amount'] !== null ? (float)$cfg['max_amount'] : null;
-        $shopKeyword = isset($cfg['shop_keyword']) && $cfg['shop_keyword'] !== '' && $cfg['shop_keyword'] !== null ? $cfg['shop_keyword'] : null;
-
-        $useFilter = ($minAmount !== null || $maxAmount !== null || $shopKeyword !== null);
-        $filterByName = $useFilter ? '' : $moduleName;
-
-        $total = self::filterOrderTotal($c, $filterByName, $minAmount, $maxAmount, $shopKeyword);
-        $count = self::filterOrderCount($c, $filterByName, $minAmount, $maxAmount, $shopKeyword);
+        // 原有逻辑：按 project 名筛选订单（不再支持金额范围/店铺关键字过滤）
+        $total = self::filterOrderTotal($c, $moduleName);
+        $count = self::filterOrderCount($c, $moduleName);
 
         $subsidy = (float)($cfg['subsidy'] ?? 0);
         // 引流订单工资 = 每单补助金额 × 订单数量（订单金额仅用于筛选/展示）
         $subsidyAmt = $count * $subsidy;
         $amt = $subsidyAmt;
 
-        $rangeLabel = '';
-        if ($minAmount !== null || $maxAmount !== null) {
-            if ($minAmount !== null && $maxAmount !== null) {
-                $rangeLabel = sprintf('[¥%.0f-¥%.0f]', $minAmount, $maxAmount);
-            } elseif ($minAmount !== null) {
-                $rangeLabel = sprintf('[≥¥%.0f]', $minAmount);
-            } else {
-                $rangeLabel = sprintf('[≤¥%.0f]', $maxAmount);
-            }
-        }
-        if ($shopKeyword !== null) {
-            $rangeLabel .= "[店铺含:{$shopKeyword}]";
-        }
-
-        $formula = sprintf('%s%d单×¥%g(每单补助)=%.2f', $rangeLabel, $count, $subsidy, $subsidyAmt);
+        $formula = sprintf('%d单×¥%g(每单补助)=%.2f', $count, $subsidy, $subsidyAmt);
         if ($count === 0) {
             $formula = '0.00（无匹配订单）';
         }
@@ -1105,11 +1046,13 @@ class SalaryCalculator
     public static function saveModulesConfig($employeeId, $modules, $deptShare = 1)
     {
         $dir = self::dir();
+        self::$lastError = '';
         // 确保目录可写
         if (!is_dir($dir)) {
             @mkdir($dir, 0755, true);
         }
         if (!is_dir($dir) || !is_writable($dir)) {
+            self::$lastError = "算法目录不可写或不存在：{$dir}";
             error_log("SalaryCalculator: algorithms directory not writable: " . $dir);
             return false;
         }
@@ -1155,15 +1098,34 @@ class SalaryCalculator
         $data = ['modules' => $modules, 'dept_share' => $deptShare, 'updated_at' => date('Y-m-d H:i:s')];
         $json = json_encode($data, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
         if ($json === false) {
+            self::$lastError = "配置编码失败（数据格式异常）";
             error_log("SalaryCalculator: json_encode failed for employee $employeeId");
             return false;
         }
         $file = self::getConfigFile($employeeId);
-        $result = file_put_contents($file, $json);
+        // 先写临时文件，再 rename 覆盖目标文件。
+        // 目录可写时，rename 的“删除旧文件”是目录级操作，
+        // 不依赖旧文件自身权限，可绕过“旧文件所有者与 PHP 进程用户不同导致无法覆盖”的问题。
+        $tmp = $file . '.' . getmypid() . '.' . mt_rand(1000, 9999) . '.tmp';
+        $result = file_put_contents($tmp, $json);
         if ($result === false) {
-            error_log("SalaryCalculator: failed to write config to $file");
+            self::$lastError = "写入临时文件失败：{$tmp}";
+            error_log("SalaryCalculator: failed to write temp config to $tmp");
             return false;
         }
+        // 跨平台 rename 覆盖
+        if (!@rename($tmp, $file)) {
+            // rename 失败（如跨设备），退回到复制+删除临时文件
+            if (!@copy($tmp, $file)) {
+                @unlink($tmp);
+                self::$lastError = "写入配置文件失败：{$file}";
+                error_log("SalaryCalculator: failed to write config to $file");
+                return false;
+            }
+            @unlink($tmp);
+        }
+        // 尽量放宽权限，便于后续覆盖写入
+        @chmod($file, 0664);
 
         if ($deptShare) {
             // 参与部门订单提成：部门汇总行已在 orders 表中，结算时通过 __dept_modules__ 虚拟拆分，
@@ -1301,17 +1263,14 @@ class SalaryCalculator
                 ],
             ],
             'profit_commission' => [
-                'label' => '成本比例提成',
+                'label' => '标书提成',
                 'icon' => 'fa-coins',
                 'color' => 'info',
-                'desc' => '基于利润和成本计算：(总利润 - 总售价×服务费比例) × 提成比例',
+                'desc' => '基于订单金额和成本计算：((订单金额 - 成本) - 订单金额×服务费比例) × 提成比例',
                 'fields' => [
                     ['key'=>'_name','label'=>'模块名称（必填）','type'=>'text','placeholder'=>'如：成本提成A','default'=>''],
                     ['key'=>'commission_rate','label'=>'提成比例(小数)','type'=>'number','step'=>'any','placeholder'=>'0.1=10%','default'=>''],
                     ['key'=>'service_fee_rate','label'=>'服务费比例(小数)','type'=>'number','step'=>'any','placeholder'=>'0.05=5%','default'=>''],
-                    ['key'=>'min_amount','label'=>'最小订单金额','type'=>'number','step'=>'0.01','placeholder'=>'留空=不限制，如 50','default'=>''],
-                    ['key'=>'max_amount','label'=>'最大订单金额','type'=>'number','step'=>'0.01','placeholder'=>'留空=不限制，如 10000','default'=>''],
-                    ['key'=>'shop_keyword','label'=>'店铺关键字','type'=>'text','placeholder'=>'留空=不限制，如：老客户','default'=>''],
                 ],
             ],
             'base_salary_tiered' => [
@@ -1331,9 +1290,6 @@ class SalaryCalculator
                 'fields' => [
                     ['key'=>'_name','label'=>'模块名称（必填）','type'=>'text','placeholder'=>'如：引流、小红书引流','default'=>''],
                     ['key'=>'subsidy','label'=>'每个订单补助金额','type'=>'number','step'=>'0.01','min'=>'0','placeholder'=>'如 5 元/单','default'=>'5'],
-                    ['key'=>'min_amount','label'=>'最小订单金额','type'=>'number','step'=>'0.01','placeholder'=>'留空=不限制','default'=>''],
-                    ['key'=>'max_amount','label'=>'最大订单金额','type'=>'number','step'=>'0.01','placeholder'=>'留空=不限制','default'=>''],
-                    ['key'=>'shop_keyword','label'=>'店铺关键字','type'=>'text','placeholder'=>'留空=不限制，如：老客户','default'=>''],
                     ['key'=>'count_column','label'=>'计数列名','type'=>'text','placeholder'=>'填列名如"建站订单"，按该列内容筛选计数','default'=>''],
                     ['key'=>'count_keyword','label'=>'关键词（+分隔）','type'=>'text','placeholder'=>'如"拍+链接"，按下方匹配方式筛选该列值','default'=>''],
                     ['key'=>'count_keyword_match','label'=>'关键词匹配方式','type'=>'select','options'=>['all'=>'同时包含所有词(且)','any'=>'包含任一词(或)'],'default'=>'all'],

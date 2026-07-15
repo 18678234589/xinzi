@@ -32,7 +32,7 @@ function extract_order_no($rawMap)
         'order number', 'Order Number', 'orderno', 'orderNo.',
     ];
     foreach ($candidates as $key) {
-        if (isset($rawMap[$key]) && trim($rawMap[$key]) !== '') {
+        if (isset($rawMap[$key]) && is_string($rawMap[$key]) && trim($rawMap[$key]) !== '') {
             return trim($rawMap[$key]);
         }
     }

@@ -228,7 +228,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         $batchStmt = db()->prepare("INSERT INTO upload_batches (employee_id, headers) VALUES (?, ?)");
                         $batchStmt->execute([$employee_id, $batchHeaders]);
 
-                        // 清空当月旧数据，避免重复上传导致数据累加
+                        // 清空当月同模块旧数据，避免重复上传导致数据累加（不同模块互不影响）
                         $monthPattern = $upload_month . '%';
                         if ($order_scope === 'department' && $dept_name !== '') {
                             // 部门订单：软删除该部门当月的汇总行 + 归属员工的拆分行（移入回收站）
@@ -445,6 +445,91 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             exit;
         } catch (PDOException $ex) {
             $error = '批量删除失败: ' . $ex->getMessage();
+        }
+    } elseif ($action === 'delete_months') {
+        // 按月份批量删除（支持多选月份），仅删除当前视图可见范围（软删除→回收站）
+        $months = array_values(array_filter(array_map('trim', (array)($_POST['months'] ?? []))));
+        $delEmp        = (int)($_POST['employee_id'] ?? 0);
+        $delDept       = trim($_POST['department'] ?? '');
+        $delDeptOrders = ($_POST['dept_orders'] ?? '') === '1';
+        if (empty($months)) {
+            $error = '请先勾选要删除的月份';
+        } else {
+            try {
+                $where  = " WHERE 1=1";
+                $params = [];
+                if ($delEmp > 0) {
+                    $where .= " AND (o.employee_id = ? OR (o.order_scope = 'department' AND (o.shop IS NULL OR o.shop = '')))";
+                    $params[] = $delEmp;
+                } elseif ($delDept !== '') {
+                    $where .= " AND e.department = ?";
+                    $params[] = $delDept;
+                }
+                if ($delDeptOrders) {
+                    $where .= " AND o.order_scope = 'department'";
+                }
+                // 与列表一致：排除店铺上传的订单
+                $where .= " AND NOT (o.order_scope = 'department' AND o.shop <> '')";
+                $ph = implode(',', array_fill(0, count($months), '?'));
+                $where .= " AND DATE_FORMAT(o.order_date, '%Y-%m') IN ($ph)";
+                foreach ($months as $m) { $params[] = $m; }
+                $sql = "UPDATE orders o LEFT JOIN employees e ON o.employee_id = e.id SET o.is_deleted=1" . $where;
+                db()->prepare($sql)->execute($params);
+                $rq = [];
+                if ($delEmp)        $rq['employee_id'] = $delEmp;
+                if ($delDept)       $rq['department']   = $delDept;
+                if ($delDeptOrders) $rq['dept_orders'] = '1';
+                $rq['upload_ok'] = '1';
+                $rq['msg'] = urlencode('已删除所选月份订单');
+                header('Location: ' . BASE_URL . '/orders/index.php?' . http_build_query($rq));
+                exit;
+            } catch (PDOException $ex) {
+                $error = '删除失败: ' . $ex->getMessage();
+            }
+        }
+    } elseif ($action === 'delete_project') {
+        // 删除指定模块（project）的全部订单（软删除→回收站）
+        $delProject    = trim($_POST['project'] ?? '');
+        $delEmp        = (int)($_POST['employee_id'] ?? 0);
+        $delDept       = trim($_POST['department'] ?? '');
+        $delDeptOrders = ($_POST['dept_orders'] ?? '') === '1';
+        if ($delProject === '') {
+            $error = '缺少模块名称';
+        } else {
+            try {
+                $where  = " WHERE (o.project = ?";
+                $params = [$delProject];
+                if ($delProject === '订单') {
+                    $where .= " OR o.project = '' OR o.project IS NULL";
+                }
+                $where .= ")";
+                if ($delEmp > 0) {
+                    $where .= " AND (o.employee_id = ? OR (o.order_scope = 'department' AND (o.shop IS NULL OR o.shop = '')))";
+                    $params[] = $delEmp;
+                } elseif ($delDept !== '') {
+                    $where .= " AND e.department = ?";
+                    $params[] = $delDept;
+                }
+                if ($delDeptOrders) {
+                    $where .= " AND o.order_scope = 'department'";
+                }
+                // 与列表一致：排除店铺上传的订单
+                $where .= " AND NOT (o.order_scope = 'department' AND o.shop <> '')";
+                $sql = "UPDATE orders o LEFT JOIN employees e ON o.employee_id = e.id SET o.is_deleted=1" . $where;
+                $stmt = db()->prepare($sql);
+                $stmt->execute($params);
+                $deleted = $stmt->rowCount();
+                $rq = [];
+                if ($delEmp)        $rq['employee_id'] = $delEmp;
+                if ($delDept)       $rq['department']   = $delDept;
+                if ($delDeptOrders) $rq['dept_orders'] = '1';
+                $rq['upload_ok'] = '1';
+                $rq['msg'] = urlencode("已删除模块「{$delProject}」{$deleted}条订单");
+                header('Location: ' . BASE_URL . '/orders/index.php?' . http_build_query($rq));
+                exit;
+            } catch (PDOException $ex) {
+                $error = '删除失败: ' . $ex->getMessage();
+            }
         }
     }
 }
@@ -1071,7 +1156,7 @@ include __DIR__ . '/../includes/header.php';
                                 <li class="breadcrumb-item active"><i class="fas fa-users text-warning"></i> 部门订单</li>
                             <?php endif; ?>
                             <?php if ($filter_employee): ?>
-                                <?php $emp = array_filter($employees, fn($e) => $e['id'] == $filter_employee)[0] ?? null; ?>
+                                <?php $emp = get_employee($filter_employee); ?>
                                 <li class="breadcrumb-item active"><?php echo $emp ? e($emp['name']) : '员工'.$filter_employee; ?></li>
                             <?php endif; ?>
                         </ol>
@@ -1148,6 +1233,17 @@ include __DIR__ . '/../includes/header.php';
                 
                 <!-- 第三级：按年份-月份-提成模块三级分组（选择了员工/锁定员工/部门订单时显示） -->
                 <?php elseif ($filter_employee || $locked_employee || $filter_dept_orders): ?>
+                <!-- 按月份批量删除（勾选下方各月份前的复选框，可单选/多选后一次性删除） -->
+                <form method="post" id="monthDeleteForm" onsubmit="return confirm('确定删除所选月份的【全部】订单？此操作不可恢复！')">
+                    <input type="hidden" name="action" value="delete_months">
+                    <?php if ($locked_employee): ?><input type="hidden" name="employee_id" value="<?php echo $locked_employee['id']; ?>"><?php endif; ?>
+                    <?php if ($filter_employee): ?><input type="hidden" name="employee_id" value="<?php echo $filter_employee; ?>"><?php endif; ?>
+                    <?php if ($filter_dept): ?><input type="hidden" name="department" value="<?php echo e($filter_dept); ?>"><?php endif; ?>
+                    <?php if ($filter_dept_orders): ?><input type="hidden" name="dept_orders" value="1"><?php endif; ?>
+                    <div class="d-flex align-items-center mb-2 p-2 bg-light border rounded">
+                        <button type="submit" class="btn btn-sm btn-danger"><i class="fas fa-trash-alt"></i> 删除所选月份订单（<span id="monthSelCount">0</span>）</button>
+                        <small class="text-muted ml-2">勾选下方各月份前的复选框，可单选或多选（如 6月 + 4月）后一次性删除该月全部订单</small>
+                    </div>
                 <?php foreach ($yearGroups as $yearData): ?>
                 <!-- 年份卡片 -->
                 <div class="card mb-3 border-primary">
@@ -1165,6 +1261,7 @@ include __DIR__ . '/../includes/header.php';
                             <div class="card-header bg-info text-white py-2">
                                 <h6 class="mb-0 d-flex align-items-center justify-content-between">
                                     <span>
+                                        <input type="checkbox" name="months[]" value="<?php echo $monthData['month']; ?>" class="month-check mr-2 align-middle" title="勾选后可批量删除该月订单">
                                         <i class="fas fa-calendar"></i> <?php echo date('Y年m月', strtotime($monthData['month'] . '-01')); ?>
                                         <span class="badge badge-light text-info ml-2"><?php echo $monthData['total_cnt']; ?> 笔</span>
                                     </span>
@@ -1191,8 +1288,9 @@ include __DIR__ . '/../includes/header.php';
                                 ?>
                                 <div class="order-group mb-2">
                                     <!-- 分组标题行：点击展开/收起 -->
+                                    <div class="d-flex align-items-stretch">
                                     <a href="<?php echo '?' . http_build_query($isExpand ? $collapseQ : $grpQ); ?>"
-                                       class="order-group-header d-flex align-items-center justify-content-between px-3 py-2 text-decoration-none <?php echo $isExpand ? 'expanded' : ''; ?>"
+                                       class="order-group-header d-flex align-items-center justify-content-between flex-grow-1 px-3 py-2 text-decoration-none <?php echo $isExpand ? 'expanded' : ''; ?>"
                                        <?php if ($isExpand): ?>data-toggle="modal" data-target="#orderDetailModal"<?php endif; ?>>
                                         <span>
                                             <i class="fas fa-<?php echo $isExpand ? 'folder-open' : 'folder'; ?> mr-2 text-warning"></i>
@@ -1208,7 +1306,7 @@ include __DIR__ . '/../includes/header.php';
                                                 <span class="badge badge-danger ml-1 abnormal-filter-badge" title="只看异常订单" onclick="event.preventDefault();event.stopPropagation();location.href='<?php echo '?' . http_build_query($abnQ); ?>';"><i class="fas fa-exclamation-triangle"></i> <?php echo $grp['abn_cnt']; ?></span>
                                             <?php endif; ?>
                                         </span>
-                                        <span class="text-success font-weight-bold">
+                                        <span class="text-success font-weight-bold d-flex align-items-center">
                                             ¥<?php echo money($grp['normal_amount']); ?>
                                             <form method="post" action="" class="d-inline" onsubmit="return confirm('确定删除【<?php echo e($grpName); ?>】的 <?php echo $grp['cnt']; ?> 条订单？此操作不可恢复！');" style="display:inline-block">
                                                 <input type="hidden" name="action" value="delete_group">
@@ -1220,12 +1318,19 @@ include __DIR__ . '/../includes/header.php';
                                             <i class="fas fa-chevron-<?php echo $isExpand ? 'up' : 'down'; ?> ml-2 text-muted" style="font-size:.8em"></i>
                                         </span>
                                     </a>
+                                    <button type="button" class="btn btn-link text-danger p-0 px-2 d-flex align-items-center" style="font-size:.8em;border-left:1px solid #dee2e6"
+                                        title="删除此模块全部订单"
+                                        onclick='deleteProject(<?php echo json_encode($grpName, JSON_UNESCAPED_UNICODE); ?>, <?php echo (int)$grp['cnt']; ?>, <?php echo (int)($locked_employee ? $locked_employee['id'] : $filter_employee); ?>, <?php echo json_encode($filter_dept, JSON_UNESCAPED_UNICODE); ?>, <?php echo json_encode($filter_dept_orders ? '1' : '', JSON_UNESCAPED_UNICODE); ?>)'>
+                                        <i class="fas fa-trash-alt"></i>
+                                    </button>
+                                    </div>
 
                                     <?php if ($isExpand): ?>
                                         <div class="small text-muted px-3 py-1 bg-light border-left border-right border-bottom rounded-bottom">
                                             明细已在弹窗中打开。
                                         </div>
                                     <?php endif; ?>
+
 
                 </div><!-- /order-group -->
                 <?php endforeach; // projects in month ?>
@@ -1236,6 +1341,7 @@ include __DIR__ . '/../includes/header.php';
                     </div><!-- /card-body for year -->
                 </div><!-- /card for year -->
                 <?php endforeach; // years ?>
+                </form><!-- /monthDeleteForm -->
                 
                 <?php endif; ?> <!-- 结束三级判断 -->
 
@@ -1630,6 +1736,33 @@ window.addEventListener('load', function() {
     }
 });
 <?php endif; ?>
+
+// 月份批量删除：更新已选月份计数
+$(function() {
+    if (typeof $ === 'function' && $('.month-check').length) {
+        $('.month-check').on('change', function() {
+            var n = $('.month-check:checked').length;
+            var sc = document.getElementById('monthSelCount');
+            if (sc) sc.textContent = n;
+        });
+    }
+});
+
+// 删除模块全部订单
+var jsEscape = function(s) { return s.replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/"/g,'\\"'); };
+function deleteProject(project, count, empId, dept, deptOrders) {
+    if (!confirm('确定删除模块「' + project + '」的全部 ' + count + ' 条订单？此操作不可恢复！')) return;
+    var f = document.createElement('form');
+    f.method = 'post';
+    var html = '<input type="hidden" name="action" value="delete_project">'
+        + '<input type="hidden" name="project" value="' + jsEscape(project) + '">';
+    if (empId > 0) html += '<input type="hidden" name="employee_id" value="' + empId + '">';
+    if (dept) html += '<input type="hidden" name="department" value="' + jsEscape(dept) + '">';
+    if (deptOrders) html += '<input type="hidden" name="dept_orders" value="1">';
+    f.innerHTML = html;
+    document.body.appendChild(f);
+    f.submit();
+}
 
 // 取消选择 & 单条删除
 (function() {

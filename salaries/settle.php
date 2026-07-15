@@ -704,7 +704,7 @@ include __DIR__ . '/../includes/header.php';
 
                     <?php if (!empty($mods)): ?>
                     <tbody>
-                        <tr class="bg-light"><th colspan="4" class="py-1 text-center"><strong><i class="fas fa-layer-group mr-1"></i>薪资模块明细（共 <?php echo count($mods); ?> 个模块，合计 ¥<?php echo money($preview['module_total']); ?>）</strong></th></tr>
+                        <tr class="bg-light"><th colspan="4" class="py-1 text-center"><strong><i class="fas fa-layer-group mr-1"></i>薪资模块明细（共 <?php echo count($mods); ?> 个模块，合计 ¥<?php echo money(array_sum(array_column($mods, 'amount'))); ?>）</strong></th></tr>
                         <tr class="table-secondary"><th>#</th><th>模块名称</th><th>类型</th><th class="text-right">金额</th></tr>
                         <?php foreach ($mods as $mi => $m):
                             $cls = $m['amount'] >= 0 ? 'text-success' : 'text-danger';
@@ -782,6 +782,7 @@ include __DIR__ . '/../includes/header.php';
                         }
                     }
                     foreach ($mods as $m) {
+                        if (($m['type'] ?? '') === 'base_salary') continue;
                         $parts[] = ($m['amount']>=0?'':'') . money(abs($m['amount'])) . '(' . e($m['name']) . ')';
                     }
                     echo implode(' + ', $parts);

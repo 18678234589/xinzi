@@ -90,7 +90,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $count = count($modules);
                 $success = "已保存 {$count} 个薪资模块" . ($deptShare ? '' : '（不参与部门订单提成）');
             } else {
-                $error = '保存失败';
+                $lastErr = SalaryCalculator::getLastError();
+                $error = '保存失败' . ($lastErr ? '：' . $lastErr : '');
             }
         } else {
             $error = '请至少添加一个模块';
@@ -562,10 +563,10 @@ function calcPreview(idx) {
         case 'profit_commission':
             var cr = cfg.commission_rate || 0;
             var sf = cfg.service_fee_rate || 0;
-            var demoProfit = orderTotalDemo;
-            var demoPrice  = orderTotalDemo * 1.2;
-            result.amount = (demoProfit - demoPrice * sf) * cr;
-            result.detail = '(利润¥' + number_format(demoProfit,0) + ' - 售价¥' + number_format(demoPrice,0) + '×' + (sf*100).toFixed(2) + '%) ×' + (cr*100).toFixed(2) + '%';
+            var demoAmount = orderTotalDemo;
+            var demoCost   = orderTotalDemo * 0.5;
+            result.amount = ((demoAmount - demoCost) - demoAmount * sf) * cr;
+            result.detail = '((订单金额¥' + number_format(demoAmount,0) + ' - 成本¥' + number_format(demoCost,0) + ') - 订单金额¥' + number_format(demoAmount,0) + '×' + (sf*100).toFixed(2) + '%) ×' + (cr*100).toFixed(2) + '%';
             break;
         default: result.amount = 0; result.detail = '--';
     }
@@ -748,6 +749,32 @@ $(function(){
         var idx=$(this).data('index'), type=$(this).find("[name='mod_type\\["+idx+"\\]']").val();
         $(this).on('change input', function(){setTimeout(renderAllPreviews,50);});
     });
+});
+
+// ==================== 调试：提交时打印到控制台 ====================
+$('#moduleForm').on('submit', function() {
+    try {
+        var fd = new FormData(this);
+        var dump = {};
+        fd.forEach(function(v, k) {
+            if (dump[k] === undefined) dump[k] = v;
+            else if (Array.isArray(dump[k])) dump[k].push(v);
+            else dump[k] = [dump[k], v];
+        });
+        console.log('[algorithm] 提交数据 mod_type=', dump['mod_type']);
+        console.log('[algorithm] 提交数据 mod_name=', dump['mod_name']);
+        console.log('[algorithm] 提交数据 mod_cfg=', dump['mod_cfg']);
+        // 单独高亮引流订单模块
+        var types = dump['mod_type'] || [];
+        types.forEach(function(t, i) {
+            if (t === 'referral_order') {
+                console.log('[algorithm] 引流订单模块 #' + i + ' 配置=', (dump['mod_cfg'] && dump['mod_cfg']['subsidy']) ? dump['mod_cfg']['subsidy'][i] : 'N/A');
+            }
+        });
+        console.log('[algorithm] 完整表单=', dump);
+    } catch (e) {
+        console.error('[algorithm] 调试打印异常', e);
+    }
 });
 </script>
 
