@@ -1,8 +1,20 @@
 <?php
 require_once __DIR__ . '/../includes/auth.php';
+require_once __DIR__ . '/../includes/functions.php';
 require_login();
 
 $page_title = '薪资查询';
+
+// ========== 删除处理 ==========
+$delMsg = '';
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'delete') {
+    $delId = (int)($_POST['id'] ?? 0);
+    if ($delId > 0) {
+        $stmt = db()->prepare("DELETE FROM salaries WHERE id = ?");
+        $stmt->execute([$delId]);
+        $delMsg = $stmt->rowCount() ? '已删除该薪资记录' : '未找到对应记录';
+    }
+}
 
 // 筛选条件
 $filter_dept  = $_GET['department'] ?? '';
@@ -64,6 +76,10 @@ include __DIR__ . '/../includes/header.php';
     </a>
     <?php endif; ?>
 </div>
+
+<?php if ($delMsg): ?>
+<div class="alert alert-success alert-dismissible fade show"><i class="fas fa-check-circle"></i> <?php echo e($delMsg); ?><button type="button" class="close" data-dismiss="alert">&times;</button></div>
+<?php endif; ?>
 
 <!-- 筛选栏 -->
 <div class="card mb-3">
@@ -139,7 +155,7 @@ include __DIR__ . '/../includes/header.php';
             <table class="table table-hover table-bordered">
                 <thead class="thead-light">
                     <tr>
-                        <th>月份</th><th>姓名</th><th>部门</th><th>订单总额</th><th>提成金额</th><th>实发工资</th><th>全勤奖</th><th>结算时间</th>
+                        <th>月份</th><th>姓名</th><th>部门</th><th>订单总额</th><th>提成金额</th><th>实发工资</th><th>全勤奖</th><th>结算时间</th><th>操作</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -153,9 +169,18 @@ include __DIR__ . '/../includes/header.php';
                         <td class="font-weight-bold text-success">¥<?php echo money($s['net_pay']); ?></td>
                         <td class="text-success">+¥<?php echo money($s['full_attendance_bonus'] ?? 0); ?></td>
                         <td><small class="text-muted"><?php echo $s['created_at']; ?></small></td>
+                        <td>
+                            <form method="post" class="d-inline" onsubmit="return confirm('确定删除 <?php echo e($s['name']); ?> 的 <?php echo e($s['month']); ?> 薪资记录？此操作不可恢复！')">
+                                <input type="hidden" name="action" value="delete">
+                                <input type="hidden" name="id" value="<?php echo $s['id']; ?>">
+                                <button type="submit" class="btn btn-sm btn-outline-danger py-0 px-1" title="删除">
+                                    <i class="fas fa-trash-alt"></i>
+                                </button>
+                            </form>
+                        </td>
                     </tr>
                 <?php endforeach; else: ?>
-                    <tr><td colspan="8" class="text-center text-muted py-5">
+                    <tr><td colspan="9" class="text-center text-muted py-5">
                         <i class="fas fa-inbox fa-3x mb-2 d-block"></i>暂无薪资记录，请先进行薪资结算
                     </td></tr>
                 <?php endif; ?>
@@ -167,6 +192,7 @@ include __DIR__ . '/../includes/header.php';
                         <td>¥<?php echo money($grand_order_total); ?></td>
                         <td>¥<?php echo money($grand_commission); ?></td>
                         <td class="text-success">¥<?php echo money($grand_net_pay); ?></td>
+                        <td></td>
                         <td></td>
                         <td></td>
                     </tr>
