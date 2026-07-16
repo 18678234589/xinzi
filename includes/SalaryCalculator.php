@@ -118,11 +118,11 @@ class SalaryCalculator
                 
                 file_put_contents(__DIR__ . '/../debug_config.txt', json_encode($raw['modules'], JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE));
                 
-                // 先计算退款订单的独立扣除
-                $refundDeduction = self::calcRefundDeduction($context);
-                if ($refundDeduction !== null && $refundDeduction['amount'] != 0) {
-                    $results[] = $refundDeduction;
-                }
+                // 已禁用自动退款扣除
+                // $refundDeduction = self::calcRefundDeduction($context);
+                // if ($refundDeduction !== null && $refundDeduction['amount'] != 0) {
+                //     $results[] = $refundDeduction;
+                // }
                 
                 // 再计算各个提成模块（排除退款订单）
                 // 先找出 base_salary 模块（自定义底薪，覆盖员工表底薪）
@@ -502,6 +502,10 @@ class SalaryCalculator
         $serviceFeeRate = isset($cfg['service_fee_rate']) && $cfg['service_fee_rate'] !== '' && $cfg['service_fee_rate'] !== null ? (float)$cfg['service_fee_rate'] : 0;
         $domainCostPer  = isset($cfg['domain_cost_per']) && $cfg['domain_cost_per'] !== '' && $cfg['domain_cost_per'] !== null ? (float)$cfg['domain_cost_per'] : 0;
         $sslCostPer     = isset($cfg['ssl_cost_per']) && $cfg['ssl_cost_per'] !== '' && $cfg['ssl_cost_per'] !== null ? (float)$cfg['ssl_cost_per'] : 0;
+        // 成本分摊角色：frontend=前端（分摊50%，后端无则承担100%），backend=后端（分摊50%，后端无则0%）
+        $costRole       = isset($cfg['cost_role']) && $cfg['cost_role'] !== '' ? $cfg['cost_role'] : 'frontend';
+        // 域名总成本（前端40+后端40=80，后端无则前端承担80）
+        $domainTotalCost = isset($cfg['domain_total_cost']) && $cfg['domain_total_cost'] !== '' && $cfg['domain_total_cost'] !== null ? (float)$cfg['domain_total_cost'] : 80;
         
         // 如果配置了金额范围或店铺关键字，则忽略模块名筛选
         $useFilter = ($minAmount !== null || $maxAmount !== null || $shopKeyword !== null);
@@ -556,7 +560,7 @@ class SalaryCalculator
         $domainCostTotal = 0;
         $sslCostTotal = 0;
         
-        if ($domainCostPer > 0 || $sslCostPer > 0 || (isset($cfg['ssl_from_rawdata']) && $cfg['ssl_from_rawdata'])) {
+        if ($domainCostPer > 0 || $sslCostPer > 0 || (isset($cfg['ssl_from_rawdata']) && $cfg['ssl_from_rawdata']) || $domainTotalCost > 0) {
             foreach (($c['orders'] ?? []) as $o) {
                 // 模块名过滤
                 if ($filterByName !== '' && trim($o['project'] ?? '') !== $filterByName) continue;
@@ -570,8 +574,18 @@ class SalaryCalculator
                 if ($minAmount !== null && $orderAmt < $minAmount) continue;
                 if ($maxAmount !== null && $orderAmt > $maxAmount) continue;
                 
+                // 读取后端字段值
+                $backendVal = '';
+                foreach ($rawData as $k => $v) {
+                    if (mb_strpos($k, '后端') !== false) {
+                        $backendVal = trim(strval($v));
+                        break;
+                    }
+                }
+                $backendIsNone = ($backendVal === '无' || $backendVal === '' || $backendVal === 'none');
+                
                 // 检查域名使用
-                if ($domainCostPer > 0) {
+                if ($domainTotalCost > 0) {
                     $domainUsed = false;
                     foreach ($rawData as $k => $v) {
                         if (mb_strpos($k, '域名') !== false) {
@@ -584,33 +598,50 @@ class SalaryCalculator
                     }
                     if ($domainUsed) {
                         $domainCount++;
-                        $domainCostTotal += $domainCostPer;
+                        if ($costRole === 'frontend') {
+                            // 前端：后端有则分摊50%，后端无则承担100%
+                            $domainCostTotal += $backendIsNone ? $domainTotalCost : ($domainTotalCost / 2);
+                        } elseif ($costRole === 'backend') {
+                            // 后端：后端有则分摊50%，后端无则0%
+                            $domainCostTotal += $backendIsNone ? 0 : ($domainTotalCost / 2);
+                        }
                     }
                 }
                 
                 // 检查SSL证书使用
                 if ($sslCostPer > 0 || (isset($cfg['ssl_from_rawdata']) && $cfg['ssl_from_rawdata'])) {
                     $sslUsed = false;
+                    $sslAmount = 0;
                     foreach ($rawData as $k => $v) {
                         if (mb_strpos($k, 'SSL') !== false || mb_strpos($k, 'ssl') !== false) {
                             $val = trim(strval($v));
                             if (is_numeric($val) && floatval($val) > 0) {
-                                // SSL列有金额值，直接使用该值
-                                $sslCostTotal += floatval($val);
+                                $sslAmount = floatval($val);
                                 $sslUsed = true;
                                 break;
                             }
                         }
                     }
-                    if (!$sslUsed) {
+                    if ($sslUsed && $sslAmount > 0) {
+                        if ($costRole === 'frontend') {
+                            // 前端：后端有则平分，后端无则全部
+                            $sslCostTotal += $backendIsNone ? $sslAmount : ($sslAmount / 2);
+                        } elseif ($costRole === 'backend') {
+                            // 后端：后端有则平分，后端无则0
+                            $sslCostTotal += $backendIsNone ? 0 : ($sslAmount / 2);
+                        }
+                    } elseif (!$sslUsed) {
                         // 没有找到SSL金额，按固定单价计算
                         foreach ($rawData as $k => $v) {
                             if (mb_strpos($k, 'SSL') !== false || mb_strpos($k, 'ssl') !== false) {
                                 $val = trim(strval($v));
                                 if ($val === '是' || $val === '1' || $val === 'true') {
+                                    if ($costRole === 'frontend') {
+                                        $sslCostTotal += $backendIsNone ? $sslCostPer : ($sslCostPer / 2);
+                                    } elseif ($costRole === 'backend') {
+                                        $sslCostTotal += $backendIsNone ? 0 : ($sslCostPer / 2);
+                                    }
                                     $sslCount++;
-                                    $sslCostTotal += $sslCostPer;
-                                    $sslUsed = true;
                                     break;
                                 }
                             }
@@ -651,7 +682,7 @@ class SalaryCalculator
             $costDetailParts[] = sprintf('%.2f', $serviceFee);
         }
         if ($domainCostTotal > 0) {
-            $costLabel .= ($costLabel ? '+' : '') . sprintf('域名¥%g×%d', $domainCostPer, $domainCount);
+            $costLabel .= ($costLabel ? '+' : '') . sprintf('域名%d个×%s=%.2f', $domainCount, $costRole === 'frontend' ? '前端分摊' : '后端分摊', $domainCostTotal);
             $costDetailParts[] = sprintf('%.2f', $domainCostTotal);
         }
         if ($sslCostTotal > 0) {
@@ -1146,13 +1177,14 @@ class SalaryCalculator
         $newReward = (float)($cfg['new_customer_reward'] ?? 50);
         $oldReward = (float)($cfg['old_customer_reward'] ?? 30);
         
-        $month = $c['month'] ?? date('Y-m');
         $employeeId = $c['employee']['id'] ?? 0;
         
-        $personalWangwangs = [];
-        $shopWangwangs = [];
+        // 记录每个旺旺号的客户类型：true=新客户, false=老客户
+        $customerTypes = [];
         
         foreach (($c['orders'] ?? []) as $o) {
+            if ($o['employee_id'] != $employeeId) continue;
+            
             $wangwang = self::extractWangwang($o);
             if ($wangwang === '') continue;
             
@@ -1160,33 +1192,41 @@ class SalaryCalculator
             $isRefund = isset($rawData['__is_refund__']) && $rawData['__is_refund__'] === '1';
             if ($isRefund) continue;
             
-            if ($o['employee_id'] == $employeeId) {
-                $personalWangwangs[$wangwang] = true;
+            // 获取备注内容
+            $remark = strtolower(trim($o['remark'] ?? ''));
+            $rawRemark = '';
+            if (is_array($rawData)) {
+                foreach ($rawData as $key => $value) {
+                    $lowerKey = strtolower(trim($key));
+                    if (strpos($lowerKey, '备注') !== false) {
+                        $rawRemark = strtolower(trim((string)$value));
+                        break;
+                    }
+                }
             }
             
-            if ($o['order_scope'] === 'department') {
-                $shopWangwangs[$wangwang] = true;
+            // 判断是否新客户：备注包含"新客户"
+            $isNewCustomer = strpos($remark, '新客户') !== false || strpos($rawRemark, '新客户') !== false;
+            
+            // 如果已是新客户，保持不变；否则根据当前订单更新
+            if ($isNewCustomer) {
+                $customerTypes[$wangwang] = true;
+            } elseif (!isset($customerTypes[$wangwang])) {
+                // 没有标记新客户，且尚未记录过，则归为老客户
+                $customerTypes[$wangwang] = false;
             }
         }
         
-        $shopWangwangsFromDb = self::getShopTotalWangwangs($month);
-        foreach ($shopWangwangsFromDb as $ww) {
-            $shopWangwangs[$ww] = true;
-        }
-        
-        $newCustomers = [];
-        $oldCustomers = [];
-        
-        foreach (array_keys($personalWangwangs) as $ww) {
-            if (isset($shopWangwangs[$ww])) {
-                $oldCustomers[] = $ww;
+        // 统计新客户和老客户数量
+        $newCount = 0;
+        $oldCount = 0;
+        foreach ($customerTypes as $wangwang => $isNew) {
+            if ($isNew) {
+                $newCount++;
             } else {
-                $newCustomers[] = $ww;
+                $oldCount++;
             }
         }
-        
-        $newCount = count($newCustomers);
-        $oldCount = count($oldCustomers);
         
         $newAmount = $newCount * $newReward;
         $oldAmount = $oldCount * $oldReward;
@@ -1233,54 +1273,6 @@ class SalaryCalculator
             }
         }
         
-        return '';
-    }
-    
-    private static function getShopTotalWangwangs($month)
-    {
-        $wangwangs = [];
-        try {
-            $stmt = db()->prepare("SELECT DISTINCT wangwang FROM orders WHERE order_scope = 'department' AND DATE_FORMAT(order_date, '%Y-%m') = ? AND wangwang IS NOT NULL AND wangwang != ''");
-            $stmt->execute([$month]);
-            while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
-                $ww = trim($row['wangwang']);
-                if ($ww !== '') {
-                    $wangwangs[] = $ww;
-                }
-            }
-            
-            $stmt2 = db()->prepare("SELECT raw_data FROM orders WHERE order_scope = 'department' AND DATE_FORMAT(order_date, '%Y-%m') = ? AND raw_data IS NOT NULL");
-            $stmt2->execute([$month]);
-            while ($row = $stmt2->fetch(PDO::FETCH_ASSOC)) {
-                $rawData = json_decode($row['raw_data'], true);
-                if (is_array($rawData)) {
-                    $ww = self::extractWangwangFromRaw($rawData);
-                    if ($ww !== '' && !in_array($ww, $wangwangs)) {
-                        $wangwangs[] = $ww;
-                    }
-                }
-            }
-        } catch (\Throwable $e) {
-            error_log("getShopTotalWangwangs error: " . $e->getMessage());
-        }
-        
-        return $wangwangs;
-    }
-    
-    private static function extractWangwangFromRaw($rawData)
-    {
-        foreach ($rawData as $key => $value) {
-            $lowerKey = strtolower(trim($key));
-            if (strpos($lowerKey, '旺旺') !== false || 
-                strpos($lowerKey, 'wangwang') !== false ||
-                strpos($lowerKey, '买家') !== false ||
-                strpos($lowerKey, '用户') !== false) {
-                $ww = trim((string)$value);
-                if ($ww !== '') {
-                    return $ww;
-                }
-            }
-        }
         return '';
     }
 
@@ -1546,7 +1538,7 @@ class SalaryCalculator
                 'label' => '新老客户订单奖励',
                 'icon' => 'fa-users',
                 'color' => 'purple',
-                'desc' => '上传的个人订单与店铺总订单比对，按客户旺旺号计算新老客户奖励',
+                'desc' => '根据个人订单备注识别新老客户，按客户旺旺号去重计算奖励',
                 'fields' => [
                     ['key'=>'_name','label'=>'模块名称（必填）','type'=>'text','placeholder'=>'如：新老客户奖励','default'=>''],
                     ['key'=>'new_customer_reward','label'=>'新客户奖励金额','type'=>'number','step'=>'0.01','min'=>'0','placeholder'=>'每个新客户奖励金额','default'=>'50'],
