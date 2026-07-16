@@ -576,6 +576,20 @@ function calcPreview(idx) {
             result.amount = (newCnt * newReward) + (oldCnt * oldReward);
             result.detail = '新客户'+newCnt+'人 + 老客户'+oldCnt+'人';
             break;
+        case 'miniprogram_commission':
+            var cr = cfg.commission_rate || 0;
+            var sf = cfg.service_fee_rate || 0;
+            var demoAmount = orderTotalDemo;
+            var demoCost   = orderTotalDemo * 0.5;
+            var profitComm = ((demoAmount - demoCost) - demoAmount * sf) * cr;
+            var filterCol = cfg.filter_column || '';
+            var filterVal = cfg.filter_value || '';
+            var custSub = cfg.customer_subsidy || 0;
+            var demoCustCnt = Math.round(orderTotalDemo/8000)||2;
+            var subsidyAmt = (filterCol && filterVal && custSub > 0) ? demoCustCnt * custSub : 0;
+            result.amount = profitComm + subsidyAmt;
+            result.detail = '利润提成+新客户补助(' + demoCustCnt + '单×¥' + custSub + ')';
+            break;
         default: result.amount = 0; result.detail = '--';
     }
 
@@ -623,19 +637,30 @@ function buildFieldsHTML(idx, fields) {
     if (!fields || fields.length === 0) return html;
     $.each(fields, function(i, f) {
         var val = f.default || '';
-        var extraAttrs = ' class="form-control form-control-sm" name="mod_cfg[' + f.key + '][' + idx + ']" step="' + (f.step || 'any') + '" ';
+        var inputType = (f.type === 'text') ? 'text' : 'number';
+        var extraAttrs = ' class="form-control form-control-sm" name="mod_cfg[' + f.key + '][' + idx + ']" ';
+        if (inputType === 'number') {
+            extraAttrs += 'step="' + (f.step || 'any') + '" ';
+        }
 
         var suffix = '';
-        if (f.key.indexOf('rate') >= 0) {
+        if (inputType === 'text') {
+            // text 类型不需要前缀/后缀
+        } else if (f.key.indexOf('rate') >= 0) {
             suffix = '<span class="input-group-append"><span class="input-group-text">%</span></span>';
         } else if (f.label.indexOf('金额') >= 0 || f.key.indexOf('amount') >= 0) {
             suffix = '<div class="input-group-prepend"><span class="input-group-text">¥</span></div>';
         }
 
         html += '<div class="form-group"><label>'+f.label+'</label>';
-        html += '<div class="input-group">'+suffix;
-        html += '<input type="number" '+extraAttrs+' value="'+val+'" placeholder="'+(f.placeholder||'')+'">';
-        html += '</div></div>';
+        if (inputType === 'text') {
+            html += '<input type="text" '+extraAttrs+' value="'+val+'" placeholder="'+(f.placeholder||'')+'">';
+        } else {
+            html += '<div class="input-group">'+suffix;
+            html += '<input type="number" '+extraAttrs+' value="'+val+'" placeholder="'+(f.placeholder||'')+'">';
+            html += '</div>';
+        }
+        html += '</div>';
     });
     return html;
 }

@@ -70,6 +70,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $error = '批量删除失败: ' . $ex->getMessage();
             }
         }
+    } elseif ($action === 'delete_month') {
+        $del_month = trim($_POST['del_month'] ?? '');
+        if ($del_month === '' || !preg_match('/^\d{4}-\d{2}$/', $del_month)) {
+            $error = '无效的月份';
+        } else {
+            try {
+                $stmt = db()->prepare("UPDATE orders SET is_deleted=1 WHERE shop = ? AND DATE_FORMAT(order_date, '%Y-%m') = ? AND COALESCE(is_deleted, 0) = 0");
+                $stmt->execute([$shop['name'], $del_month]);
+                $cnt = $stmt->rowCount();
+                $success = "已删除 {$del_month} 的 {$cnt} 条订单（移入回收站）";
+            } catch (PDOException $ex) {
+                $error = '删除失败: ' . $ex->getMessage();
+            }
+        }
     } elseif ($action === 'manual_add') {
         $order_amount = (float)($_POST['order_amount'] ?? 0);
         $order_date   = $_POST['order_date'] ?? '';
@@ -131,8 +145,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
 
                 if ($error === '' && !empty($rows)) {
-                    $firstRow = $rows[0];
-                    $dataRows = array_slice($rows, 1);
+                    // 自动跳过标题行：如果第一行不包含已知列名，取下一行做表头
+                    $headerIdx = 0;
+                    $knownCols = ['金额','价格','售价','成本','检索号','交易时间','时间','订单号','订单编号','订单金额','交易金额'];
+                    for ($ri = 0; $ri < min(5, count($rows)); $ri++) {
+                        $rowStr = implode('', $rows[$ri]);
+                        foreach ($knownCols as $kc) {
+                            if (mb_strpos($rowStr, $kc) !== false) { $headerIdx = $ri; break 2; }
+                        }
+                    }
+                    $firstRow = $rows[$headerIdx];
+                    $dataRows = array_slice($rows, $headerIdx + 1);
 
                     // 原样保存表头（空列用"列N"占位）
                     $normalizedHeaders = [];
@@ -145,17 +168,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                     // 找金额/价格/成本列（模糊匹配，支持多种表头名称）
                     $idxPrice = null; $idxCost = null; $idxAmount = null;
+                    $idxOrderNo = null; $idxTradeTime = null;
                     foreach ($colMap as $k => $idx) {
-                        if ($idxAmount === null && (mb_strpos($k, '订单金额') !== false || mb_strpos($k, '金额') !== false)) $idxAmount = $idx;
+                        if ($idxAmount === null && (mb_strpos($k, '订单金额') !== false || mb_strpos($k, '交易金额') !== false || mb_strpos($k, '金额') !== false)) $idxAmount = $idx;
                         if ($idxPrice === null && (mb_strpos($k, '价格') !== false || mb_strpos($k, '售价') !== false)) $idxPrice = $idx;
                         if ($idxCost  === null && (mb_strpos($k, '成本') !== false)) $idxCost  = $idx;
+                        if ($idxOrderNo === null && (mb_strpos($k, '检索号') !== false || mb_strpos($k, '订单编号') !== false)) $idxOrderNo = $idx;
+                        if ($idxTradeTime === null && (mb_strpos($k, '交易时间') !== false || mb_strpos($k, '时间') !== false)) $idxTradeTime = $idx;
                     }
 
                     // 校验：要么有订单金额列，要么有价格和成本列
                     if ($idxAmount === null && ($idxPrice === null || $idxCost === null)) {
                         $error = '表头缺少金额字段：需要"订单金额"列，或同时有"价格/售价"和"成本/总成本"列';
-                        goto upload_done;
-                    }
+                    } else {
 
                     // 保存表头到 upload_batches
                     $batchHeaders = json_encode(array_values($normalizedHeaders), JSON_UNESCAPED_UNICODE);
@@ -177,8 +202,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             $amount = $price - $cost;
                         }
 
-                        // 日期：使用归属月份的第一天作为订单日期
+                        // 日期：归属月份首日（用于分组），实际交易时间存入raw_data供展示
                         $parsedDate = $upload_month . '-01';
+                        $tradeTimeStr = '';
+                        if ($idxTradeTime !== null) {
+                            $tradeTime = trim((string)($row[$idxTradeTime] ?? ''));
+                            if ($tradeTime !== '') {
+                                $dt = '';
+                                if (is_numeric($tradeTime) && $tradeTime > 30000 && $tradeTime < 60000) {
+                                    $ts = ((int)floor((float)$tradeTime) - 25569) * 86400;
+                                    $frac = (float)$tradeTime - floor((float)$tradeTime);
+                                    $ts += (int)round($frac * 86400);
+                                    // Excel序列号是时区无关的，用gmdate避免服务器时区重复偏移
+                                    $dt = gmdate('Y-m-d', $ts);
+                                    $tradeTimeStr = gmdate('Y-m-d H:i:s', $ts);
+                                } elseif (preg_match('/(\d{4}-\d{2}-\d{2})/', $tradeTime, $m)) {
+                                    $dt = $m[1]; $tradeTimeStr = $tradeTime;
+                                } elseif (preg_match('/(\d{4})\/(\d{1,2})\/(\d{1,2})/', $tradeTime, $m)) {
+                                    $dt = sprintf('%s-%02d-%02d', $m[1], $m[2], $m[3]); $tradeTimeStr = $tradeTime;
+                                } elseif (preg_match('/(\d{4})(\d{2})(\d{2})\s/', $tradeTime, $m)) {
+                                    $dt = "{$m[1]}-{$m[2]}-{$m[3]}"; $tradeTimeStr = $tradeTime;
+                                }
+                            }
+                        }
 
                         // 异常标记：金额为0才标记异常，负数金额视为退款订单正常处理
                         $isAbn = 0; $abnReason = '';
@@ -195,11 +241,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             $rawMap[$hdr] = $row[$ci] ?? '';
                         }
                         $rawMap['__shop__'] = $shop['name'];
+                        if ($tradeTimeStr !== '') { $rawMap['__trade_time__'] = $tradeTimeStr; }
                         if ($isRefund) {
                             $rawMap['__is_refund__'] = '1';
                         }
-                        // 提取订单号
-                        $orderNo = extract_order_no($rawMap);
+                        // 提取订单号：优先使用检索号列，否则用通用提取
+                        $orderNo = '';
+                        if ($idxOrderNo !== null) {
+                            $orderNo = trim($row[$idxOrderNo] ?? '');
+                        }
+                        if ($orderNo === '') {
+                            $orderNo = extract_order_no($rawMap);
+                        }
 
                         $stmt->execute([0, $amount, $parsedDate, $shop['name'], $orderNo, json_encode($rawMap, JSON_UNESCAPED_UNICODE), $isAbn, $abnReason]);
                         $isAbn ? $skipped++ : $inserted++;
@@ -210,11 +263,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         header('Location: ' . BASE_URL . '/shops/upload.php?' . http_build_query($rq));
                         exit;
                     }
+
+                    }
                 }
             } catch (Exception $ex) {
                 $error = '解析失败: ' . $ex->getMessage();
             }
-            upload_done:
         }
     }
 }
@@ -374,7 +428,7 @@ include __DIR__ . '/../includes/header.php';
                     <div class="table-responsive">
                         <table class="table table-sm table-hover mb-0">
                             <thead class="thead-light">
-                                <tr><th>归属月份</th><th style="width:100px">订单数</th><th style="width:120px">异常</th><th class="text-right" style="width:120px">正常金额</th></tr>
+                                <tr><th>归属月份</th><th style="width:100px">订单数</th><th style="width:120px">异常</th><th class="text-right" style="width:120px">正常金额</th><th style="width:80px"></th></tr>
                             </thead>
                             <tbody>
                             <?php foreach ($monthGroups as $m):
@@ -392,9 +446,14 @@ include __DIR__ . '/../includes/header.php';
                                     <td><span class="badge badge-secondary"><?php echo $m['cnt']; ?> 笔</span></td>
                                     <td><?php if ($m['abn_cnt'] > 0): ?><span class="badge badge-danger"><?php echo $m['abn_cnt']; ?> 条</span><?php else: ?><span class="text-muted">--</span><?php endif; ?></td>
                                     <td class="text-success font-weight-bold">¥<?php echo money($m['normal_amount']); ?></td>
+                                    <td class="text-right" style="width:80px">
+                                        <button type="button" class="btn btn-sm btn-outline-danger" onclick="event.stopPropagation();deleteMonth('<?php echo e($m['order_month']); ?>', <?php echo $m['cnt']; ?>)" title="一键删除该月全部订单">
+                                            <i class="fas fa-trash-alt"></i>
+                                        </button>
+                                    </td>
                                 </tr>
                                 <?php if ($isExpanded): ?>
-                                <tr><td colspan="4" class="p-0">
+                                <tr><td colspan="5" class="p-0">
                                     <!-- 详细订单列表 -->
                                     <div class="p-2 bg-light border-top">
                                         <form method="post" id="detailForm">
@@ -447,7 +506,7 @@ include __DIR__ . '/../includes/header.php';
                                                                 ¥<?php echo money($o['order_amount']); ?>
                                                                 <?php if ($isRefund): ?><small class="text-muted">(退款)</small><?php endif; ?>
                                                             </td>
-                                                            <td><small><?php echo e($o['order_date']); ?></small></td>
+                                                            <td><small><?php echo e(substr($raw['__trade_time__'] ?? $o['order_date'], 0, 10)); ?></small></td>
                                                             <td>
                                                                 <?php if ($isAbn): ?>
                                                                     <span class="badge badge-warning" title="<?php echo e($o['abnormal_reason']); ?>">异常</span>
@@ -458,7 +517,7 @@ include __DIR__ . '/../includes/header.php';
                                                                 <?php endif; ?>
                                                             </td>
                                                             <td>
-                                                                <button type="button" class="btn btn-sm btn-link p-0 text-info" onclick='showDetail(<?php echo json_encode(["id"=>$o["id"],"order_no"=>$o["order_no"],"amount"=>$o["order_amount"],"date"=>$o["order_date"],"reason"=>$o["abnormal_reason"],"raw"=>$raw], JSON_UNESCAPED_UNICODE); ?>)'>
+                                                                <button type="button" class="btn btn-sm btn-link p-0 text-info" onclick='showDetail(<?php echo json_encode(["id"=>$o["id"],"order_no"=>$o["order_no"],"amount"=>$o["order_amount"],"date"=>$raw['__trade_time__'] ?? $o['order_date'],"reason"=>$o["abnormal_reason"],"raw"=>$raw], JSON_UNESCAPED_UNICODE); ?>)'>
                                                                     <i class="fas fa-eye"></i>
                                                                 </button>
                                                                 <button type="button" class="btn btn-sm btn-link p-0 text-danger" onclick="deleteOrder(<?php echo $o['id']; ?>, '<?php echo e($o['order_date']); ?>')">
@@ -559,6 +618,15 @@ function deleteOrder(id, date){
     var f = document.createElement('form');
     f.method = 'post';
     f.innerHTML = '<input type="hidden" name="action" value="delete_order"><input type="hidden" name="order_id" value="' + id + '">';
+    document.body.appendChild(f);
+    f.submit();
+}
+// 一键删除整月订单
+function deleteMonth(month, count){
+    if (!confirm('确定删除 ' + month + ' 的全部 ' + count + ' 条订单？\n\n订单将移入回收站，可恢复。')) return;
+    var f = document.createElement('form');
+    f.method = 'post';
+    f.innerHTML = '<input type="hidden" name="action" value="delete_month"><input type="hidden" name="del_month" value="' + month + '">';
     document.body.appendChild(f);
     f.submit();
 }

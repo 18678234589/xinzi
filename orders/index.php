@@ -368,8 +368,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                 }
 
                                 // 有匹配的员工：只为匹配到的员工创建拆分行
-                                // 无匹配：为所有归属员工创建拆分行（兼容旧行为）
-                                $splits = !empty($matchedEmps) ? $matchedEmps : $deptEmpModules;
+                                // 无匹配：跳过，不分配给任何人
+                                $splits = $matchedEmps;
                                 $isUnmatched = empty($matchedEmps);
                                 if ($isUnmatched) $unmatched++;
                                 foreach ($splits as $dem) {
@@ -745,8 +745,9 @@ ensureOrderNoColumn(); // 确保 orders.order_no 字段存在
 $baseWhere  = " WHERE NOT (o.order_scope = 'department' AND o.shop <> '') AND COALESCE(o.is_deleted, 0) = 0";
 $baseParams = [];
 if ($filter_employee) {
-    // 个人订单匹配 employee_id，部门订单（非店铺）不过滤（employee_id=0 不属于任何人，显示给所有人看）
-    $baseWhere .= " AND (o.employee_id = ? OR (o.order_scope = 'department' AND (o.shop IS NULL OR o.shop = '')))";
+    // 个人订单：只显示该员工自己的个人拆分行，不显示部门汇总行
+    // 部门订单需通过"部门订单"视图单独查看
+    $baseWhere .= " AND o.employee_id = ? AND COALESCE(o.order_scope, 'personal') = 'personal'";
     $baseParams[] = $filter_employee;
 }
 if ($filter_dept) {
@@ -1379,6 +1380,7 @@ include __DIR__ . '/../includes/header.php';
                                         </span>
                                         <span class="text-success font-weight-bold d-flex align-items-center">
                                             ¥<?php echo money($grp['normal_amount']); ?>
+                                            <button type="button" class="btn btn-sm btn-outline-danger py-0 ml-2" style="font-size:.7em" title="删除该模块全部订单" onclick="event.preventDefault();event.stopPropagation();deleteProject('<?php echo e($grpName); ?>', <?php echo $grp['cnt']; ?>, <?php echo $filter_employee; ?>, '<?php echo e($filter_dept); ?>', <?php echo $filter_dept_orders ? 'true' : 'false'; ?>);"><i class="fas fa-trash-alt"></i></button>
                                             <i class="fas fa-chevron-<?php echo $isExpand ? 'up' : 'down'; ?> ml-2 text-muted" style="font-size:.8em"></i>
                                         </span>
                                     </a>
