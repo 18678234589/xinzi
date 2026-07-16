@@ -26,7 +26,7 @@ if (($_GET['ajax'] ?? '') === 'modules' && $ajax_employee_id > 0) {
     $result = [];
     if ($modCfg && !empty($modCfg['modules'])) {
         foreach ($modCfg['modules'] as $m) {
-            if (in_array($m['type'], ['standard','tiered','per_order','profit_commission','referral_order','customer_reward']) && ($m['enabled'] ?? true)) {
+            if (in_array($m['type'], ['standard','tiered','per_order','profit_commission','referral_order','customer_reward','miniprogram_commission']) && ($m['enabled'] ?? true)) {
                 $extra = '';
                 if ($m['type'] === 'standard' && isset($m['config']['rate']) && $m['config']['rate'] !== '') {
                     $rVal = (float)$m['config']['rate'];
@@ -34,6 +34,9 @@ if (($_GET['ajax'] ?? '') === 'modules' && $ajax_employee_id > 0) {
                 } elseif ($m['type'] === 'profit_commission' && isset($m['config']['commission_rate']) && $m['config']['commission_rate'] !== '') {
                     $cVal = (float)$m['config']['commission_rate'];
                     $extra = ' (成本提成' . rtrim(rtrim(number_format($cVal * 100, 4, '.', ''), '0'), '.') . '%)';
+                } elseif ($m['type'] === 'miniprogram_commission' && isset($m['config']['commission_rate']) && $m['config']['commission_rate'] !== '') {
+                    $cVal = (float)$m['config']['commission_rate'];
+                    $extra = ' (小程序提成' . rtrim(rtrim(number_format($cVal * 100, 4, '.', ''), '0'), '.') . '%)';
                 } elseif ($m['type'] === 'tiered') {
                     $extra = ' (阶梯)';
                 } elseif ($m['type'] === 'per_order') {
@@ -98,6 +101,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $projectArr = $_POST['upload_project'] ?? [];
                     if (!is_array($projectArr)) $projectArr = [$projectArr];
                     $projectArr = array_values(array_unique(array_filter(array_map('trim', $projectArr))));
+
+                    // 部门订单归属匹配字段（从前端接收，逗号分隔的Excel列名）
+                    $ownershipFields = [];
+                    if ($order_scope === 'department') {
+                        $ownFieldsRaw = trim($_POST['ownership_fields'] ?? '');
+                        if ($ownFieldsRaw !== '') {
+                            $ownershipFields = array_values(array_filter(array_map('trim', explode(',', $ownFieldsRaw))));
+                        }
+                    }
 
                     // 部门订单多员工配置：[{employee_id, module}, ...]
                     $deptEmpModules = [];
@@ -250,7 +262,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             }
                         }
 
-                        $inserted = 0; $skipped = 0;
+                        $inserted = 0; $skipped = 0; $unmatched = 0;
                         $stmt = db()->prepare("INSERT INTO orders (employee_id, order_amount, order_date, project, order_no, raw_data, is_abnormal, abnormal_reason, order_scope) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
 
                         // 部门汇总行 project：优先用勾选模块名，为空则从 deptEmpModules 取
@@ -322,6 +334,52 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             if ($order_scope === 'department' && !empty($deptEmpModules)) {
                                 $stmt->execute([0, $amount, $parsedDate, $deptProjStr, $orderNo, json_encode($rawMap, JSON_UNESCAPED_UNICODE), $isAbn, $abnReason, $order_scope]);
                                 $isAbn ? $skipped++ : $inserted++;
+
+                                // 归属字段匹配：只在指定的列中查找员工姓名
+                                $matchedEmps = [];
+                                // 构建员工姓名→模块配置的映射
+                                $empNameMap = [];
+                                foreach ($deptEmpModules as $dem) {
+                                    $emp = get_employee($dem['employee_id']);
+                                    if ($emp) {
+                                        $empNameMap[$emp['name']] = $dem;
+                                    }
+                                }
+                                // 只在指定的归属字段列中匹配员工姓名
+                                $scanKeys = !empty($ownershipFields) ? $ownershipFields : array_keys($rawMap);
+                                foreach ($scanKeys as $field) {
+                                    if (!isset($rawMap[$field])) continue;
+                                    $v = trim((string)$rawMap[$field]);
+                                    if ($v === '') continue;
+                                    if (isset($empNameMap[$v])) {
+                                        $dem = $empNameMap[$v];
+                                        // 去重：同一员工不重复添加
+                                        $alreadyMatched = false;
+                                        foreach ($matchedEmps as $m) {
+                                            if ((int)$m['employee_id'] === (int)$dem['employee_id']) {
+                                                $alreadyMatched = true;
+                                                break;
+                                            }
+                                        }
+                                        if (!$alreadyMatched) {
+                                            $matchedEmps[] = $dem;
+                                        }
+                                    }
+                                }
+
+                                // 有匹配的员工：只为匹配到的员工创建拆分行
+                                // 无匹配：跳过，不分配给任何人
+                                $splits = $matchedEmps;
+                                $isUnmatched = empty($matchedEmps);
+                                if ($isUnmatched) $unmatched++;
+                                foreach ($splits as $dem) {
+                                    $demRawMap = $rawMap;
+                                    $demRawMap['__from_dept__'] = $dept_name;
+                                    if ($isUnmatched) {
+                                        $demRawMap['__unmatched__'] = '1'; // 标记为未归属
+                                    }
+                                    $stmt->execute([$dem['employee_id'], $amount, $parsedDate, $dem['module'], $orderNo, json_encode($demRawMap, JSON_UNESCAPED_UNICODE), $isAbn, $abnReason, 'personal']);
+                                }
                             } else {
                                 $bindEmpId = $order_scope === 'department' ? 0 : $employee_id;
                                 if (empty($projectArr)) {
@@ -349,7 +407,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         $modNote = $modCount > 1 ? "（{$modCount}个模块，每条订单复制{$modCount}份）" : "";
                         if ($order_scope === 'department') {
                             $empName = $dept_name . '（部门）';
-                            $rq = ['upload_ok' => '1', 'msg' => urlencode("导入完成！为【{$empName}】成功导入 {$inserted} 条{$modNote}" . ($skipped > 0 ? "，{$skipped} 条标记为异常" : ""))];
+                            $msg = "导入完成！为【{$empName}】成功导入 {$inserted} 条{$modNote}";
+                            if ($skipped > 0) $msg .= "，{$skipped} 条标记为异常";
+                            if ($unmatched > 0) $msg .= "，{$unmatched} 条未匹配归属（已分配给所有归属员工）";
+                            $rq = ['upload_ok' => '1', 'msg' => urlencode($msg)];
                         } else {
                             $emp = get_employee($employee_id);
                             $empName = $emp ? $emp['name'] : '';
@@ -458,15 +519,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             try {
                 $where  = " WHERE 1=1";
                 $params = [];
-                if ($delEmp > 0) {
+                if ($delDeptOrders) {
+                    // 部门订单视图：employee_id=0，用 raw_data.__dept__ 匹配部门
+                    $where .= " AND o.employee_id = 0 AND o.order_scope = 'department'"
+                            . " AND JSON_UNQUOTE(JSON_EXTRACT(o.raw_data, '$.__dept__')) = ?";
+                    $params[] = $delDept;
+                } elseif ($delEmp > 0) {
                     $where .= " AND (o.employee_id = ? OR (o.order_scope = 'department' AND (o.shop IS NULL OR o.shop = '')))";
                     $params[] = $delEmp;
                 } elseif ($delDept !== '') {
                     $where .= " AND e.department = ?";
                     $params[] = $delDept;
-                }
-                if ($delDeptOrders) {
-                    $where .= " AND o.order_scope = 'department'";
                 }
                 // 与列表一致：排除店铺上传的订单
                 $where .= " AND NOT (o.order_scope = 'department' AND o.shop <> '')";
@@ -503,15 +566,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $where .= " OR o.project = '' OR o.project IS NULL";
                 }
                 $where .= ")";
-                if ($delEmp > 0) {
+                if ($delDeptOrders) {
+                    // 部门订单视图：employee_id=0，用 raw_data.__dept__ 匹配部门
+                    $where .= " AND o.employee_id = 0 AND o.order_scope = 'department'"
+                            . " AND JSON_UNQUOTE(JSON_EXTRACT(o.raw_data, '$.__dept__')) = ?";
+                    $params[] = $delDept;
+                } elseif ($delEmp > 0) {
                     $where .= " AND (o.employee_id = ? OR (o.order_scope = 'department' AND (o.shop IS NULL OR o.shop = '')))";
                     $params[] = $delEmp;
                 } elseif ($delDept !== '') {
                     $where .= " AND e.department = ?";
                     $params[] = $delDept;
-                }
-                if ($delDeptOrders) {
-                    $where .= " AND o.order_scope = 'department'";
                 }
                 // 与列表一致：排除店铺上传的订单
                 $where .= " AND NOT (o.order_scope = 'department' AND o.shop <> '')";
@@ -680,8 +745,9 @@ ensureOrderNoColumn(); // 确保 orders.order_no 字段存在
 $baseWhere  = " WHERE NOT (o.order_scope = 'department' AND o.shop <> '') AND COALESCE(o.is_deleted, 0) = 0";
 $baseParams = [];
 if ($filter_employee) {
-    // 个人订单匹配 employee_id，部门订单（非店铺）不过滤（employee_id=0 不属于任何人，显示给所有人看）
-    $baseWhere .= " AND (o.employee_id = ? OR (o.order_scope = 'department' AND (o.shop IS NULL OR o.shop = '')))";
+    // 个人订单：只显示该员工自己的个人拆分行，不显示部门汇总行
+    // 部门订单需通过"部门订单"视图单独查看
+    $baseWhere .= " AND o.employee_id = ? AND COALESCE(o.order_scope, 'personal') = 'personal'";
     $baseParams[] = $filter_employee;
 }
 if ($filter_dept) {
@@ -975,6 +1041,12 @@ include __DIR__ . '/../includes/header.php';
                                 </div>
                                 <button type="button" class="btn btn-sm btn-outline-primary mt-1" onclick="addDeptEmpRow()"><i class="fas fa-plus"></i> 添加员工</button>
                                 <input type="hidden" name="dept_emp_modules" id="deptEmpModules">
+                            </div>
+                            <div class="form-group" id="ownershipFieldsGroup" style="display:none">
+                                <label><i class="fas fa-link text-info"></i> 归属匹配字段 <small class="text-muted">（指定Excel中用于匹配员工姓名的列名，逗号分隔）</small></label>
+                                <input type="text" class="form-control form-control-sm" id="ownershipFields" placeholder="如：客服,制作技术">
+                                <small class="text-muted">系统只在这些列中查找员工姓名，匹配成功则将订单归属到该员工</small>
+                                <input type="hidden" name="ownership_fields" id="ownershipFieldsHidden">
                             </div>
                         </div>
                     <?php endif; ?>
@@ -1308,21 +1380,10 @@ include __DIR__ . '/../includes/header.php';
                                         </span>
                                         <span class="text-success font-weight-bold d-flex align-items-center">
                                             ¥<?php echo money($grp['normal_amount']); ?>
-                                            <form method="post" action="" class="d-inline" onsubmit="return confirm('确定删除【<?php echo e($grpName); ?>】的 <?php echo $grp['cnt']; ?> 条订单？此操作不可恢复！');" style="display:inline-block">
-                                                <input type="hidden" name="action" value="delete_group">
-                                                <input type="hidden" name="del_employee_id" value="<?php echo (int)$filter_employee; ?>">
-                                                <input type="hidden" name="del_month" value="<?php echo e($monthData['month']); ?>">
-                                                <input type="hidden" name="del_project" value="<?php echo e($grpName); ?>">
-                                                <button type="submit" class="btn btn-sm btn-outline-danger py-0 px-1 ml-1" title="删除该分组全部订单" onclick="event.preventDefault();event.stopPropagation();if(confirm('确定删除【<?php echo e($grpName); ?>】的 <?php echo $grp['cnt']; ?> 条订单？此操作不可恢复！')){this.form.submit();}"><i class="fas fa-trash-alt"></i></button>
-                                            </form>
+                                            <button type="button" class="btn btn-sm btn-outline-danger py-0 ml-2" style="font-size:.7em" title="删除该模块全部订单" onclick="event.preventDefault();event.stopPropagation();deleteProject('<?php echo e($grpName); ?>', <?php echo $grp['cnt']; ?>, <?php echo $filter_employee; ?>, '<?php echo e($filter_dept); ?>', <?php echo $filter_dept_orders ? 'true' : 'false'; ?>);"><i class="fas fa-trash-alt"></i></button>
                                             <i class="fas fa-chevron-<?php echo $isExpand ? 'up' : 'down'; ?> ml-2 text-muted" style="font-size:.8em"></i>
                                         </span>
                                     </a>
-                                    <button type="button" class="btn btn-link text-danger p-0 px-2 d-flex align-items-center" style="font-size:.8em;border-left:1px solid #dee2e6"
-                                        title="删除此模块全部订单"
-                                        onclick='deleteProject(<?php echo json_encode($grpName, JSON_UNESCAPED_UNICODE); ?>, <?php echo (int)$grp['cnt']; ?>, <?php echo (int)($locked_employee ? $locked_employee['id'] : $filter_employee); ?>, <?php echo json_encode($filter_dept, JSON_UNESCAPED_UNICODE); ?>, <?php echo json_encode($filter_dept_orders ? '1' : '', JSON_UNESCAPED_UNICODE); ?>)'>
-                                        <i class="fas fa-trash-alt"></i>
-                                    </button>
                                     </div>
 
                                     <?php if ($isExpand): ?>
@@ -1540,6 +1601,7 @@ function loadEmployeeModules(empId, prefix) {
 // 部门订单：选部门后重置员工行
 function loadDeptEmployees(dept) {
     $('#deptEmpRows').empty();
+    $('#ownershipFieldsGroup').toggle(!!dept);
     if (dept) addDeptEmpRow();
 }
 
@@ -1577,7 +1639,7 @@ function addDeptEmpRow() {
                 '<datalist id="' + datalistId + '">' + opts + '</datalist>' +
                 '<input type="hidden" class="dept-emp-id">' +
             '</div>' +
-            '<select class="form-control form-control-sm dept-mod-sel" style="flex:1"><option value="">-- 先选员工 --</option></select>' +
+            '<select class="form-control form-control-sm dept-mod-sel" style="flex:1"><option value="">-- 不指定 --</option></select>' +
             '<button type="button" class="btn btn-sm btn-outline-danger" onclick="$(this).closest(\'.dept-emp-row\').remove()"><i class="fas fa-times"></i></button>' +
         '</div>'
     );
@@ -1618,6 +1680,7 @@ $('#uploadForm').on('submit', function() {
             if (empId) rows.push({employee_id: empId, module: mod});
         });
         $('#deptEmpModules').val(JSON.stringify(rows));
+        $('#ownershipFieldsHidden').val($('#ownershipFields').val().trim());
     }
 });
 

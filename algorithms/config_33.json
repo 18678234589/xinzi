@@ -8,7 +8,23 @@
                 "commission_rate": 0.1,
                 "service_fee_rate": 0.03
             }
+        },
+        {
+            "name": "引流订单",
+            "type": "referral_order",
+            "enabled": true,
+            "config": {
+                "subsidy": 5
+            }
+        },
+        {
+            "name": "底薪（自定义）",
+            "type": "base_salary",
+            "enabled": true,
+            "config": {
+                "base_amount": 800
+            }
         }
     ],
-    "updated_at": "2026-07-09 15:03:22"
+    "updated_at": "2026-07-14 09:44:43"
 }
