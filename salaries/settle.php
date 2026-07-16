@@ -899,6 +899,26 @@ function syncEmpId() {
     hidden.value = empMap[text] || '';
 }
 
+// ===== 自定义额外金额：动态多行 =====
+function addExtraRow(amount, remark) {
+    var container = document.getElementById('extraItems');
+    if (!container) return;
+    var row = document.createElement('div');
+    row.className = 'input-group input-group-sm mb-1';
+    row.innerHTML =
+        '<div class="input-group-prepend"><span class="input-group-text">¥</span></div>' +
+        '<input type="number" name="extra_amounts[]" class="form-control" step="0.01" placeholder="金额，如 -50 或 100" value="' + (amount || '') + '">' +
+        '<input type="text" name="extra_remarks[]" class="form-control" placeholder="备注（可选）" value="' + (remark || '').replace(/"/g, '&quot;') + '">' +
+        '<div class="input-group-append">' +
+            '<button type="button" class="btn btn-outline-danger" onclick="removeExtraRow(this)" title="删除"><i class="fas fa-times"></i></button>' +
+        '</div>';
+    container.appendChild(row);
+}
+function removeExtraRow(btn) {
+    var row = btn.closest('.input-group');
+    if (row) row.remove();
+}
+
 // 选部门后筛选 datalist 候选
 function loadEmp() {
     var dept = document.getElementById('deptSel').value;
@@ -934,25 +954,6 @@ document.addEventListener('DOMContentLoaded', function() {
     // 输入时也实时同步
     var search = document.getElementById('empSearch');
     if (search) search.addEventListener('input', syncEmpId);
-
-    // ===== 自定义额外金额：动态多行 =====
-    function addExtraRow(amount, remark) {
-        var container = document.getElementById('extraItems');
-        var row = document.createElement('div');
-        row.className = 'input-group input-group-sm mb-1';
-        row.innerHTML =
-            '<div class="input-group-prepend"><span class="input-group-text">¥</span></div>' +
-            '<input type="number" name="extra_amounts[]" class="form-control" step="0.01" placeholder="金额，如 -50 或 100" value="' + (amount || '') + '">' +
-            '<input type="text" name="extra_remarks[]" class="form-control" placeholder="备注（可选）" value="' + (remark || '').replace(/"/g, '&quot;') + '">' +
-            '<div class="input-group-append">' +
-                '<button type="button" class="btn btn-outline-danger" onclick="removeExtraRow(this)" title="删除"><i class="fas fa-times"></i></button>' +
-            '</div>';
-        container.appendChild(row);
-    }
-    function removeExtraRow(btn) {
-        var row = btn.closest('.input-group');
-        if (row) row.remove();
-    }
 
     // 从 POST 数据回填已输入的行
     var postedAmounts = <?php echo json_encode($_POST['extra_amounts'] ?? [], JSON_UNESCAPED_UNICODE); ?>;
