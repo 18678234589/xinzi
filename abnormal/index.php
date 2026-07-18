@@ -19,12 +19,13 @@ if (($_GET['export'] ?? '') === '1') {
     // UTF-8 BOM 兼容Excel
     echo "\xEF\xBB\xBF";
     $out = fopen('php://output', 'w');
-    fputcsv($out, ['店铺', '订单号', '差异类型', '员工上传金额', '店铺订单金额', '差异金额', '员工上传日期', '店铺订单日期', '员工订单ID', '店铺订单ID']);
+    fputcsv($out, ['店铺', '订单号', '差异类型', '归属员工', '员工上传金额', '店铺订单金额', '差异金额', '员工上传日期', '店铺订单日期', '员工订单ID', '店铺订单ID']);
     foreach ($rows as $r) {
         fputcsv($out, [
             $r['shop_name'],
             $r['order_no'],
             $r['diff_type'] === 'missing' ? '店铺缺失' : '金额不一致',
+            $r['emp_name'] ?? '',
             $r['emp_amount'],
             $r['shop_amount'] ?? '',
             $r['diff_amount'],

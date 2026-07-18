@@ -24,13 +24,16 @@
                         "subsidy": 0
                     }
                 ],
-                "comment": "阶梯提成，利润=售价-域名成本(23元/个)-SSL成本(从raw_data读取金额)。无服务费扣除",
+                "comment": "阶梯提成，利润=售价-域名成本(23元\/个)-SSL成本(从raw_data读取金额)。无服务费扣除",
                 "ssl_from_rawdata": true,
                 "cost_role": "frontend",
-                "domain_total_cost": 80
+                "domain_total_cost": 80,
+                "min_amount": "",
+                "max_amount": "",
+                "shop_keyword": ""
             }
         }
     ],
-    "updated_at": "2026-07-10",
-    "description": "孙磊（定制前端外包）：底薪10460.14 + 阶梯提成(利润×分档比例)。利润=售价-域名23元/个-SSL成本。5月：售价12620-域名280-SSL90=利润12250×20%=2450"
+    "updated_at": "2026-07-17 16:07:56",
+    "description": "孙磊（定制前端外包）：底薪10460.14 + 阶梯提成(利润×分档比例)。利润=售价-域名23元\/个-SSL成本。5月：售价12620-域名280-SSL90=利润12250×20%=2450"
 }

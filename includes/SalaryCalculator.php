@@ -411,19 +411,23 @@ class SalaryCalculator
     private static function calcStandard($cfg, $c, $moduleName = '')
     {
         $rate = (float)($cfg['rate'] ?? 0.05);
+        $serviceFeeRate = isset($cfg['service_fee_rate']) && $cfg['service_fee_rate'] !== '' && $cfg['service_fee_rate'] !== null ? (float)$cfg['service_fee_rate'] : 0;
         $minAmount = isset($cfg['min_amount']) && $cfg['min_amount'] !== '' && $cfg['min_amount'] !== null ? (float)$cfg['min_amount'] : null;
         $maxAmount = isset($cfg['max_amount']) && $cfg['max_amount'] !== '' && $cfg['max_amount'] !== null ? (float)$cfg['max_amount'] : null;
         $shopKeyword = isset($cfg['shop_keyword']) && $cfg['shop_keyword'] !== '' && $cfg['shop_keyword'] !== null ? $cfg['shop_keyword'] : null;
-        
+
         // 如果配置了金额范围或店铺关键字，则忽略模块名筛选
         $useFilter = ($minAmount !== null || $maxAmount !== null || $shopKeyword !== null);
         $filterByName = $useFilter ? '' : $moduleName;
-        
+
         $total = self::filterOrderTotal($c, $filterByName, $minAmount, $maxAmount, $shopKeyword);
         $count = self::filterOrderCount($c, $filterByName, $minAmount, $maxAmount, $shopKeyword);
-        
-        $amt = $total * $rate;
-        
+
+        // 扣除手续费：提成 = (订单总额 - 手续费) × 提成比例
+        $serviceFee = $total * $serviceFeeRate;
+        $netTotal = $total - $serviceFee;
+        $amt = $netTotal * $rate;
+
         $rangeLabel = '';
         if ($minAmount !== null || $maxAmount !== null) {
             if ($minAmount !== null && $maxAmount !== null) {
@@ -437,11 +441,17 @@ class SalaryCalculator
         if ($shopKeyword !== null) {
             $rangeLabel .= "[店铺含:{$shopKeyword}]";
         }
-        
+
         $label = $moduleName ? "{$moduleName}({$count}笔)" : "({$count}笔)";
+        // 公式显示手续费扣除
+        if ($serviceFeeRate > 0) {
+            $formula = sprintf('%s%.2f-手续费%.2f(%.1f%%)=%.2f，×%.2f%%=%.2f', $rangeLabel, $total, $serviceFee, $serviceFeeRate*100, $netTotal, $rate*100, $amt);
+        } else {
+            $formula = sprintf('%s%.2f×%.2f%%=%.2f', $rangeLabel, $total, $rate*100, $amt);
+        }
         return [
             'amount' => round($amt, 2),
-            'formula' => sprintf('%s%.2f×%.2f%%=%.2f', $rangeLabel, $total, $rate*100, $amt),
+            'formula' => $formula,
             'type' => 'standard',
         ];
     }
@@ -727,7 +737,6 @@ class SalaryCalculator
                 $rd = is_string($o['raw_data'] ?? '') ? json_decode($o['raw_data'], true) : ($o['raw_data'] ?? []);
                 if (!is_array($rd)) $rd = [];
                 // 排除退款订单（金额<0或标记为退款），退款不计算单量补贴
-                // 注意：纯数量表金额=0是正常的，不应排除
                 $isRefund = isset($rd['__is_refund__']) && $rd['__is_refund__'] === '1';
                 if ($isRefund || (float)($o['order_amount'] ?? 0) < 0) continue;
                 // 模糊匹配列名：优先精确匹配，找不到则用包含匹配
@@ -760,7 +769,55 @@ class SalaryCalculator
         $useFilter = ($minAmount !== null || $maxAmount !== null || $shopKeyword !== null);
         $filterByName = $useFilter ? '' : $moduleName;
 
-        $cnt  = self::filterOrderCount($c, $filterByName, $minAmount, $maxAmount, $shopKeyword);
+        // count_column 为空时，按"付费旺旺"列去重计数
+        $cnt = 0;
+        $seen = [];
+        $getCol = function($rd, $colName) {
+            if (isset($rd[$colName])) return trim($rd[$colName]);
+            foreach ($rd as $k => $v) {
+                if (mb_strpos($k, $colName) !== false) return trim($v);
+            }
+            return '';
+        };
+        foreach (($c['orders'] ?? []) as $o) {
+            // 模块名过滤
+            if ($filterByName !== '' && trim($o['project'] ?? '') !== $filterByName) continue;
+
+            $rawData = is_string($o['raw_data'] ?? '') ? json_decode($o['raw_data'], true) : ($o['raw_data'] ?? []);
+            if (!is_array($rawData)) $rawData = [];
+
+            // 排除退款订单（金额<0或标记为退款），退款不计算单量补贴
+            $isRefund = isset($rawData['__is_refund__']) && $rawData['__is_refund__'] === '1';
+            if ($isRefund || (float)($o['order_amount'] ?? 0) < 0) continue;
+
+            // 金额范围过滤
+            $orderAmt = (float)($o['order_amount'] ?? 0);
+            if ($minAmount !== null && $orderAmt < $minAmount) continue;
+            if ($maxAmount !== null && $orderAmt > $maxAmount) continue;
+
+            // 店铺关键字过滤
+            if ($shopKeyword !== null) {
+                $shop = '';
+                if (isset($rawData[$shopKeyword])) {
+                    $shop = trim($rawData[$shopKeyword]);
+                } else {
+                    foreach ($rawData as $k => $v) {
+                        if (mb_strpos($k, '店铺') !== false || mb_strpos($k, '店名') !== false) {
+                            $shop = trim($v);
+                            break;
+                        }
+                    }
+                }
+                if ($shop === '') continue;
+            }
+
+            // 按"旺旺"列去重（兼容"付费旺旺"/"付款旺旺"/"客户旺旺或者微信名称"等不同列名）
+            $wangwang = $getCol($rawData, '旺旺');
+            if ($wangwang === '') continue; // 旺旺为空不计入
+            if (isset($seen[$wangwang])) continue;
+            $seen[$wangwang] = true;
+            $cnt++;
+        }
         $amt1 = $cnt * (float)($cfg['per_amount'] ?? 50);
         $amt2 = $cnt * (float)($cfg['per_reward'] ?? 0);
         return [
@@ -858,8 +915,8 @@ class SalaryCalculator
                     if ($ono !== '') $seen[$ono] = true;
                     $cnt++;
                 } else {
-                    // 单量补贴：读取"付费旺旺"和"日期"列，同旺旺同日期只算1单
-                    $wangwang = $getCol($rd, '付费旺旺');
+                    // 单量补贴：读取"旺旺"和"日期"列，同旺旺同日期只算1单
+                    $wangwang = $getCol($rd, '旺旺');
                     $dateVal  = $getCol($rd, '日期');
                     // 旺旺或日期为空的不计入单量
                     if ($wangwang === '' || $dateVal === '') continue;
@@ -1471,6 +1528,26 @@ class SalaryCalculator
             }
         }
 
+        // 保存前自动补全缺失字段（如新加的 service_fee_rate），确保旧配置升级后字段完整
+        $allTypes = self::getAvailableTypes();
+        foreach ($modules as &$mod) {
+            $type = $mod['type'] ?? 'standard';
+            $typeDef = $allTypes[$type] ?? null;
+            if ($typeDef && !empty($typeDef['fields'])) {
+                if (!isset($mod['config']) || !is_array($mod['config'])) {
+                    $mod['config'] = [];
+                }
+                foreach ($typeDef['fields'] as $f) {
+                    $key = $f['key'] ?? '';
+                    if ($key === '' || $key === '_name') continue;
+                    if (!array_key_exists($key, $mod['config'])) {
+                        $mod['config'][$key] = $f['default'] ?? '';
+                    }
+                }
+            }
+        }
+        unset($mod);
+
         $data = ['modules' => $modules, 'dept_share' => $deptShare, 'updated_at' => date('Y-m-d H:i:s')];
         $json = json_encode($data, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
         if ($json === false) {
@@ -1565,6 +1642,7 @@ class SalaryCalculator
                 'fields' => [
                     ['key'=>'_name','label'=>'模块名称（必填）','type'=>'text','placeholder'=>'如：续费、新单、线下渠道、淘宝店A','default'=>''],
                     ['key'=>'rate','label'=>'提成比例(小数)','type'=>'number','step'=>'any','placeholder'=>'0.018=1.8%, 0.05=5%','default'=>''],
+                    ['key'=>'service_fee_rate','label'=>'手续费扣除比例(小数)','type'=>'number','step'=>'any','placeholder'=>'0.03=3%, 0表示不扣除','default'=>'0','desc'=>'上传订单时按此比例从售价中扣除手续费'],
                     ['key'=>'min_amount','label'=>'最小订单金额','type'=>'number','step'=>'0.01','placeholder'=>'留空=不限制，如 50','default'=>''],
                     ['key'=>'max_amount','label'=>'最大订单金额','type'=>'number','step'=>'0.01','placeholder'=>'留空=不限制，如 10000','default'=>''],
                     ['key'=>'shop_keyword','label'=>'店铺关键字','type'=>'text','placeholder'=>'留空=不限制，如：老客户','default'=>''],
@@ -1577,8 +1655,9 @@ class SalaryCalculator
                 'desc' => '按订单总额分档，越高档提成越多',
                 'fields' => [
                     ['key'=>'_name','label'=>'模块名称（必填）','type'=>'text','placeholder'=>'如：续费阶梯、新单阶梯','default'=>''],
+                    ['key'=>'service_fee_rate','label'=>'手续费扣除比例(小数)','type'=>'number','step'=>'any','placeholder'=>'0.03=3%, 0表示不扣除','default'=>'0','desc'=>'上传订单时按此比例从售价中扣除手续费'],
                     ['key'=>'min_amount','label'=>'最小订单金额','type'=>'number','step'=>'0.01','placeholder'=>'留空=不限制，如 50','default'=>''],
-                    ['key'=>'max_amount','label'=>'最大订单金额','type'=>'number','step'=>'0.01','placeholder'=>'留空=不限制','default'=>''],
+                    ['key'=>'max_amount','label'=>'最大订单金额','type'=>'number','step'=>'0.01','placeholder'=>'留空=不限制，如 10000','default'=>''],
                     ['key'=>'shop_keyword','label'=>'店铺关键字','type'=>'text','placeholder'=>'留空=不限制，如：老客户','default'=>''],
                 ],
             ],
@@ -1591,6 +1670,7 @@ class SalaryCalculator
                     ['key'=>'_name','label'=>'模块名称（必填）','type'=>'text','placeholder'=>'如：续费单奖、新单奖励','default'=>''],
                     ['key'=>'per_amount','label'=>'每笔提成','type'=>'number','step'=>'0.01','min'=>'0','placeholder'=>'如 80 元','default'=>'80'],
                     ['key'=>'per_reward','label'=>'每笔额外奖励','type'=>'number','step'=>'0.01','min'=>'0','placeholder'=>'可选，如 20','default'=>'0'],
+                    ['key'=>'service_fee_rate','label'=>'手续费扣除比例(小数)','type'=>'number','step'=>'any','placeholder'=>'0.03=3%, 0表示不扣除','default'=>'0','desc'=>'上传订单时按此比例从售价中扣除手续费'],
                     ['key'=>'count_column','label'=>'计数列名','type'=>'text','placeholder'=>'填列名如"域名"，按该列去重计数；留空则按订单笔数','default'=>''],
                     ['key'=>'count_distinct','label'=>'是否去重','type'=>'select','options'=>['是'=>'是（按列值去重计数）','否'=>'否（按列值非空计数）'],'default'=>'是'],
                 ],

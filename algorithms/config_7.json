@@ -5,7 +5,11 @@
             "type": "attendance_full",
             "enabled": true,
             "config": {
-                "full_amount": 200
+                "full_amount": 200,
+                "deduct_mode": "none",
+                "work_hours": "176",
+                "absent_hours": "0",
+                "absent_threshold_hours": ""
             }
         },
         {
@@ -14,7 +18,11 @@
             "enabled": true,
             "config": {
                 "_name": "",
-                "rate": 0.018
+                "rate": 0.018,
+                "service_fee_rate": "0",
+                "min_amount": "",
+                "max_amount": "",
+                "shop_keyword": ""
             }
         },
         {
@@ -23,9 +31,13 @@
             "enabled": true,
             "config": {
                 "_name": "",
-                "rate": 0.2
+                "rate": 0.2,
+                "service_fee_rate": "0",
+                "min_amount": "",
+                "max_amount": "",
+                "shop_keyword": ""
             }
         }
     ],
-    "updated_at": "2026-06-22 10:45:44"
+    "updated_at": "2026-07-17 16:07:56"
 }

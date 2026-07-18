@@ -1,6 +1,7 @@
 <?php
 require_once __DIR__ . '/../includes/auth.php';
 require_login();
+require_once __DIR__ . '/../includes/SalaryCalculator.php';
 require_once __DIR__ . '/../classes/SimpleXLSX.php';
 
 $page_title = '店铺订单上传';
@@ -13,6 +14,27 @@ $shop = get_shop($shop_id);
 if (!$shop) {
     header('Location: ' . BASE_URL . '/shops/index.php');
     exit;
+}
+
+/**
+ * 从 raw_data 中提取订单状态
+ * 优先读 __order_status__ 标记键（新上传已写入）；
+ * 缺失时回退扫描原始列名（历史数据按原名原样存储），兼容无需同步的历史订单
+ */
+function extract_order_status($raw)
+{
+    if (!is_array($raw)) return '';
+    if (isset($raw['__order_status__']) && $raw['__order_status__'] !== '') {
+        return $raw['__order_status__'];
+    }
+    foreach ($raw as $k => $v) {
+        if (strlen($k) > 4 && substr($k, 0, 2) === '__' && substr($k, -2) === '__') continue;
+        if (mb_strpos($k, '订单状态') !== false) {
+            $v = trim((string)$v);
+            if ($v !== '') return $v;
+        }
+    }
+    return '';
 }
 
 /**
@@ -168,13 +190,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                     // 找金额/价格/成本列（模糊匹配，支持多种表头名称）
                     $idxPrice = null; $idxCost = null; $idxAmount = null;
-                    $idxOrderNo = null; $idxTradeTime = null;
+                    $idxOrderNo = null; $idxTradeTime = null; $idxOrderStatus = null;
                     foreach ($colMap as $k => $idx) {
                         if ($idxAmount === null && (mb_strpos($k, '订单金额') !== false || mb_strpos($k, '交易金额') !== false || mb_strpos($k, '金额') !== false)) $idxAmount = $idx;
                         if ($idxPrice === null && (mb_strpos($k, '价格') !== false || mb_strpos($k, '售价') !== false)) $idxPrice = $idx;
                         if ($idxCost  === null && (mb_strpos($k, '成本') !== false)) $idxCost  = $idx;
                         if ($idxOrderNo === null && (mb_strpos($k, '检索号') !== false || mb_strpos($k, '订单编号') !== false)) $idxOrderNo = $idx;
                         if ($idxTradeTime === null && (mb_strpos($k, '交易时间') !== false || mb_strpos($k, '时间') !== false)) $idxTradeTime = $idx;
+                        if ($idxOrderStatus === null && (mb_strpos($k, '订单状态') !== false)) $idxOrderStatus = $idx;
                     }
 
                     // 校验：要么有订单金额列，要么有价格和成本列
@@ -244,6 +267,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         if ($tradeTimeStr !== '') { $rawMap['__trade_time__'] = $tradeTimeStr; }
                         if ($isRefund) {
                             $rawMap['__is_refund__'] = '1';
+                        }
+                        // 提取订单状态（如"交易成功""卖家已发货""等待买家确认"等）
+                        if ($idxOrderStatus !== null) {
+                            $orderStatus = trim((string)($row[$idxOrderStatus] ?? ''));
+                            if ($orderStatus !== '') { $rawMap['__order_status__'] = $orderStatus; }
                         }
                         // 提取订单号：优先使用检索号列，否则用通用提取
                         $orderNo = '';
@@ -488,6 +516,7 @@ include __DIR__ . '/../includes/header.php';
                                                             <th>订单号</th>
                                                             <th>订单金额</th>
                                                             <th>订单日期</th>
+                                                            <th>订单状态</th>
                                                             <th>状态</th>
                                                             <th style="width:110px">操作</th>
                                                         </tr>
@@ -497,16 +526,29 @@ include __DIR__ . '/../includes/header.php';
                                                         $raw = $o['raw_data'] ? json_decode($o['raw_data'], true) : [];
                                                         $isAbn = (int)$o['is_abnormal'] === 1;
                                                         $isRefund = (float)$o['order_amount'] < 0;
+                                                        $orderStatus = extract_order_status($raw);
                                                     ?>
                                                         <tr>
                                                             <td><input type="checkbox" name="ids[]" value="<?php echo $o['id']; ?>" class="row-chk" onclick="updateSelCount()"></td>
                                                             <td><small class="text-muted"><?php echo $o['id']; ?></small></td>
                                                             <td><span class="text-monospace small"><?php echo e($o['order_no'] ?: '--'); ?></span></td>
-                                                            <td class="<?php echo $isRefund ? 'text-danger' : 'text-success'; ?> font-weight-bold">
-                                                                ¥<?php echo money($o['order_amount']); ?>
-                                                                <?php if ($isRefund): ?><small class="text-muted">(退款)</small><?php endif; ?>
+                                                            <td class="<?php echo $isRefund ? 'text-danger' : ''; ?>">
+                                                                <?php if ($isRefund): ?>
+                                                                    <span class="font-weight-bold">¥<?php echo money($o['order_amount']); ?></span>
+                                                                    <small class="text-muted">(退款)</small>
+                                                                <?php else:
+                                                                    $feeInfo = get_order_fee_info($raw, $o);
+                                                                    if ($feeInfo['rate'] > 0 && $feeInfo['original_price'] > 0):
+                                                                ?>
+                                                                    <div class="text-muted small">售价: ¥<?php echo money($feeInfo['original_price']); ?></div>
+                                                                    <div class="text-warning small">手续费: ¥<?php echo money($feeInfo['amount']); ?> (<?php echo rtrim(rtrim(number_format($feeInfo['rate'] * 100, 2, '.', ''), '0'), '.'); ?>%)</div>
+                                                                    <div class="text-success font-weight-bold">净额: ¥<?php echo money($feeInfo['net']); ?></div>
+                                                                <?php else: ?>
+                                                                    <span class="text-success font-weight-bold">¥<?php echo money($o['order_amount']); ?></span>
+                                                                <?php endif; endif; ?>
                                                             </td>
                                                             <td><small><?php echo e(substr($raw['__trade_time__'] ?? $o['order_date'], 0, 10)); ?></small></td>
+                                                            <td><small><?php echo e($orderStatus ?: '--'); ?></small></td>
                                                             <td>
                                                                 <?php if ($isAbn): ?>
                                                                     <span class="badge badge-warning" title="<?php echo e($o['abnormal_reason']); ?>">异常</span>
@@ -517,7 +559,7 @@ include __DIR__ . '/../includes/header.php';
                                                                 <?php endif; ?>
                                                             </td>
                                                             <td>
-                                                                <button type="button" class="btn btn-sm btn-link p-0 text-info" onclick='showDetail(<?php echo json_encode(["id"=>$o["id"],"order_no"=>$o["order_no"],"amount"=>$o["order_amount"],"date"=>$raw['__trade_time__'] ?? $o['order_date'],"reason"=>$o["abnormal_reason"],"raw"=>$raw], JSON_UNESCAPED_UNICODE); ?>)'>
+                                                                <button type="button" class="btn btn-sm btn-link p-0 text-info" onclick='showDetail(<?php echo json_encode(["id"=>$o["id"],"order_no"=>$o["order_no"],"amount"=>$o["order_amount"],"date"=>$raw['__trade_time__'] ?? $o['order_date'],"status"=>$orderStatus,"reason"=>$o["abnormal_reason"],"raw"=>$raw], JSON_UNESCAPED_UNICODE); ?>)'>
                                                                     <i class="fas fa-eye"></i>
                                                                 </button>
                                                                 <button type="button" class="btn btn-sm btn-link p-0 text-danger" onclick="deleteOrder(<?php echo $o['id']; ?>, '<?php echo e($o['order_date']); ?>')">
@@ -637,6 +679,7 @@ function showDetail(d){
              + '<div class="mb-2"><b>订单号：</b>' + (d.order_no ? '<span class="text-monospace">' + d.order_no + '</span>' : '<span class="text-muted">无</span>') + '</div>'
              + '<div class="mb-2"><b>金额：</b>¥' + d.amount + '</div>'
              + '<div class="mb-2"><b>日期：</b>' + d.date + '</div>'
+             + (d.status ? '<div class="mb-2"><b>订单状态：</b>' + d.status + '</div>' : '')
              + (d.reason ? '<div class="mb-2"><b>异常原因：</b><span class="text-warning">' + d.reason + '</span></div>' : '');
     if (Object.keys(raw).length) {
         html += '<hr><h6>原始数据</h6><table class="table table-sm table-bordered"><tbody>';
