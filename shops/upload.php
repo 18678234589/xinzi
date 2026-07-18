@@ -213,6 +213,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $inserted = 0; $skipped = 0;
                     $stmt = db()->prepare("INSERT INTO orders (employee_id, order_amount, order_date, shop, order_no, raw_data, is_abnormal, abnormal_reason, order_scope) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'department')");
 
+                    db()->beginTransaction();
+                    try {
                     foreach ($dataRows as $row) {
                         if (count(array_filter($row, fn($v) => trim($v) !== '')) === 0) continue;
 
@@ -284,6 +286,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                         $stmt->execute([0, $amount, $parsedDate, $shop['name'], $orderNo, json_encode($rawMap, JSON_UNESCAPED_UNICODE), $isAbn, $abnReason]);
                         $isAbn ? $skipped++ : $inserted++;
+                    }
+                    db()->commit();
+                    } catch (Exception $txEx) {
+                        db()->rollBack();
+                        throw $txEx;
                     }
 
                     if ($error === '') {
