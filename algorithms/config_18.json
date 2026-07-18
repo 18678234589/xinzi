@@ -16,7 +16,8 @@
                 "per_amount": 5,
                 "per_reward": 0,
                 "count_column": "域名",
-                "count_distinct": "是"
+                "count_distinct": "是",
+                "service_fee_rate": "0"
             }
         },
         {
@@ -26,7 +27,9 @@
             "config": {
                 "subsidy": 0.5,
                 "count_column": "建站订单",
-                "count_keyword": "拍+链接"
+                "count_keyword": "拍+链接",
+                "count_keyword_match": "all",
+                "count_mode": "keyword"
             }
         },
         {
@@ -34,7 +37,11 @@
             "type": "standard",
             "enabled": true,
             "config": {
-                "rate": 0.2
+                "rate": 0.2,
+                "service_fee_rate": "0.03",
+                "min_amount": "",
+                "max_amount": "",
+                "shop_keyword": ""
             }
         },
         {
@@ -42,10 +49,14 @@
             "type": "referral_order",
             "enabled": true,
             "config": {
-                "subsidy": 1
+                "subsidy": 1,
+                "count_column": "",
+                "count_keyword": "",
+                "count_keyword_match": "all",
+                "count_mode": "keyword"
             }
         }
     ],
     "dept_share": 0,
-    "updated_at": "2026-07-13 15:15:01"
+    "updated_at": "2026-07-17 16:07:56"
 }

@@ -14,7 +14,11 @@
             "type": "referral_order",
             "enabled": true,
             "config": {
-                "subsidy": 5
+                "subsidy": 5,
+                "count_column": "",
+                "count_keyword": "",
+                "count_keyword_match": "all",
+                "count_mode": "keyword"
             }
         },
         {
@@ -26,5 +30,5 @@
             }
         }
     ],
-    "updated_at": "2026-07-14 09:44:43"
+    "updated_at": "2026-07-17 16:07:56"
 }

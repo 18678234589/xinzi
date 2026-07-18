@@ -54,6 +54,105 @@ function extract_order_no($rawMap)
 }
 
 /**
+ * 从 raw_data 里提取员工上传表格中填写的店铺名
+ * 员工 personal 订单的 shop 字段在插入时为空，但表格里写了店铺名（如"清风易"）
+ * 此函数用于异常订单比对时确定员工订单真正归属的店铺
+ */
+function extract_shop_from_raw($rawMap)
+{
+    if (!is_array($rawMap)) return '';
+    // 候选列名（按优先级排序）
+    $candidates = [
+        '店铺', '店铺名称', '店铺名', '店名', '门店', '门店名称',
+        'shop', 'shop_name', 'Shop', 'ShopName', 'store', 'store_name',
+    ];
+    foreach ($candidates as $key) {
+        if (isset($rawMap[$key]) && is_string($rawMap[$key]) && trim($rawMap[$key]) !== '') {
+            return trim($rawMap[$key]);
+        }
+    }
+    // 模糊匹配，含"店铺"/"门店"/"shop"的列
+    foreach ($rawMap as $k => $v) {
+        if (strpos($k, '__') === 0) continue;
+        if (!is_string($v)) continue;
+        if (trim($v) === '') continue;
+        if (mb_strpos($k, '店铺') !== false || mb_strpos($k, '门店') !== false
+            || stripos($k, 'shop') !== false || stripos($k, 'store') !== false) {
+            return trim($v);
+        }
+    }
+    return '';
+}
+
+/**
+ * 将员工表格里填写的店铺名（可能是简称）匹配到 shops 表/department 订单中的标准店铺名
+ * 例：员工填"清风易" → 匹配"清风易软件专营店"
+ *
+ * @param string $empShop 员工填写的店铺名
+ * @param array  $knownShops 所有已知标准店铺名（shops 表 + department 订单中出现的 shop）
+ * @return string 匹配到的标准店铺名，未匹配返回空字符串
+ */
+function match_shop_name($empShop, $knownShops)
+{
+    $empShop = trim($empShop);
+    if ($empShop === '') return '';
+
+    // 0. 别名映射：员工表格里填的收款方式/业务分类别名 → 标准店铺名
+    //    数据来源于实际业务数据分析，避免这些订单被误判为"未归属"
+    static $aliases = [
+        // 扫码/微信收款类 → 科恒扫码收款
+        '微信'     => '科恒扫码收款',
+        '微信订单' => '科恒扫码收款',
+        '二维码'   => '科恒扫码收款',
+        // 对公转账类 → 对公收款
+        '对公转账' => '对公收款',
+        '对公订单' => '对公收款',
+        '科对公'   => '对公收款',
+        '对公'     => '对公收款',
+    ];
+    if (isset($aliases[$empShop])) {
+        $target = $aliases[$empShop];
+        // 确认目标标准名存在于已知店铺列表中
+        foreach ($knownShops as $std) {
+            if ($std === $target) return $std;
+        }
+    }
+
+    // 1. 精确匹配（含去除首尾空白后）
+    foreach ($knownShops as $std) {
+        if ($empShop === $std) return $std;
+    }
+
+    // 2. 忽略大小写精确匹配
+    $empLower = mb_strtolower($empShop);
+    foreach ($knownShops as $std) {
+        if (mb_strtolower($std) === $empLower) return $std;
+    }
+
+    // 3. 包含关系：员工填的简称是标准名的子串，或标准名是员工填的子串
+    //    例：员工"清风易" ⊂ 标准"清风易软件专营店"
+    //    只取唯一匹配，多个匹配则跳过（避免歧义）
+    $matches = [];
+    foreach ($knownShops as $std) {
+        if ($std === '') continue;
+        if (mb_strpos($std, $empShop) !== false || mb_strpos($empShop, $std) !== false) {
+            $matches[] = $std;
+        }
+    }
+    if (count($matches) === 1) {
+        return $matches[0];
+    }
+
+    // 4. 多个匹配时，优先选长度最接近的（最短标准名，差异最小）
+    if (count($matches) > 1) {
+        usort($matches, fn($a, $b) => abs(mb_strlen($a) - mb_strlen($empShop)) - abs(mb_strlen($b) - mb_strlen($empShop)));
+        return $matches[0];
+    }
+
+    return '';
+}
+
+/**
  * 确保 orders 表有 order_no 字段（用于订单号存储与店铺/员工订单对比）
  * 首次调用时会自动建列，并回填历史订单的 order_no（从 raw_data 提取）
  */
@@ -90,6 +189,109 @@ function ensureOrderNoColumn()
 function money($amount)
 {
     return number_format((float)$amount, 2, '.', ',');
+}
+
+/**
+ * 获取订单的手续费信息（用于前端展示）
+ *
+ * 优先级：
+ * 1. raw_data 里存的 __fee_rate__（新上传的订单）
+ * 2. 员工算法配置里对应模块的 service_fee_rate
+ * 3. config/dept_fee.php 按部门名查
+ *
+ * @param array $rawData  订单的 raw_data 解码后的数组
+ * @param array $order    订单记录（含 order_amount, employee_id, project, order_scope 等）
+ * @return array ['rate'=>费率, 'amount'=>手续费, 'original_price'=>原售价, 'net'=>净额]
+ */
+function get_order_fee_info($rawData, $order)
+{
+    // 1. 优先用 raw_data 里存的费率
+    $feeRate = (float)($rawData['__fee_rate__'] ?? 0);
+    $feeAmount = (float)($rawData['__fee_amount__'] ?? 0);
+    $origPrice = (float)($rawData['__original_price__'] ?? 0);
+
+    if ($feeRate > 0) {
+        return [
+            'rate'          => $feeRate,
+            'amount'        => $feeAmount,
+            'original_price' => $origPrice,
+            'net'           => (float)$order['order_amount'],
+        ];
+    }
+
+    // 2. 回退：从算法配置或 dept_fee.php 查费率
+    $deptName = $rawData['__dept__'] ?? '';
+    $employeeId = (int)($order['employee_id'] ?? 0);
+    $project = $order['project'] ?? '';
+    $scope = $order['order_scope'] ?? 'personal';
+
+    $feeRate = 0;
+    $moduleMatched = false; // 是否按 project 名匹配到了模块
+
+    // 2a. 查员工算法配置里的 service_fee_rate（按 project 名精确匹配模块）
+    if ($employeeId > 0 && class_exists('SalaryCalculator', false)) {
+        $modCfg = SalaryCalculator::readModulesConfig($employeeId);
+        if ($modCfg && !empty($modCfg['modules'])) {
+            // 优先按 project 名匹配模块，匹配到就用该模块的费率（即使为 0）
+            if ($project !== '') {
+                foreach ($modCfg['modules'] as $m) {
+                    if (($m['enabled'] ?? true) && $m['name'] === $project) {
+                        $feeRate = (float)($m['config']['service_fee_rate'] ?? 0);
+                        $moduleMatched = true;
+                        break;
+                    }
+                }
+            }
+            // 没匹配到 project，取第一个有费率的模块
+            if (!$moduleMatched) {
+                foreach ($modCfg['modules'] as $m) {
+                    if ($m['enabled'] ?? true) {
+                        $sfr = (float)($m['config']['service_fee_rate'] ?? 0);
+                        if ($sfr > 0) { $feeRate = $sfr; break; }
+                    }
+                }
+            }
+        }
+    }
+
+    // 2b. 回退到 dept_fee.php（仅当模块未匹配且为部门订单时）
+    if (!$moduleMatched && $feeRate === 0 && $deptName !== '') {
+        static $deptFeeMap = null;
+        if ($deptFeeMap === null) {
+            $deptFeeFile = __DIR__ . '/../config/dept_fee.php';
+            if (file_exists($deptFeeFile)) {
+                $deptFeeMap = include $deptFeeFile;
+                if (!is_array($deptFeeMap)) $deptFeeMap = [];
+            } else {
+                $deptFeeMap = [];
+            }
+        }
+        $feeRate = isset($deptFeeMap[$deptName]) ? (float)$deptFeeMap[$deptName] : 0;
+    }
+
+    if ($feeRate > 0) {
+        // 从 raw_data 里找售价（价格列）
+        $price = 0;
+        foreach ($rawData as $k => $v) {
+            if (mb_strpos($k, '价格') !== false || mb_strpos($k, '售价') !== false) {
+                $price = (float)preg_replace('/[^\d.\-]/', '', trim($v));
+                if ($price > 0) break;
+            }
+        }
+        // 找不到售价，用 order_amount + 手续费反推
+        if ($price <= 0) {
+            $price = round((float)$order['order_amount'] / (1 - $feeRate), 2);
+        }
+        $feeAmount = round($price * $feeRate, 2);
+        return [
+            'rate'          => $feeRate,
+            'amount'        => $feeAmount,
+            'original_price' => $price,
+            'net'           => (float)$order['order_amount'],
+        ];
+    }
+
+    return ['rate' => 0, 'amount' => 0, 'original_price' => 0, 'net' => (float)$order['order_amount']];
 }
 
 /**
@@ -314,18 +516,13 @@ function get_abnormal_orders($shopName = '', $month = '')
         } catch (\Throwable $e) {}
     }
 
-    // 店铺订单（department + shop）
-    $shopWhere = " WHERE o.order_scope = 'department' AND o.order_no <> '' AND COALESCE(o.is_deleted, 0) = 0 ";
-    if ($shopName !== '') {
-        $shopWhere .= " AND o.shop = ? ";
-        $params[] = $shopName;
-    }
-    if ($month !== '') {
-        $shopWhere .= " AND DATE_FORMAT(o.order_date, '%Y-%m') = ? ";
-        $params[] = $month;
-    }
+    // 取所有店铺名（用于概览按店铺逐个比对，以及缺失订单归属到正确店铺）
+    $allShops = [];
+    try {
+        $allShops = $pdo->query("SELECT id, name FROM shops ORDER BY sort ASC, id ASC")->fetchAll();
+    } catch (\Throwable $e) {}
 
-    // 员工上传订单（personal，排除从部门派生的）
+    // 员工上传订单（personal，排除从部门派生的）——与店铺无关，只按月份过滤
     $empWhere = " WHERE e.order_scope = 'personal' AND e.order_no <> '' AND COALESCE(e.is_deleted, 0) = 0 ";
     $empParams = [];
     if ($month !== '') {
@@ -333,61 +530,178 @@ function get_abnormal_orders($shopName = '', $month = '')
         $empParams[] = $month;
     }
 
-    $sql = "
-        SELECT
-            COALESCE(s.shop, '未归属店铺') AS shop_name,
-            COALESCE(sh.id, 0) AS shop_id,
-            e.order_no,
-            e.order_amount AS emp_amount,
-            e.order_date AS emp_date,
-            e.id AS emp_order_id,
-            s.order_amount AS shop_amount,
-            s.order_date AS shop_date,
-            s.id AS shop_order_id,
-            CASE
-                WHEN s.id IS NULL THEN 'missing'
-                WHEN ABS(e.order_amount - s.order_amount) > 0.001 THEN 'mismatch'
-                ELSE 'match'
-            END AS diff_type,
-            ROUND(e.order_amount - COALESCE(s.order_amount, 0), 2) AS diff_amount
-        FROM orders e
-        LEFT JOIN (
-            SELECT id, shop, order_no, order_amount, order_date FROM orders o
-            " . $shopWhere . "
-        ) s ON e.order_no = s.order_no
-        LEFT JOIN shops sh ON sh.name = s.shop
-        " . $empWhere . "
-        ORDER BY diff_type DESC, e.order_date DESC, e.id DESC
-    ";
-    $stmt = $pdo->prepare($sql);
-    $i = 0;
-    // 先绑定店铺子查询参数
-    foreach ($params as $p) { $stmt->bindValue(++$i, $p); }
-    foreach ($empParams as $p) { $stmt->bindValue(++$i, $p); }
-    $stmt->execute();
-    $rows = $stmt->fetchAll();
+    // 拉取员工订单，关联员工姓名用于明细展示；带 raw_data 用于提取员工表格里的店铺名
+    $empSql = "SELECT e.id, e.employee_id, e.order_no, e.order_amount, e.order_date, e.raw_data, emp.name AS emp_name"
+            . " FROM orders e LEFT JOIN employees emp ON emp.id = e.employee_id " . $empWhere
+            . " ORDER BY e.order_date DESC, e.id DESC";
+    $empStmt = $pdo->prepare($empSql);
+    foreach ($empParams as $k => $p) { $empStmt->bindValue($k + 1, $p); }
+    $empStmt->execute();
+    $empOrders = $empStmt->fetchAll();
 
-    // 过滤掉 match 的，只留 missing/mismatch
-    $items = array_filter($rows, fn($r) => $r['diff_type'] !== 'match');
-    // 重新索引
-    $items = array_values($items);
-
-    // 按店铺汇总
-    $shopStats = [];
-    foreach ($items as $r) {
-        $key = $r['shop_name'];
-        if (!isset($shopStats[$key])) {
-            $shopStats[$key] = [
-                'shop_name' => $r['shop_name'],
-                'shop_id' => $r['shop_id'],
-                'missing' => 0,
-                'mismatch' => 0,
-                'total' => 0,
-            ];
-        }
-        $shopStats[$key][$r['diff_type']]++;
-        $shopStats[$key]['total']++;
+    // 拉取店铺订单（department），始终拉取所有店铺
+    // （员工 personal 订单的 shop 字段为空，需从 raw_data 提取店铺名后定位对应店铺订单）
+    $shopWhere = " WHERE o.order_scope = 'department' AND o.order_no <> '' AND COALESCE(o.is_deleted, 0) = 0 ";
+    $shopParams = [];
+    if ($month !== '') {
+        $shopWhere .= " AND DATE_FORMAT(o.order_date, '%Y-%m') = ? ";
+        $shopParams[] = $month;
     }
+    $shopSql = "SELECT o.id, o.shop, o.order_no, o.order_amount, o.order_date FROM orders o " . $shopWhere
+             . " ORDER BY o.id ASC";
+    $shopStmt = $pdo->prepare($shopSql);
+    foreach ($shopParams as $k => $p) { $shopStmt->bindValue($k + 1, $p); }
+    $shopStmt->execute();
+    $shopOrders = $shopStmt->fetchAll();
+
+    // 店铺订单按 (shop, order_no) 索引；同一店铺同一订单号取第一条
+    $shopMap = [];
+    $shopNameMap = []; // shop name => shop id
+    // 全局订单号索引：order_no => department 订单记录（员工没填店铺名时，用订单号反查归属店铺）
+    $deptByNo = [];
+    foreach ($shopOrders as $so) {
+        $sn = $so['shop'] !== '' ? $so['shop'] : '未归属店铺';
+        if (!isset($shopMap[$sn][$so['order_no']])) {
+            $shopMap[$sn][$so['order_no']] = $so;
+        }
+        if (!isset($deptByNo[$so['order_no']])) {
+            $deptByNo[$so['order_no']] = $so;
+        }
+    }
+    foreach ($allShops as $sh) {
+        $shopNameMap[$sh['name']] = (int)$sh['id'];
+    }
+
+    // 所有已知标准店铺名（用于将员工表格里的简称匹配到标准名，如"清风易"→"清风易软件专营店"）
+    $knownShopNames = array_unique(array_merge(array_keys($shopMap), array_column($allShops, 'name')));
+
+    // 确定要比对的店铺列表
+    if ($shopName !== '') {
+        $targetShops = [$shopName];
+    } else {
+        // 概览：所有有店铺订单的店铺 + 数据库里的店铺
+        $targetShops = array_unique(array_merge(array_keys($shopMap), array_column($allShops, 'name')));
+    }
+
+    $items = [];
+    $shopStats = [];
+
+    // 初始化每个目标店铺的统计
+    foreach ($targetShops as $sn) {
+        $sid = $shopNameMap[$sn] ?? 0;
+        $shopStats[$sn] = ['shop_name' => $sn, 'shop_id' => $sid, 'missing' => 0, 'mismatch' => 0, 'total' => 0];
+    }
+
+    // "未归属"虚拟店铺：员工上传了但所有店铺 department 表都查不到的孤儿订单
+    $orphanKey = '未归属';
+    $shopStats[$orphanKey] = ['shop_name' => $orphanKey, 'shop_id' => 0, 'missing' => 0, 'mismatch' => 0, 'total' => 0];
+
+    // 遍历员工订单：先从 raw_data 提取员工表格里填写的店铺名，只跟该店铺比对
+    foreach ($empOrders as $eo) {
+        $ono = $eo['order_no'];
+
+        // 从 raw_data 提取员工上传表格里写的店铺名（如"清风易"）
+        $rawMap = $eo['raw_data'] ? json_decode($eo['raw_data'], true) : null;
+        $empShopRaw = is_array($rawMap) ? extract_shop_from_raw($rawMap) : '';
+
+        // 将员工填写的店铺名匹配到标准店铺名（如"清风易"→"清风易软件专营店"）
+        $empShop = $empShopRaw !== '' ? match_shop_name($empShopRaw, $knownShopNames) : '';
+
+        // 确定该员工订单归属的店铺：优先用匹配到的标准店铺名，否则用订单号反查
+        if ($empShop === '') {
+            // 员工表格里没填店铺名，拿订单号去全量 department 订单里反查
+            if (isset($deptByNo[$ono])) {
+                $so = $deptByNo[$ono];
+                $empShop = $so['shop']; // 归属到 department 订单里的店铺
+                // 继续走下方的金额比对逻辑
+            } else {
+                // 全量 department 订单里也查不到此订单号 → 真孤儿缺失
+                $items[] = [
+                    'shop_name'     => $orphanKey,
+                    'shop_id'        => 0,
+                    'order_no'       => $ono,
+                    'emp_amount'     => $eo['order_amount'],
+                    'emp_date'       => $eo['order_date'],
+                    'emp_order_id'   => $eo['id'],
+                    'emp_name'       => $eo['emp_name'],
+                    'employee_id'    => $eo['employee_id'],
+                    'shop_amount'    => null,
+                    'shop_date'      => null,
+                    'shop_order_id'  => null,
+                    'diff_type'      => 'missing',
+                    'diff_amount'    => round((float)$eo['order_amount'], 2),
+                ];
+                $shopStats[$orphanKey]['missing']++;
+                $shopStats[$orphanKey]['total']++;
+                continue;
+            }
+        }
+
+        // 只跟该员工订单归属的店铺做比对
+        $sOrders = $shopMap[$empShop] ?? [];
+        if (isset($sOrders[$ono])) {
+            // 该店铺有此订单号 → 比对金额
+            $so = $sOrders[$ono];
+            $diff = round((float)$eo['order_amount'] - (float)$so['order_amount'], 2);
+            if (abs($diff) > 0.001) {
+                // 金额不一致
+                $items[] = [
+                    'shop_name'     => $empShop,
+                    'shop_id'       => $shopNameMap[$empShop] ?? 0,
+                    'order_no'      => $ono,
+                    'emp_amount'    => $eo['order_amount'],
+                    'emp_date'      => $eo['order_date'],
+                    'emp_order_id'  => $eo['id'],
+                    'emp_name'      => $eo['emp_name'],
+                    'employee_id'   => $eo['employee_id'],
+                    'shop_amount'   => $so['order_amount'],
+                    'shop_date'     => $so['order_date'],
+                    'shop_order_id' => $so['id'],
+                    'diff_type'     => 'mismatch',
+                    'diff_amount'   => $diff,
+                ];
+                if (!isset($shopStats[$empShop])) {
+                    $shopStats[$empShop] = ['shop_name' => $empShop, 'shop_id' => $shopNameMap[$empShop] ?? 0, 'missing' => 0, 'mismatch' => 0, 'total' => 0];
+                }
+                $shopStats[$empShop]['mismatch']++;
+                $shopStats[$empShop]['total']++;
+            }
+            // 金额一致 = match，不记录
+        } else {
+            // 该店铺的 department 表里查不到此订单号 → 店铺缺失
+            $items[] = [
+                'shop_name'     => $empShop,
+                'shop_id'        => $shopNameMap[$empShop] ?? 0,
+                'order_no'       => $ono,
+                'emp_amount'     => $eo['order_amount'],
+                'emp_date'       => $eo['order_date'],
+                'emp_order_id'   => $eo['id'],
+                'emp_name'       => $eo['emp_name'],
+                'employee_id'    => $eo['employee_id'],
+                'shop_amount'    => null,
+                'shop_date'      => null,
+                'shop_order_id'  => null,
+                'diff_type'      => 'missing',
+                'diff_amount'    => round((float)$eo['order_amount'], 2),
+            ];
+            if (!isset($shopStats[$empShop])) {
+                $shopStats[$empShop] = ['shop_name' => $empShop, 'shop_id' => $shopNameMap[$empShop] ?? 0, 'missing' => 0, 'mismatch' => 0, 'total' => 0];
+            }
+            $shopStats[$empShop]['missing']++;
+            $shopStats[$empShop]['total']++;
+        }
+    }
+
+    // 排序，先缺失后不一致，再按日期倒序
+    usort($items, function ($a, $b) {
+        if ($a['diff_type'] !== $b['diff_type']) {
+            return $a['diff_type'] === 'missing' ? -1 : 1;
+        }
+        return strcmp($b['emp_date'] ?? '', $a['emp_date'] ?? '');
+    });
+
+    // 去掉 total=0 的店铺
+    $shopStats = array_filter($shopStats, fn($s) => $s['total'] > 0);
     $shopStats = array_values($shopStats);
     // 按异常总数降序
     usort($shopStats, fn($a, $b) => $b['total'] - $a['total']);

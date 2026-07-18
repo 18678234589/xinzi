@@ -13,9 +13,13 @@
             "type": "standard",
             "enabled": true,
             "config": {
-                "rate": 0.01
+                "rate": 0.01,
+                "service_fee_rate": "0.03",
+                "min_amount": "",
+                "max_amount": "",
+                "shop_keyword": ""
             }
         }
     ],
-    "updated_at": "2026-07-13 11:08:16"
+    "updated_at": "2026-07-17 16:07:56"
 }

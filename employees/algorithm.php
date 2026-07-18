@@ -109,6 +109,16 @@ $isCodeMode  = !SalaryCalculator::hasCustomConfig($employee_id) && SalaryCalcula
 $allTypes    = SalaryCalculator::getAvailableTypes();
 $currentMods = $savedConfig['modules'] ?? [];
 
+// 查询该员工所属部门在 dept_fee.php 中的手续费率
+$deptFeeRate = 0;
+$deptFeeFile = __DIR__ . '/../config/dept_fee.php';
+if (file_exists($deptFeeFile) && !empty($employee['department'])) {
+    $deptFeeMap = include $deptFeeFile;
+    if (is_array($deptFeeMap) && isset($deptFeeMap[$employee['department']])) {
+        $deptFeeRate = (float)$deptFeeMap[$employee['department']];
+    }
+}
+
 define('BASE_PATH', dirname(__DIR__));
 include __DIR__ . '/../includes/header.php';
 ?>
@@ -120,6 +130,27 @@ include __DIR__ . '/../includes/header.php';
     </div>
     <a href="<?php echo BASE_URL; ?>/employees/index.php" class="btn btn-outline-secondary btn-sm"><i class="fas fa-arrow-left"></i> 返回</a>
 </div>
+
+<?php if ($deptFeeRate > 0): ?>
+<div class="alert alert-info alert-dismissible fade show">
+    <i class="fas fa-info-circle"></i>
+    <strong>部门手续费提示</strong>：该员工所属部门「<?php echo e($employee['department']); ?>」在 <code>dept_fee.php</code> 中配置了 <strong><?php echo ($deptFeeRate * 100); ?>%</strong> 手续费率。
+    <?php
+        // 检查算法配置中是否有模块的 service_fee_rate 为 0
+        $hasZeroFee = false;
+        foreach ($currentMods as $mod) {
+            if (in_array($mod['type'], ['standard', 'tiered', 'per_order']) &&
+                (float)($mod['config']['service_fee_rate'] ?? 0) === 0) {
+                $hasZeroFee = true; break;
+            }
+        }
+    ?>
+    <?php if ($hasZeroFee): ?>
+    <br><small class="text-warning"><i class="fas fa-exclamation-triangle"></i> 下方有模块的手续费扣除比例为 0，上传该模块的订单时不会扣除手续费。如需扣除，请在模块参数中填写。（部门订单未匹配到模块时会自动使用部门费率 <?php echo ($deptFeeRate * 100); ?>%）</small>
+    <?php endif; ?>
+    <button type="button" class="close" data-dismiss="alert">&times;</button>
+</div>
+<?php endif; ?>
 
 <?php if ($success): ?>
 <div class="alert alert-success alert-dismissible fade show"><i class="fas fa-check-circle"></i> <?php echo e($success); ?><button type="button" class="close" data-dismiss="alert">&times;</button></div>
@@ -325,7 +356,7 @@ include __DIR__ . '/../includes/header.php';
  */
 function renderModuleForm($idx, $type, $cfg)
 {
-    global $allTypes;
+    global $allTypes, $deptFeeRate;
     $info = $allTypes[$type] ?? $allTypes['standard'];
     $html = '';
 
@@ -334,6 +365,13 @@ function renderModuleForm($idx, $type, $cfg)
         $step = $f['step'] ?? 'any';
         $ph   = $f['placeholder'] ?? '';
         $extraAttrs = "class=\"form-control form-control-sm\" name=\"mod_cfg[{$f['key']}][{$idx}]\" step=\"{$step}\"";
+
+        // service_fee_rate 字段：当配置值为 0 且部门有费率时，预填部门费率作为默认提示
+        $prefilledFromDept = false;
+        if ($f['key'] === 'service_fee_rate' && (float)$val === 0 && $deptFeeRate > 0) {
+            $val = $deptFeeRate;
+            $prefilledFromDept = true;
+        }
 
         // 模块名称字段特殊处理：放在最前面，突出显示
         if (($f['key'] === '_name')) {
@@ -351,6 +389,9 @@ function renderModuleForm($idx, $type, $cfg)
             $valDisplay = is_numeric($val) ? rtrim(rtrim(number_format((float)$val,4,'.',''),'0'),'.') : $val;
             $html .= "<div class=\"input-group\">{$suffix}<input type=\"{$f['type']}\" {$extraAttrs} value=\"" . e($valDisplay) . "\" placeholder=\"{$ph}\"></div>";
             $desc = $f['desc'] ?? '';
+            if ($prefilledFromDept) {
+                $desc = '<span class="text-info"><i class="fas fa-info-circle"></i> 已从部门配置(dept_fee.php)预填 ' . ($deptFeeRate * 100) . '%，保存后同步到算法配置</span>';
+            }
             $html .= "<small class=\"text-muted\">{$desc}</small></div>";
         } elseif ($f['type'] === 'select') {
             $html .= "<div class=\"form-group\"><label>{$f['label']}</label>";

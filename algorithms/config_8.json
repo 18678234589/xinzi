@@ -30,7 +30,8 @@
                         "rate": 0.1,
                         "subsidy": 5
                     }
-                ]
+                ],
+                "service_fee_rate": "0"
             }
         },
         {
@@ -63,7 +64,8 @@
                         "rate": 0.1,
                         "subsidy": 0.5
                     }
-                ]
+                ],
+                "service_fee_rate": "0"
             }
         },
         {
@@ -73,7 +75,10 @@
             "config": {
                 "_name": "老客户",
                 "rate": 0.1,
-                "shop_keyword": "老客户"
+                "shop_keyword": "老客户",
+                "service_fee_rate": "0",
+                "min_amount": "",
+                "max_amount": ""
             }
         },
         {
@@ -102,5 +107,5 @@
             }
         }
     ],
-    "updated_at": "2026-07-09 11:10:58"
+    "updated_at": "2026-07-17 16:07:56"
 }

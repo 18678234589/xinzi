@@ -17,19 +17,21 @@ if ($shopName === '') {
 // 导出当前店铺异常
 if (($_GET['export'] ?? '') === '1') {
     $data = get_abnormal_orders($shopName, $filter_month);
-    $rows = $data['items'];
+    // 只导出当前店铺（含"未归属"）的异常
+    $rows = array_values(array_filter($data['items'], fn($r) => $r['shop_name'] === $shopName));
 
     header('Content-Type: text/csv; charset=utf-8');
     $filename = '异常订单_' . $shopName . '_' . date('Ymd_His') . '.csv';
     header('Content-Disposition: attachment; filename="' . $filename . '"');
     echo "\xEF\xBB\xBF";
     $out = fopen('php://output', 'w');
-    fputcsv($out, ['店铺', '订单号', '差异类型', '员工上传金额', '店铺订单金额', '差异金额', '员工上传日期', '店铺订单日期', '员工订单ID', '店铺订单ID']);
+    fputcsv($out, ['店铺', '订单号', '差异类型', '归属员工', '员工上传金额', '店铺订单金额', '差异金额', '员工上传日期', '店铺订单日期', '员工订单ID', '店铺订单ID']);
     foreach ($rows as $r) {
         fputcsv($out, [
             $r['shop_name'],
             $r['order_no'],
             $r['diff_type'] === 'missing' ? '店铺缺失' : '金额不一致',
+            $r['emp_name'] ?? '',
             $r['emp_amount'],
             $r['shop_amount'] ?? '',
             $r['diff_amount'],
@@ -44,7 +46,8 @@ if (($_GET['export'] ?? '') === '1') {
 }
 
 $abn = get_abnormal_orders($shopName, $filter_month);
-$items = $abn['items'];
+// 只显示当前店铺（含"未归属"）的异常，排除其他店铺的数据
+$items = array_values(array_filter($abn['items'], fn($r) => $r['shop_name'] === $shopName));
 
 // 分页
 $page = max(1, (int)($_GET['page'] ?? 1));
@@ -151,8 +154,10 @@ include __DIR__ . '/../includes/header.php';
                 <thead class="thead-light">
                     <tr>
                         <th style="width:60px">#</th>
+                        <th>店铺</th>
                         <th>订单号</th>
                         <th>差异类型</th>
+                        <th>归属员工</th>
                         <th class="text-right">员工上传金额</th>
                         <th class="text-right">店铺订单金额</th>
                         <th class="text-right">差异金额</th>
@@ -167,12 +172,22 @@ include __DIR__ . '/../includes/header.php';
                 ?>
                     <tr class="<?php echo $isMissing ? 'table-danger' : 'table-warning'; ?>">
                         <td><small class="text-muted"><?php echo $offset + $i + 1; ?></small></td>
+                        <td><span class="badge badge-info"><i class="fas fa-store"></i> <?php echo e($r['shop_name']); ?></span></td>
                         <td><span class="text-monospace"><?php echo e($r['order_no']); ?></span></td>
                         <td>
                             <?php if ($isMissing): ?>
                                 <span class="badge badge-danger"><i class="fas fa-times-circle"></i> 店铺缺失</span>
                             <?php else: ?>
                                 <span class="badge badge-warning"><i class="fas fa-exchange-alt"></i> 金额不一致</span>
+                            <?php endif; ?>
+                        </td>
+                        <td>
+                            <?php if (!empty($r['emp_name'])): ?>
+                                <span class="badge badge-secondary"><i class="fas fa-user"></i> <?php echo e($r['emp_name']); ?></span>
+                            <?php elseif (!empty($r['employee_id'])): ?>
+                                <span class="text-muted">#<?php echo e($r['employee_id']); ?></span>
+                            <?php else: ?>
+                                <span class="text-muted">--</span>
                             <?php endif; ?>
                         </td>
                         <td class="text-right font-weight-bold <?php echo $isMismatch ? 'text-primary' : ''; ?>">¥<?php echo money($r['emp_amount']); ?></td>

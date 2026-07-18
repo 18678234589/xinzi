@@ -1,0 +1,54 @@
+{
+    "modules": [
+        {
+            "name": "PPT提成5%",
+            "type": "standard",
+            "enabled": true,
+            "config": {
+                "rate": 0.05,
+                "service_fee_rate": 0.455,
+                "min_amount": "",
+                "max_amount": "",
+                "shop_keyword": ""
+            }
+        },
+        {
+            "name": "图片提成5%",
+            "type": "standard",
+            "enabled": true,
+            "config": {
+                "rate": 0.05,
+                "service_fee_rate": 0.031,
+                "min_amount": "",
+                "max_amount": "",
+                "shop_keyword": ""
+            }
+        },
+        {
+            "name": "引流单3元\/单",
+            "type": "per_order",
+            "enabled": true,
+            "config": {
+                "per_amount": 3,
+                "per_reward": 0,
+                "service_fee_rate": 0,
+                "count_distinct": "是",
+                "count_column": ""
+            }
+        },
+        {
+            "name": "单量补贴0.5元\/单",
+            "type": "per_order",
+            "enabled": true,
+            "config": {
+                "per_amount": 0.5,
+                "per_reward": 0,
+                "service_fee_rate": 0,
+                "count_distinct": "是",
+                "count_column": ""
+            }
+        }
+    ],
+    "dept_share": 1,
+    "updated_at": "2026-07-18 10:33:18"
+}

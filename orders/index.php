@@ -277,28 +277,56 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             if (count(array_filter($row, fn($v) => trim($v) !== '')) === 0) continue;
 
                             // 计算订单金额
+                            $feeRate = 0;       // 手续费率
+                            $feeAmount = 0;     // 手续费金额
+                            $originalPrice = 0;  // 原始售价（扣手续费前）
                             if ($idxAmount !== null) {
                                 // 直接使用订单金额列（美工部等）
                                 $amount = (float)preg_replace('/[^\d.\-]/', '', trim($row[$idxAmount] ?? ''));
                             } elseif ($idxPrice !== null && $idxCost !== null) {
                                 // 金额 = 售价 - 成本
                                 $price  = (float)preg_replace('/[^\d.\-]/', '', trim($row[$idxPrice] ?? ''));
-                                $cost   = (float)preg_replace('/[^\d.\-]/', '', trim($row[$idxCost]  ?? ''));
+                                $cost   = (float)preg_replace('/[^\d.\-]/', '', trim($row[$idxCost] ?? ''));
+                                $originalPrice = $price;
                                 $amount = $price - $cost;
-                                // 部门订单：按配置文件扣除手续费：利润 = 售价 - 售价×手续费率 - 成本
-                                if ($order_scope === 'department' && $dept_name !== '') {
+
+                                // ====== 手续费扣除 ======
+                                // 优先级：算法配置中选中模块的 service_fee_rate > dept_fee.php 部门费率（仅部门订单）
+                                $feeRate = 0;
+                                $modMatched = false;
+
+                                // 1. 查员工算法配置，按选中的模块名匹配
+                                if (!empty($projectArr) && $employee_id > 0) {
+                                    $modCfg = SalaryCalculator::readModulesConfig($employee_id);
+                                    if ($modCfg && !empty($modCfg['modules'])) {
+                                        foreach ($modCfg['modules'] as $m) {
+                                            if (($m['enabled'] ?? true) && in_array($m['name'] ?? '', $projectArr)) {
+                                                $feeRate = (float)($m['config']['service_fee_rate'] ?? 0);
+                                                $modMatched = true;
+                                                break;
+                                            }
+                                        }
+                                    }
+                                }
+
+                                // 2. 部门订单且模块未匹配到时，回退到 dept_fee.php
+                                if (!$modMatched && $order_scope === 'department' && $dept_name !== '') {
                                     static $deptFeeMap = null;
                                     if ($deptFeeMap === null) {
-                                        $deptFeeMap = include __DIR__ . '/../config/dept_fee.php';
+                                        $deptFeeFile = __DIR__ . '/../config/dept_fee.php';
+                                        $deptFeeMap = file_exists($deptFeeFile) ? (include $deptFeeFile) : [];
                                         if (!is_array($deptFeeMap)) $deptFeeMap = [];
                                     }
                                     $feeRate = isset($deptFeeMap[$dept_name]) ? (float)$deptFeeMap[$dept_name] : 0.0;
-                                    if ($feeRate > 0) {
-                                        $amount = round($price - $price * $feeRate - $cost, 2);
-                                    }
+                                }
+
+                                // 3. 扣除手续费
+                                if ($feeRate > 0) {
+                                    $feeAmount = round($price * $feeRate, 2);
+                                    $amount = round($price - $feeAmount - $cost, 2);
                                 }
                             } else {
-                                // 纯数量表（无金额列）：订单金额存0，按数量计算的模块只数笔数
+                                // 纯数量表（无金额列），订单金额存0，按数量计算的模块只数笔数
                                 $amount = 0;
                             }
 
@@ -323,6 +351,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                 if (!empty($deptEmpModules)) {
                                     $rawMap['__dept_modules__'] = $deptEmpModules;
                                 }
+                            }
+                            // 存储手续费拆分信息，供前端展示（个人订单 + 部门订单）
+                            if ($feeRate > 0) {
+                                $rawMap['__fee_rate__'] = $feeRate;
+                                $rawMap['__fee_amount__'] = $feeAmount;
+                                $rawMap['__original_price__'] = $originalPrice;
                             }
                             if ($isRefund) {
                                 $rawMap['__is_refund__'] = '1'; // 标记为退款订单
@@ -1490,7 +1524,21 @@ include __DIR__ . '/../includes/header.php';
                                     <?php foreach ($uploadHeaders as $hdr): ?>
                                         <td><?php echo isset($rawData[$hdr]) && $rawData[$hdr] !== '' ? e($rawData[$hdr]) : '<span class="text-muted small">--</span>'; ?></td>
                                     <?php endforeach; ?>
-                                    <td class="<?php echo !empty($o['is_abnormal']) ? 'text-danger' : 'text-success font-weight-bold'; ?>"><?php if (!empty($o['is_abnormal'])): ?><i class="fas fa-exclamation-triangle"></i> ¥<?php echo money($o['order_amount']); ?><br><small><?php echo e($o['abnormal_reason'] ?? ''); ?></small><?php else: ?>¥<?php echo money($o['order_amount']); ?><?php endif; ?></td>
+                                    <td class="<?php echo !empty($o['is_abnormal']) ? 'text-danger' : ''; ?>">
+                                        <?php if (!empty($o['is_abnormal'])): ?>
+                                            <i class="fas fa-exclamation-triangle"></i> ¥<?php echo money($o['order_amount']); ?><br><small><?php echo e($o['abnormal_reason'] ?? ''); ?></small>
+                                        <?php else:
+                                            $feeInfo = get_order_fee_info($rawData, $o);
+                                            if ($feeInfo['rate'] > 0 && $feeInfo['original_price'] > 0):
+                                            ?>
+                                                <div class="text-muted small">售价: ¥<?php echo money($feeInfo['original_price']); ?></div>
+                                                <div class="text-warning small">手续费: ¥<?php echo money($feeInfo['amount']); ?> (<?php echo rtrim(rtrim(number_format($feeInfo['rate'] * 100, 2, '.', ''), '0'), '.'); ?>%)</div>
+                                                <div class="text-success font-weight-bold">净额: ¥<?php echo money($feeInfo['net']); ?></div>
+                                            <?php else: ?>
+                                                <span class="text-success font-weight-bold">¥<?php echo money($o['order_amount']); ?></span>
+                                            <?php endif; ?>
+                                        <?php endif; ?>
+                                    </td>
                                     <td class="text-muted small"><?php echo !empty($o['created_at']) ? date('m-d H:i', strtotime($o['created_at'])) : '--'; ?></td>
                                     <td><button type="button" class="btn btn-sm btn-outline-danger py-0" onclick="deleteSingle(<?php echo $o['id']; ?>)"><i class="fas fa-times"></i></button></td>
                                 </tr>

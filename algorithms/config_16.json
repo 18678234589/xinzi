@@ -5,7 +5,11 @@
             "type": "standard",
             "enabled": true,
             "config": {
-                "rate": 0.019
+                "rate": 0.019,
+                "service_fee_rate": "0.03",
+                "min_amount": "",
+                "max_amount": "",
+                "shop_keyword": ""
             }
         },
         {
@@ -22,7 +26,10 @@
             "enabled": true,
             "config": {
                 "subsidy": 1,
-                "count_mode": "staff_match"
+                "count_mode": "staff_match",
+                "count_column": "",
+                "count_keyword": "",
+                "count_keyword_match": "all"
             }
         },
         {
@@ -39,5 +46,5 @@
         }
     ],
     "dept_share": 1,
-    "updated_at": "2026-07-14 11:06:10"
+    "updated_at": "2026-07-17 16:07:56"
 }

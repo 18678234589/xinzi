@@ -17,7 +17,9 @@
             "config": {
                 "subsidy": 3,
                 "count_keyword_match": "all",
-                "count_mode": "keyword"
+                "count_mode": "keyword",
+                "count_column": "",
+                "count_keyword": ""
             }
         },
         {
@@ -43,5 +45,5 @@
         }
     ],
     "dept_share": 1,
-    "updated_at": "2026-07-16 08:42:53"
+    "updated_at": "2026-07-17 16:07:56"
 }
