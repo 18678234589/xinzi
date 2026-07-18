@@ -271,6 +271,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             $deptProjStr = !empty($projectArr) ? implode(',', $projectArr) : implode(',', array_values(array_unique(array_filter(array_map(fn($d) => trim($d['module']), $deptEmpModules)))));
                         }
 
+                        // 循环外预加载：避免每行重复查询
+                        $modCfg = (!empty($projectArr) && $employee_id > 0) ? SalaryCalculator::readModulesConfig($employee_id) : null;
+
+                        // 预构建员工姓名→模块配置映射，避免循环内每行重复查 get_employee
+                        $empNameMap = [];
+                        if ($order_scope === 'department' && !empty($deptEmpModules)) {
+                            foreach ($deptEmpModules as $dem) {
+                                $emp = get_employee($dem['employee_id']);
+                                if ($emp) {
+                                    $empNameMap[$emp['name']] = $dem;
+                                }
+                            }
+                        }
+
                         db()->beginTransaction();
                         try {
                         foreach ($dataRows as $row) {
@@ -295,16 +309,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                 $feeRate = 0;
                                 $modMatched = false;
 
-                                // 1. 查员工算法配置，按选中的模块名匹配
-                                if (!empty($projectArr) && $employee_id > 0) {
-                                    $modCfg = SalaryCalculator::readModulesConfig($employee_id);
-                                    if ($modCfg && !empty($modCfg['modules'])) {
-                                        foreach ($modCfg['modules'] as $m) {
-                                            if (($m['enabled'] ?? true) && in_array($m['name'] ?? '', $projectArr)) {
-                                                $feeRate = (float)($m['config']['service_fee_rate'] ?? 0);
-                                                $modMatched = true;
-                                                break;
-                                            }
+                                // 1. 查员工算法配置，按选中的模块名匹配（已预加载到 $modCfg）
+                                if (!empty($projectArr) && $employee_id > 0 && $modCfg && !empty($modCfg['modules'])) {
+                                    foreach ($modCfg['modules'] as $m) {
+                                        if (($m['enabled'] ?? true) && in_array($m['name'] ?? '', $projectArr)) {
+                                            $feeRate = (float)$m['config']['service_fee_rate'] ?? 0;
+                                            $modMatched = true;
+                                            break;
                                         }
                                     }
                                 }
@@ -371,14 +382,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                                 // 归属字段匹配：只在指定的列中查找员工姓名
                                 $matchedEmps = [];
-                                // 构建员工姓名→模块配置的映射
-                                $empNameMap = [];
-                                foreach ($deptEmpModules as $dem) {
-                                    $emp = get_employee($dem['employee_id']);
-                                    if ($emp) {
-                                        $empNameMap[$emp['name']] = $dem;
-                                    }
-                                }
+                                // 员工姓名→模块配置映射已在外层预构建到 $empNameMap
                                 // 只在指定的归属字段列中匹配员工姓名
                                 $scanKeys = !empty($ownershipFields) ? $ownershipFields : array_keys($rawMap);
                                 foreach ($scanKeys as $field) {
@@ -748,6 +752,14 @@ function ensureProjectColumn() {
             $fkRows = db()->query("SELECT CONSTRAINT_NAME FROM information_schema.KEY_COLUMN_USAGE WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='orders' AND REFERENCED_TABLE_NAME='employees'")->fetchAll();
             foreach ($fkRows as $fk) {
                 db()->exec("ALTER TABLE `orders` DROP FOREIGN KEY `" . $fk['CONSTRAINT_NAME'] . "`");
+            }
+        } catch (\Throwable $e) {}
+
+        // 复合索引：加速按员工+月份查询（删除/工资计算常用）
+        try {
+            $idxExists = db()->query("SHOW INDEX FROM `orders` WHERE Key_name = 'idx_emp_date'")->fetchAll();
+            if (empty($idxExists)) {
+                db()->exec("ALTER TABLE `orders` ADD INDEX `idx_emp_date` (`employee_id`, `order_date`)");
             }
         } catch (\Throwable $e) {}
     } catch (\Throwable $e) {}
