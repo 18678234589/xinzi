@@ -541,11 +541,11 @@ function get_abnormal_orders($shopName = '', $month = '')
     // 拉取员工订单（不拉 raw_data 大文本，避免慢）
     // 直接用 JSON_EXTRACT 在DB端提取 __original_price__ 和店铺名
     $empSql = "SELECT e.id, e.employee_id, e.order_no, e.order_amount, e.order_date, emp.name AS emp_name,"
-            . " JSON_UNQUOTE(JSON_EXTRACT(e.raw_data, '$.__original_price__')) AS emp_orig_price,"
-            . " JSON_UNQUOTE(JSON_EXTRACT(e.raw_data, '$.店铺')) AS rd_shop1,"
-            . " JSON_UNQUOTE(JSON_EXTRACT(e.raw_data, '$.店铺名称')) AS rd_shop2,"
-            . " JSON_UNQUOTE(JSON_EXTRACT(e.raw_data, '$.店铺名')) AS rd_shop3,"
-            . " JSON_UNQUOTE(JSON_EXTRACT(e.raw_data, '$.店名')) AS rd_shop4,"
+            . " JSON_UNQUOTE(JSON_EXTRACT(e.raw_data, '$.\"__original_price__\"')) AS emp_orig_price,"
+            . " JSON_UNQUOTE(JSON_EXTRACT(e.raw_data, '$.\"店铺\"')) AS rd_shop1,"
+            . " JSON_UNQUOTE(JSON_EXTRACT(e.raw_data, '$.\"店铺名称\"')) AS rd_shop2,"
+            . " JSON_UNQUOTE(JSON_EXTRACT(e.raw_data, '$.\"店铺名\"')) AS rd_shop3,"
+            . " JSON_UNQUOTE(JSON_EXTRACT(e.raw_data, '$.\"店名\"')) AS rd_shop4,"
             . " JSON_UNQUOTE(JSON_EXTRACT(e.raw_data, '$.shop')) AS rd_shop5"
             . " FROM orders e LEFT JOIN employees emp ON emp.id = e.employee_id " . $empWhere
             . " ORDER BY e.order_date DESC, e.id DESC";
@@ -564,7 +564,7 @@ function get_abnormal_orders($shopName = '', $month = '')
         $shopParams[] = $month;
     }
     $shopSql = "SELECT o.id, o.shop, o.order_no, o.order_amount, o.order_date,"
-             . " JSON_UNQUOTE(JSON_EXTRACT(o.raw_data, '$.__original_price__')) AS shop_orig_price"
+             . " JSON_UNQUOTE(JSON_EXTRACT(o.raw_data, '$.\"__original_price__\"')) AS shop_orig_price"
              . " FROM orders o " . $shopWhere
              . " ORDER BY o.id ASC";
     $shopStmt = $pdo->prepare($shopSql);
