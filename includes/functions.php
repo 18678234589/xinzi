@@ -504,16 +504,24 @@ function get_abnormal_orders($shopName = '', $month = '')
     // 确保 orders 表有所需字段（order_scope / shop / order_no 等）
     // 这些字段原本由 orders/index.php 的 ensureProjectColumn() 动态添加，
     // 异常订单页可能先于订单页被访问，这里主动补齐。
-    foreach (['order_scope' => "VARCHAR(20) NOT NULL DEFAULT 'personal'",
-              'shop'        => "VARCHAR(100) DEFAULT ''",
-              'order_no'    => "VARCHAR(64) DEFAULT ''",
-              'raw_data'    => "TEXT DEFAULT NULL"] as $col => $def) {
+    static $colsChecked = false;
+    if (!$colsChecked) {
+        foreach (['order_scope' => "VARCHAR(20) NOT NULL DEFAULT 'personal'",
+                  'shop'        => "VARCHAR(100) DEFAULT ''",
+                  'order_no'    => "VARCHAR(64) DEFAULT ''",
+                  'raw_data'    => "TEXT DEFAULT NULL"] as $col => $def) {
+            try {
+                $exists = $pdo->query("SHOW COLUMNS FROM `orders` LIKE '{$col}'")->fetchAll();
+                if (empty($exists)) {
+                    $pdo->exec("ALTER TABLE `orders` ADD COLUMN `{$col}` {$def}");
+                }
+            } catch (\Throwable $e) {}
+        }
+        // 关键索引，加速异常订单对比查询
         try {
-            $exists = $pdo->query("SHOW COLUMNS FROM `orders` LIKE '{$col}'")->fetchAll();
-            if (empty($exists)) {
-                $pdo->exec("ALTER TABLE `orders` ADD COLUMN `{$col}` {$def}");
-            }
+            $pdo->exec("ALTER TABLE `orders` ADD INDEX `idx_scope_no_del` (order_scope, order_no, is_deleted)");
         } catch (\Throwable $e) {}
+        $colsChecked = true;
     }
 
     // 取所有店铺名（用于概览按店铺逐个比对，以及缺失订单归属到正确店铺）
@@ -560,14 +568,34 @@ function get_abnormal_orders($shopName = '', $month = '')
     $shopNameMap = []; // shop name => shop id
     // 全局订单号索引：order_no => department 订单记录（员工没填店铺名时，用订单号反查归属店铺）
     $deptByNo = [];
+    // 所有店铺订单ID，用于批量预取 raw_data
+    $shopOrderIds = [];
     foreach ($shopOrders as $so) {
         $sn = $so['shop'] !== '' ? $so['shop'] : '未归属店铺';
         if (!isset($shopMap[$sn][$so['order_no']])) {
             $shopMap[$sn][$so['order_no']] = $so;
+            $shopOrderIds[] = (int)$so['id'];
         }
         if (!isset($deptByNo[$so['order_no']])) {
             $deptByNo[$so['order_no']] = $so;
         }
+    }
+    // 批量预取店铺订单的 __original_price__（一次查询替代逐条查询）
+    $shopOrigPriceMap = []; // order_id => original_price
+    if (!empty($shopOrderIds)) {
+        $idPlaceholders = implode(',', array_fill(0, count($shopOrderIds), '?'));
+        try {
+            $rdStmt = $pdo->prepare("SELECT id, raw_data FROM orders WHERE id IN ($idPlaceholders)");
+            $rdStmt->execute($shopOrderIds);
+            while ($rdRow = $rdStmt->fetch()) {
+                if ($rdRow['raw_data']) {
+                    $rd = json_decode($rdRow['raw_data'], true);
+                    if (is_array($rd) && isset($rd['__original_price__'])) {
+                        $shopOrigPriceMap[(int)$rdRow['id']] = (float)$rd['__original_price__'];
+                    }
+                }
+            }
+        } catch (\Throwable $e) {}
     }
     foreach ($allShops as $sh) {
         $shopNameMap[$sh['name']] = (int)$sh['id'];
@@ -648,19 +676,10 @@ function get_abnormal_orders($shopName = '', $month = '')
             // 该店铺有此订单号 → 比对金额（用售价对比，非利润）
             $so = $sOrders[$ono];
 
-            // 按需查询店铺订单的 raw_data 提取 __original_price__（避免全量拉取导致内存溢出）
-            $shopOriginalPrice = (float)$so['order_amount'];
-            try {
-                $rdStmt = $pdo->prepare("SELECT raw_data FROM orders WHERE id = ? LIMIT 1");
-                $rdStmt->execute([$so['id']]);
-                $rdRow = $rdStmt->fetch();
-                if ($rdRow && $rdRow['raw_data']) {
-                    $shopRaw = json_decode($rdRow['raw_data'], true);
-                    if (is_array($shopRaw) && isset($shopRaw['__original_price__'])) {
-                        $shopOriginalPrice = (float)$shopRaw['__original_price__'];
-                    }
-                }
-            } catch (\Throwable $e) {}
+            // 从批量预取的结果中取店铺订单的 __original_price__
+            $shopOriginalPrice = isset($shopOrigPriceMap[(int)$so['id']])
+                ? $shopOrigPriceMap[(int)$so['id']]
+                : (float)$so['order_amount'];
 
             $diff = round($empOriginalPrice - $shopOriginalPrice, 2);
             if (abs($diff) > 0.001) {
