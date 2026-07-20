@@ -495,25 +495,47 @@ function get_attendance_months($year)
  * @param string $month    月份 YYYY-MM（空表示查所有月份）
  * @return array ['items' => [...], 'shops' => [...]]
  */
-function get_abnormal_orders($shopName = '', $month = '')
+function get_abnormal_orders($shopName = '', $month = '', $employeeName = '')
 {
     $pdo = db();
     $where = [];
     $params = [];
 
-    // 确保 orders 表有所需字段（order_scope / shop / order_no 等）
-    // 这些字段原本由 orders/index.php 的 ensureProjectColumn() 动态添加，
-    // 异常订单页可能先于订单页被访问，这里主动补齐。
-    foreach (['order_scope' => "VARCHAR(20) NOT NULL DEFAULT 'personal'",
-              'shop'        => "VARCHAR(100) DEFAULT ''",
-              'order_no'    => "VARCHAR(64) DEFAULT ''",
-              'raw_data'    => "TEXT DEFAULT NULL"] as $col => $def) {
-        try {
-            $exists = $pdo->query("SHOW COLUMNS FROM `orders` LIKE '{$col}'")->fetchAll();
-            if (empty($exists)) {
-                $pdo->exec("ALTER TABLE `orders` ADD COLUMN `{$col}` {$def}");
+    // 文件缓存（5分钟有效期），避免每次刷新都全量重算
+    $cacheDir = __DIR__ . '/../storage/abnormal_cache';
+    if (!is_dir($cacheDir)) @mkdir($cacheDir, 0755, true);
+    $cacheKey = md5($shopName . '|' . $month . '|' . $employeeName);
+    $cacheFile = $cacheDir . '/' . $cacheKey . '.json';
+    $cacheTTL = 300; // 5分钟
+    if (file_exists($cacheFile) && (time() - filemtime($cacheFile)) < $cacheTTL) {
+        $cached = @file_get_contents($cacheFile);
+        if ($cached !== false) {
+            $data = json_decode($cached, true);
+            if (is_array($data) && isset($data['items'])) {
+                return $data;
             }
-        } catch (\Throwable $e) {}
+        }
+    }
+
+    // 确保 orders 表有所需字段（order_scope / shop / order_no 等）
+    // 用持久化标记文件避免每次请求都做 SHOW COLUMNS / ALTER TABLE（省6次远程查询）
+    $schemaFlag = __DIR__ . '/../storage/.schema_checked';
+    if (!file_exists($schemaFlag)) {
+        foreach (['order_scope' => "VARCHAR(20) NOT NULL DEFAULT 'personal'",
+                  'shop'        => "VARCHAR(100) DEFAULT ''",
+                  'order_no'    => "VARCHAR(64) DEFAULT ''",
+                  'raw_data'    => "TEXT DEFAULT NULL"] as $col => $def) {
+            try {
+                $exists = $pdo->query("SHOW COLUMNS FROM `orders` LIKE '{$col}'")->fetchAll();
+                if (empty($exists)) {
+                    $pdo->exec("ALTER TABLE `orders` ADD COLUMN `{$col}` {$def}");
+                }
+            } catch (\Throwable $e) {}
+        }
+        try { $pdo->exec("ALTER TABLE `orders` ADD INDEX `idx_scope_no_del` (order_scope, order_no, is_deleted)"); } catch (\Throwable $e) {}
+        try { $pdo->exec("ALTER TABLE `orders` ADD INDEX `idx_emp_name` (name)"); } catch (\Throwable $e) {}
+        try { $pdo->exec("ALTER TABLE `employees` ADD INDEX `idx_emp_name` (name)"); } catch (\Throwable $e) {}
+        @file_put_contents($schemaFlag, date('Y-m-d H:i:s'));
     }
 
     // 取所有店铺名（用于概览按店铺逐个比对，以及缺失订单归属到正确店铺）
@@ -522,16 +544,37 @@ function get_abnormal_orders($shopName = '', $month = '')
         $allShops = $pdo->query("SELECT id, name FROM shops ORDER BY sort ASC, id ASC")->fetchAll();
     } catch (\Throwable $e) {}
 
-    // 员工上传订单（personal，排除从部门派生的）——与店铺无关，只按月份过滤
-    $empWhere = " WHERE e.order_scope = 'personal' AND e.order_no <> '' AND COALESCE(e.is_deleted, 0) = 0 ";
-    $empParams = [];
+    // 月份范围（避免 DATE_FORMAT 杀索引，改用 >= / < 范围）
+    $monthStart = ''; $monthEnd = '';
     if ($month !== '') {
-        $empWhere .= " AND DATE_FORMAT(e.order_date, '%Y-%m') = ? ";
-        $empParams[] = $month;
+        $monthStart = $month . '-01 00:00:00';
+        $monthEnd = date('Y-m-d 00:00:00', strtotime($month . '-01 +1 month'));
     }
 
-    // 拉取员工订单，关联员工姓名用于明细展示；带 raw_data 用于提取员工表格里的店铺名
-    $empSql = "SELECT e.id, e.employee_id, e.order_no, e.order_amount, e.order_date, e.raw_data, emp.name AS emp_name"
+    // 员工上传订单（personal，排除从部门派生的）——与店铺无关，只按月份过滤
+    $empWhere = " WHERE e.order_scope = 'personal' AND e.order_no <> '' AND (e.is_deleted = 0 OR e.is_deleted IS NULL) ";
+    $empParams = [];
+    if ($month !== '') {
+        $empWhere .= " AND e.order_date >= ? AND e.order_date < ? ";
+        $empParams[] = $monthStart;
+        $empParams[] = $monthEnd;
+    }
+    if ($employeeName !== '') {
+        $empWhere .= " AND emp.name = ? ";
+        $empParams[] = $employeeName;
+    }
+
+    // 拉取员工订单（不拉 raw_data 大文本，避免慢）
+    // 用 JSON_EXTRACT 在DB端提取 __original_price__ 和店铺名（COALESCE取第一个非空）
+    $empSql = "SELECT e.id, e.employee_id, e.order_no, e.order_amount, e.order_date, emp.name AS emp_name,"
+            . " JSON_UNQUOTE(JSON_EXTRACT(e.raw_data, '$.\"__original_price__\"')) AS emp_orig_price,"
+            . " COALESCE("
+            . "   JSON_UNQUOTE(JSON_EXTRACT(e.raw_data, '$.\"店铺\"')),"
+            . "   JSON_UNQUOTE(JSON_EXTRACT(e.raw_data, '$.\"店铺名称\"')),"
+            . "   JSON_UNQUOTE(JSON_EXTRACT(e.raw_data, '$.\"店铺名\"')),"
+            . "   JSON_UNQUOTE(JSON_EXTRACT(e.raw_data, '$.\"店名\"')),"
+            . "   JSON_UNQUOTE(JSON_EXTRACT(e.raw_data, '$.shop'))"
+            . " ) AS emp_shop_raw"
             . " FROM orders e LEFT JOIN employees emp ON emp.id = e.employee_id " . $empWhere
             . " ORDER BY e.order_date DESC, e.id DESC";
     $empStmt = $pdo->prepare($empSql);
@@ -541,13 +584,19 @@ function get_abnormal_orders($shopName = '', $month = '')
 
     // 拉取店铺订单（department），始终拉取所有店铺
     // （员工 personal 订单的 shop 字段为空，需从 raw_data 提取店铺名后定位对应店铺订单）
-    $shopWhere = " WHERE o.order_scope = 'department' AND o.order_no <> '' AND COALESCE(o.is_deleted, 0) = 0 ";
+    // 修复WHERE条件让索引生效
+    $shopWhere = " WHERE o.order_scope = 'department' AND o.order_no <> '' AND (o.is_deleted = 0 OR o.is_deleted IS NULL) ";
     $shopParams = [];
     if ($month !== '') {
-        $shopWhere .= " AND DATE_FORMAT(o.order_date, '%Y-%m') = ? ";
-        $shopParams[] = $month;
+        $shopWhere .= " AND o.order_date >= ? AND o.order_date < ? ";
+        $shopParams[] = $monthStart;
+        $shopParams[] = $monthEnd;
     }
-    $shopSql = "SELECT o.id, o.shop, o.order_no, o.order_amount, o.order_date FROM orders o " . $shopWhere
+    // 不加LIMIT：department订单需要全量构建shopMap用于比对，
+    // 只拉轻量字段（不拉raw_data），配合索引，全量拉取可接受
+    $shopSql = "SELECT o.id, o.shop, o.order_no, o.order_amount, o.order_date,"
+             . " JSON_UNQUOTE(JSON_EXTRACT(o.raw_data, '$.\"__original_price__\"')) AS shop_orig_price"
+             . " FROM orders o " . $shopWhere
              . " ORDER BY o.id ASC";
     $shopStmt = $pdo->prepare($shopSql);
     foreach ($shopParams as $k => $p) { $shopStmt->bindValue($k + 1, $p); }
@@ -596,18 +645,21 @@ function get_abnormal_orders($shopName = '', $month = '')
     $orphanKey = '未归属';
     $shopStats[$orphanKey] = ['shop_name' => $orphanKey, 'shop_id' => 0, 'missing' => 0, 'mismatch' => 0, 'total' => 0];
 
-    // 遍历员工订单：先从 raw_data 提取员工表格里填写的店铺名，只跟该店铺比对
+    // 遍历员工订单
     foreach ($empOrders as $eo) {
         $ono = $eo['order_no'];
 
-        // 从 raw_data 提取员工上传表格里写的店铺名（如"清风易"）
-        $rawMap = $eo['raw_data'] ? json_decode($eo['raw_data'], true) : null;
-        $empShopRaw = is_array($rawMap) ? extract_shop_from_raw($rawMap) : '';
+        // 从 SQL 提取的店铺名（COALESCE已取第一个非空）
+        $empShopRaw = trim($eo['emp_shop_raw'] ?? '');
 
         // 将员工填写的店铺名匹配到标准店铺名（如"清风易"→"清风易软件专营店"）
         $empShop = $empShopRaw !== '' ? match_shop_name($empShopRaw, $knownShopNames) : '';
 
-        // 确定该员工订单归属的店铺：优先用匹配到的标准店铺名，否则用订单号反查
+        // 提取员工的原始售价（SQL已提取，无需PHP解析JSON）
+        $empOriginalPrice = $eo['emp_orig_price'] !== null && (float)$eo['emp_orig_price'] > 0
+            ? (float)$eo['emp_orig_price'] : (float)$eo['order_amount'];
+
+        // 确定该员工订单归属的店铺，优先用匹配到的标准店铺名，否则用订单号反查
         if ($empShop === '') {
             // 员工表格里没填店铺名，拿订单号去全量 department 订单里反查
             if (isset($deptByNo[$ono])) {
@@ -621,15 +673,15 @@ function get_abnormal_orders($shopName = '', $month = '')
                     'shop_id'        => 0,
                     'order_no'       => $ono,
                     'emp_amount'     => $eo['order_amount'],
-                    'emp_date'       => $eo['order_date'],
+                    'emp_date'      => $eo['order_date'],
                     'emp_order_id'   => $eo['id'],
-                    'emp_name'       => $eo['emp_name'],
+                    'emp_name'      => $eo['emp_name'],
                     'employee_id'    => $eo['employee_id'],
                     'shop_amount'    => null,
                     'shop_date'      => null,
                     'shop_order_id'  => null,
                     'diff_type'      => 'missing',
-                    'diff_amount'    => round((float)$eo['order_amount'], 2),
+                    'diff_amount'    => round($empOriginalPrice, 2),
                 ];
                 $shopStats[$orphanKey]['missing']++;
                 $shopStats[$orphanKey]['total']++;
@@ -640,21 +692,26 @@ function get_abnormal_orders($shopName = '', $month = '')
         // 只跟该员工订单归属的店铺做比对
         $sOrders = $shopMap[$empShop] ?? [];
         if (isset($sOrders[$ono])) {
-            // 该店铺有此订单号 → 比对金额
+            // 该店铺有此订单号 → 比对金额（用售价对比，非利润）
             $so = $sOrders[$ono];
-            $diff = round((float)$eo['order_amount'] - (float)$so['order_amount'], 2);
+
+            // 从SQL提取的 __original_price__ 直接取
+            $shopOriginalPrice = $so['shop_orig_price'] !== null && (float)$so['shop_orig_price'] > 0
+                ? (float)$so['shop_orig_price'] : (float)$so['order_amount'];
+
+            $diff = round($empOriginalPrice - $shopOriginalPrice, 2);
             if (abs($diff) > 0.001) {
-                // 金额不一致
+                // 金额不一致（按售价对比）
                 $items[] = [
                     'shop_name'     => $empShop,
                     'shop_id'       => $shopNameMap[$empShop] ?? 0,
                     'order_no'      => $ono,
-                    'emp_amount'    => $eo['order_amount'],
+                    'emp_amount'    => $empOriginalPrice,
                     'emp_date'      => $eo['order_date'],
                     'emp_order_id'  => $eo['id'],
                     'emp_name'      => $eo['emp_name'],
                     'employee_id'   => $eo['employee_id'],
-                    'shop_amount'   => $so['order_amount'],
+                    'shop_amount'   => $shopOriginalPrice,
                     'shop_date'     => $so['order_date'],
                     'shop_order_id' => $so['id'],
                     'diff_type'     => 'mismatch',
@@ -673,16 +730,16 @@ function get_abnormal_orders($shopName = '', $month = '')
                 'shop_name'     => $empShop,
                 'shop_id'        => $shopNameMap[$empShop] ?? 0,
                 'order_no'       => $ono,
-                'emp_amount'     => $eo['order_amount'],
-                'emp_date'       => $eo['order_date'],
+                'emp_amount'     => $empOriginalPrice,
+                'emp_date'      => $eo['order_date'],
                 'emp_order_id'   => $eo['id'],
-                'emp_name'       => $eo['emp_name'],
+                'emp_name'      => $eo['emp_name'],
                 'employee_id'    => $eo['employee_id'],
                 'shop_amount'    => null,
                 'shop_date'      => null,
                 'shop_order_id'  => null,
                 'diff_type'      => 'missing',
-                'diff_amount'    => round((float)$eo['order_amount'], 2),
+                'diff_amount'    => round($empOriginalPrice, 2),
             ];
             if (!isset($shopStats[$empShop])) {
                 $shopStats[$empShop] = ['shop_name' => $empShop, 'shop_id' => $shopNameMap[$empShop] ?? 0, 'missing' => 0, 'mismatch' => 0, 'total' => 0];
@@ -706,7 +763,14 @@ function get_abnormal_orders($shopName = '', $month = '')
     // 按异常总数降序
     usort($shopStats, fn($a, $b) => $b['total'] - $a['total']);
 
-    return ['items' => $items, 'shops' => $shopStats];
+    $result = ['items' => $items, 'shops' => $shopStats];
+
+    // 写入缓存
+    if (is_dir($cacheDir)) {
+        @file_put_contents($cacheFile, json_encode($result, JSON_UNESCAPED_UNICODE));
+    }
+
+    return $result;
 }
 
 /**

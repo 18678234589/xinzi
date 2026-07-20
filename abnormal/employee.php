@@ -1,54 +1,52 @@
 <?php
 	@ini_set('memory_limit', '512M');
 	require_once __DIR__ . '/../includes/auth.php';
-require_login();
+	require_login();
 
-$page_title = '店铺异常订单明细';
-$success = '';
-$error = '';
+	$page_title = '员工异常订单明细';
+	$success = '';
+	$error = '';
 
-$shopName = $_GET['shop'] ?? '';
-$filter_month = $_GET['month'] ?? '';
+	$empName = $_GET['emp'] ?? '';
+	$filter_month = $_GET['month'] ?? '';
 
-if ($shopName === '') {
-    header('Location: ' . BASE_URL . '/abnormal/index.php');
-    exit;
-}
+	if ($empName === '') {
+	    header('Location: ' . BASE_URL . '/abnormal/index.php');
+	    exit;
+	}
 
-// 导出当前店铺异常
-if (($_GET['export'] ?? '') === '1') {
-    $data = get_abnormal_orders($shopName, $filter_month);
-    // 只导出当前店铺（含"未归属"）的异常
-    $rows = array_values(array_filter($data['items'], fn($r) => $r['shop_name'] === $shopName));
+	// 导出当前员工异常
+	if (($_GET['export'] ?? '') === '1') {
+	    $data = get_abnormal_orders('', $filter_month, $empName);
+	    $rows = $data['items'];
 
-    header('Content-Type: text/csv; charset=utf-8');
-    $filename = '异常订单_' . $shopName . '_' . date('Ymd_His') . '.csv';
-    header('Content-Disposition: attachment; filename="' . $filename . '"');
-    echo "\xEF\xBB\xBF";
-    $out = fopen('php://output', 'w');
-    fputcsv($out, ['店铺', '订单号', '差异类型', '归属员工', '员工上传售价', '店铺订单售价', '差异金额', '员工上传日期', '店铺订单日期', '员工订单ID', '店铺订单ID']);
-    foreach ($rows as $r) {
-        fputcsv($out, [
-            $r['shop_name'],
-            $r['order_no'],
-            $r['diff_type'] === 'missing' ? '店铺缺失' : '售价不一致',
-            $r['emp_name'] ?? '',
-            $r['emp_amount'],
-            $r['shop_amount'] ?? '',
-            $r['diff_amount'],
-            $r['emp_date'],
-            $r['shop_date'] ?? '',
-            $r['emp_order_id'],
-            $r['shop_order_id'] ?? '',
-        ]);
-    }
-    fclose($out);
-    exit;
-}
+	    header('Content-Type: text/csv; charset=utf-8');
+	    $filename = '异常订单_' . $empName . '_' . date('Ymd_His') . '.csv';
+	    header('Content-Disposition: attachment; filename="' . $filename . '"');
+	    echo "\xEF\xBB\xBF";
+	    $out = fopen('php://output', 'w');
+	    fputcsv($out, ['店铺', '订单号', '差异类型', '归属员工', '员工上传售价', '店铺订单售价', '差异金额', '员工上传日期', '店铺订单日期', '员工订单ID', '店铺订单ID']);
+	    foreach ($rows as $r) {
+	        fputcsv($out, [
+	            $r['shop_name'],
+	            $r['order_no'],
+	            $r['diff_type'] === 'missing' ? '店铺缺失' : '售价不一致',
+	            $r['emp_name'] ?? '',
+	            $r['emp_amount'],
+	            $r['shop_amount'] ?? '',
+	            $r['diff_amount'],
+	            $r['emp_date'],
+	            $r['shop_date'] ?? '',
+	            $r['emp_order_id'],
+	            $r['shop_order_id'] ?? '',
+	        ]);
+	    }
+	    fclose($out);
+	    exit;
+	}
 
-$abn = get_abnormal_orders($shopName, $filter_month);
-// 只显示当前店铺（含"未归属"）的异常，排除其他店铺的数据
-$items = array_values(array_filter($abn['items'], fn($r) => $r['shop_name'] === $shopName));
+	$abn = get_abnormal_orders('', $filter_month, $empName);
+	$items = $abn['items'];
 
 // 分页
 $page = max(1, (int)($_GET['page'] ?? 1));
@@ -78,18 +76,18 @@ include __DIR__ . '/../includes/header.php';
         <h4 class="font-weight-bold mb-0 d-inline-block">
             <i class="fas fa-exclamation-triangle text-warning"></i> 异常订单明细
         </h4>
-        <span class="badge badge-info ml-2"><i class="fas fa-store"></i> <?php echo e($shopName); ?></span>
+        <span class="badge badge-secondary ml-2"><i class="fas fa-user"></i> <?php echo e($empName); ?></span>
     </div>
     <div class="d-flex align-items-center">
         <form method="get" class="form-inline mr-2">
-            <input type="hidden" name="shop" value="<?php echo e($shopName); ?>">
+            <input type="hidden" name="emp" value="<?php echo e($empName); ?>">
             <input type="month" name="month" class="form-control form-control-sm mr-1" value="<?php echo e($filter_month); ?>" onchange="this.form.submit()">
             <?php if ($filter_month): ?>
                 <button type="submit" name="month" value="" class="btn btn-sm btn-outline-secondary">全部</button>
             <?php endif; ?>
         </form>
         <?php if ($total > 0): ?>
-        <a href="<?php echo BASE_URL; ?>/abnormal/shop.php?shop=<?php echo urlencode($shopName); ?>&export=1<?php echo $filter_month ? '&month='.urlencode($filter_month) : ''; ?>" class="btn btn-sm btn-outline-success">
+        <a href="<?php echo BASE_URL; ?>/abnormal/employee.php?emp=<?php echo urlencode($empName); ?>&export=1<?php echo $filter_month ? '&month='.urlencode($filter_month) : ''; ?>" class="btn btn-sm btn-outline-success">
             <i class="fas fa-download"></i> 导出
         </a>
         <?php endif; ?>
@@ -129,8 +127,8 @@ include __DIR__ . '/../includes/header.php';
     <div class="card">
         <div class="card-body text-center text-success py-5">
             <i class="fas fa-check-circle fa-3x mb-2 d-block"></i>
-            <b>该店铺无异常订单</b>
-            <p class="text-muted">所有员工上传订单与店铺订单都能匹配上</p>
+            <b>该员工无异常订单</b>
+            <p class="text-muted">所有上传订单与店铺订单都能匹配上</p>
         </div>
     </div>
 <?php else: ?>
@@ -213,7 +211,7 @@ include __DIR__ . '/../includes/header.php';
         <nav class="d-flex justify-content-between align-items-center">
             <ul class="pagination pagination-sm mb-0">
                 <?php
-                $baseLink = BASE_URL . '/abnormal/shop.php?shop=' . urlencode($shopName)
+                $baseLink = BASE_URL . '/abnormal/employee.php?emp=' . urlencode($empName)
                     . ($filter_month ? '&month='.urlencode($filter_month) : '')
                     . '&page_size=' . $page_size . '&page=';
                 ?>

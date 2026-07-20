@@ -295,8 +295,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             $feeAmount = 0;     // 手续费金额
                             $originalPrice = 0;  // 原始售价（扣手续费前）
                             if ($idxAmount !== null) {
-                                // 直接使用订单金额列（美工部等）
+                                // 直接使用订单金额列（美工部等），售价即为订单金额
                                 $amount = (float)preg_replace('/[^\d.\-]/', '', trim($row[$idxAmount] ?? ''));
+                                $originalPrice = $amount;
                             } elseif ($idxPrice !== null && $idxCost !== null) {
                                 // 金额 = 售价 - 成本
                                 $price  = (float)preg_replace('/[^\d.\-]/', '', trim($row[$idxPrice] ?? ''));
@@ -367,6 +368,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             if ($feeRate > 0) {
                                 $rawMap['__fee_rate__'] = $feeRate;
                                 $rawMap['__fee_amount__'] = $feeAmount;
+                            }
+                            // 始终存储原始售价，供异常订单对比使用（售价匹配，非利润匹配）
+                            if ($originalPrice > 0) {
                                 $rawMap['__original_price__'] = $originalPrice;
                             }
                             if ($isRefund) {
@@ -771,6 +775,7 @@ $filter_project = $_GET['project'] ?? ''; // 展开某个模块时使用
 $filter_dept_orders = isset($_GET['dept_orders']) && $_GET['dept_orders'] === '1';
 $filter_abnormal = (($_GET['abnormal'] ?? '') === '1') ? 1 : 0;
 $filter_refund   = (($_GET['refund'] ?? '') === '1') ? 1 : 0;
+$filter_search  = trim($_GET['search_no'] ?? ''); // 订单号搜索
 $page     = max(1, (int)($_GET['page'] ?? 1));
 $allowed_per_page = [20, 50, 100, 200, 500, 1000];
 $_pp = (int)($_GET['per_page'] ?? 20);
@@ -939,6 +944,7 @@ if ($expand_project !== '') {
     $detailQ = array_merge($baseQ, ['project' => $expand_project, 'page' => 1]);
     if ($filter_abnormal) $detailQ['abnormal'] = '1';
     if ($filter_refund) $detailQ['refund'] = '1';
+    if ($filter_search !== '') $detailQ['search_no'] = $filter_search;
     if ($expand_project === '订单') {
         $detailWhere .= " AND (o.project = '' OR o.project IS NULL)";
     } else {
@@ -950,6 +956,10 @@ if ($expand_project !== '') {
     }
     if ($filter_refund) {
         $detailWhere .= " AND JSON_UNQUOTE(JSON_EXTRACT(o.raw_data, '$.__is_refund__')) = '1'";
+    }
+    if ($filter_search !== '') {
+        $detailWhere .= " AND o.order_no LIKE ?";
+        $detailParams[] = '%' . $filter_search . '%';
     }
 
     $cntRow = db()->prepare("SELECT COUNT(*) as cnt, COALESCE(SUM(o.order_amount),0) as total FROM orders o LEFT JOIN employees e ON o.employee_id = e.id" . $detailWhere);
@@ -1470,6 +1480,23 @@ include __DIR__ . '/../includes/header.php';
                     <small class="text-muted">共 <?php echo $detail_count; ?> 条，¥<?php echo money($detail_amount); ?><?php if ($filter_abnormal): ?> <span class="badge badge-danger ml-1">仅异常</span><?php endif; ?><?php if ($filter_refund): ?> <span class="badge badge-secondary ml-1">仅退款</span><?php endif; ?></small>
                 </div>
                 <div class="d-flex align-items-center flex-wrap justify-content-end">
+                    <form method="get" class="form-inline mr-2" id="orderSearchForm">
+                        <input type="hidden" name="project" value="<?php echo e($expand_project); ?>">
+                        <?php foreach ($detailQ as $k => $v): ?>
+                            <?php if ($k !== 'search_no' && $k !== 'project' && $k !== 'page'): ?>
+                                <input type="hidden" name="<?php echo e($k); ?>" value="<?php echo e($v); ?>">
+                            <?php endif; ?>
+                        <?php endforeach; ?>
+                        <div class="input-group input-group-sm">
+                            <input type="text" name="search_no" value="<?php echo e($filter_search); ?>" class="form-control" placeholder="搜索订单号…" style="width:180px" autocomplete="off">
+                            <div class="input-group-append">
+                                <button class="btn btn-outline-primary" type="submit"><i class="fas fa-search"></i></button>
+                                <?php if ($filter_search !== ''): ?>
+                                    <a class="btn btn-outline-secondary" href="<?php echo '?' . http_build_query(array_merge($detailQ, ['search_no' => ''])); ?>" title="清除搜索"><i class="fas fa-times"></i></a>
+                                <?php endif; ?>
+                            </div>
+                        </div>
+                    </form>
                     <select class="form-control form-control-sm mr-2" style="width:auto" onchange="location.href='<?php echo '?' . http_build_query(array_merge($detailQ, ['per_page' => '__PP__'])); ?>'.replace('__PP__', this.value)">
                         <?php foreach ([20,50,100,200,500,1000] as $n): ?>
                             <option value="<?php echo $n; ?>" <?php echo $per_page == $n ? 'selected' : ''; ?>><?php echo $n; ?> 条/页</option>
