@@ -1,5 +1,6 @@
 <?php
-require_once __DIR__ . '/../includes/auth.php';
+	@ini_set('memory_limit', '512M');
+	require_once __DIR__ . '/../includes/auth.php';
 require_login();
 
 $page_title = '店铺异常订单明细';

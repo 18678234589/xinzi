@@ -541,14 +541,14 @@ function get_abnormal_orders($shopName = '', $month = '')
 
     // 拉取店铺订单（department），始终拉取所有店铺
     // （员工 personal 订单的 shop 字段为空，需从 raw_data 提取店铺名后定位对应店铺订单）
-    // 同时提取 raw_data 中的 __original_price__（售价），用于售价匹配（而非利润匹配）
+    // 注意：不在此处拉 raw_data（大文本），避免内存溢出；按需在比对到 mismatch 时单独查询
     $shopWhere = " WHERE o.order_scope = 'department' AND o.order_no <> '' AND COALESCE(o.is_deleted, 0) = 0 ";
     $shopParams = [];
     if ($month !== '') {
         $shopWhere .= " AND DATE_FORMAT(o.order_date, '%Y-%m') = ? ";
         $shopParams[] = $month;
     }
-    $shopSql = "SELECT o.id, o.shop, o.order_no, o.order_amount, o.order_date, o.raw_data FROM orders o " . $shopWhere
+    $shopSql = "SELECT o.id, o.shop, o.order_no, o.order_amount, o.order_date FROM orders o " . $shopWhere
              . " ORDER BY o.id ASC";
     $shopStmt = $pdo->prepare($shopSql);
     foreach ($shopParams as $k => $p) { $shopStmt->bindValue($k + 1, $p); }
@@ -648,10 +648,19 @@ function get_abnormal_orders($shopName = '', $month = '')
             // 该店铺有此订单号 → 比对金额（用售价对比，非利润）
             $so = $sOrders[$ono];
 
-            // 提取店铺订单的原始售价
-            $shopRaw = $so['raw_data'] ? json_decode($so['raw_data'], true) : null;
-            $shopOriginalPrice = is_array($shopRaw) && isset($shopRaw['__original_price__'])
-                ? (float)$shopRaw['__original_price__'] : (float)$so['order_amount'];
+            // 按需查询店铺订单的 raw_data 提取 __original_price__（避免全量拉取导致内存溢出）
+            $shopOriginalPrice = (float)$so['order_amount'];
+            try {
+                $rdStmt = $pdo->prepare("SELECT raw_data FROM orders WHERE id = ? LIMIT 1");
+                $rdStmt->execute([$so['id']]);
+                $rdRow = $rdStmt->fetch();
+                if ($rdRow && $rdRow['raw_data']) {
+                    $shopRaw = json_decode($rdRow['raw_data'], true);
+                    if (is_array($shopRaw) && isset($shopRaw['__original_price__'])) {
+                        $shopOriginalPrice = (float)$shopRaw['__original_price__'];
+                    }
+                }
+            } catch (\Throwable $e) {}
 
             $diff = round($empOriginalPrice - $shopOriginalPrice, 2);
             if (abs($diff) > 0.001) {
