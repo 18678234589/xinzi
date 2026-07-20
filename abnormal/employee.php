@@ -24,12 +24,12 @@
 	    header('Content-Disposition: attachment; filename="' . $filename . '"');
 	    echo "\xEF\xBB\xBF";
 	    $out = fopen('php://output', 'w');
-	    fputcsv($out, ['店铺', '订单号', '差异类型', '归属员工', '员工上传金额', '店铺订单金额', '差异金额', '员工上传日期', '店铺订单日期', '员工订单ID', '店铺订单ID']);
+	    fputcsv($out, ['店铺', '订单号', '差异类型', '归属员工', '员工上传售价', '店铺订单售价', '差异金额', '员工上传日期', '店铺订单日期', '员工订单ID', '店铺订单ID']);
 	    foreach ($rows as $r) {
 	        fputcsv($out, [
 	            $r['shop_name'],
 	            $r['order_no'],
-	            $r['diff_type'] === 'missing' ? '店铺缺失' : '金额不一致',
+	            $r['diff_type'] === 'missing' ? '店铺缺失' : '售价不一致',
 	            $r['emp_name'] ?? '',
 	            $r['emp_amount'],
 	            $r['shop_amount'] ?? '',
@@ -107,9 +107,9 @@ include __DIR__ . '/../includes/header.php';
     <div class="col-md-3">
         <div class="card border-warning">
             <div class="card-body py-2">
-                <div class="text-muted small">金额不一致</div>
+                <div class="text-muted small">售价不一致</div>
                 <div class="font-weight-bold text-warning h5 mb-0"><?php echo $cntMismatch; ?> 条</div>
-                <small class="text-muted">两边都有同一订单号但金额不同</small>
+                <small class="text-muted">两边都有同一订单号但售价不同</small>
             </div>
         </div>
     </div>
@@ -157,8 +157,8 @@ include __DIR__ . '/../includes/header.php';
                         <th>订单号</th>
                         <th>差异类型</th>
                         <th>归属员工</th>
-                        <th class="text-right">员工上传金额</th>
-                        <th class="text-right">店铺订单金额</th>
+                        <th class="text-right">员工上传售价</th>
+                        <th class="text-right">店铺订单售价</th>
                         <th class="text-right">差异金额</th>
                         <th>员工上传日期</th>
                         <th>店铺订单日期</th>
@@ -177,7 +177,7 @@ include __DIR__ . '/../includes/header.php';
                             <?php if ($isMissing): ?>
                                 <span class="badge badge-danger"><i class="fas fa-times-circle"></i> 店铺缺失</span>
                             <?php else: ?>
-                                <span class="badge badge-warning"><i class="fas fa-exchange-alt"></i> 金额不一致</span>
+                                <span class="badge badge-warning"><i class="fas fa-exchange-alt"></i> 售价不一致</span>
                             <?php endif; ?>
                         </td>
                         <td>

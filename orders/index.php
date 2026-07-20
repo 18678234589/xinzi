@@ -295,8 +295,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             $feeAmount = 0;     // 手续费金额
                             $originalPrice = 0;  // 原始售价（扣手续费前）
                             if ($idxAmount !== null) {
-                                // 直接使用订单金额列（美工部等）
+                                // 直接使用订单金额列（美工部等），售价即为订单金额
                                 $amount = (float)preg_replace('/[^\d.\-]/', '', trim($row[$idxAmount] ?? ''));
+                                $originalPrice = $amount;
                             } elseif ($idxPrice !== null && $idxCost !== null) {
                                 // 金额 = 售价 - 成本
                                 $price  = (float)preg_replace('/[^\d.\-]/', '', trim($row[$idxPrice] ?? ''));
@@ -367,6 +368,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             if ($feeRate > 0) {
                                 $rawMap['__fee_rate__'] = $feeRate;
                                 $rawMap['__fee_amount__'] = $feeAmount;
+                            }
+                            // 始终存储原始售价，供异常订单对比使用（售价匹配，非利润匹配）
+                            if ($originalPrice > 0) {
                                 $rawMap['__original_price__'] = $originalPrice;
                             }
                             if ($isRefund) {

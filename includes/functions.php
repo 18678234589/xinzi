@@ -541,13 +541,14 @@ function get_abnormal_orders($shopName = '', $month = '')
 
     // 拉取店铺订单（department），始终拉取所有店铺
     // （员工 personal 订单的 shop 字段为空，需从 raw_data 提取店铺名后定位对应店铺订单）
+    // 同时提取 raw_data 中的 __original_price__（售价），用于售价匹配（而非利润匹配）
     $shopWhere = " WHERE o.order_scope = 'department' AND o.order_no <> '' AND COALESCE(o.is_deleted, 0) = 0 ";
     $shopParams = [];
     if ($month !== '') {
         $shopWhere .= " AND DATE_FORMAT(o.order_date, '%Y-%m') = ? ";
         $shopParams[] = $month;
     }
-    $shopSql = "SELECT o.id, o.shop, o.order_no, o.order_amount, o.order_date FROM orders o " . $shopWhere
+    $shopSql = "SELECT o.id, o.shop, o.order_no, o.order_amount, o.order_date, o.raw_data FROM orders o " . $shopWhere
              . " ORDER BY o.id ASC";
     $shopStmt = $pdo->prepare($shopSql);
     foreach ($shopParams as $k => $p) { $shopStmt->bindValue($k + 1, $p); }
@@ -607,7 +608,11 @@ function get_abnormal_orders($shopName = '', $month = '')
         // 将员工填写的店铺名匹配到标准店铺名（如"清风易"→"清风易软件专营店"）
         $empShop = $empShopRaw !== '' ? match_shop_name($empShopRaw, $knownShopNames) : '';
 
-        // 确定该员工订单归属的店铺：优先用匹配到的标准店铺名，否则用订单号反查
+        // 提取员工的原始售价（用于售价匹配，而非利润匹配）
+        $empOriginalPrice = is_array($rawMap) && isset($rawMap['__original_price__'])
+            ? (float)$rawMap['__original_price__'] : (float)$eo['order_amount'];
+
+        // 确定该员工订单归属的店铺，优先用匹配到的标准店铺名，否则用订单号反查
         if ($empShop === '') {
             // 员工表格里没填店铺名，拿订单号去全量 department 订单里反查
             if (isset($deptByNo[$ono])) {
@@ -621,15 +626,15 @@ function get_abnormal_orders($shopName = '', $month = '')
                     'shop_id'        => 0,
                     'order_no'       => $ono,
                     'emp_amount'     => $eo['order_amount'],
-                    'emp_date'       => $eo['order_date'],
+                    'emp_date'      => $eo['order_date'],
                     'emp_order_id'   => $eo['id'],
-                    'emp_name'       => $eo['emp_name'],
+                    'emp_name'      => $eo['emp_name'],
                     'employee_id'    => $eo['employee_id'],
                     'shop_amount'    => null,
                     'shop_date'      => null,
                     'shop_order_id'  => null,
                     'diff_type'      => 'missing',
-                    'diff_amount'    => round((float)$eo['order_amount'], 2),
+                    'diff_amount'    => round($empOriginalPrice, 2),
                 ];
                 $shopStats[$orphanKey]['missing']++;
                 $shopStats[$orphanKey]['total']++;
@@ -640,21 +645,27 @@ function get_abnormal_orders($shopName = '', $month = '')
         // 只跟该员工订单归属的店铺做比对
         $sOrders = $shopMap[$empShop] ?? [];
         if (isset($sOrders[$ono])) {
-            // 该店铺有此订单号 → 比对金额
+            // 该店铺有此订单号 → 比对金额（用售价对比，非利润）
             $so = $sOrders[$ono];
-            $diff = round((float)$eo['order_amount'] - (float)$so['order_amount'], 2);
+
+            // 提取店铺订单的原始售价
+            $shopRaw = $so['raw_data'] ? json_decode($so['raw_data'], true) : null;
+            $shopOriginalPrice = is_array($shopRaw) && isset($shopRaw['__original_price__'])
+                ? (float)$shopRaw['__original_price__'] : (float)$so['order_amount'];
+
+            $diff = round($empOriginalPrice - $shopOriginalPrice, 2);
             if (abs($diff) > 0.001) {
-                // 金额不一致
+                // 金额不一致（按售价对比）
                 $items[] = [
                     'shop_name'     => $empShop,
                     'shop_id'       => $shopNameMap[$empShop] ?? 0,
                     'order_no'      => $ono,
-                    'emp_amount'    => $eo['order_amount'],
+                    'emp_amount'    => $empOriginalPrice,
                     'emp_date'      => $eo['order_date'],
                     'emp_order_id'  => $eo['id'],
                     'emp_name'      => $eo['emp_name'],
                     'employee_id'   => $eo['employee_id'],
-                    'shop_amount'   => $so['order_amount'],
+                    'shop_amount'   => $shopOriginalPrice,
                     'shop_date'     => $so['order_date'],
                     'shop_order_id' => $so['id'],
                     'diff_type'     => 'mismatch',
@@ -673,7 +684,7 @@ function get_abnormal_orders($shopName = '', $month = '')
                 'shop_name'     => $empShop,
                 'shop_id'        => $shopNameMap[$empShop] ?? 0,
                 'order_no'       => $ono,
-                'emp_amount'     => $eo['order_amount'],
+                'emp_amount'     => $empOriginalPrice,
                 'emp_date'      => $eo['order_date'],
                 'emp_order_id'   => $eo['id'],
                 'emp_name'      => $eo['emp_name'],
@@ -682,7 +693,7 @@ function get_abnormal_orders($shopName = '', $month = '')
                 'shop_date'      => null,
                 'shop_order_id'  => null,
                 'diff_type'      => 'missing',
-                'diff_amount'    => round((float)$eo['order_amount'], 2),
+                'diff_amount'    => round($empOriginalPrice, 2),
             ];
             if (!isset($shopStats[$empShop])) {
                 $shopStats[$empShop] = ['shop_name' => $empShop, 'shop_id' => $shopNameMap[$empShop] ?? 0, 'missing' => 0, 'mismatch' => 0, 'total' => 0];

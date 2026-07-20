@@ -219,11 +219,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         if (count(array_filter($row, fn($v) => trim($v) !== '')) === 0) continue;
 
                         // 计算订单金额
+                        $originalPrice = 0; // 原始售价（供异常订单对比使用）
                         if ($idxAmount !== null) {
                             $amount = (float)preg_replace('/[^\d.\-]/', '', trim($row[$idxAmount] ?? ''));
+                            $originalPrice = $amount;
                         } else {
                             $price  = (float)preg_replace('/[^\d.\-]/', '', trim($row[$idxPrice] ?? ''));
-                            $cost   = (float)preg_replace('/[^\d.\-]/', '', trim($row[$idxCost]  ?? ''));
+                            $cost   = (float)preg_replace('/[^\d.\-]/', '', trim($row[$idxCost] ?? ''));
+                            $originalPrice = $price;
                             $amount = $price - $cost;
                         }
 
@@ -266,6 +269,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             $rawMap[$hdr] = $row[$ci] ?? '';
                         }
                         $rawMap['__shop__'] = $shop['name'];
+                        // 始终存储原始售价，供异常订单对比使用（售价匹配，非利润匹配）
+                        if ($originalPrice > 0) {
+                            $rawMap['__original_price__'] = $originalPrice;
+                        }
                         if ($tradeTimeStr !== '') { $rawMap['__trade_time__'] = $tradeTimeStr; }
                         if ($isRefund) {
                             $rawMap['__is_refund__'] = '1';

@@ -23,12 +23,12 @@
 	    // UTF-8 BOM 兼容Excel
 	    echo "\xEF\xBB\xBF";
 	    $out = fopen('php://output', 'w');
-	    fputcsv($out, ['店铺', '订单号', '差异类型', '归属员工', '员工上传金额', '店铺订单金额', '差异金额', '员工上传日期', '店铺订单日期', '员工订单ID', '店铺订单ID']);
+	    fputcsv($out, ['店铺', '订单号', '差异类型', '归属员工', '员工上传售价', '店铺订单售价', '差异金额', '员工上传日期', '店铺订单日期', '员工订单ID', '店铺订单ID']);
 	    foreach ($rows as $r) {
 	        fputcsv($out, [
 	            $r['shop_name'],
 	            $r['order_no'],
-	            $r['diff_type'] === 'missing' ? '店铺缺失' : '金额不一致',
+	            $r['diff_type'] === 'missing' ? '店铺缺失' : '售价不一致',
 	            $r['emp_name'] ?? '',
 	            $r['emp_amount'],
 	            $r['shop_amount'] ?? '',
@@ -101,8 +101,8 @@
 
 <div class="alert alert-info">
     <i class="fas fa-info-circle"></i>
-    <b>异常定义：</b>员工上传的订单号在店铺订单表里<b>查不到</b>（店铺缺失），或<b>能查到但金额不一致</b>。
-    <br><span class="text-muted small">对比范围，员工上传订单（personal）vs 病铺订单（department），按订单号 + 月份匹配。</span>
+    <b>异常定义：</b>员工上传的订单号在店铺订单表里<b>查不到</b>（店铺缺失），或<b>能查到但售价不一致</b>。
+    <br><span class="text-muted small">对比范围，员工上传订单（personal）vs 店铺订单（department），按订单号 + 月份匹配，按<b>售价</b>对比（非利润）。</span>
 </div>
 
 <?php if ($error): ?>
@@ -128,7 +128,7 @@
                         <th>#</th>
                         <th>员工</th>
                         <th style="width:120px">店铺缺失</th>
-                        <th style="width:120px">金额不一致</th>
+                        <th style="width:120px">售价不一致</th>
                         <th style="width:100px">异常总数</th>
                         <th style="width:200px">操作</th>
                     </tr>
