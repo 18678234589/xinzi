@@ -27,27 +27,27 @@ echo "迁移前：总 {$before['total']}，有 __original_price__ {$before['has_
 $affected = 0;
 try {
     // MySQL 5.7+ 支持 JSON_SET
-    $sql = "UPDATE orders
-            SET raw_data = JSON_SET(raw_data, '$.\"__original_price__\"", CAST(order_amount AS DECIMAL(18,2)))
+    $sql = 'UPDATE orders
+            SET raw_data = JSON_SET(raw_data, \'$."__original_price__"\', CAST(order_amount AS DECIMAL(18,2)))
             WHERE COALESCE(is_deleted, 0) = 0
-              AND raw_data IS NOT NULL AND raw_data <> ''
-              AND raw_data NOT LIKE '%__original_price__%'";
+              AND raw_data IS NOT NULL AND raw_data <> \'\'
+              AND raw_data NOT LIKE \'%__original_price__%\'';
     $affected = $pdo->exec($sql);
     echo "SQL批量更新完成，影响行数：$affected\n";
 } catch (\Throwable $e) {
     // JSON_SET 不可用时回退到简单拼接
     echo "JSON_SET 不可用（{$e->getMessage()}），尝试拼接方式...\n";
     try {
-        $sql = "UPDATE orders
-                SET raw_data = CONCAT(raw_data, ',\"__original_price__\":', CAST(order_amount AS DECIMAL(18,2)), '}')
+        $sql = 'UPDATE orders
+                SET raw_data = CONCAT(raw_data, \',"__original_price__":\', CAST(order_amount AS DECIMAL(18,2)), \'}\')
                 WHERE COALESCE(is_deleted, 0) = 0
-                  AND raw_data IS NOT NULL AND raw_data <> ''
-                  AND raw_data NOT LIKE '%__original_price__%'
-                  AND raw_data LIKE '%}'";
+                  AND raw_data IS NOT NULL AND raw_data <> \'\'
+                  AND raw_data NOT LIKE \'%__original_price__%\'
+                  AND raw_data LIKE \'%}\'';
         $affected = $pdo->exec($sql);
         echo "拼接方式更新完成，影响行数：$affected\n";
     } catch (\Throwable $e2) {
-        echo "拼接方式也失败：{$e2->getMessage()}\n";
+        echo "拼接方式也失败：" . $e2->getMessage() . "\n";
     }
 }
 
