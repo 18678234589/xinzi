@@ -495,8 +495,8 @@ function get_attendance_months($year)
  * @param string $month    月份 YYYY-MM（空表示查所有月份）
  * @return array ['items' => [...], 'shops' => [...]]
  */
-function get_abnormal_orders($shopName = '', $month = '')
-{
+function get_abnormal_orders($shopName = '', $month = '', $employeeName = '')
+
     $pdo = db();
     $where = [];
     $params = [];
@@ -521,6 +521,9 @@ function get_abnormal_orders($shopName = '', $month = '')
         try {
             $pdo->exec("ALTER TABLE `orders` ADD INDEX `idx_scope_no_del` (order_scope, order_no, is_deleted)");
         } catch (\Throwable $e) {}
+        try {
+            $pdo->exec("ALTER TABLE `employees` ADD INDEX `idx_emp_name` (name)");
+        } catch (\Throwable $e) {}
         $colsChecked = true;
     }
 
@@ -537,16 +540,22 @@ function get_abnormal_orders($shopName = '', $month = '')
         $empWhere .= " AND DATE_FORMAT(e.order_date, '%Y-%m') = ? ";
         $empParams[] = $month;
     }
+    if ($employeeName !== '') {
+        $empWhere .= " AND emp.name = ? ";
+        $empParams[] = $employeeName;
+    }
 
     // 拉取员工订单（不拉 raw_data 大文本，避免慢）
-    // 直接用 JSON_EXTRACT 在DB端提取 __original_price__ 和店铺名
+    // 用 JSON_EXTRACT 在DB端提取 __original_price__ 和店铺名（COALESCE取第一个非空）
     $empSql = "SELECT e.id, e.employee_id, e.order_no, e.order_amount, e.order_date, emp.name AS emp_name,"
             . " JSON_UNQUOTE(JSON_EXTRACT(e.raw_data, '$.\"__original_price__\"')) AS emp_orig_price,"
-            . " JSON_UNQUOTE(JSON_EXTRACT(e.raw_data, '$.\"店铺\"')) AS rd_shop1,"
-            . " JSON_UNQUOTE(JSON_EXTRACT(e.raw_data, '$.\"店铺名称\"')) AS rd_shop2,"
-            . " JSON_UNQUOTE(JSON_EXTRACT(e.raw_data, '$.\"店铺名\"')) AS rd_shop3,"
-            . " JSON_UNQUOTE(JSON_EXTRACT(e.raw_data, '$.\"店名\"')) AS rd_shop4,"
-            . " JSON_UNQUOTE(JSON_EXTRACT(e.raw_data, '$.shop')) AS rd_shop5"
+            . " COALESCE("
+            . "   JSON_UNQUOTE(JSON_EXTRACT(e.raw_data, '$.\"店铺\"')),"
+            . "   JSON_UNQUOTE(JSON_EXTRACT(e.raw_data, '$.\"店铺名称\"')),"
+            . "   JSON_UNQUOTE(JSON_EXTRACT(e.raw_data, '$.\"店铺名\"')),"
+            . "   JSON_UNQUOTE(JSON_EXTRACT(e.raw_data, '$.\"店名\"')),"
+            . "   JSON_UNQUOTE(JSON_EXTRACT(e.raw_data, '$.shop'))"
+            . " ) AS emp_shop_raw"
             . " FROM orders e LEFT JOIN employees emp ON emp.id = e.employee_id " . $empWhere
             . " ORDER BY e.order_date DESC, e.id DESC";
     $empStmt = $pdo->prepare($empSql);
@@ -618,13 +627,8 @@ function get_abnormal_orders($shopName = '', $month = '')
     foreach ($empOrders as $eo) {
         $ono = $eo['order_no'];
 
-        // 从 SQL 提取的店铺名列中取第一个非空的
-        $empShopRaw = '';
-        foreach (['rd_shop1','rd_shop2','rd_shop3','rd_shop4','rd_shop5'] as $sf) {
-            if (!empty($eo[$sf])) { $empShopRaw = trim($eo[$sf]); break; }
-        }
-        // 模糊匹配其他 shop 类列名已在SQL层提取，5个列名覆盖绝大多数情况
-        // 若都为空，后续会用 deptByNo 按订单号反查归属店铺
+        // 从 SQL 提取的店铺名（COALESCE已取第一个非空）
+        $empShopRaw = trim($eo['emp_shop_raw'] ?? '');
 
         // 将员工填写的店铺名匹配到标准店铺名（如"清风易"→"清风易软件专营店"）
         $empShop = $empShopRaw !== '' ? match_shop_name($empShopRaw, $knownShopNames) : '';

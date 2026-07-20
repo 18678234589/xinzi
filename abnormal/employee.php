@@ -17,8 +17,8 @@
 
 	// 导出当前员工异常
 	if (($_GET['export'] ?? '') === '1') {
-	    $data = get_abnormal_orders('', $filter_month);
-	    $rows = array_values(array_filter($data['items'], fn($r) => ($r['emp_name'] ?? '') === $empName));
+	    $data = get_abnormal_orders('', $filter_month, $empName);
+	    $rows = $data['items'];
 
 	    header('Content-Type: text/csv; charset=utf-8');
 	    $filename = '异常订单_' . $empName . '_' . date('Ymd_His') . '.csv';
@@ -45,9 +45,8 @@
 	    exit;
 	}
 
-	$abn = get_abnormal_orders('', $filter_month);
-// 只显示当前员工的异常
-$items = array_values(array_filter($abn['items'], fn($r) => ($r['emp_name'] ?? '') === $empName));
+	$abn = get_abnormal_orders('', $filter_month, $empName);
+	$items = $abn['items'];
 
 // 分页
 $page = max(1, (int)($_GET['page'] ?? 1));

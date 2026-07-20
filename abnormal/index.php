@@ -12,11 +12,8 @@
 	    $shopName = $_GET['shop'] ?? '';
 	    $month = $_GET['month'] ?? '';
 	    $empName = $_GET['emp'] ?? '';
-	    $data = get_abnormal_orders($shopName, $month);
+	    $data = get_abnormal_orders($shopName, $month, $empName);
 	    $rows = $data['items'];
-	    if ($empName !== '') {
-	        $rows = array_values(array_filter($rows, fn($r) => ($r['emp_name'] ?? '') === $empName));
-	    }
 
 	    header('Content-Type: text/csv; charset=utf-8');
 	    $filename = '异常订单_' . date('Ymd_His') . '.csv';
