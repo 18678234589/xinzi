@@ -539,27 +539,20 @@ function get_abnormal_orders($shopName = '', $month = '')
     }
 
     // 拉取员工订单（不拉 raw_data 大文本，避免慢）
-    $empSql = "SELECT e.id, e.employee_id, e.order_no, e.order_amount, e.order_date, emp.name AS emp_name"
+    // 直接用 JSON_EXTRACT 在DB端提取 __original_price__ 和店铺名
+    $empSql = "SELECT e.id, e.employee_id, e.order_no, e.order_amount, e.order_date, emp.name AS emp_name,"
+            . " JSON_UNQUOTE(JSON_EXTRACT(e.raw_data, '$.__original_price__')) AS emp_orig_price,"
+            . " JSON_UNQUOTE(JSON_EXTRACT(e.raw_data, '$.店铺')) AS rd_shop1,"
+            . " JSON_UNQUOTE(JSON_EXTRACT(e.raw_data, '$.店铺名称')) AS rd_shop2,"
+            . " JSON_UNQUOTE(JSON_EXTRACT(e.raw_data, '$.店铺名')) AS rd_shop3,"
+            . " JSON_UNQUOTE(JSON_EXTRACT(e.raw_data, '$.店名')) AS rd_shop4,"
+            . " JSON_UNQUOTE(JSON_EXTRACT(e.raw_data, '$.shop')) AS rd_shop5"
             . " FROM orders e LEFT JOIN employees emp ON emp.id = e.employee_id " . $empWhere
             . " ORDER BY e.order_date DESC, e.id DESC";
     $empStmt = $pdo->prepare($empSql);
     foreach ($empParams as $k => $p) { $empStmt->bindValue($k + 1, $p); }
     $empStmt->execute();
     $empOrders = $empStmt->fetchAll();
-
-    // 批量预取员工订单的 raw_data（1次IN查询替代每行1次）
-    $empRawMap = []; // emp order id => decoded raw_data
-    if (!empty($empOrders)) {
-        $empIds = array_column($empOrders, 'id');
-        $idPh = implode(',', array_fill(0, count($empIds), '?'));
-        try {
-            $erdStmt = $pdo->prepare("SELECT id, raw_data FROM orders WHERE id IN ($idPh)");
-            $erdStmt->execute($empIds);
-            while ($r = $erdStmt->fetch()) {
-                $empRawMap[(int)$r['id']] = $r['raw_data'] ? json_decode($r['raw_data'], true) : null;
-            }
-        } catch (\Throwable $e) {}
-    }
 
     // 拉取店铺订单（department），始终拉取所有店铺
     // （员工 personal 订单的 shop 字段为空，需从 raw_data 提取店铺名后定位对应店铺订单）
@@ -570,7 +563,9 @@ function get_abnormal_orders($shopName = '', $month = '')
         $shopWhere .= " AND DATE_FORMAT(o.order_date, '%Y-%m') = ? ";
         $shopParams[] = $month;
     }
-    $shopSql = "SELECT o.id, o.shop, o.order_no, o.order_amount, o.order_date FROM orders o " . $shopWhere
+    $shopSql = "SELECT o.id, o.shop, o.order_no, o.order_amount, o.order_date,"
+             . " JSON_UNQUOTE(JSON_EXTRACT(o.raw_data, '$.__original_price__')) AS shop_orig_price"
+             . " FROM orders o " . $shopWhere
              . " ORDER BY o.id ASC";
     $shopStmt = $pdo->prepare($shopSql);
     foreach ($shopParams as $k => $p) { $shopStmt->bindValue($k + 1, $p); }
@@ -582,34 +577,14 @@ function get_abnormal_orders($shopName = '', $month = '')
     $shopNameMap = []; // shop name => shop id
     // 全局订单号索引：order_no => department 订单记录（员工没填店铺名时，用订单号反查归属店铺）
     $deptByNo = [];
-    // 所有店铺订单ID，用于批量预取 raw_data
-    $shopOrderIds = [];
     foreach ($shopOrders as $so) {
         $sn = $so['shop'] !== '' ? $so['shop'] : '未归属店铺';
         if (!isset($shopMap[$sn][$so['order_no']])) {
             $shopMap[$sn][$so['order_no']] = $so;
-            $shopOrderIds[] = (int)$so['id'];
         }
         if (!isset($deptByNo[$so['order_no']])) {
             $deptByNo[$so['order_no']] = $so;
         }
-    }
-    // 批量预取店铺订单的 __original_price__（一次查询替代逐条查询）
-    $shopOrigPriceMap = []; // order_id => original_price
-    if (!empty($shopOrderIds)) {
-        $idPlaceholders = implode(',', array_fill(0, count($shopOrderIds), '?'));
-        try {
-            $rdStmt = $pdo->prepare("SELECT id, raw_data FROM orders WHERE id IN ($idPlaceholders)");
-            $rdStmt->execute($shopOrderIds);
-            while ($rdRow = $rdStmt->fetch()) {
-                if ($rdRow['raw_data']) {
-                    $rd = json_decode($rdRow['raw_data'], true);
-                    if (is_array($rd) && isset($rd['__original_price__'])) {
-                        $shopOrigPriceMap[(int)$rdRow['id']] = (float)$rd['__original_price__'];
-                    }
-                }
-            }
-        } catch (\Throwable $e) {}
     }
     foreach ($allShops as $sh) {
         $shopNameMap[$sh['name']] = (int)$sh['id'];
@@ -639,20 +614,24 @@ function get_abnormal_orders($shopName = '', $month = '')
     $orphanKey = '未归属';
     $shopStats[$orphanKey] = ['shop_name' => $orphanKey, 'shop_id' => 0, 'missing' => 0, 'mismatch' => 0, 'total' => 0];
 
-    // 遍历员工订单：先从 raw_data 提取员工表格里填写的店铺名，只跟该店铺比对
+    // 遍历员工订单
     foreach ($empOrders as $eo) {
         $ono = $eo['order_no'];
 
-        // 从预取的 raw_data 提取员工上传表格里写的店铺名（如"清风易"）
-        $rawMap = $empRawMap[(int)$eo['id']] ?? null;
-        $empShopRaw = is_array($rawMap) ? extract_shop_from_raw($rawMap) : '';
+        // 从 SQL 提取的店铺名列中取第一个非空的
+        $empShopRaw = '';
+        foreach (['rd_shop1','rd_shop2','rd_shop3','rd_shop4','rd_shop5'] as $sf) {
+            if (!empty($eo[$sf])) { $empShopRaw = trim($eo[$sf]); break; }
+        }
+        // 模糊匹配其他 shop 类列名已在SQL层提取，5个列名覆盖绝大多数情况
+        // 若都为空，后续会用 deptByNo 按订单号反查归属店铺
 
         // 将员工填写的店铺名匹配到标准店铺名（如"清风易"→"清风易软件专营店"）
         $empShop = $empShopRaw !== '' ? match_shop_name($empShopRaw, $knownShopNames) : '';
 
-        // 提取员工的原始售价（用于售价匹配，而非利润匹配）
-        $empOriginalPrice = is_array($rawMap) && isset($rawMap['__original_price__'])
-            ? (float)$rawMap['__original_price__'] : (float)$eo['order_amount'];
+        // 提取员工的原始售价（SQL已提取，无需PHP解析JSON）
+        $empOriginalPrice = $eo['emp_orig_price'] !== null && (float)$eo['emp_orig_price'] > 0
+            ? (float)$eo['emp_orig_price'] : (float)$eo['order_amount'];
 
         // 确定该员工订单归属的店铺，优先用匹配到的标准店铺名，否则用订单号反查
         if ($empShop === '') {
@@ -690,10 +669,9 @@ function get_abnormal_orders($shopName = '', $month = '')
             // 该店铺有此订单号 → 比对金额（用售价对比，非利润）
             $so = $sOrders[$ono];
 
-            // 从批量预取的结果中取店铺订单的 __original_price__
-            $shopOriginalPrice = isset($shopOrigPriceMap[(int)$so['id']])
-                ? $shopOrigPriceMap[(int)$so['id']]
-                : (float)$so['order_amount'];
+            // 从SQL提取的 __original_price__ 直接取
+            $shopOriginalPrice = $so['shop_orig_price'] !== null && (float)$so['shop_orig_price'] > 0
+                ? (float)$so['shop_orig_price'] : (float)$so['order_amount'];
 
             $diff = round($empOriginalPrice - $shopOriginalPrice, 2);
             if (abs($diff) > 0.001) {
