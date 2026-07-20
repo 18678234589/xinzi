@@ -45,13 +45,29 @@ $page     = max(1, (int)($_GET['page'] ?? 1));
 $batchSize = 100;   // 每批查询+更新的行数
 $batchesPerPage = 10; // 每页处理10批 = 1000条
 
+// 首页先统计总数
+$totalToMigrate = 0;
+$totalPages = 0;
+if ($page === 1) {
+    $cntStmt = $pdo->query(
+        "SELECT COUNT(*) FROM orders
+         WHERE COALESCE(is_deleted, 0) = 0
+           AND raw_data IS NOT NULL AND raw_data <> ''
+           AND raw_data NOT LIKE '%__original_price__%'"
+    );
+    $totalToMigrate = (int)$cntStmt->fetchColumn();
+    $totalPages = $totalToMigrate > 0 ? (int)ceil($totalToMigrate / ($batchSize * $batchesPerPage)) : 0;
+    echo "需迁移总数：{$totalToMigrate} 条，共 {$totalPages} 页（每页1000条）\n\n";
+    flush();
+}
+
 $totalMigrated = 0;
 $totalSkipped  = 0;
 $totalFailed   = 0;
 $processed     = 0;
 
 echo "<pre>\n";
-echo "=== 历史数据迁移：补存 __original_price__ (第 {$page} 页) ===\n\n";
+if ($page > 1) echo "=== 历史数据迁移：补存 __original_price__ (第 {$page} 页) ===\n\n";
 flush();
 
 for ($b = 0; $b < $batchesPerPage; $b++) {
@@ -118,7 +134,7 @@ if ($hasMore) {
     $nextPage = $page + 1;
     echo "\n<a href='?page=$nextPage'>点击继续处理第 $nextPage 页 &raquo;</a>\n";
     echo "<script>setTimeout(function(){window.location.href='?page=$nextPage';},2000);</script>\n";
-    echo "<span class='text-muted'>2秒后自动继续...</span>\n";
+    echo "<span class='text-muted'>2秒后自动继续... (第 {$page}/{$totalPages} 页)</span>\n";
 } else {
     echo "\n<b>全部迁移完成！</b>\n";
 }
