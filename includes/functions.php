@@ -496,7 +496,7 @@ function get_attendance_months($year)
  * @return array ['items' => [...], 'shops' => [...]]
  */
 function get_abnormal_orders($shopName = '', $month = '', $employeeName = '')
-
+{
     $pdo = db();
     $where = [];
     $params = [];
