@@ -501,11 +501,26 @@ function get_abnormal_orders($shopName = '', $month = '', $employeeName = '')
     $where = [];
     $params = [];
 
+    // 文件缓存（5分钟有效期），避免每次刷新都全量重算
+    $cacheDir = __DIR__ . '/../storage/abnormal_cache';
+    if (!is_dir($cacheDir)) @mkdir($cacheDir, 0755, true);
+    $cacheKey = md5($shopName . '|' . $month . '|' . $employeeName);
+    $cacheFile = $cacheDir . '/' . $cacheKey . '.json';
+    $cacheTTL = 300; // 5分钟
+    if (file_exists($cacheFile) && (time() - filemtime($cacheFile)) < $cacheTTL) {
+        $cached = @file_get_contents($cacheFile);
+        if ($cached !== false) {
+            $data = json_decode($cached, true);
+            if (is_array($data) && isset($data['items'])) {
+                return $data;
+            }
+        }
+    }
+
     // 确保 orders 表有所需字段（order_scope / shop / order_no 等）
-    // 这些字段原本由 orders/index.php 的 ensureProjectColumn() 动态添加，
-    // 异常订单页可能先于订单页被访问，这里主动补齐。
-    static $colsChecked = false;
-    if (!$colsChecked) {
+    // 用持久化标记文件避免每次请求都做 SHOW COLUMNS / ALTER TABLE（省6次远程查询）
+    $schemaFlag = __DIR__ . '/../storage/.schema_checked';
+    if (!file_exists($schemaFlag)) {
         foreach (['order_scope' => "VARCHAR(20) NOT NULL DEFAULT 'personal'",
                   'shop'        => "VARCHAR(100) DEFAULT ''",
                   'order_no'    => "VARCHAR(64) DEFAULT ''",
@@ -517,14 +532,10 @@ function get_abnormal_orders($shopName = '', $month = '', $employeeName = '')
                 }
             } catch (\Throwable $e) {}
         }
-        // 关键索引，加速异常订单对比查询
-        try {
-            $pdo->exec("ALTER TABLE `orders` ADD INDEX `idx_scope_no_del` (order_scope, order_no, is_deleted)");
-        } catch (\Throwable $e) {}
-        try {
-            $pdo->exec("ALTER TABLE `employees` ADD INDEX `idx_emp_name` (name)");
-        } catch (\Throwable $e) {}
-        $colsChecked = true;
+        try { $pdo->exec("ALTER TABLE `orders` ADD INDEX `idx_scope_no_del` (order_scope, order_no, is_deleted)"); } catch (\Throwable $e) {}
+        try { $pdo->exec("ALTER TABLE `orders` ADD INDEX `idx_emp_name` (name)"); } catch (\Throwable $e) {}
+        try { $pdo->exec("ALTER TABLE `employees` ADD INDEX `idx_emp_name` (name)"); } catch (\Throwable $e) {}
+        @file_put_contents($schemaFlag, date('Y-m-d H:i:s'));
     }
 
     // 取所有店铺名（用于概览按店铺逐个比对，以及缺失订单归属到正确店铺）
@@ -533,12 +544,20 @@ function get_abnormal_orders($shopName = '', $month = '', $employeeName = '')
         $allShops = $pdo->query("SELECT id, name FROM shops ORDER BY sort ASC, id ASC")->fetchAll();
     } catch (\Throwable $e) {}
 
+    // 月份范围（避免 DATE_FORMAT 杀索引，改用 >= / < 范围）
+    $monthStart = ''; $monthEnd = '';
+    if ($month !== '') {
+        $monthStart = $month . '-01 00:00:00';
+        $monthEnd = date('Y-m-d 00:00:00', strtotime($month . '-01 +1 month'));
+    }
+
     // 员工上传订单（personal，排除从部门派生的）——与店铺无关，只按月份过滤
-    $empWhere = " WHERE e.order_scope = 'personal' AND e.order_no <> '' AND COALESCE(e.is_deleted, 0) = 0 ";
+    $empWhere = " WHERE e.order_scope = 'personal' AND e.order_no <> '' AND (e.is_deleted = 0 OR e.is_deleted IS NULL) ";
     $empParams = [];
     if ($month !== '') {
-        $empWhere .= " AND DATE_FORMAT(e.order_date, '%Y-%m') = ? ";
-        $empParams[] = $month;
+        $empWhere .= " AND e.order_date >= ? AND e.order_date < ? ";
+        $empParams[] = $monthStart;
+        $empParams[] = $monthEnd;
     }
     if ($employeeName !== '') {
         $empWhere .= " AND emp.name = ? ";
@@ -565,17 +584,19 @@ function get_abnormal_orders($shopName = '', $month = '', $employeeName = '')
 
     // 拉取店铺订单（department），始终拉取所有店铺
     // （员工 personal 订单的 shop 字段为空，需从 raw_data 提取店铺名后定位对应店铺订单）
-    // 注意：不在此处拉 raw_data（大文本），避免内存溢出；按需在比对到 mismatch 时单独查询
-    $shopWhere = " WHERE o.order_scope = 'department' AND o.order_no <> '' AND COALESCE(o.is_deleted, 0) = 0 ";
+    // 修复WHERE条件让索引生效 + LIMIT兜底防止全表拉取
+    $shopWhere = " WHERE o.order_scope = 'department' AND o.order_no <> '' AND (o.is_deleted = 0 OR o.is_deleted IS NULL) ";
     $shopParams = [];
     if ($month !== '') {
-        $shopWhere .= " AND DATE_FORMAT(o.order_date, '%Y-%m') = ? ";
-        $shopParams[] = $month;
+        $shopWhere .= " AND o.order_date >= ? AND o.order_date < ? ";
+        $shopParams[] = $monthStart;
+        $shopParams[] = $monthEnd;
     }
     $shopSql = "SELECT o.id, o.shop, o.order_no, o.order_amount, o.order_date,"
              . " JSON_UNQUOTE(JSON_EXTRACT(o.raw_data, '$.\"__original_price__\"')) AS shop_orig_price"
              . " FROM orders o " . $shopWhere
-             . " ORDER BY o.id ASC";
+             . " ORDER BY o.id ASC"
+             . ($month === '' ? " LIMIT 5000" : "");
     $shopStmt = $pdo->prepare($shopSql);
     foreach ($shopParams as $k => $p) { $shopStmt->bindValue($k + 1, $p); }
     $shopStmt->execute();
@@ -741,7 +762,14 @@ function get_abnormal_orders($shopName = '', $month = '', $employeeName = '')
     // 按异常总数降序
     usort($shopStats, fn($a, $b) => $b['total'] - $a['total']);
 
-    return ['items' => $items, 'shops' => $shopStats];
+    $result = ['items' => $items, 'shops' => $shopStats];
+
+    // 写入缓存
+    if (is_dir($cacheDir)) {
+        @file_put_contents($cacheFile, json_encode($result, JSON_UNESCAPED_UNICODE));
+    }
+
+    return $result;
 }
 
 /**
