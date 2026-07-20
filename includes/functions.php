@@ -584,7 +584,7 @@ function get_abnormal_orders($shopName = '', $month = '', $employeeName = '')
 
     // 拉取店铺订单（department），始终拉取所有店铺
     // （员工 personal 订单的 shop 字段为空，需从 raw_data 提取店铺名后定位对应店铺订单）
-    // 修复WHERE条件让索引生效 + LIMIT兜底防止全表拉取
+    // 修复WHERE条件让索引生效
     $shopWhere = " WHERE o.order_scope = 'department' AND o.order_no <> '' AND (o.is_deleted = 0 OR o.is_deleted IS NULL) ";
     $shopParams = [];
     if ($month !== '') {
@@ -592,11 +592,12 @@ function get_abnormal_orders($shopName = '', $month = '', $employeeName = '')
         $shopParams[] = $monthStart;
         $shopParams[] = $monthEnd;
     }
+    // 不加LIMIT：department订单需要全量构建shopMap用于比对，
+    // 只拉轻量字段（不拉raw_data），配合索引，全量拉取可接受
     $shopSql = "SELECT o.id, o.shop, o.order_no, o.order_amount, o.order_date,"
              . " JSON_UNQUOTE(JSON_EXTRACT(o.raw_data, '$.\"__original_price__\"')) AS shop_orig_price"
              . " FROM orders o " . $shopWhere
-             . " ORDER BY o.id ASC"
-             . ($month === '' ? " LIMIT 5000" : "");
+             . " ORDER BY o.id ASC";
     $shopStmt = $pdo->prepare($shopSql);
     foreach ($shopParams as $k => $p) { $shopStmt->bindValue($k + 1, $p); }
     $shopStmt->execute();
