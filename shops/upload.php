@@ -329,28 +329,35 @@ $total_amount = array_sum(array_column($monthGroups, 'normal_amount'));
 
 // 详细订单列表（点击某个月份展开）
 $detail_month = $_GET['detail'] ?? '';
+$detail_search = trim($_GET['search_no'] ?? '');
 $detail_orders = [];
 $detail_total = 0;
 $page = max(1, (int)($_GET['page'] ?? 1));
 $page_size = (int)($_GET['page_size'] ?? 20);
-if (!in_array($page_size, [10, 20, 50, 100])) $page_size = 20;
+if (!in_array($page_size, [10, 20, 50, 100, 500, 1000, 2000, 0])) $page_size = 20;
 
 if ($detail_month !== '') {
     // 该月份的订单总数
-    $cStmt = db()->prepare("SELECT COUNT(*) FROM orders WHERE shop = ? AND DATE_FORMAT(order_date, '%Y-%m') = ? AND COALESCE(is_deleted, 0) = 0");
-    $cStmt->execute([$shop['name'], $detail_month]);
+    $cStmt = db()->prepare("SELECT COUNT(*) FROM orders WHERE shop = ? AND DATE_FORMAT(order_date, '%Y-%m') = ? AND COALESCE(is_deleted, 0) = 0" . ($detail_search !== '' ? " AND order_no LIKE ?" : ""));
+    $cParams = [$shop['name'], $detail_month];
+    if ($detail_search !== '') $cParams[] = '%' . $detail_search . '%';
+    $cStmt->execute($cParams);
     $detail_total = (int)$cStmt->fetchColumn();
 
     $offset = ($page - 1) * $page_size;
+    $limitSql = $page_size > 0 ? " LIMIT $page_size OFFSET $offset" : "";
     $dStmt = db()->prepare("SELECT id, order_amount, order_date, order_no, is_abnormal, abnormal_reason, raw_data
                             FROM orders
-                            WHERE shop = ? AND DATE_FORMAT(order_date, '%Y-%m') = ? AND COALESCE(is_deleted, 0) = 0
-                            ORDER BY order_date DESC, id DESC
-                            LIMIT $page_size OFFSET $offset");
-    $dStmt->execute([$shop['name'], $detail_month]);
+                            WHERE shop = ? AND DATE_FORMAT(order_date, '%Y-%m') = ? AND COALESCE(is_deleted, 0) = 0"
+                            . ($detail_search !== '' ? " AND order_no LIKE ?" : "")
+                            . " ORDER BY order_date DESC, id DESC"
+                            . $limitSql);
+    $dParams = [$shop['name'], $detail_month];
+    if ($detail_search !== '') $dParams[] = '%' . $detail_search . '%';
+    $dStmt->execute($dParams);
     $detail_orders = $dStmt->fetchAll();
 }
-$detail_pages = $page_size > 0 ? (int)ceil($detail_total / $page_size) : 0;
+$detail_pages = $page_size > 0 ? (int)ceil($detail_total / $page_size) : 1;
 
 define('BASE_PATH', dirname(__DIR__));
 include __DIR__ . '/../includes/header.php';
@@ -491,6 +498,36 @@ include __DIR__ . '/../includes/header.php';
                                 <tr><td colspan="5" class="p-0">
                                     <!-- 详细订单列表 -->
                                     <div class="p-2 bg-light border-top">
+                                        <!-- 搜索表单（独立于 detailForm，避免嵌套） -->
+                                        <div class="d-flex justify-content-between align-items-center mb-2 flex-wrap">
+                                            <div class="d-flex align-items-center">
+                                                <span class="text-muted small mr-2">共 <?php echo $detail_total; ?> 条</span>
+                                            </div>
+                                            <div class="d-flex align-items-center">
+                                                <form method="get" class="form-inline mr-2" id="orderSearchForm">
+                                                    <input type="hidden" name="shop_id" value="<?php echo $shop_id; ?>">
+                                                    <input type="hidden" name="detail" value="<?php echo e($detail_month); ?>">
+                                                    <input type="hidden" name="page_size" value="<?php echo $page_size; ?>">
+                                                    <div class="input-group input-group-sm">
+                                                        <input type="text" name="search_no" value="<?php echo e($detail_search); ?>" class="form-control" placeholder="搜索订单号…" style="width:160px" autocomplete="off">
+                                                        <div class="input-group-append">
+                                                            <button class="btn btn-outline-primary" type="submit"><i class="fas fa-search"></i></button>
+                                                            <?php if ($detail_search !== ''): ?>
+                                                                <a class="btn btn-outline-secondary" href="?shop_id=<?php echo $shop_id; ?>&detail=<?php echo urlencode($detail_month); ?>&page_size=<?php echo $page_size; ?>" title="清除搜索"><i class="fas fa-times"></i></a>
+                                                            <?php endif; ?>
+                                                        </div>
+                                                    </div>
+                                                </form>
+                                                <label class="text-muted small mb-0 mr-1">每页</label>
+                                                <select class="form-control form-control-sm mr-1" style="width:auto" onchange="changePageSize(this.value)">
+                                                    <?php foreach ([10, 20, 50, 100, 500, 1000, 2000, 0] as $ps): ?>
+                                                        <option value="<?php echo $ps; ?>" <?php if($page_size==$ps) echo 'selected'; ?>><?php echo $ps === 0 ? '全部' : $ps; ?></option>
+                                                    <?php endforeach; ?>
+                                                </select>
+                                                <span class="text-muted small">条</span>
+                                            </div>
+                                        </div>
+
                                         <form method="post" id="detailForm">
                                             <input type="hidden" name="action" value="batch_delete">
                                             <div class="d-flex justify-content-between align-items-center mb-2 flex-wrap">
@@ -498,16 +535,7 @@ include __DIR__ . '/../includes/header.php';
                                                     <button type="submit" class="btn btn-sm btn-outline-danger mr-2" onclick="return confirm('确定删除选中的订单？')">
                                                         <i class="fas fa-trash-alt"></i> 批量删除
                                                     </button>
-                                                    <span class="text-muted small">已选 <b id="selCount">0</b> 条 / 共 <?php echo $detail_total; ?> 条</span>
-                                                </div>
-                                                <div class="d-flex align-items-center">
-                                                    <label class="text-muted small mb-0 mr-1">每页</label>
-                                                    <select class="form-control form-control-sm mr-1" style="width:auto" onchange="changePageSize(this.value)">
-                                                        <?php foreach ([10,20,50,100] as $ps): ?>
-                                                            <option value="<?php echo $ps; ?>" <?php if($page_size==$ps) echo 'selected'; ?>><?php echo $ps; ?></option>
-                                                        <?php endforeach; ?>
-                                                    </select>
-                                                    <span class="text-muted small">条</span>
+                                                    <span class="text-muted small">已选 <b id="selCount">0</b> 条</span>
                                                 </div>
                                             </div>
 
@@ -587,6 +615,7 @@ include __DIR__ . '/../includes/header.php';
                                                     $baseLink = BASE_URL . '/shops/upload.php?shop_id=' . $shop_id
                                                         . ($filter_month ? '&month=' . urlencode($filter_month) : '')
                                                         . '&detail=' . urlencode($detail_month)
+                                                        . ($detail_search !== '' ? '&search_no=' . urlencode($detail_search) : '')
                                                         . '&page_size=' . $page_size . '&page=';
                                                     ?>
                                                     <li class="page-item <?php if($page<=1) echo 'disabled'; ?>"><a class="page-link" href="<?php echo $baseLink.($page-1); ?>">&laquo;</a></li>
