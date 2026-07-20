@@ -538,14 +538,28 @@ function get_abnormal_orders($shopName = '', $month = '')
         $empParams[] = $month;
     }
 
-    // 拉取员工订单，关联员工姓名用于明细展示；带 raw_data 用于提取员工表格里的店铺名
-    $empSql = "SELECT e.id, e.employee_id, e.order_no, e.order_amount, e.order_date, e.raw_data, emp.name AS emp_name"
+    // 拉取员工订单（不拉 raw_data 大文本，避免慢）
+    $empSql = "SELECT e.id, e.employee_id, e.order_no, e.order_amount, e.order_date, emp.name AS emp_name"
             . " FROM orders e LEFT JOIN employees emp ON emp.id = e.employee_id " . $empWhere
             . " ORDER BY e.order_date DESC, e.id DESC";
     $empStmt = $pdo->prepare($empSql);
     foreach ($empParams as $k => $p) { $empStmt->bindValue($k + 1, $p); }
     $empStmt->execute();
     $empOrders = $empStmt->fetchAll();
+
+    // 批量预取员工订单的 raw_data（1次IN查询替代每行1次）
+    $empRawMap = []; // emp order id => decoded raw_data
+    if (!empty($empOrders)) {
+        $empIds = array_column($empOrders, 'id');
+        $idPh = implode(',', array_fill(0, count($empIds), '?'));
+        try {
+            $erdStmt = $pdo->prepare("SELECT id, raw_data FROM orders WHERE id IN ($idPh)");
+            $erdStmt->execute($empIds);
+            while ($r = $erdStmt->fetch()) {
+                $empRawMap[(int)$r['id']] = $r['raw_data'] ? json_decode($r['raw_data'], true) : null;
+            }
+        } catch (\Throwable $e) {}
+    }
 
     // 拉取店铺订单（department），始终拉取所有店铺
     // （员工 personal 订单的 shop 字段为空，需从 raw_data 提取店铺名后定位对应店铺订单）
@@ -629,8 +643,8 @@ function get_abnormal_orders($shopName = '', $month = '')
     foreach ($empOrders as $eo) {
         $ono = $eo['order_no'];
 
-        // 从 raw_data 提取员工上传表格里写的店铺名（如"清风易"）
-        $rawMap = $eo['raw_data'] ? json_decode($eo['raw_data'], true) : null;
+        // 从预取的 raw_data 提取员工上传表格里写的店铺名（如"清风易"）
+        $rawMap = $empRawMap[(int)$eo['id']] ?? null;
         $empShopRaw = is_array($rawMap) ? extract_shop_from_raw($rawMap) : '';
 
         // 将员工填写的店铺名匹配到标准店铺名（如"清风易"→"清风易软件专营店"）
