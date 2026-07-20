@@ -1,64 +1,122 @@
 <?php
 /**
- * 历史数据迁移（快速版）：用单条SQL批量补存 __original_price__
- * 访问 migrate_original_price.php 即可，无需分页
+ * 历史数据迁移（修正版）：
+ * 1. 优先从 raw_data 的"价格/售价"列提取售价
+ * 2. 没有"价格"列的才用 order_amount
+ * 3. 已有 __original_price__ 但值≠价格列的也修正
+ *
+ * 访问 migrate_original_price.php?page=1  分页执行
  */
-@ini_set('memory_limit', '128M');
-@set_time_limit(120);
+@ini_set('memory_limit', '256M');
+@set_time_limit(300);
 require_once __DIR__ . '/config/database.php';
 $pdo = db();
 
-echo "<pre>\n=== 快速迁移 __original_price__ ===\n\n";
+$page = max(1, (int)($_GET['page'] ?? 1));
+$batch = 200;
 
-// 统计迁移前
-$before = $pdo->query(
-    "SELECT
-        COUNT(*) as total,
-        SUM(CASE WHEN raw_data LIKE '%__original_price__%' THEN 1 ELSE 0 END) as has_op,
-        SUM(CASE WHEN raw_data NOT LIKE '%__original_price__%' THEN 1 ELSE 0 END) as no_op
-     FROM orders
-     WHERE COALESCE(is_deleted,0) = 0 AND raw_data IS NOT NULL AND raw_data <> ''"
-)->fetch();
-echo "迁移前：总 {$before['total']}，有 __original_price__ {$before['has_op']}，无 {$before['no_op']}\n\n";
+// 价格列关键词
+$priceKeys = ['价格', '售价', 'price', 'Price', 'PRICE'];
 
-// 单条SQL批量更新，DB内部执行，不需要PHP循环
-// 逻辑：raw_data 里没有 __original_price__ 的，直接用 order_amount 作为售价
-// （对于只有"金额"列的订单，order_amount 就是金额值，也是唯一的价格信息）
-$affected = 0;
-try {
-    // MySQL 5.7+ 支持 JSON_SET
-    $sql = 'UPDATE orders
-            SET raw_data = JSON_SET(raw_data, \'$."__original_price__"\', CAST(order_amount AS DECIMAL(18,2)))
-            WHERE COALESCE(is_deleted, 0) = 0
-              AND raw_data IS NOT NULL AND raw_data <> \'\'
-              AND raw_data NOT LIKE \'%__original_price__%\'';
-    $affected = $pdo->exec($sql);
-    echo "SQL批量更新完成，影响行数：$affected\n";
-} catch (\Throwable $e) {
-    // JSON_SET 不可用时回退到简单拼接
-    echo "JSON_SET 不可用（{$e->getMessage()}），尝试拼接方式...\n";
-    try {
-        $sql = 'UPDATE orders
-                SET raw_data = CONCAT(raw_data, \',"__original_price__":\', CAST(order_amount AS DECIMAL(18,2)), \'}\')
-                WHERE COALESCE(is_deleted, 0) = 0
-                  AND raw_data IS NOT NULL AND raw_data <> \'\'
-                  AND raw_data NOT LIKE \'%__original_price__%\'
-                  AND raw_data LIKE \'%}\'';
-        $affected = $pdo->exec($sql);
-        echo "拼接方式更新完成，影响行数：$affected\n";
-    } catch (\Throwable $e2) {
-        echo "拼接方式也失败：" . $e2->getMessage() . "\n";
+function find_price_in_raw($rawMap, $priceKeys) {
+    if (!is_array($rawMap)) return null;
+    // 精确匹配
+    foreach ($priceKeys as $k) {
+        if (isset($rawMap[$k])) {
+            $v = trim((string)$rawMap[$k]);
+            $num = preg_replace('/[^\d.\-]/', '', $v);
+            if ($v !== '' && $num !== '' && is_numeric($num) && (float)$num > 0) {
+                return (float)$num;
+            }
+        }
     }
+    // 模糊匹配
+    foreach ($rawMap as $key => $val) {
+        if (strpos($key, '__') === 0) continue;
+        if (!is_string($val)) continue;
+        $v = trim($val);
+        $num = preg_replace('/[^\d.\-]/', '', $v);
+        if ($v === '' || $num === '' || !is_numeric($num) || (float)$num <= 0) continue;
+        foreach ($priceKeys as $k) {
+            if (mb_strpos($key, $k) !== false) return (float)$num;
+        }
+    }
+    return null;
 }
 
-// 统计迁移后
-$after = $pdo->query(
-    "SELECT
-        COUNT(*) as total,
-        SUM(CASE WHEN raw_data LIKE '%__original_price__%' THEN 1 ELSE 0 END) as has_op,
-        SUM(CASE WHEN raw_data NOT LIKE '%__original_price__%' THEN 1 ELSE 0 END) as no_op
-     FROM orders
-     WHERE COALESCE(is_deleted,0) = 0 AND raw_data IS NOT NULL AND raw_data <> ''"
-)->fetch();
-echo "\n迁移后：总 {$after['total']}，有 __original_price__ {$after['has_op']}，无 {$after['no_op']}\n";
-echo "\n完成！\n</pre>\n";
+echo "<pre>\n=== 修正迁移 __original_price__（第{$page}页）===\n\n";
+
+if ($page === 1) {
+    $cnt = $pdo->query(
+        "SELECT COUNT(*) FROM orders
+         WHERE COALESCE(is_deleted,0)=0 AND raw_data IS NOT NULL AND raw_data <> ''"
+    )->fetchColumn();
+    $totalPages = ceil($cnt / $batch);
+    echo "总订单数：{$cnt}，每页{$batch}条，约{$totalPages}页\n\n";
+    flush();
+}
+
+$offset = ($page - 1) * $batch;
+$stmt = $pdo->prepare(
+    "SELECT id, order_amount, raw_data FROM orders
+     WHERE COALESCE(is_deleted,0)=0 AND raw_data IS NOT NULL AND raw_data <> ''
+     ORDER BY id ASC LIMIT $batch OFFSET $offset"
+);
+$stmt->execute();
+$rows = $stmt->fetchAll();
+
+if (empty($rows)) {
+    echo "没有更多数据了。\n</pre>\n";
+    exit;
+}
+
+$upd = $pdo->prepare("UPDATE orders SET raw_data = ? WHERE id = ?");
+$fixed = 0;
+$skipped = 0;
+
+$pdo->beginTransaction();
+foreach ($rows as $r) {
+    $rawMap = json_decode($r['raw_data'], true);
+    if (!is_array($rawMap)) { $skipped++; continue; }
+
+    // 从 raw_data 提取"价格/售价"列
+    $price = find_price_in_raw($rawMap, $priceKeys);
+
+    // 当前已存的 __original_price__
+    $currentOP = isset($rawMap['__original_price__']) ? (float)$rawMap['__original_price__'] : null;
+
+    if ($price !== null && $price > 0) {
+        // 有价格列 → 售价 = 价格列值
+        if ($currentOP !== $price) {
+            $rawMap['__original_price__'] = $price;
+            $upd->execute([json_encode($rawMap, JSON_UNESCAPED_UNICODE), $r['id']]);
+            $fixed++;
+        } else {
+            $skipped++;
+        }
+    } else {
+        // 没有价格列 → 用 order_amount 兜底
+        if ($currentOP === null) {
+            $rawMap['__original_price__'] = (float)$r['order_amount'];
+            $upd->execute([json_encode($rawMap, JSON_UNESCAPED_UNICODE), $r['id']]);
+            $fixed++;
+        } else {
+            $skipped++;
+        }
+    }
+}
+$pdo->commit();
+
+$processed = count($rows);
+echo "本页处理 {$processed} 条，修正 {$fixed} 条，跳过 {$skipped} 条\n";
+
+$hasMore = $processed >= $batch;
+if ($hasMore) {
+    $next = $page + 1;
+    echo "\n<a href='?page=$next'>继续第{$next}页 &raquo;</a>\n";
+    echo "<script>setTimeout(function(){location.href='?page=$next';},1500);</script>\n";
+    echo "<span class='muted'>1.5秒后自动继续...</span>\n";
+} else {
+    echo "\n<b>全部完成！</b>\n";
+}
+echo "</pre>\n";
