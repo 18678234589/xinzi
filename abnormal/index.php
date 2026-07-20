@@ -42,6 +42,7 @@
 	}
 
 	$filter_month = $_GET['month'] ?? '';
+	$filter_emp = trim($_GET['emp_search'] ?? '');
 	$abn = get_abnormal_orders('', $filter_month);
 	$items = $abn['items'];
 	$total_abn = count($items);
@@ -70,6 +71,10 @@
 	}
 	// 去掉 total=0，按异常总数降序
 	$empStats = array_filter($empStats, fn($s) => $s['total'] > 0);
+	// 员工搜索过滤
+	if ($filter_emp !== '') {
+	    $empStats = array_filter($empStats, fn($s) => mb_stripos($s['emp_name'], $filter_emp) !== false);
+	}
 	$empStats = array_values($empStats);
 	usort($empStats, fn($a, $b) => $b['total'] - $a['total']);
 
@@ -81,16 +86,37 @@
     <div>
         <h4 class="font-weight-bold mb-0 d-inline-block"><i class="fas fa-exclamation-triangle text-warning"></i> 异常订单</h4>
         <span class="badge badge-warning ml-2">共 <?php echo $total_abn; ?> 条异常</span>
+        <?php if ($filter_emp): ?>
+            <span class="badge badge-primary ml-1"><i class="fas fa-filter"></i> 筛选员工: <?php echo e($filter_emp); ?></span>
+            <span class="text-muted ml-1 small">显示 <?php echo count($empStats); ?> 位员工</span>
+        <?php endif; ?>
     </div>
     <div class="d-flex align-items-center">
         <form method="get" class="form-inline mr-2">
+            <?php if ($filter_emp): ?>
+                <input type="hidden" name="emp_search" value="<?php echo e($filter_emp); ?>">
+            <?php endif; ?>
             <input type="month" name="month" class="form-control form-control-sm mr-1" value="<?php echo e($filter_month); ?>" onchange="this.form.submit()">
             <?php if ($filter_month): ?>
                 <button type="submit" name="month" value="" class="btn btn-sm btn-outline-secondary">全部</button>
             <?php endif; ?>
         </form>
+        <form method="get" class="form-inline mr-2">
+            <?php if ($filter_month): ?>
+                <input type="hidden" name="month" value="<?php echo e($filter_month); ?>">
+            <?php endif; ?>
+            <div class="input-group input-group-sm">
+                <input type="text" name="emp_search" class="form-control" placeholder="搜索员工..." value="<?php echo e($filter_emp); ?>">
+                <div class="input-group-append">
+                    <button type="submit" class="btn btn-outline-primary"><i class="fas fa-search"></i></button>
+                    <?php if ($filter_emp): ?>
+                        <a href="<?php echo BASE_URL; ?>/abnormal/index.php<?php echo $filter_month ? '?month='.urlencode($filter_month) : ''; ?>" class="btn btn-outline-secondary"><i class="fas fa-times"></i></a>
+                    <?php endif; ?>
+                </div>
+            </div>
+        </form>
         <?php if ($total_abn > 0): ?>
-        <a href="<?php echo BASE_URL; ?>/abnormal/index.php?export=1<?php echo $filter_month ? '&month='.urlencode($filter_month) : ''; ?>" class="btn btn-sm btn-outline-success">
+        <a href="<?php echo BASE_URL; ?>/abnormal/index.php?export=1<?php echo $filter_month ? '&month='.urlencode($filter_month) : ''; ?><?php echo $filter_emp ? '&emp='.urlencode($filter_emp) : ''; ?>" class="btn btn-sm btn-outline-success">
             <i class="fas fa-download"></i> 导出全部
         </a>
         <?php endif; ?>
