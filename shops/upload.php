@@ -321,7 +321,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 // 查询该店铺已有订单（按月份分组汇总）
-$filter_month = $_GET['month'] ?? '';
+$filter_month = $_GET['month'] ?? date('Y-m', strtotime('-1 month'));
 $search_no = trim($_GET['search_no'] ?? '');
 $baseWhere  = " WHERE o.shop = ? AND COALESCE(o.is_deleted, 0) = 0";
 $baseParams = [$shop['name']];

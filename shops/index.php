@@ -82,7 +82,7 @@ try {
 } catch (PDOException $e) {}
 
 // 搜索参数
-$filter_month   = trim($_GET['month'] ?? '');
+$filter_month   = trim($_GET['month'] ?? date('Y-m', strtotime('-1 month')));
 $filter_shop    = trim($_GET['shop'] ?? '');
 $filter_order_no = trim($_GET['order_no'] ?? '');
 $hasSearch      = ($filter_month !== '' || $filter_shop !== '' || $filter_order_no !== '');

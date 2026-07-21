@@ -131,13 +131,14 @@ function applyProratedBaseSalary(&$result, $empId, $month) {
  * @return array ['orders'=>[], 'order_total'=>float]
  */
 function loadEmployeeOrdersWithDept($employeeId, $month, $deptName, $deptShare = true) {
-    // 1. 个人订单（排除旧的物理拆分行，避免与虚拟拆分重复；排除已软删除的）
+    // 1. 个人订单（排除旧的物理拆分行，避免与虚拟拆分重复；排除已软删除的；排除未核验订单）
     $ostmt = db()->prepare(
         "SELECT *, order_amount, order_date, project FROM orders
          WHERE employee_id = ? AND DATE_FORMAT(order_date, '%Y-%m') = ?
          AND COALESCE(is_abnormal, 0) = 0
          AND COALESCE(is_deleted, 0) = 0
          AND (raw_data IS NULL OR raw_data NOT LIKE '%\"__from_dept__\"%')
+         AND (raw_data IS NULL OR JSON_UNQUOTE(JSON_EXTRACT(raw_data, '$.__order_status__')) != '未核验')
          ORDER BY order_date"
     );
     $ostmt->execute([$employeeId, $month]);
@@ -154,7 +155,8 @@ function loadEmployeeOrdersWithDept($employeeId, $month, $deptName, $deptShare =
              AND DATE_FORMAT(order_date, '%Y-%m') = ?
              AND COALESCE(is_abnormal, 0) = 0
              AND COALESCE(is_deleted, 0) = 0
-             AND JSON_UNQUOTE(JSON_EXTRACT(raw_data, '$.__dept__')) = ?"
+             AND JSON_UNQUOTE(JSON_EXTRACT(raw_data, '$.__dept__')) = ?
+             AND (raw_data IS NULL OR JSON_UNQUOTE(JSON_EXTRACT(raw_data, '$.__order_status__')) != '未核验')"
         );
         $dstmt->execute([$month, $deptName]);
         $deptOrders = $dstmt->fetchAll();
@@ -418,6 +420,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $abnormalRows = $abnormalStmt->fetchAll();
                     $abnormalStmt->closeCursor();
                     $preview['abnormal_modules'] = $abnormalRows;
+
+                    // 查询未核验订单按模块分组统计
+                    $unverifiedStmt = db()->prepare(
+                        "SELECT project, COUNT(*) AS cnt, COALESCE(SUM(order_amount), 0) AS total
+                         FROM orders
+                         WHERE employee_id = ? AND DATE_FORMAT(order_date, '%Y-%m') = ?
+                         AND COALESCE(is_deleted, 0) = 0
+                         AND JSON_UNQUOTE(JSON_EXTRACT(raw_data, '$.__order_status__')) = '未核验'
+                         GROUP BY project ORDER BY total DESC"
+                    );
+                    $unverifiedStmt->execute([$employee_id, $month]);
+                    $unverifiedRows = $unverifiedStmt->fetchAll();
+                    $unverifiedStmt->closeCursor();
+                    $preview['unverified_modules'] = $unverifiedRows;
                 }
             }
         }
@@ -637,7 +653,7 @@ include __DIR__ . '/../includes/header.php';
                     </div>
                     <div class="form-group">
                         <label>选择月份 <span class="required">*</span></label>
-                        <input type="month" name="month" class="form-control" value="<?php echo e($preview['month'] ?? date('Y-m')); ?>" required>
+                        <input type="month" name="month" class="form-control" value="<?php echo e($preview['month'] ?? date('Y-m', strtotime('-1 month'))); ?>" required>
                     </div>
                     <div class="form-group">
                         <label><i class="fas fa-hand-holding-usd text-warning"></i> 自定义额外金额</label>
@@ -768,6 +784,32 @@ include __DIR__ . '/../includes/header.php';
                                             <td class="text-center">
                                                 <a href="<?php echo BASE_URL; ?>/orders/index.php?employee_id=<?php echo $emp['id']; ?>&project=<?php echo urlencode($am['project'] ?: '订单'); ?>&month=<?php echo urlencode($preview['month']); ?>&abnormal=1"
                                                    class="btn btn-sm btn-outline-danger py-0" title="查看异常订单明细" target="_blank">
+                                                    <i class="fas fa-external-link-alt"></i> 详情
+                                                </a>
+                                            </td>
+                                        </tr>
+                                    <?php endforeach; ?>
+                                    </tbody>
+                                </table>
+                            </td>
+                        </tr>
+                        <?php endif; ?>
+                        <?php $unverifiedMods = $preview['unverified_modules'] ?? []; if (!empty($unverifiedMods)): ?>
+                        <tr>
+                            <th class="text-warning" width="20%"><i class="fas fa-question-circle"></i> 未核验订单</th>
+                            <td colspan="3">
+                                <span class="text-warning font-weight-bold"><?php echo count($unverifiedMods); ?> 个模块存在未核验订单，共 <?php echo array_sum(array_column($unverifiedMods, 'cnt')); ?> 笔，合计 ¥<?php echo money(array_sum(array_column($unverifiedMods, 'total'))); ?>（不计入薪资）</span>
+                                <table class="table table-sm table-bordered mb-0 mt-2" style="font-size:13px;">
+                                    <thead class="thead-light"><tr><th>模块</th><th class="text-center">笔数</th><th class="text-right">金额</th><th class="text-center" style="width:80px;">操作</th></tr></thead>
+                                    <tbody>
+                                    <?php foreach ($unverifiedMods as $um): ?>
+                                        <tr class="table-warning">
+                                            <td><?php echo e($um['project'] ?: '未分类'); ?></td>
+                                            <td class="text-center"><?php echo $um['cnt']; ?></td>
+                                            <td class="text-right text-warning font-weight-bold">¥<?php echo money($um['total']); ?></td>
+                                            <td class="text-center">
+                                                <a href="<?php echo BASE_URL; ?>/orders/index.php?employee_id=<?php echo $emp['id']; ?>&project=<?php echo urlencode($um['project'] ?: '订单'); ?>&month=<?php echo urlencode($preview['month']); ?>&status=未核验"
+                                                   class="btn btn-sm btn-outline-warning py-0" title="查看未核验订单明细" target="_blank">
                                                     <i class="fas fa-external-link-alt"></i> 详情
                                                 </a>
                                             </td>

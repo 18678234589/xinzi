@@ -8,7 +8,7 @@
 	$error = '';
 
 	$empName = $_GET['emp'] ?? '';
-	$filter_month = $_GET['month'] ?? '';
+	$filter_month = $_GET['month'] ?? date('Y-m', strtotime('-1 month'));
 
 	if ($empName === '') {
 	    header('Location: ' . BASE_URL . '/abnormal/index.php');

@@ -26,7 +26,7 @@ if (($_GET['ajax'] ?? '') === 'modules' && $ajax_employee_id > 0) {
     $result = [];
     if ($modCfg && !empty($modCfg['modules'])) {
         foreach ($modCfg['modules'] as $m) {
-            if (in_array($m['type'], ['standard','tiered','per_order','profit_commission','referral_order','customer_reward','miniprogram_commission']) && ($m['enabled'] ?? true)) {
+            if (in_array($m['type'], ['standard','tiered','per_order','profit_commission','referral_order','customer_reward','miniprogram_commission','fixed_subsidy']) && ($m['enabled'] ?? true)) {
                 $extra = '';
                 if ($m['type'] === 'standard' && isset($m['config']['rate']) && $m['config']['rate'] !== '') {
                     $rVal = (float)$m['config']['rate'];
@@ -43,6 +43,10 @@ if (($_GET['ajax'] ?? '') === 'modules' && $ajax_employee_id > 0) {
                     $extra = ' (¥' . ($m['config']['per_amount'] ?? 0) . '/笔)';
                 } elseif ($m['type'] === 'referral_order') {
                     $extra = ' (每单补助¥' . ($m['config']['subsidy'] ?? 0) . ')';
+                } elseif ($m['type'] === 'fixed_subsidy') {
+                    $extra = ' (固定¥' . ($m['config']['amount'] ?? 0) . '/月)';
+                } elseif ($m['type'] === 'customer_reward') {
+                    $extra = ' (新客奖¥' . ($m['config']['new_customer_reward'] ?? 0) . '/老客¥' . ($m['config']['old_customer_reward'] ?? 0) . ')';
                 }
                 $result[] = ['name' => $m['name'], 'label' => $m['name'] . $extra];
             }
@@ -378,6 +382,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             if ($isRefund) {
                                 $rawMap['__is_refund__'] = '1'; // 标记为退款订单
                             }
+                            // 订单状态统一设置为"未核验"
+                            $rawMap['__order_status__'] = '未核验';
                             // 提取订单号（用于后续店铺/员工订单对比）
                             $orderNo = extract_order_no($rawMap);
 
@@ -705,7 +711,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $vWhere .= " AND o.order_no LIKE ?";
                 $vParams[] = '%' . $vSearch . '%';
             }
-            $q = db()->prepare("SELECT o.id, o.order_no, o.raw_data, o.is_abnormal FROM orders o LEFT JOIN employees e ON o.employee_id = e.id" . $vWhere);
+            $q = db()->prepare("SELECT o.id, o.order_no, o.order_amount, o.raw_data, o.is_abnormal FROM orders o LEFT JOIN employees e ON o.employee_id = e.id" . $vWhere);
             $q->execute($vParams);
             $rows = $q->fetchAll();
             $q->closeCursor();
@@ -948,11 +954,12 @@ function ensureProjectColumn() {
 }
 $filter_employee = $locked_employee_id ?: (int)($_GET['employee_id'] ?? 0);
 $filter_dept = $_GET['department'] ?? '';
-$filter_month = $_GET['month'] ?? '';  // 空字符串=不限月份
+$filter_month = $_GET['month'] ?? date('Y-m', strtotime('-1 month'));  // 默认上个月
 $filter_project = $_GET['project'] ?? ''; // 展开某个模块时使用
 $filter_dept_orders = isset($_GET['dept_orders']) && $_GET['dept_orders'] === '1';
 $filter_abnormal = (($_GET['abnormal'] ?? '') === '1') ? 1 : 0;
 $filter_refund   = (($_GET['refund'] ?? '') === '1') ? 1 : 0;
+$filter_status   = trim($_GET['status'] ?? ''); // 订单状态筛选（如"未核验"）
 $filter_search  = trim($_GET['search_no'] ?? ''); // 订单号搜索
 $page     = max(1, (int)($_GET['page'] ?? 1));
 $allowed_per_page = [20, 50, 100, 200, 500, 1000];
@@ -1139,6 +1146,7 @@ if ($expand_project !== '') {
     $detailQ = array_merge($baseQ, ['project' => $expand_project, 'page' => 1]);
     if ($filter_abnormal) $detailQ['abnormal'] = '1';
     if ($filter_refund) $detailQ['refund'] = '1';
+    if ($filter_status !== '') $detailQ['status'] = $filter_status;
     if ($filter_search !== '') $detailQ['search_no'] = $filter_search;
     if ($expand_project === '订单') {
         $detailWhere .= " AND (o.project = '' OR o.project IS NULL)";
@@ -1151,6 +1159,10 @@ if ($expand_project !== '') {
     }
     if ($filter_refund) {
         $detailWhere .= " AND JSON_UNQUOTE(JSON_EXTRACT(o.raw_data, '$.__is_refund__')) = '1'";
+    }
+    if ($filter_status !== '') {
+        $detailWhere .= " AND JSON_UNQUOTE(JSON_EXTRACT(o.raw_data, '$.__order_status__')) = ?";
+        $detailParams[] = $filter_status;
     }
     if ($filter_search !== '') {
         $detailWhere .= " AND o.order_no LIKE ?";
@@ -1330,7 +1342,7 @@ include __DIR__ . '/../includes/header.php';
                                 $modCfg = SalaryCalculator::readModulesConfig($locked_employee['id']);
                                 if ($modCfg && !empty($modCfg['modules'])):
                                     foreach ($modCfg['modules'] as $m):
-                                        if (in_array($m['type'], ['standard','tiered','per_order','profit_commission','referral_order']) && ($m['enabled'] ?? true)):
+                                        if (in_array($m['type'], ['standard','tiered','per_order','profit_commission','referral_order','fixed_subsidy','miniprogram_commission','customer_reward']) && ($m['enabled'] ?? true)):
                                             $modName = $m['name'];
                                             $extra = '';
                                             if ($m['type'] === 'standard' && isset($m['config']['rate']) && $m['config']['rate'] !== '') {
@@ -1343,6 +1355,12 @@ include __DIR__ . '/../includes/header.php';
                                                 $extra = ' (¥' . ($m['config']['per_amount'] ?? 0) . '/笔)';
                                             } elseif ($m['type'] === 'referral_order') {
                                                 $extra = ' (每单补助¥' . ($m['config']['subsidy'] ?? 0) . ')';
+                                            } elseif ($m['type'] === 'fixed_subsidy') {
+                                                $extra = ' (固定¥' . ($m['config']['amount'] ?? 0) . '/月)';
+                                            } elseif ($m['type'] === 'miniprogram_commission' && isset($m['config']['commission_rate']) && $m['config']['commission_rate'] !== '') {
+                                                $extra = ' (小程序' . rtrim(rtrim(number_format((float)$m['config']['commission_rate']*100, 4, '.', ''), '0'), '.') . '%)';
+                                            } elseif ($m['type'] === 'customer_reward') {
+                                                $extra = ' (新客奖¥' . ($m['config']['new_customer_reward'] ?? 0) . '/老客¥' . ($m['config']['old_customer_reward'] ?? 0) . ')';
                                             }
                                             echo '<div class="custom-control custom-checkbox mb-1">'
                                                . '<input type="checkbox" name="upload_project[]" value="' . e($modName) . '" class="custom-control-input" id="proj_' . htmlspecialchars($modName, ENT_QUOTES) . '">'
@@ -1409,7 +1427,7 @@ include __DIR__ . '/../includes/header.php';
                                 $modCfg2 = SalaryCalculator::readModulesConfig($locked_employee['id']);
                                 if ($modCfg2 && !empty($modCfg2['modules'])):
                                     foreach ($modCfg2['modules'] as $m):
-                                        if (in_array($m['type'], ['standard','tiered','per_order','profit_commission','referral_order']) && ($m['enabled'] ?? true)):
+                                        if (in_array($m['type'], ['standard','tiered','per_order','profit_commission','referral_order','fixed_subsidy','miniprogram_commission','customer_reward']) && ($m['enabled'] ?? true)):
                                             $modName = $m['name'];
                                             $extra = '';
                                             if ($m['type'] === 'standard' && isset($m['config']['rate']) && $m['config']['rate'] !== '') {
@@ -1422,6 +1440,12 @@ include __DIR__ . '/../includes/header.php';
                                                 $extra = ' (¥' . ($m['config']['per_amount'] ?? 0) . '/笔)';
                                             } elseif ($m['type'] === 'referral_order') {
                                                 $extra = ' (每单补助¥' . ($m['config']['subsidy'] ?? 0) . ')';
+                                            } elseif ($m['type'] === 'fixed_subsidy') {
+                                                $extra = ' (固定¥' . ($m['config']['amount'] ?? 0) . '/月)';
+                                            } elseif ($m['type'] === 'miniprogram_commission' && isset($m['config']['commission_rate']) && $m['config']['commission_rate'] !== '') {
+                                                $extra = ' (小程序' . rtrim(rtrim(number_format((float)$m['config']['commission_rate']*100, 4, '.', ''), '0'), '.') . '%)';
+                                            } elseif ($m['type'] === 'customer_reward') {
+                                                $extra = ' (新客奖¥' . ($m['config']['new_customer_reward'] ?? 0) . '/老客¥' . ($m['config']['old_customer_reward'] ?? 0) . ')';
                                             }
                                             echo '<option value="' . e($modName) . '">' . e($modName) . $extra . '</option>';
                                         endif;
@@ -1785,6 +1809,7 @@ include __DIR__ . '/../includes/header.php';
                                                 $statusColor = 'secondary';
                                                 if (mb_strpos($orderStatus, '交易成功') !== false || mb_strpos($orderStatus, '已到账') !== false) $statusColor = 'success';
                                                 elseif (mb_strpos($orderStatus, '已发货') !== false) $statusColor = 'info';
+                                                elseif (mb_strpos($orderStatus, '未核验') !== false) $statusColor = 'warning';
                                                 elseif (mb_strpos($orderStatus, '已取消') !== false || mb_strpos($orderStatus, '退款') !== false) $statusColor = 'danger';
                                                 echo '<span class="badge badge-' . $statusColor . '">' . e($orderStatus) . '</span>';
                                             } else {
@@ -1816,6 +1841,7 @@ include __DIR__ . '/../includes/header.php';
                                             $statusColor = 'secondary';
                                             if (mb_strpos($orderStatus, '交易成功') !== false || mb_strpos($orderStatus, '已到账') !== false) $statusColor = 'success';
                                             elseif (mb_strpos($orderStatus, '已发货') !== false) $statusColor = 'info';
+                                            elseif (mb_strpos($orderStatus, '未核验') !== false) $statusColor = 'warning';
                                             elseif (mb_strpos($orderStatus, '已取消') !== false || mb_strpos($orderStatus, '退款') !== false) $statusColor = 'danger';
                                             echo '<span class="badge badge-' . $statusColor . '">' . e($orderStatus) . '</span>';
                                         } else {
