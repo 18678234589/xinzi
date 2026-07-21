@@ -1488,7 +1488,7 @@ include __DIR__ . '/../includes/header.php';
                             <?php endif; ?>
                         <?php endforeach; ?>
                         <div class="input-group input-group-sm">
-                            <input type="text" name="search_no" value="<?php echo e($filter_search); ?>" class="form-control" placeholder="搜索订单号…" style="width:180px" autocomplete="off">
+                            <input type="text" name="search_no" value="<?php echo e($filter_search); ?>" class="form-control" placeholder="搜索订单号…" style="max-width:180px;width:100%" autocomplete="off">
                             <div class="input-group-append">
                                 <button class="btn btn-outline-primary" type="submit"><i class="fas fa-search"></i></button>
                                 <?php if ($filter_search !== ''): ?>

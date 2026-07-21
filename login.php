@@ -44,7 +44,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             min-height: 100vh; display: flex; align-items: center; justify-content: center;
         }
-        .login-card { width: 400px; border-radius: 12px; box-shadow: 0 20px 60px rgba(0,0,0,.3); }
+        .login-card { width: 100%; max-width: 400px; margin: 0 1rem; border-radius: 12px; box-shadow: 0 20px 60px rgba(0,0,0,.3); }
         .login-card .card-body { padding: 40px; }
         .login-logo { font-size: 48px; color: #667eea; }
         .captcha-img { height: 38px; cursor: pointer; border-radius: 0 .25rem .25rem 0; }

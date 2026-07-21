@@ -12,3 +12,8 @@
 .upload-area:hover { border-color: #28a745; background: #f0fff4; }
 .upload-area.dragover { border-color: #28a745; background: #e8f5e9; }
 .required { color: #dc3545; }
+
+/* 小屏表格统一横向滚动兜底 */
+@media (max-width: 575.98px) {
+    .table { font-size: .875rem; }
+}

@@ -85,6 +85,7 @@ include __DIR__ . '/includes/header.php';
             <div class="card-header bg-white"><h5 class="mb-0"><i class="fas fa-building text-primary"></i> 部门概览</h5></div>
             <div class="card-body">
                 <?php if ($dept_stats): ?>
+                <div class="table-responsive">
                 <table class="table table-sm">
                     <thead><tr><th>部门</th><th>人数</th><th>基本工资合计</th></tr></thead>
                     <tbody>
@@ -97,6 +98,7 @@ include __DIR__ . '/includes/header.php';
                     <?php endforeach; ?>
                     </tbody>
                 </table>
+                </div>
                 <?php else: ?>
                     <p class="text-muted text-center py-3">暂无数据</p>
                 <?php endif; ?>
@@ -112,6 +114,7 @@ include __DIR__ . '/includes/header.php';
             </div>
             <div class="card-body">
                 <?php if ($shop_stats): ?>
+                <div class="table-responsive">
                 <table class="table table-sm">
                     <thead><tr><th>店铺</th><th>订单数</th></tr></thead>
                     <tbody>
@@ -123,6 +126,7 @@ include __DIR__ . '/includes/header.php';
                     <?php endforeach; ?>
                     </tbody>
                 </table>
+                </div>
                 <?php else: ?>
                     <p class="text-muted text-center py-3">暂无店铺数据，前往 <a href="<?php echo BASE_URL; ?>/shops/index.php">店铺管理</a> 添加</p>
                 <?php endif; ?>
@@ -134,6 +138,7 @@ include __DIR__ . '/includes/header.php';
             <div class="card-header bg-white"><h5 class="mb-0"><i class="fas fa-chart-bar text-success"></i> <?php echo $this_month; ?> 月订单排行 (TOP 10)</h5></div>
             <div class="card-body">
                 <?php if ($month_orders): ?>
+                <div class="table-responsive">
                 <table class="table table-sm table-hover">
                     <thead><tr><th>排名</th><th>姓名</th><th>部门</th><th>订单数</th><th>订单金额</th></tr></thead>
                     <tbody>
@@ -148,6 +153,7 @@ include __DIR__ . '/includes/header.php';
                     <?php endforeach; ?>
                     </tbody>
                 </table>
+                </div>
                 <?php else: ?>
                     <p class="text-muted text-center py-3">暂无数据</p>
                 <?php endif; ?>

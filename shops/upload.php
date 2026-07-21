@@ -516,7 +516,7 @@ include __DIR__ . '/../includes/header.php';
                                                     <input type="hidden" name="detail" value="<?php echo e($detail_month); ?>">
                                                     <input type="hidden" name="page_size" value="<?php echo $page_size; ?>">
                                                     <div class="input-group input-group-sm">
-                                                        <input type="text" name="search_no" value="<?php echo e($detail_search); ?>" class="form-control" placeholder="搜索订单号…" style="width:160px" autocomplete="off">
+                                                        <input type="text" name="search_no" value="<?php echo e($detail_search); ?>" class="form-control" placeholder="搜索订单号…" style="max-width:160px;width:100%" autocomplete="off">
                                                         <div class="input-group-append">
                                                             <button class="btn btn-outline-primary" type="submit"><i class="fas fa-search"></i></button>
                                                             <?php if ($detail_search !== ''): ?>
