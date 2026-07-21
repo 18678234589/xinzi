@@ -1219,6 +1219,7 @@ include __DIR__ . '/../includes/header.php';
 
 <?php if ($success || isset($_GET['upload_ok'])): ?>
     <div class="alert alert-success alert-dismissible fade show"><i class="fas fa-check-circle"></i> <?php echo e($success ?: urldecode($_GET['msg'] ?? '导入完成')); ?><button type="button" class="close" data-dismiss="alert">&times;</button></div>
+    <script>alert('<?php echo e(urldecode($_GET['msg'] ?? '导入完成')); ?>');</script>
 <?php endif; ?>
 <?php if ($error): ?>
     <div class="alert alert-danger alert-dismissible fade show"><i class="fas fa-exclamation-circle"></i> <?php echo e($error); ?><button type="button" class="close" data-dismiss="alert">&times;</button></div>
