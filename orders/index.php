@@ -1866,7 +1866,10 @@ include __DIR__ . '/../includes/header.php';
                                         <?php endif; ?>
                                     </td>
                                     <td class="text-muted small"><?php echo !empty($o['created_at']) ? date('m-d H:i', strtotime($o['created_at'])) : '--'; ?></td>
-                                    <td><button type="button" class="btn btn-sm btn-outline-danger py-0" onclick="deleteSingle(<?php echo $o['id']; ?>)"><i class="fas fa-times"></i></button></td>
+                                    <td>
+                                        <button type="button" class="btn btn-sm btn-outline-info py-0 mr-1" onclick="editOrder(<?php echo $o['id']; ?>)" title="编辑订单"><i class="fas fa-edit"></i></button>
+                                        <button type="button" class="btn btn-sm btn-outline-danger py-0" onclick="deleteSingle(<?php echo $o['id']; ?>)"><i class="fas fa-times"></i></button>
+                                    </td>
                                 </tr>
                             <?php endforeach; else: ?>
                                 <tr><td colspan="<?php echo 7 + count($uploadHeaders); ?>" class="text-center text-muted py-3">暂无数据</td></tr>
@@ -2217,6 +2220,10 @@ function deleteProject(project, count, empId, dept, deptOrders) {
         if (!confirm('确定删除该订单？')) return;
         document.getElementById('singleDeleteId').value = id;
         document.getElementById('singleDeleteForm').submit();
+    };
+
+    window.editOrder = function(id) {
+        window.location.href = '<?php echo BASE_URL; ?>/orders/edit.php?id=' + id;
     };
 })();
 </script>

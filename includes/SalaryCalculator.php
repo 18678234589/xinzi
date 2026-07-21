@@ -1351,7 +1351,7 @@ class SalaryCalculator
         if ($employeeId > 0 && $month !== '' && $moduleName !== '') {
             try {
                 $stmt = db()->prepare(
-                    "SELECT * FROM orders WHERE employee_id = ? AND project = ? AND DATE_FORMAT(order_date, '%Y-%m') = ? AND COALESCE(is_abnormal, 0) = 0 AND COALESCE(is_deleted, 0) = 0"
+                    "SELECT * FROM orders WHERE employee_id = ? AND project = ? AND DATE_FORMAT(order_date, '%Y-%m') = ? AND COALESCE(is_abnormal, 0) = 0 AND COALESCE(is_deleted, 0) = 0 AND (raw_data IS NULL OR JSON_UNQUOTE(JSON_EXTRACT(raw_data, '$.__order_status__')) != '未核验')"
                 );
                 $stmt->execute([$employeeId, $moduleName, $month]);
                 $orders = $stmt->fetchAll();
