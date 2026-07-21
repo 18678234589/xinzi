@@ -609,6 +609,20 @@ function calcPreview(idx) {
             result.amount = ((demoAmount - demoCost) - demoAmount * sf) * cr;
             result.detail = '((订单金额¥' + number_format(demoAmount,0) + ' - 成本¥' + number_format(demoCost,0) + ') - 订单金额¥' + number_format(demoAmount,0) + '×' + (sf*100).toFixed(2) + '%) ×' + (cr*100).toFixed(2) + '%';
             break;
+        case 'trademark_commission':
+            var cr = cfg.commission_rate || 0;
+            var sf = cfg.service_fee_rate || 0;
+            var demoAmount = orderTotalDemo;
+            var demoCost   = orderTotalDemo * 0.5;
+            result.amount = ((demoAmount - demoCost) - demoAmount * sf) * cr;
+            result.detail = '((售价¥' + number_format(demoAmount,0) + ' - 成本¥' + number_format(demoCost,0) + ') - 售价¥' + number_format(demoAmount,0) + '×' + (sf*100).toFixed(2) + '%) ×' + (cr*100).toFixed(2) + '%';
+            break;
+        case 'trademark_cashback':
+            var perAmt = cfg.per_amount || 0;
+            var demoCount = Math.round(orderTotalDemo/3000)||3;
+            result.amount = demoCount * perAmt;
+            result.detail = '小额返现' + demoCount + '单×¥' + perAmt;
+            break;
         case 'customer_reward':
             var newCnt = Math.round(orderTotalDemo/5000)||2;
             var oldCnt = Math.round(orderTotalDemo/8000)||1;
