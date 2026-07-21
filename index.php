@@ -15,7 +15,7 @@ $dept_stats = db()->query("SELECT department, COUNT(*) as cnt, SUM(base_salary) 
 $shop_stats = get_shop_list();
 
 // 本月订单情况
-$this_month = date('Y-m');
+$this_month = date('Y-m', strtotime('-1 month'));
 $stmt = db()->prepare("
     SELECT e.name, e.department, COUNT(o.id) as order_cnt, COALESCE(SUM(o.order_amount),0) as amount
     FROM employees e

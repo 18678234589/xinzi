@@ -81,7 +81,39 @@ try {
     }
 } catch (PDOException $e) {}
 
-$shops = get_shop_list();
+// 搜索参数
+$filter_month   = trim($_GET['month'] ?? '');
+$filter_shop    = trim($_GET['shop'] ?? '');
+$filter_order_no = trim($_GET['order_no'] ?? '');
+$hasSearch      = ($filter_month !== '' || $filter_shop !== '' || $filter_order_no !== '');
+
+// 构建带筛选的店铺列表
+if ($hasSearch) {
+    $where = "COALESCE(o.is_deleted, 0) = 0";
+    $params = [];
+    if ($filter_month !== '') {
+        $where .= " AND DATE_FORMAT(o.order_date, '%Y-%m') = ?";
+        $params[] = $filter_month;
+    }
+    if ($filter_shop !== '') {
+        $where .= " AND o.shop = ?";
+        $params[] = $filter_shop;
+    }
+    if ($filter_order_no !== '') {
+        $where .= " AND o.order_no LIKE ?";
+        $params[] = '%' . $filter_order_no . '%';
+    }
+    try {
+        $sql = "SELECT s.*, (SELECT COUNT(*) FROM orders o WHERE o.shop = s.name AND {$where}) AS order_count FROM shops s ORDER BY s.sort ASC, s.id ASC";
+        $stmt = db()->prepare($sql);
+        $stmt->execute($params);
+        $shops = $stmt->fetchAll();
+    } catch (PDOException $e) {
+        $shops = [];
+    }
+} else {
+    $shops = get_shop_list();
+}
 
 define('BASE_PATH', dirname(__DIR__));
 include __DIR__ . '/../includes/header.php';
@@ -101,12 +133,43 @@ include __DIR__ . '/../includes/header.php';
     <div class="alert alert-danger alert-dismissible fade show"><i class="fas fa-exclamation-circle"></i> <?php echo e($error); ?><button type="button" class="close" data-dismiss="alert">&times;</button></div>
 <?php endif; ?>
 
+<!-- 搜索栏 -->
+<div class="card mb-3">
+    <div class="card-body py-2">
+        <form method="get" class="form-row align-items-end">
+            <div class="col-md-3">
+                <label class="mb-0 small">月份</label>
+                <input type="month" name="month" class="form-control form-control-sm" value="<?php echo e($filter_month); ?>">
+            </div>
+            <div class="col-md-3">
+                <label class="mb-0 small">店铺</label>
+                <select name="shop" class="form-control form-control-sm">
+                    <option value="">全部店铺</option>
+                    <?php foreach (get_shop_list() as $sl): ?>
+                    <option value="<?php echo e($sl['name']); ?>" <?php echo $filter_shop === $sl['name'] ? 'selected' : ''; ?>><?php echo e($sl['name']); ?></option>
+                    <?php endforeach; ?>
+                </select>
+            </div>
+            <div class="col-md-3">
+                <label class="mb-0 small">订单号</label>
+                <input type="text" name="order_no" class="form-control form-control-sm" placeholder="输入订单号关键词" value="<?php echo e($filter_order_no); ?>">
+            </div>
+            <div class="col-md-3 d-flex">
+                <button type="submit" class="btn btn-primary btn-sm mr-1"><i class="fas fa-search"></i> 搜索</button>
+                <?php if ($hasSearch): ?>
+                <a href="<?php echo BASE_URL; ?>/shops/index.php" class="btn btn-outline-secondary btn-sm"><i class="fas fa-times"></i> 清除</a>
+                <?php endif; ?>
+            </div>
+        </form>
+    </div>
+</div>
+
 <div class="card">
     <div class="card-body">
         <div class="table-responsive">
             <table class="table table-hover table-bordered">
                 <thead class="thead-light">
-                    <tr><th style="width:80px">ID</th><th>店铺名称</th><th style="width:100px">排序</th><th style="width:120px">订单数</th><th style="width:200px">操作</th></tr>
+                    <tr><th style="width:80px">ID</th><th>店铺名称</th><th style="width:100px">排序</th><th style="width:120px"><?php echo $hasSearch ? '筛选订单数' : '订单数'; ?></th><th style="width:200px">操作</th></tr>
                 </thead>
                 <tbody>
                 <?php if ($shops): foreach ($shops as $s): ?>

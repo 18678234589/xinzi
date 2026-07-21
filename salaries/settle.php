@@ -405,6 +405,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         'is_custom'      => $result['is_custom'],
                         'insurance_amount' => ($deductInsurance && $insuranceAmount > 0) ? $insuranceAmount : 0,
                     ];
+
+                    // 查询异常订单按模块分组统计
+                    $abnormalStmt = db()->prepare(
+                        "SELECT project, COUNT(*) AS cnt, COALESCE(SUM(order_amount), 0) AS total
+                         FROM orders
+                         WHERE employee_id = ? AND DATE_FORMAT(order_date, '%Y-%m') = ?
+                         AND COALESCE(is_abnormal, 0) = 1 AND COALESCE(is_deleted, 0) = 0
+                         GROUP BY project ORDER BY total DESC"
+                    );
+                    $abnormalStmt->execute([$employee_id, $month]);
+                    $abnormalRows = $abnormalStmt->fetchAll();
+                    $abnormalStmt->closeCursor();
+                    $preview['abnormal_modules'] = $abnormalRows;
                 }
             }
         }
@@ -739,6 +752,32 @@ include __DIR__ . '/../includes/header.php';
                             </td>
                         </tr>
                         <?php endif; ?>
+                        <?php $abnormalMods = $preview['abnormal_modules'] ?? []; if (!empty($abnormalMods)): ?>
+                        <tr>
+                            <th class="text-danger" width="20%"><i class="fas fa-exclamation-triangle"></i> 异常订单</th>
+                            <td colspan="3">
+                                <span class="text-danger font-weight-bold"><?php echo count($abnormalMods); ?> 个模块存在异常，共 <?php echo array_sum(array_column($abnormalMods, 'cnt')); ?> 笔，合计 ¥<?php echo money(array_sum(array_column($abnormalMods, 'total'))); ?>（不计入薪资）</span>
+                                <table class="table table-sm table-bordered mb-0 mt-2" style="font-size:13px;">
+                                    <thead class="thead-light"><tr><th>模块</th><th class="text-center">笔数</th><th class="text-right">金额</th><th class="text-center" style="width:80px;">操作</th></tr></thead>
+                                    <tbody>
+                                    <?php foreach ($abnormalMods as $am): ?>
+                                        <tr class="table-danger">
+                                            <td><?php echo e($am['project'] ?: '未分类'); ?></td>
+                                            <td class="text-center"><?php echo $am['cnt']; ?></td>
+                                            <td class="text-right text-danger font-weight-bold">¥<?php echo money($am['total']); ?></td>
+                                            <td class="text-center">
+                                                <a href="<?php echo BASE_URL; ?>/orders/index.php?employee_id=<?php echo $emp['id']; ?>&project=<?php echo urlencode($am['project'] ?: '订单'); ?>&month=<?php echo urlencode($preview['month']); ?>&abnormal=1"
+                                                   class="btn btn-sm btn-outline-danger py-0" title="查看异常订单明细" target="_blank">
+                                                    <i class="fas fa-external-link-alt"></i> 详情
+                                                </a>
+                                            </td>
+                                        </tr>
+                                    <?php endforeach; ?>
+                                    </tbody>
+                                </table>
+                            </td>
+                        </tr>
+                        <?php endif; ?>
                     </tbody>
                     
                     <!-- DEBUG 调试信息 -->
@@ -770,7 +809,7 @@ include __DIR__ . '/../includes/header.php';
                                     $typeNames = ['standard'=>'标准比例','tiered'=>'阶梯','per_order'=>'每笔奖励','attendance_full'=>'全勤奖','attendance_daily'=>'考勤日薪','attendance_deduct'=>'缺勤扣款','insurance'=>'保险','refund_deduction'=>'退款扣除','extra_amount'=>'自定义'];
                                     echo $typeNames[$m['type']] ?? $m['type'];
                                 ?></span></td>
-                                <td class="font-weight-bold"><?php echo $m['amount'] >= 0 ? '+' : ''; ?>¥<?php echo money(abs($m['amount'])); ?></td>
+                                <td class="font-weight-bold"><?php echo $m['amount'] >= 0 ? '+' : '-'; ?>¥<?php echo money(abs($m['amount'])); ?></td>
                             </tr>
                         <?php endforeach; ?>
                     </tbody>
@@ -796,22 +835,8 @@ include __DIR__ . '/../includes/header.php';
                             </tr>
                             <?php endif; ?>
                         <?php endif; ?>
-                        <?php if (!empty($preview['bonus_info']) && $preview['bonus_info']['base'] > 0): ?>
-                        <tr class="table-info">
-                            <th colspan="3" class="text-right h6 mb-0"><i class="fas fa-award text-success"></i> 全勤奖（<?php echo e($preview['bonus_info']['status']); ?>）</th>
-                            <td class="h6 mb-0 text-success font-weight-bold">+¥<?php echo money($preview['bonus_info']['net']); ?>
-                                <?php if ($preview['bonus_info']['deduct'] > 0): ?>
-                                    <small class="text-danger d-block">满勤¥<?php echo money($preview['bonus_info']['base']); ?> − 扣除¥<?php echo money($preview['bonus_info']['deduct']); ?></small>
-                                <?php endif; ?>
-                            </td>
-                        </tr>
-                        <?php endif; ?>
-                        <?php if (($preview['insurance_amount'] ?? 0) > 0): ?>
-                        <tr class="table-secondary">
-                            <th colspan="3" class="text-right h6 mb-0"><i class="fas fa-shield-alt text-info"></i> 保险扣除</th>
-                            <td class="h6 mb-0 text-danger font-weight-bold">−¥<?php echo money($preview['insurance_amount']); ?></td>
-                        </tr>
-                        <?php endif; ?>
+
+
                         <?php if (!empty($preview['base_info']) && abs($preview['base_info']['prorated'] - $preview['base_info']['original']) > 0.001): ?>
                         <tr class="table-light">
                             <th colspan="3" class="text-right h6 mb-0"><i class="fas fa-money-bill-wave text-primary"></i> 底薪折算（<?php echo e($preview['base_info']['status']); ?>）</th>
@@ -832,20 +857,21 @@ include __DIR__ . '/../includes/header.php';
                     <strong>计算明细：</strong>
                     <?php 
                     $baseSalaryAmount = (float)($preview['base_salary'] ?? $emp['base_salary']);
-                    $parts = [];
+                    $detailStr = '';
                     if ($baseSalaryAmount > 0) {
                         $bi = $preview['base_info'] ?? null;
                         if ($bi && abs($bi['prorated'] - $bi['original']) > 0.001) {
-                            $parts[] = '底薪 ¥' . money($baseSalaryAmount) . '（按出勤折算）';
+                            $detailStr = '底薪 ¥' . money($baseSalaryAmount) . '（按出勤折算）';
                         } else {
-                            $parts[] = '底薪 ¥' . money($baseSalaryAmount);
+                            $detailStr = '底薪 ¥' . money($baseSalaryAmount);
                         }
                     }
                     foreach ($mods as $m) {
                         if (($m['type'] ?? '') === 'base_salary') continue;
-                        $parts[] = ($m['amount']>=0?'':'') . money(abs($m['amount'])) . '(' . e($m['name']) . ')';
+                        $op = $m['amount'] >= 0 ? ' + ' : ' − ';
+                        $detailStr .= $op . money(abs($m['amount'])) . '(' . e($m['name']) . ')';
                     }
-                    echo implode(' + ', $parts);
+                    echo $detailStr;
                     ?>
                     = <strong>¥<?php echo money($preview['net_pay']); ?></strong>
                 </div>

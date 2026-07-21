@@ -793,6 +793,7 @@ function get_departments()
     try {
         $stmt = db()->query("SELECT name FROM departments ORDER BY sort ASC, id ASC");
         $list = $stmt->fetchAll(PDO::FETCH_COLUMN);
+        $stmt->closeCursor();
         if (!empty($list)) return $list;
     } catch (PDOException $e) {
         // 表不存在时回退
