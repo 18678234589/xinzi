@@ -218,8 +218,6 @@ class SalaryCalculator
             case 'tiered':     return self::calcTiered($config, $ctx, $moduleName);
             case 'per_order':  return self::calcPerOrder($config, $ctx, $moduleName);
             case 'profit_commission': return self::calcProfitCommission($config, $ctx, $moduleName);
-            case 'trademark_commission': return self::calcTrademarkCommission($config, $ctx, $moduleName);
-            case 'trademark_cashback': return self::calcTrademarkCashback($config, $ctx, $moduleName);
             case 'referral_order':    return self::calcReferralOrder($config, $ctx, $moduleName);
             case 'miniprogram_commission': return self::calcMiniProgramCommission($config, $ctx, $moduleName);
             case 'attendance_full':   return self::calcAttendanceFull($config, $ctx);
@@ -501,103 +499,6 @@ class SalaryCalculator
             'amount' => round($amt, 2),
             'formula' => sprintf('((订单金额¥%.2f - 成本¥%.2f) - 订单金额¥%.2f×%.2f%%) ×%.2f%% = %.2f', $totalPrice, $totalCost, $totalPrice, $serviceFeeRate*100, $commissionRate*100, $amt),
             'type' => 'profit_commission',
-        ];
-    }
-
-    // ---- 商标部提成 ----
-    private static function calcTrademarkCommission($cfg, $c, $moduleName = '')
-    {
-        $commissionRate = (float)($cfg['commission_rate'] ?? 0);
-        $serviceFeeRate = (float)($cfg['service_fee_rate'] ?? 0);
-
-        $totalPrice  = 0;
-        $totalCost   = 0;
-        $count       = 0;
-
-        foreach (($c['orders'] ?? []) as $o) {
-            $rawData = is_string($o['raw_data'] ?? '') ? json_decode($o['raw_data'], true) : ($o['raw_data'] ?? []);
-
-            // 模块名过滤
-            if ($moduleName !== '' && trim($o['project'] ?? '') !== $moduleName) continue;
-
-            // 从 raw_data 提取售价（价格列）
-            $price = 0;
-            foreach ($rawData as $k => $v) {
-                if (mb_strpos($k, '价格') !== false || mb_strpos($k, '售价') !== false) {
-                    $price = (float)preg_replace('/[^\d.\-]/', '', trim($v));
-                    if ($price != 0) break;
-                }
-            }
-            // 找不到售价，用 order_amount
-            if ($price == 0) {
-                $price = (float)($o['order_amount'] ?? 0);
-            }
-
-            // 从 raw_data 提取成本
-            $cost = 0;
-            foreach ($rawData as $k => $v) {
-                if (mb_strpos($k, '成本') !== false) {
-                    $cost = (float)preg_replace('/[^\d.\-]/', '', trim($v));
-                }
-            }
-
-            // 售价和成本（包括负数）都正常累加
-            $totalPrice  += $price;
-            $totalCost   += $cost;
-            $count++;
-        }
-
-        // 公式：[(售价-成本) - (售价×服务费比例)] × 提成比例
-        $amt = (($totalPrice - $totalCost) - $totalPrice * $serviceFeeRate) * $commissionRate;
-
-        return [
-            'amount' => round($amt, 2),
-            'formula' => sprintf('((售价¥%.2f - 成本¥%.2f) - 售价¥%.2f×%.2f%%) ×%.2f%% = ¥%.2f', $totalPrice, $totalCost, $totalPrice, $serviceFeeRate*100, $commissionRate*100, $amt),
-            'type' => 'trademark_commission',
-        ];
-    }
-
-    // ---- 商标部小额返现提成 ----
-    private static function calcTrademarkCashback($cfg, $c, $moduleName = '')
-    {
-        $perAmount = (float)($cfg['per_amount'] ?? 0);
-        $employeeId = $c['employee']['id'] ?? 0;
-
-        $count = 0;
-
-        foreach (($c['orders'] ?? []) as $o) {
-            if ($o['employee_id'] != $employeeId) continue;
-
-            $rawData = is_string($o['raw_data'] ?? '') ? json_decode($o['raw_data'], true) : ($o['raw_data'] ?? []);
-
-            // 模块名过滤
-            if ($moduleName !== '' && trim($o['project'] ?? '') !== $moduleName) continue;
-
-            // 获取备注内容
-            $remark = trim($o['remark'] ?? '');
-            $rawRemark = '';
-            if (is_array($rawData)) {
-                foreach ($rawData as $key => $value) {
-                    $lowerKey = mb_strtolower(trim($key));
-                    if (mb_strpos($lowerKey, '备注') !== false) {
-                        $rawRemark = trim((string)$value);
-                        break;
-                    }
-                }
-            }
-
-            // 检查备注是否包含"小额返"
-            if (mb_strpos($remark, '小额返') !== false || mb_strpos($rawRemark, '小额返') !== false) {
-                $count++;
-            }
-        }
-
-        $amt = $count * $perAmount;
-
-        return [
-            'amount' => round($amt, 2),
-            'formula' => sprintf('小额返现%d单×¥%.2f=¥%.2f', $count, $perAmount, $amt),
-            'type' => 'trademark_cashback',
         ];
     }
 
@@ -1838,27 +1739,6 @@ class SalaryCalculator
                     ['key'=>'_name','label'=>'模块名称（必填）','type'=>'text','placeholder'=>'如：成本提成A','default'=>''],
                     ['key'=>'commission_rate','label'=>'提成比例(小数)','type'=>'number','step'=>'any','placeholder'=>'0.1=10%','default'=>''],
                     ['key'=>'service_fee_rate','label'=>'服务费比例(小数)','type'=>'number','step'=>'any','placeholder'=>'0.05=5%','default'=>''],
-                ],
-            ],
-            'trademark_commission' => [
-                'label' => '商标部提成',
-                'icon' => 'fa-trademark',
-                'color' => 'primary',
-                'desc' => '基于售价和成本计算：((售价 - 成本) - 售价×服务费比例) × 提成比例（负数也参与计算）',
-                'fields' => [
-                    ['key'=>'_name','label'=>'模块名称（必填）','type'=>'text','placeholder'=>'如：商标部提成','default'=>''],
-                    ['key'=>'commission_rate','label'=>'提成比例(小数)','type'=>'number','step'=>'any','placeholder'=>'0.1=10%','default'=>''],
-                    ['key'=>'service_fee_rate','label'=>'服务费比例(小数)','type'=>'number','step'=>'any','placeholder'=>'0.05=5%','default'=>''],
-                ],
-            ],
-            'trademark_cashback' => [
-                'label' => '商标部小额返现提成',
-                'icon' => 'fa-money-bill-wave',
-                'color' => 'success',
-                'desc' => '筛选备注包含"小额返"的订单，按单量×提成金额计算',
-                'fields' => [
-                    ['key'=>'_name','label'=>'模块名称（必填）','type'=>'text','placeholder'=>'如：小额返现提成','default'=>''],
-                    ['key'=>'per_amount','label'=>'每单提成金额','type'=>'number','step'=>'0.01','min'=>'0','placeholder'=>'如 10 元/单','default'=>'10'],
                 ],
             ],
             'base_salary_tiered' => [
