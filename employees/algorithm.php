@@ -109,13 +109,22 @@ $isCodeMode  = !SalaryCalculator::hasCustomConfig($employee_id) && SalaryCalcula
 $allTypes    = SalaryCalculator::getAvailableTypes();
 $currentMods = $savedConfig['modules'] ?? [];
 
-// 查询该员工所属部门在 dept_fee.php 中的手续费率
+// 查询该员工所属部门的手续费率（优先 dept_config.php 独立配置，回退 dept_fee.php）
 $deptFeeRate = 0;
-$deptFeeFile = __DIR__ . '/../config/dept_fee.php';
-if (file_exists($deptFeeFile) && !empty($employee['department'])) {
-    $deptFeeMap = include $deptFeeFile;
-    if (is_array($deptFeeMap) && isset($deptFeeMap[$employee['department']])) {
-        $deptFeeRate = (float)$deptFeeMap[$employee['department']];
+$deptConfigFile = __DIR__ . '/../config/dept_config.php';
+if (file_exists($deptConfigFile) && !empty($employee['department'])) {
+    $dc = include $deptConfigFile;
+    if (is_array($dc) && $dc['dept_name'] === $employee['department'] && isset($dc['service_fee_rate'])) {
+        $deptFeeRate = (float)$dc['service_fee_rate'];
+    }
+}
+if ($deptFeeRate === 0) {
+    $deptFeeFile = __DIR__ . '/../config/dept_fee.php';
+    if (file_exists($deptFeeFile) && !empty($employee['department'])) {
+        $deptFeeMap = include $deptFeeFile;
+        if (is_array($deptFeeMap) && isset($deptFeeMap[$employee['department']])) {
+            $deptFeeRate = (float)$deptFeeMap[$employee['department']];
+        }
     }
 }
 

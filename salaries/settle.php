@@ -12,6 +12,12 @@ $preview = null;
 $insuranceConfig = @include __DIR__ . '/../config/insurance.php';
 $insuranceAmount = (float)($insuranceConfig['amount'] ?? 0);
 
+// 网站售后部独立配置（与通用 dept_fee.php 隔离，避免其他分支修改影响）
+$deptConfig = @include __DIR__ . '/../config/dept_config.php';
+$deptConfigName = $deptConfig['dept_name'] ?? '';
+$deptConfigRate = (float)($deptConfig['service_fee_rate'] ?? 0);
+$deptConfigShare = ($deptConfig['dept_share'] ?? true) ? true : false;
+
 // 计算全勤奖（先加后扣模式）
 // 规则：请假 ≥8h 全扣、≥4h 扣一半、<4h 不扣；无考勤记录或不启用则净额为0
 // 返回 ['base'=>满勤金额, 'deduct'=>扣除, 'net'=>净额, 'status'=>说明, 'has_att'=>是否有考勤]
@@ -148,11 +154,12 @@ function loadEmployeeOrdersWithDept($employeeId, $month, $deptName, $deptShare =
     // 2. 部门订单虚拟拆分
     if ($deptShare && $deptName !== '') {
         // 用 JSON_EXTRACT 精确匹配部门名
+        // 注意：部门订单不按 is_abnormal 过滤——部门汇总订单与员工个人订单金额必然有差异，
+        // 异常检测会标记为"金额不符"，但这些订单是提成基数来源，必须参与计算
         $dstmt = db()->prepare(
             "SELECT *, order_amount, order_date, project, raw_data FROM orders
              WHERE employee_id = 0 AND order_scope = 'department'
              AND DATE_FORMAT(order_date, '%Y-%m') = ?
-             AND COALESCE(is_abnormal, 0) = 0
              AND COALESCE(is_deleted, 0) = 0
              AND JSON_UNQUOTE(JSON_EXTRACT(raw_data, '$.__dept__')) = ?"
         );
@@ -214,6 +221,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $deptShare = true;
                 $cfgData = SalaryCalculator::readModulesConfig($employee_id);
                 if (($cfgData['dept_share'] ?? 1) == 0) $deptShare = false;
+
+                // 网站售后部，优先使用 dept_config.php 独立配置，隔离其他分支的修改
+                if ($deptConfigName !== '' && ($emp['department'] ?? '') === $deptConfigName) {
+                    $deptShare = $deptConfigShare;
+                }
+
                 $loaded = loadEmployeeOrdersWithDept($employee_id, $month, $emp['department'] ?? '', $deptShare);
                 $orderList = $loaded['orders'];
                 $order_total = $loaded['order_total'];
@@ -423,6 +436,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $deptShare = true;
                 $cfgData = SalaryCalculator::readModulesConfig($employee_id);
                 if (($cfgData['dept_share'] ?? 1) == 0) $deptShare = false;
+
+                // 网站售后部，优先使用 dept_config.php 独立配置，隔离其他分支的修改
+                if ($deptConfigName !== '' && ($emp['department'] ?? '') === $deptConfigName) {
+                    $deptShare = $deptConfigShare;
+                }
+
                 $loaded = loadEmployeeOrdersWithDept($employee_id, $month, $emp['department'] ?? '', $deptShare);
                 $orderList = $loaded['orders'];
                 $order_total = $loaded['order_total'];
