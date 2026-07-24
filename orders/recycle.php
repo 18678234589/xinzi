@@ -89,7 +89,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 // ========== 查询参数 ==========
-$filter_month = trim($_GET['month'] ?? '');
+$filter_month = trim($_GET['month'] ?? date('Y-m', strtotime('-1 month')));
 $filter_dept  = trim($_GET['department'] ?? '');
 $filter_scope = trim($_GET['scope'] ?? '');  // personal / department
 $page         = max(1, (int)($_GET['page'] ?? 1));

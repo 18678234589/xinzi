@@ -26,7 +26,7 @@ if (($_GET['ajax'] ?? '') === 'modules' && $ajax_employee_id > 0) {
     $result = [];
     if ($modCfg && !empty($modCfg['modules'])) {
         foreach ($modCfg['modules'] as $m) {
-            if (in_array($m['type'], ['standard','tiered','per_order','profit_commission','referral_order','customer_reward','miniprogram_commission']) && ($m['enabled'] ?? true)) {
+            if (in_array($m['type'], ['standard','tiered','per_order','profit_commission','referral_order','customer_reward','miniprogram_commission','fixed_subsidy']) && ($m['enabled'] ?? true)) {
                 $extra = '';
                 if ($m['type'] === 'standard' && isset($m['config']['rate']) && $m['config']['rate'] !== '') {
                     $rVal = (float)$m['config']['rate'];
@@ -43,6 +43,10 @@ if (($_GET['ajax'] ?? '') === 'modules' && $ajax_employee_id > 0) {
                     $extra = ' (¥' . ($m['config']['per_amount'] ?? 0) . '/笔)';
                 } elseif ($m['type'] === 'referral_order') {
                     $extra = ' (每单补助¥' . ($m['config']['subsidy'] ?? 0) . ')';
+                } elseif ($m['type'] === 'fixed_subsidy') {
+                    $extra = ' (固定¥' . ($m['config']['amount'] ?? 0) . '/月)';
+                } elseif ($m['type'] === 'customer_reward') {
+                    $extra = ' (新客奖¥' . ($m['config']['new_customer_reward'] ?? 0) . '/老客¥' . ($m['config']['old_customer_reward'] ?? 0) . ')';
                 }
                 $result[] = ['name' => $m['name'], 'label' => $m['name'] . $extra];
             }
@@ -262,7 +266,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             }
                         }
 
-                        $inserted = 0; $skipped = 0; $unmatched = 0;
+                        $inserted = 0; $skipped = 0; $unmatched = 0; $noOrderNoRows = [];
                         $stmt = db()->prepare("INSERT INTO orders (employee_id, order_amount, order_date, project, order_no, raw_data, is_abnormal, abnormal_reason, order_scope) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
 
                         // 部门汇总行 project：优先用勾选模块名，为空则从 deptEmpModules 取
@@ -287,7 +291,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                         db()->beginTransaction();
                         try {
+                        $rowIdx = 0;
                         foreach ($dataRows as $row) {
+                            $rowIdx++;
                             if (count(array_filter($row, fn($v) => trim($v) !== '')) === 0) continue;
 
                             // 计算订单金额
@@ -396,8 +402,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             if ($isRefund) {
                                 $rawMap['__is_refund__'] = '1'; // 标记为退款订单
                             }
+                            // 订单状态统一设置为"未核验"
+                            $rawMap['__order_status__'] = '未核验';
                             // 提取订单号（用于后续店铺/员工订单对比）
                             $orderNo = extract_order_no($rawMap);
+
+                            // 没有订单编号的订单跳过并记录行号
+                            if ($orderNo === '') {
+                                $noOrderNoRows[] = $rowIdx;
+                                continue;
+                            }
 
                             // 部门订单只插一条汇总记录（employee_id=0），结算时按 __dept_modules__ 虚拟拆分
                             if ($order_scope === 'department' && !empty($deptEmpModules)) {
@@ -467,16 +481,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     if ($error === '') {
                         $modCount = count($projectArr);
                         $modNote = $modCount > 1 ? "（{$modCount}个模块，每条订单复制{$modCount}份）" : "";
+                        $noOrderNoMsg = '';
+                        if (!empty($noOrderNoRows)) {
+                            $rowList = implode(',', $noOrderNoRows);
+                            $noOrderNoMsg = "。以下行因无订单编号上传失败：第 {$rowList} 行";
+                        }
                         if ($order_scope === 'department') {
                             $empName = $dept_name . '（部门）';
                             $msg = "导入完成！为【{$empName}】成功导入 {$inserted} 条{$modNote}";
                             if ($skipped > 0) $msg .= "，{$skipped} 条标记为异常";
                             if ($unmatched > 0) $msg .= "，{$unmatched} 条未匹配归属（已分配给所有归属员工）";
+                            $msg .= $noOrderNoMsg;
                             $rq = ['upload_ok' => '1', 'msg' => urlencode($msg)];
                         } else {
                             $emp = get_employee($employee_id);
                             $empName = $emp ? $emp['name'] : '';
-                            $rq = ['employee_id' => $employee_id, 'upload_ok' => '1', 'msg' => urlencode("导入完成！为【{$empName}】成功导入 {$inserted} 条{$modNote}" . ($skipped > 0 ? "，{$skipped} 条标记为异常" : ""))];
+                            $msg = "导入完成！为【{$empName}】成功导入 {$inserted} 条{$modNote}" . ($skipped > 0 ? "，{$skipped} 条标记为异常" : "") . $noOrderNoMsg;
+                            $rq = ['employee_id' => $employee_id, 'upload_ok' => '1', 'msg' => urlencode($msg)];
                         }
                         if ($per_page !== 20) $rq['per_page'] = $per_page;
                         header('Location: ' . BASE_URL . '/orders/index.php?' . http_build_query($rq));
@@ -658,6 +679,169 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $error = '删除失败: ' . $ex->getMessage();
             }
         }
+    } elseif ($action === 'verify_status') {
+        // 核验订单状态（AJAX接口，直接输出JSON并exit）
+        header('Content-Type: application/json; charset=utf-8');
+        $project    = trim($_POST['project'] ?? '');
+        $month      = trim($_POST['month'] ?? '');
+        $verifyType = trim($_POST['verify_type'] ?? '');
+        $vEmployeeId = (int)($_POST['employee_id'] ?? 0);
+        $vDept      = trim($_POST['department'] ?? '');
+        $vDeptOrders = (($_POST['dept_orders'] ?? '') === '1');
+        $vAbnormal  = (($_POST['abnormal'] ?? '') === '1');
+        $vRefund    = (($_POST['refund'] ?? '') === '1');
+        $vSearch    = trim($_POST['search_no'] ?? '');
+        if ($project === '' || !in_array($verifyType, ['shipped', 'success'])) {
+            echo json_encode(['ok' => false, 'msg' => '参数错误']);
+            exit;
+        }
+        try {
+            // 复用页面查询逻辑：排除店铺上传订单、排除已删除
+            $vWhere = " WHERE NOT (o.order_scope = 'department' AND o.shop <> '') AND COALESCE(o.is_deleted, 0) = 0";
+            $vParams = [];
+            if ($vEmployeeId > 0) {
+                $vWhere .= " AND o.employee_id = ? AND COALESCE(o.order_scope, 'personal') = 'personal'";
+                $vParams[] = $vEmployeeId;
+            }
+            if ($vDept !== '') {
+                $vWhere .= " AND (e.department = ? OR (o.employee_id = 0 AND o.order_scope = 'department' AND JSON_UNQUOTE(JSON_EXTRACT(o.raw_data, '$.__dept__')) = ?))";
+                $vParams[] = $vDept;
+                $vParams[] = $vDept;
+            }
+            if ($vDeptOrders) {
+                $vWhere = " WHERE NOT (o.order_scope = 'department' AND o.shop <> '')"
+                    . " AND COALESCE(o.is_deleted, 0) = 0"
+                    . " AND o.employee_id = 0 AND o.order_scope = 'department'"
+                    . " AND JSON_UNQUOTE(JSON_EXTRACT(o.raw_data, '$.__dept__')) = ?";
+                $vParams = [$vDept];
+            }
+            $vWhere .= " AND o.project = ?";
+            $vParams[] = $project;
+            if ($month !== '') {
+                $vWhere .= " AND DATE_FORMAT(o.order_date, '%Y-%m') = ?";
+                $vParams[] = $month;
+            }
+            if ($vAbnormal) {
+                $vWhere .= " AND o.is_abnormal = 1";
+            }
+            if ($vRefund) {
+                $vWhere .= " AND JSON_UNQUOTE(JSON_EXTRACT(o.raw_data, '$.__is_refund__')) = '1'";
+            }
+            if ($vSearch !== '') {
+                $vWhere .= " AND o.order_no LIKE ?";
+                $vParams[] = '%' . $vSearch . '%';
+            }
+            $q = db()->prepare("SELECT o.id, o.order_no, o.order_amount, o.raw_data, o.is_abnormal FROM orders o LEFT JOIN employees e ON o.employee_id = e.id" . $vWhere);
+            $q->execute($vParams);
+            $rows = $q->fetchAll();
+            $q->closeCursor();
+            if (empty($rows)) {
+                echo json_encode(['ok' => true, 'updated' => 0, 'msg' => '该模块无订单数据']);
+                exit;
+            }
+            $orderNos = [];
+            foreach ($rows as $r) {
+                $rd = json_decode($r['raw_data'], true) ?: [];
+                $ono = trim($r['order_no'] ?? '');
+                if ($ono === '') {
+                    foreach ($rd as $k => $v) {
+                        if (mb_strpos($k, '订单号') !== false || mb_strpos($k, '订单编号') !== false) {
+                            $ono = trim((string)$v);
+                            if ($ono !== '') break;
+                        }
+                    }
+                }
+                if ($ono !== '') $orderNos[$r['id']] = $ono;
+            }
+            if (empty($orderNos)) {
+                echo json_encode(['ok' => true, 'updated' => 0, 'msg' => '无有效订单号']);
+                exit;
+            }
+            $shopStatusMap = [];
+            $shopAmountMap = [];
+            $onoList = array_unique(array_values($orderNos));
+            $ph = implode(',', array_fill(0, count($onoList), '?'));
+            $shopQ = db()->prepare("SELECT order_no, raw_data, order_amount FROM orders WHERE shop <> '' AND order_no IN ($ph) AND COALESCE(is_deleted, 0) = 0");
+            $shopQ->execute($onoList);
+            $shopRows = $shopQ->fetchAll();
+            $shopQ->closeCursor();
+            foreach ($shopRows as $sr) {
+                $srRaw = json_decode($sr['raw_data'], true) ?: [];
+                $status = '';
+                if (isset($srRaw['__order_status__']) && $srRaw['__order_status__'] !== '') {
+                    $status = $srRaw['__order_status__'];
+                } else {
+                    foreach ($srRaw as $k => $v) {
+                        if (strlen($k) > 4 && substr($k, 0, 2) === '__' && substr($k, -2) === '__') continue;
+                        if (mb_strpos($k, '订单状态') !== false && trim((string)$v) !== '') {
+                            $status = trim((string)$v);
+                            break;
+                        }
+                    }
+                }
+                if ($status !== '') $shopStatusMap[$sr['order_no']] = $status;
+                $shopAmountMap[$sr['order_no']] = (float)$sr['order_amount'];
+            }
+            $updated = 0;
+            $normalCount = 0;
+            $abnormalCount = 0;
+            foreach ($rows as $r) {
+                $rid = (int)$r['id'];
+                $ono = $orderNos[$rid] ?? '';
+                $status = $shopStatusMap[$ono] ?? '';
+                $shopAmt = $shopAmountMap[$ono] ?? null;
+                $wasAbnormal = (int)$r['is_abnormal'] === 1;
+                $nowAbnormal = 0;
+                $reasons = [];
+                // 1. 核验订单状态
+                if ($status === '') {
+                    $nowAbnormal = 1;
+                    $reasons[] = '店铺无此订单';
+                } elseif ($verifyType === 'shipped') {
+                    if (mb_strpos($status, '已发货') !== false || mb_strpos($status, '交易成功') !== false || mb_strpos($status, '已到账') !== false) {
+                        // 状态达标
+                    } else {
+                        $nowAbnormal = 1;
+                        $reasons[] = "状态[{$status}]不达标";
+                    }
+                } elseif ($verifyType === 'success') {
+                    if (mb_strpos($status, '交易成功') !== false || mb_strpos($status, '已到账') !== false) {
+                        // 状态达标
+                    } else {
+                        $nowAbnormal = 1;
+                        $reasons[] = "状态[{$status}]未交易成功";
+                    }
+                }
+                // 2. 核验订单金额
+                if ($shopAmt !== null) {
+                    $curAmt = (float)$r['order_amount'];
+                    if (abs($curAmt - $shopAmt) > 0.005) {
+                        $nowAbnormal = 1;
+                        $reasons[] = "金额不符(本:" . number_format($curAmt, 2) . "/店:" . number_format($shopAmt, 2) . ")";
+                    }
+                }
+                $reason = implode('；', $reasons);
+                if ($nowAbnormal !== $wasAbnormal || ($nowAbnormal && ($r['abnormal_reason'] ?? '') !== $reason) || $status !== '') {
+                    if ($status !== '') {
+                        $raw = json_decode($r['raw_data'], true) ?: [];
+                        $raw['__shop_order_status__'] = $status;
+                        $newRawJson = json_encode($raw, JSON_UNESCAPED_UNICODE);
+                        $upd = db()->prepare("UPDATE orders SET is_abnormal = ?, abnormal_reason = ?, raw_data = ? WHERE id = ?");
+                        $upd->execute([$nowAbnormal, $reason, $newRawJson, $rid]);
+                    } else {
+                        $upd = db()->prepare("UPDATE orders SET is_abnormal = ?, abnormal_reason = ? WHERE id = ?");
+                        $upd->execute([$nowAbnormal, $reason, $rid]);
+                    }
+                    $upd->closeCursor();
+                    $updated++;
+                }
+                if ($nowAbnormal) $abnormalCount++; else $normalCount++;
+            }
+            echo json_encode(['ok' => true, 'updated' => $updated, 'normal' => $normalCount, 'abnormal' => $abnormalCount, 'total' => count($rows)]);
+        } catch (PDOException $ex) {
+            echo json_encode(['ok' => false, 'msg' => '数据库错误: ' . $ex->getMessage()]);
+        }
+        exit;
     }
 }
 
@@ -790,11 +974,12 @@ function ensureProjectColumn() {
 }
 $filter_employee = $locked_employee_id ?: (int)($_GET['employee_id'] ?? 0);
 $filter_dept = $_GET['department'] ?? '';
-$filter_month = $_GET['month'] ?? '';  // 空字符串=不限月份
+$filter_month = $_GET['month'] ?? date('Y-m', strtotime('-1 month'));  // 默认上个月
 $filter_project = $_GET['project'] ?? ''; // 展开某个模块时使用
 $filter_dept_orders = isset($_GET['dept_orders']) && $_GET['dept_orders'] === '1';
 $filter_abnormal = (($_GET['abnormal'] ?? '') === '1') ? 1 : 0;
 $filter_refund   = (($_GET['refund'] ?? '') === '1') ? 1 : 0;
+$filter_status   = trim($_GET['status'] ?? ''); // 订单状态筛选（如"未核验"）
 $filter_search  = trim($_GET['search_no'] ?? ''); // 订单号搜索
 $page     = max(1, (int)($_GET['page'] ?? 1));
 $allowed_per_page = [20, 50, 100, 200, 500, 1000];
@@ -856,6 +1041,7 @@ $groupSql = "SELECT DATE_FORMAT(o.order_date, '%Y') as order_year,
 $gStmt = db()->prepare($groupSql);
 $gStmt->execute($baseParams);
 $allGroups = $gStmt->fetchAll();
+$gStmt->closeCursor();
 
 // 按年份和月份重新组织数据结构
 $projectGroups = [];
@@ -905,6 +1091,7 @@ $deptSql = "SELECT COALESCE(
 $deptStmt = db()->prepare($deptSql);
 $deptStmt->execute($baseParams);
 $deptGroups = $deptStmt->fetchAll();
+$deptStmt->closeCursor();
 
 // 如果选择了部门，按员工分组统计
 $empGroups = [];
@@ -917,6 +1104,7 @@ if ($filter_dept) {
     $empStmt = db()->prepare($empSql);
     $empStmt->execute($baseParams);
     $empGroups = $empStmt->fetchAll();
+    $empStmt->closeCursor();
 
     // 追加"部门订单"虚拟行（employee_id=0 的部门汇总订单）
     // 注意：部门订单 employee_id=0，JOIN 不到员工，不能用 e.department 过滤，
@@ -937,6 +1125,7 @@ if ($filter_dept) {
     $deptSumStmt = db()->prepare($deptSumSql);
     $deptSumStmt->execute($deptSumParams);
     $deptSum = $deptSumStmt->fetch();
+    $deptSumStmt->closeCursor();
     if ($deptSum && (int)$deptSum['cnt'] > 0) {
         array_unshift($empGroups, [
             'emp_id'        => 0,
@@ -956,6 +1145,19 @@ $orders = [];
 $total_pages = 1;
 $uploadHeaders = [];
 $expand_project = $filter_project; // 当前展开的分组名（空=全部收起）
+$expand_month = '';
+if ($expand_project !== '') {
+    foreach ($yearGroups as $yd) {
+        foreach ($yd['months'] as $md) {
+            foreach ($md['projects'] as $p) {
+                if (($p['grp_name'] ?? '') === $expand_project) {
+                    $expand_month = $md['month'];
+                    break 3;
+                }
+            }
+        }
+    }
+}
 $detailQ = [];
 
 if ($expand_project !== '') {
@@ -964,6 +1166,7 @@ if ($expand_project !== '') {
     $detailQ = array_merge($baseQ, ['project' => $expand_project, 'page' => 1]);
     if ($filter_abnormal) $detailQ['abnormal'] = '1';
     if ($filter_refund) $detailQ['refund'] = '1';
+    if ($filter_status !== '') $detailQ['status'] = $filter_status;
     if ($filter_search !== '') $detailQ['search_no'] = $filter_search;
     if ($expand_project === '订单') {
         $detailWhere .= " AND (o.project = '' OR o.project IS NULL)";
@@ -977,14 +1180,19 @@ if ($expand_project !== '') {
     if ($filter_refund) {
         $detailWhere .= " AND JSON_UNQUOTE(JSON_EXTRACT(o.raw_data, '$.__is_refund__')) = '1'";
     }
+    if ($filter_status !== '') {
+        $detailWhere .= " AND JSON_UNQUOTE(JSON_EXTRACT(o.raw_data, '$.__order_status__')) = ?";
+        $detailParams[] = $filter_status;
+    }
     if ($filter_search !== '') {
         $detailWhere .= " AND o.order_no LIKE ?";
         $detailParams[] = '%' . $filter_search . '%';
     }
 
-    $cntRow = db()->prepare("SELECT COUNT(*) as cnt, COALESCE(SUM(o.order_amount),0) as total FROM orders o LEFT JOIN employees e ON o.employee_id = e.id" . $detailWhere);
-    $cntRow->execute($detailParams);
-    $cntRow = $cntRow->fetch();
+    $cntStmt = db()->prepare("SELECT COUNT(*) as cnt, COALESCE(SUM(o.order_amount),0) as total FROM orders o LEFT JOIN employees e ON o.employee_id = e.id" . $detailWhere);
+    $cntStmt->execute($detailParams);
+    $cntRow = $cntStmt->fetch();
+    $cntStmt->closeCursor();
     $detail_count  = (int)$cntRow['cnt'];
     $detail_amount = (float)$cntRow['total'];
     $total_pages   = max(1, ceil($detail_count / $per_page));
@@ -995,6 +1203,7 @@ if ($expand_project !== '') {
     $dStmt = db()->prepare($detailSql);
     $dStmt->execute($detailParams);
     $orders = $dStmt->fetchAll();
+    $dStmt->closeCursor();
 
     // 直接从第一条有 raw_data 的订单推断表头，过滤掉"列N"占位列
     foreach ($orders as $o) {
@@ -1042,6 +1251,7 @@ include __DIR__ . '/../includes/header.php';
 
 <?php if ($success || isset($_GET['upload_ok'])): ?>
     <div class="alert alert-success alert-dismissible fade show"><i class="fas fa-check-circle"></i> <?php echo e($success ?: urldecode($_GET['msg'] ?? '导入完成')); ?><button type="button" class="close" data-dismiss="alert">&times;</button></div>
+    <script>alert('<?php echo e(urldecode($_GET['msg'] ?? '导入完成')); ?>');</script>
 <?php endif; ?>
 <?php if ($error): ?>
     <div class="alert alert-danger alert-dismissible fade show"><i class="fas fa-exclamation-circle"></i> <?php echo e($error); ?><button type="button" class="close" data-dismiss="alert">&times;</button></div>
@@ -1130,7 +1340,7 @@ include __DIR__ . '/../includes/header.php';
                     <!-- 订单归属月份选择（必填） -->
                     <div class="form-group">
                         <label><i class="fas fa-calendar text-warning"></i> 订单归属月份 <span class="required">*</span></label>
-                        <input type="month" name="upload_month" class="form-control" value="<?php echo date('Y-m'); ?>" min="2020-01" max="2030-12" required>
+                        <input type="month" name="upload_month" class="form-control" value="<?php echo date('Y-m', strtotime('-1 month')); ?>" min="2020-01" max="2030-12" required>
                         <small class="text-muted"><i class="fas fa-info-circle"></i> 该批订单将统一归属到所选月份，用于薪资结算（不受Excel中日期列影响）</small>
                     </div>
                     
@@ -1152,7 +1362,7 @@ include __DIR__ . '/../includes/header.php';
                                 $modCfg = SalaryCalculator::readModulesConfig($locked_employee['id']);
                                 if ($modCfg && !empty($modCfg['modules'])):
                                     foreach ($modCfg['modules'] as $m):
-                                        if (in_array($m['type'], ['standard','tiered','per_order','profit_commission','referral_order']) && ($m['enabled'] ?? true)):
+                                        if (in_array($m['type'], ['standard','tiered','per_order','profit_commission','referral_order','fixed_subsidy','miniprogram_commission','customer_reward']) && ($m['enabled'] ?? true)):
                                             $modName = $m['name'];
                                             $extra = '';
                                             if ($m['type'] === 'standard' && isset($m['config']['rate']) && $m['config']['rate'] !== '') {
@@ -1165,6 +1375,12 @@ include __DIR__ . '/../includes/header.php';
                                                 $extra = ' (¥' . ($m['config']['per_amount'] ?? 0) . '/笔)';
                                             } elseif ($m['type'] === 'referral_order') {
                                                 $extra = ' (每单补助¥' . ($m['config']['subsidy'] ?? 0) . ')';
+                                            } elseif ($m['type'] === 'fixed_subsidy') {
+                                                $extra = ' (固定¥' . ($m['config']['amount'] ?? 0) . '/月)';
+                                            } elseif ($m['type'] === 'miniprogram_commission' && isset($m['config']['commission_rate']) && $m['config']['commission_rate'] !== '') {
+                                                $extra = ' (小程序' . rtrim(rtrim(number_format((float)$m['config']['commission_rate']*100, 4, '.', ''), '0'), '.') . '%)';
+                                            } elseif ($m['type'] === 'customer_reward') {
+                                                $extra = ' (新客奖¥' . ($m['config']['new_customer_reward'] ?? 0) . '/老客¥' . ($m['config']['old_customer_reward'] ?? 0) . ')';
                                             }
                                             echo '<div class="custom-control custom-checkbox mb-1">'
                                                . '<input type="checkbox" name="upload_project[]" value="' . e($modName) . '" class="custom-control-input" id="proj_' . htmlspecialchars($modName, ENT_QUOTES) . '">'
@@ -1231,7 +1447,7 @@ include __DIR__ . '/../includes/header.php';
                                 $modCfg2 = SalaryCalculator::readModulesConfig($locked_employee['id']);
                                 if ($modCfg2 && !empty($modCfg2['modules'])):
                                     foreach ($modCfg2['modules'] as $m):
-                                        if (in_array($m['type'], ['standard','tiered','per_order','profit_commission','referral_order']) && ($m['enabled'] ?? true)):
+                                        if (in_array($m['type'], ['standard','tiered','per_order','profit_commission','referral_order','fixed_subsidy','miniprogram_commission','customer_reward']) && ($m['enabled'] ?? true)):
                                             $modName = $m['name'];
                                             $extra = '';
                                             if ($m['type'] === 'standard' && isset($m['config']['rate']) && $m['config']['rate'] !== '') {
@@ -1244,6 +1460,12 @@ include __DIR__ . '/../includes/header.php';
                                                 $extra = ' (¥' . ($m['config']['per_amount'] ?? 0) . '/笔)';
                                             } elseif ($m['type'] === 'referral_order') {
                                                 $extra = ' (每单补助¥' . ($m['config']['subsidy'] ?? 0) . ')';
+                                            } elseif ($m['type'] === 'fixed_subsidy') {
+                                                $extra = ' (固定¥' . ($m['config']['amount'] ?? 0) . '/月)';
+                                            } elseif ($m['type'] === 'miniprogram_commission' && isset($m['config']['commission_rate']) && $m['config']['commission_rate'] !== '') {
+                                                $extra = ' (小程序' . rtrim(rtrim(number_format((float)$m['config']['commission_rate']*100, 4, '.', ''), '0'), '.') . '%)';
+                                            } elseif ($m['type'] === 'customer_reward') {
+                                                $extra = ' (新客奖¥' . ($m['config']['new_customer_reward'] ?? 0) . '/老客¥' . ($m['config']['old_customer_reward'] ?? 0) . ')';
                                             }
                                             echo '<option value="' . e($modName) . '">' . e($modName) . $extra . '</option>';
                                         endif;
@@ -1528,6 +1750,7 @@ include __DIR__ . '/../includes/header.php';
                         <a class="btn btn-sm btn-outline-primary mr-2" href="<?php echo '?' . http_build_query($detailAllQ); ?>">全部订单</a>
                     <?php endif; ?>
                     <a class="btn btn-sm btn-outline-secondary mr-2" href="<?php echo '?' . http_build_query($baseQ); ?>">退出明细</a>
+                    <button type="button" class="btn btn-sm btn-outline-success mr-2" onclick="showVerifyStatusModal()"><i class="fas fa-check-double"></i> 核验订单状态</button>
                     <button type="button" class="close" data-dismiss="modal" aria-label="关闭"><span aria-hidden="true">&times;</span></button>
                 </div>
             </div>
@@ -1558,7 +1781,9 @@ include __DIR__ . '/../includes/header.php';
                                     <th>ID</th><th>员工</th>
                                     <?php foreach ($uploadHeaders as $hdr): ?>
                                         <th><?php echo e($hdr); ?></th>
+                                        <?php if ($hdr === '店铺'): ?><th>订单状态</th><?php endif; ?>
                                     <?php endforeach; ?>
+                                    <?php if (!in_array('店铺', $uploadHeaders)): ?><th>订单状态</th><?php endif; ?>
                                     <th>计算金额</th><th>上传日期</th><th>操作</th>
                                 </tr>
                             </thead>
@@ -1582,7 +1807,69 @@ include __DIR__ . '/../includes/header.php';
                                     </td>
                                     <?php foreach ($uploadHeaders as $hdr): ?>
                                         <td><?php echo isset($rawData[$hdr]) && $rawData[$hdr] !== '' ? e($rawData[$hdr]) : '<span class="text-muted small">--</span>'; ?></td>
+                                        <?php if ($hdr === '店铺'): ?>
+                                        <td>
+                                            <?php
+                                            $orderStatus = '';
+                                            $shopStatus = $rawData['__shop_order_status__'] ?? '';
+                                            if ($shopStatus !== '') {
+                                                $orderStatus = $shopStatus;
+                                            } elseif (isset($rawData['__order_status__']) && $rawData['__order_status__'] !== '') {
+                                                $orderStatus = $rawData['__order_status__'];
+                                            } else {
+                                                foreach ($rawData as $k => $v) {
+                                                    if (strlen($k) > 4 && substr($k, 0, 2) === '__' && substr($k, -2) === '__') continue;
+                                                    if (mb_strpos($k, '订单状态') !== false && trim((string)$v) !== '') {
+                                                        $orderStatus = trim((string)$v);
+                                                        break;
+                                                    }
+                                                }
+                                            }
+                                            if ($orderStatus !== '') {
+                                                $statusColor = 'secondary';
+                                                if (mb_strpos($orderStatus, '交易成功') !== false || mb_strpos($orderStatus, '已到账') !== false) $statusColor = 'success';
+                                                elseif (mb_strpos($orderStatus, '已发货') !== false) $statusColor = 'info';
+                                                elseif (mb_strpos($orderStatus, '未核验') !== false) $statusColor = 'warning';
+                                                elseif (mb_strpos($orderStatus, '已取消') !== false || mb_strpos($orderStatus, '退款') !== false) $statusColor = 'danger';
+                                                echo '<span class="badge badge-' . $statusColor . '">' . e($orderStatus) . '</span>';
+                                            } else {
+                                                echo '<span class="text-muted small">--</span>';
+                                            }
+                                            ?>
+                                        </td>
+                                        <?php endif; ?>
                                     <?php endforeach; ?>
+                                    <?php if (!in_array('店铺', $uploadHeaders)): ?>
+                                    <td>
+                                        <?php
+                                        $orderStatus = '';
+                                        $shopStatus = $rawData['__shop_order_status__'] ?? '';
+                                        if ($shopStatus !== '') {
+                                            $orderStatus = $shopStatus;
+                                        } elseif (isset($rawData['__order_status__']) && $rawData['__order_status__'] !== '') {
+                                            $orderStatus = $rawData['__order_status__'];
+                                        } else {
+                                            foreach ($rawData as $k => $v) {
+                                                if (strlen($k) > 4 && substr($k, 0, 2) === '__' && substr($k, -2) === '__') continue;
+                                                if (mb_strpos($k, '订单状态') !== false && trim((string)$v) !== '') {
+                                                    $orderStatus = trim((string)$v);
+                                                    break;
+                                                }
+                                            }
+                                        }
+                                        if ($orderStatus !== '') {
+                                            $statusColor = 'secondary';
+                                            if (mb_strpos($orderStatus, '交易成功') !== false || mb_strpos($orderStatus, '已到账') !== false) $statusColor = 'success';
+                                            elseif (mb_strpos($orderStatus, '已发货') !== false) $statusColor = 'info';
+                                            elseif (mb_strpos($orderStatus, '未核验') !== false) $statusColor = 'warning';
+                                            elseif (mb_strpos($orderStatus, '已取消') !== false || mb_strpos($orderStatus, '退款') !== false) $statusColor = 'danger';
+                                            echo '<span class="badge badge-' . $statusColor . '">' . e($orderStatus) . '</span>';
+                                        } else {
+                                            echo '<span class="text-muted small">--</span>';
+                                        }
+                                        ?>
+                                    </td>
+                                    <?php endif; ?>
                                     <td class="<?php echo !empty($o['is_abnormal']) ? 'text-danger' : ''; ?>">
                                         <?php if (!empty($o['is_abnormal'])): ?>
                                             <i class="fas fa-exclamation-triangle"></i> ¥<?php echo money($o['order_amount']); ?><br><small><?php echo e($o['abnormal_reason'] ?? ''); ?></small>
@@ -1599,14 +1886,17 @@ include __DIR__ . '/../includes/header.php';
                                         <?php endif; ?>
                                     </td>
                                     <td class="text-muted small"><?php echo !empty($o['created_at']) ? date('m-d H:i', strtotime($o['created_at'])) : '--'; ?></td>
-                                    <td><button type="button" class="btn btn-sm btn-outline-danger py-0" onclick="deleteSingle(<?php echo $o['id']; ?>)"><i class="fas fa-times"></i></button></td>
+                                    <td>
+                                        <button type="button" class="btn btn-sm btn-outline-info py-0 mr-1" onclick="editOrder(<?php echo $o['id']; ?>)" title="编辑订单"><i class="fas fa-edit"></i></button>
+                                        <button type="button" class="btn btn-sm btn-outline-danger py-0" onclick="deleteSingle(<?php echo $o['id']; ?>)"><i class="fas fa-times"></i></button>
+                                    </td>
                                 </tr>
                             <?php endforeach; else: ?>
-                                <tr><td colspan="10" class="text-center text-muted py-3">暂无数据</td></tr>
+                                <tr><td colspan="<?php echo 7 + count($uploadHeaders); ?>" class="text-center text-muted py-3">暂无数据</td></tr>
                             <?php endif; ?>
                             </tbody>
                             <?php if ($orders): ?>
-                            <tfoot><tr class="table-light font-weight-bold"><td colspan="<?php echo 3 + count($uploadHeaders); ?>">本页合计</td><td class="text-success">¥<?php echo money(array_sum(array_column(array_filter($orders, fn($r) => empty($r['is_abnormal'])), 'order_amount'))); ?></td><td colspan="2"></td></tr></tfoot>
+                            <tfoot><tr class="table-light font-weight-bold"><td colspan="<?php echo 4 + count($uploadHeaders); ?>">本页合计</td><td class="text-success">¥<?php echo money(array_sum(array_column(array_filter($orders, fn($r) => empty($r['is_abnormal'])), 'order_amount'))); ?></td><td colspan="2"></td></tr></tfoot>
                             <?php endif; ?>
                         </table>
                     </div>
@@ -1951,7 +2241,79 @@ function deleteProject(project, count, empId, dept, deptOrders) {
         document.getElementById('singleDeleteId').value = id;
         document.getElementById('singleDeleteForm').submit();
     };
+
+    window.editOrder = function(id) {
+        window.location.href = '<?php echo BASE_URL; ?>/orders/edit.php?id=' + id;
+    };
 })();
+</script>
+
+<script>
+function showVerifyStatusModal() {
+    var project = '<?php echo addslashes($expand_project); ?>';
+    var month = '<?php echo addslashes($expand_month); ?>';
+    var empName = '<?php echo addslashes($locked_employee ? ($locked_employee['name'] ?? '') : ''); ?>';
+    var dept = '<?php echo addslashes($filter_dept); ?>';
+    if (!project) {
+        alert('请先选择模块');
+        return;
+    }
+    $('#verifyProject').text(project);
+    var desc = month ? month.substring(0, 4) + '年' + month.substring(5) + '月' : '全部月份';
+    if (empName) desc += ' / ' + empName;
+    else if (dept) desc += ' / ' + dept;
+    $('#verifyMonth').text(desc);
+    $('#verifyStatusModal').modal('show');
+}
+
+function doVerify(verifyType) {
+    var project = '<?php echo addslashes($expand_project); ?>';
+    var month = '<?php echo addslashes($expand_month); ?>';
+    var employeeId = '<?php echo (int)($filter_employee); ?>';
+    var department = '<?php echo addslashes($filter_dept); ?>';
+    var deptOrders = '<?php echo $filter_dept_orders ? '1' : ''; ?>';
+    var abnormal = '<?php echo $filter_abnormal ? '1' : ''; ?>';
+    var refund = '<?php echo $filter_refund ? '1' : ''; ?>';
+    var searchNo = '<?php echo addslashes($filter_search); ?>';
+    var label = verifyType === 'shipped' ? '已发货' : '交易成功';
+    var monthDesc = month ? month.substring(0, 4) + '年' + month.substring(5) + '月' : '全部月份';
+    if (!confirm('将以「' + label + '」为标准，核验订单状态和金额，不符合的将标记为异常，确定继续？')) return;
+    var btn = event.target.closest('button');
+    if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 核验中...'; }
+    $.ajax({
+        url: '<?php echo BASE_URL; ?>/orders/index.php',
+        type: 'POST',
+        data: {
+            action: 'verify_status',
+            project: project,
+            month: month,
+            verify_type: verifyType,
+            employee_id: employeeId,
+            department: department,
+            dept_orders: deptOrders,
+            abnormal: abnormal,
+            refund: refund,
+            search_no: searchNo
+        },
+        dataType: 'json',
+        success: function(res) {
+            if (btn) { btn.disabled = false; btn.innerHTML = label; }
+            if (res.ok) {
+                var msg = '核验完成！共 ' + res.total + ' 条订单';
+                if (res.updated > 0) msg += '，更新 ' + res.updated + ' 条状态';
+                msg += '\n正常: ' + res.normal + ' 条\n异常: ' + res.abnormal + ' 条';
+                alert(msg);
+                location.reload();
+            } else {
+                alert('核验失败: ' + (res.msg || '未知错误'));
+            }
+        },
+        error: function() {
+            if (btn) { btn.disabled = false; btn.innerHTML = label; }
+            alert('请求失败，请重试');
+        }
+    });
+}
 </script>
 
 <style>
@@ -1993,4 +2355,47 @@ function deleteProject(project, count, empId, dept, deptOrders) {
     z-index: 2;
 }
 </style>
+
+<!-- 核验订单状态弹窗 -->
+<div class="modal fade" id="verifyStatusModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="fas fa-check-double text-success"></i> 核验订单状态和金额</h5>
+                <button type="button" class="close" data-dismiss="modal">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="alert alert-info mb-3">
+                    <p class="mb-1"><b>模块：</b><span id="verifyProject"></span></p>
+                    <p class="mb-0"><b>月份：</b><span id="verifyMonth"></span></p>
+                </div>
+                <p class="mb-3">选择核验标准，系统将通过订单编号匹配店铺订单中的状态和金额，不符合标准的订单将标记为异常：</p>
+                <div class="row">
+                    <div class="col-md-6 mb-2">
+                        <div class="card border-success cursor-pointer" onclick="doVerify('shipped')" style="cursor:pointer">
+                            <div class="card-body text-center py-3">
+                                <i class="fas fa-truck text-success fa-2x mb-2"></i>
+                                <h6 class="mb-1">已发货</h6>
+                                <small class="text-muted">状态为「已发货」或「交易成功」为正常<br>其他状态标记为异常</small>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-6 mb-2">
+                        <div class="card border-primary cursor-pointer" onclick="doVerify('success')" style="cursor:pointer">
+                            <div class="card-body text-center py-3">
+                                <i class="fas fa-check-circle text-primary fa-2x mb-2"></i>
+                                <h6 class="mb-1">交易成功</h6>
+                                <small class="text-muted">状态为「交易成功」为正常<br>其他状态标记为异常</small>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-dismiss="modal">取消</button>
+            </div>
+        </div>
+    </div>
+</div>
+
 <?php include __DIR__ . '/../includes/footer.php'; ?>

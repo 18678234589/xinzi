@@ -41,7 +41,7 @@
 	    exit;
 	}
 
-	$filter_month = $_GET['month'] ?? '';
+	$filter_month = $_GET['month'] ?? date('Y-m', strtotime('-1 month'));
 	$filter_emp = trim($_GET['emp_search'] ?? '');
 	$filter_dept = $_GET['dept'] ?? '';  // 选中的部门
 	$abn = get_abnormal_orders('', $filter_month);

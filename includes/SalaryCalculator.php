@@ -224,6 +224,7 @@ class SalaryCalculator
             case 'attendance_daily':  return self::calcAttendanceDaily($config, $ctx);
             case 'attendance_deduct': return self::calcAttendanceDeduct($config, $ctx);
             case 'customer_reward':   return self::calcCustomerReward($config, $ctx, $moduleName);
+            case 'fixed_subsidy':     return self::calcFixedSubsidy($config, $ctx, $moduleName);
             default: return null;
         }
     }
@@ -1350,7 +1351,7 @@ class SalaryCalculator
         if ($employeeId > 0 && $month !== '' && $moduleName !== '') {
             try {
                 $stmt = db()->prepare(
-                    "SELECT * FROM orders WHERE employee_id = ? AND project = ? AND DATE_FORMAT(order_date, '%Y-%m') = ? AND COALESCE(is_abnormal, 0) = 0 AND COALESCE(is_deleted, 0) = 0"
+                    "SELECT * FROM orders WHERE employee_id = ? AND project = ? AND DATE_FORMAT(order_date, '%Y-%m') = ? AND COALESCE(is_abnormal, 0) = 0 AND COALESCE(is_deleted, 0) = 0 AND (raw_data IS NULL OR JSON_UNQUOTE(JSON_EXTRACT(raw_data, '$.__order_status__')) != '未核验')"
                 );
                 $stmt->execute([$employeeId, $moduleName, $month]);
                 $orders = $stmt->fetchAll();
@@ -1468,6 +1469,17 @@ class SalaryCalculator
             'amount' => round($totalAmount, 2),
             'formula' => $formula,
             'type' => 'miniprogram_commission',
+        ];
+    }
+
+    // ---- 固定补助 ----
+    private static function calcFixedSubsidy($cfg, $c, $moduleName = '')
+    {
+        $amount = (float)($cfg['amount'] ?? 0);
+        return [
+            'amount' => round($amount, 2),
+            'formula' => sprintf('固定补助 ¥%.2f', $amount),
+            'type' => 'fixed_subsidy',
         ];
     }
 
@@ -1775,6 +1787,16 @@ class SalaryCalculator
                     ['key'=>'filter_column','label'=>'新老客户筛选字段名','type'=>'text','placeholder'=>'如：订单类型','default'=>''],
                     ['key'=>'filter_value','label'=>'新客户字段值','type'=>'text','placeholder'=>'如：新订单','default'=>''],
                     ['key'=>'customer_subsidy','label'=>'新客户补助金额','type'=>'number','step'=>'0.01','min'=>'0','placeholder'=>'如 20 元/单','default'=>'0'],
+                ],
+            ],
+            'fixed_subsidy' => [
+                'label' => '固定补助',
+                'icon' => 'fa-hand-holding-usd',
+                'color' => 'info',
+                'desc' => '每月固定金额补助，不随订单量变化',
+                'fields' => [
+                    ['key'=>'_name','label'=>'模块名称（必填）','type'=>'text','placeholder'=>'如：交通补助、餐补、住房补贴','default'=>''],
+                    ['key'=>'amount','label'=>'补助金额','type'=>'number','step'=>'0.01','min'=>'0','placeholder'=>'如 500 元/月','default'=>'500'],
                 ],
             ],
         ];

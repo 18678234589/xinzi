@@ -19,7 +19,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'delet
 // 筛选条件
 $filter_dept  = $_GET['department'] ?? '';
 $filter_emp   = (int)($_GET['employee_id'] ?? 0);
-$filter_month = $_GET['month'] ?? '';
+$filter_month = $_GET['month'] ?? date('Y-m', strtotime('-1 month'));
 
 // 构建查询
 $sql = "SELECT s.*, e.name, e.department, e.base_salary, e.commission_rate

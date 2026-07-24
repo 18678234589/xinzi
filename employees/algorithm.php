@@ -640,6 +640,10 @@ function calcPreview(idx) {
             result.amount = profitComm + subsidyAmt;
             result.detail = '利润提成+新客户补助(' + demoCustCnt + '单×¥' + custSub + ')';
             break;
+        case 'fixed_subsidy':
+            result.amount = cfg.amount || 0;
+            result.detail = '固定补助 ¥' + (result.amount).toFixed(2);
+            break;
         default: result.amount = 0; result.detail = '--';
     }
 
