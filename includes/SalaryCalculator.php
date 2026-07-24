@@ -1351,7 +1351,9 @@ class SalaryCalculator
         if ($employeeId > 0 && $month !== '' && $moduleName !== '') {
             try {
                 $stmt = db()->prepare(
-                    "SELECT * FROM orders WHERE employee_id = ? AND project = ? AND DATE_FORMAT(order_date, '%Y-%m') = ? AND COALESCE(is_abnormal, 0) = 0 AND COALESCE(is_deleted, 0) = 0 AND (raw_data IS NULL OR JSON_UNQUOTE(JSON_EXTRACT(raw_data, '$.__order_status__')) != '未核验')"
+                    // 不按未核验过滤——订单上传时统一标记为"未核验"，手动核验后才改状态，
+                // 若此处过滤会导致所有未核验订单的小程序提成为0
+                "SELECT * FROM orders WHERE employee_id = ? AND project = ? AND DATE_FORMAT(order_date, '%Y-%m') = ? AND COALESCE(is_abnormal, 0) = 0 AND COALESCE(is_deleted, 0) = 0"
                 );
                 $stmt->execute([$employeeId, $moduleName, $month]);
                 $orders = $stmt->fetchAll();

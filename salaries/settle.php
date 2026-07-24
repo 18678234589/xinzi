@@ -137,14 +137,15 @@ function applyProratedBaseSalary(&$result, $empId, $month) {
  * @return array ['orders'=>[], 'order_total'=>float]
  */
 function loadEmployeeOrdersWithDept($employeeId, $month, $deptName, $deptShare = true) {
-    // 1. 个人订单（排除旧的物理拆分行，避免与虚拟拆分重复；排除已软删除的；排除未核验订单）
+    // 1. 个人订单（排除旧的物理拆分行，避免与虚拟拆分重复；排除已软删除的）
+    // 注意：不按未核验过滤——订单上传时统一标记为"未核验"，需手动核验后才改状态，
+    // 若此处过滤会导致所有未核验订单的提成（标书/引流/小程序）都为0
     $ostmt = db()->prepare(
         "SELECT *, order_amount, order_date, project FROM orders
          WHERE employee_id = ? AND DATE_FORMAT(order_date, '%Y-%m') = ?
          AND COALESCE(is_abnormal, 0) = 0
          AND COALESCE(is_deleted, 0) = 0
          AND (raw_data IS NULL OR raw_data NOT LIKE '%\"__from_dept__\"%')
-         AND (raw_data IS NULL OR JSON_UNQUOTE(JSON_EXTRACT(raw_data, '$.__order_status__')) != '未核验')
          ORDER BY order_date"
     );
     $ostmt->execute([$employeeId, $month]);
