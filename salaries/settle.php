@@ -155,15 +155,14 @@ function loadEmployeeOrdersWithDept($employeeId, $month, $deptName, $deptShare =
     // 2. 部门订单虚拟拆分
     if ($deptShare && $deptName !== '') {
         // 用 JSON_EXTRACT 精确匹配部门名
-        // 注意：部门订单不按 is_abnormal 过滤——部门汇总订单与员工个人订单金额必然有差异，
-        // 异常检测会标记为"金额不符"，但这些订单是提成基数来源，必须参与计算
+        // 注意：部门订单不按 is_abnormal 过滤、不按未核验过滤——部门汇总订单是提成基数来源，必须参与计算
+        // （异常检测标记为"金额不符"、上传时标记为"未核验"都是部门汇总的固有特征）
         $dstmt = db()->prepare(
             "SELECT *, order_amount, order_date, project, raw_data FROM orders
              WHERE employee_id = 0 AND order_scope = 'department'
              AND DATE_FORMAT(order_date, '%Y-%m') = ?
              AND COALESCE(is_deleted, 0) = 0
-             AND JSON_UNQUOTE(JSON_EXTRACT(raw_data, '$.__dept__')) = ?
-             AND (raw_data IS NULL OR JSON_UNQUOTE(JSON_EXTRACT(raw_data, '$.__order_status__')) != '未核验')"
+             AND JSON_UNQUOTE(JSON_EXTRACT(raw_data, '$.__dept__')) = ?"
         );
         $dstmt->execute([$month, $deptName]);
         $deptOrders = $dstmt->fetchAll();
