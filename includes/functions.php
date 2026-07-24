@@ -254,19 +254,41 @@ function get_order_fee_info($rawData, $order)
         }
     }
 
-    // 2b. 回退到 dept_fee.php（仅当模块未匹配且为部门订单时）
+    // 2b. 回退到 dept_config.php / dept_fee.php（仅当模块未匹配且为部门订单时）
     if (!$moduleMatched && $feeRate === 0 && $deptName !== '') {
-        static $deptFeeMap = null;
-        if ($deptFeeMap === null) {
-            $deptFeeFile = __DIR__ . '/../config/dept_fee.php';
-            if (file_exists($deptFeeFile)) {
-                $deptFeeMap = include $deptFeeFile;
-                if (!is_array($deptFeeMap)) $deptFeeMap = [];
+        // 优先查 dept_config.php（网站售后部独立配置，隔离其他分支修改）
+        static $deptConfigMap = null;
+        if ($deptConfigMap === null) {
+            $deptConfigFile = __DIR__ . '/../config/dept_config.php';
+            if (file_exists($deptConfigFile)) {
+                $dc = include $deptConfigFile;
+                if (is_array($dc) && isset($dc['dept_name'], $dc['service_fee_rate'])) {
+                    $deptConfigMap = [$dc['dept_name'] => (float)$dc['service_fee_rate']];
+                } else {
+                    $deptConfigMap = [];
+                }
             } else {
-                $deptFeeMap = [];
+                $deptConfigMap = [];
             }
         }
-        $feeRate = isset($deptFeeMap[$deptName]) ? (float)$deptFeeMap[$deptName] : 0;
+        if (isset($deptConfigMap[$deptName])) {
+            $feeRate = $deptConfigMap[$deptName];
+        }
+
+        // 再回退到 dept_fee.php（通用部门费率配置）
+        if ($feeRate === 0) {
+            static $deptFeeMap = null;
+            if ($deptFeeMap === null) {
+                $deptFeeFile = __DIR__ . '/../config/dept_fee.php';
+                if (file_exists($deptFeeFile)) {
+                    $deptFeeMap = include $deptFeeFile;
+                    if (!is_array($deptFeeMap)) $deptFeeMap = [];
+                } else {
+                    $deptFeeMap = [];
+                }
+            }
+            $feeRate = isset($deptFeeMap[$deptName]) ? (float)$deptFeeMap[$deptName] : 0;
+        }
     }
 
     if ($feeRate > 0) {

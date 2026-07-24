@@ -327,15 +327,35 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                     }
                                 }
 
-                                // 2. 部门订单且模块未匹配到时，回退到 dept_fee.php
+                                // 2. 部门订单且模块未匹配到时，回退到 dept_config.php / dept_fee.php
                                 if (!$modMatched && $order_scope === 'department' && $dept_name !== '') {
-                                    static $deptFeeMap = null;
-                                    if ($deptFeeMap === null) {
-                                        $deptFeeFile = __DIR__ . '/../config/dept_fee.php';
-                                        $deptFeeMap = file_exists($deptFeeFile) ? (include $deptFeeFile) : [];
-                                        if (!is_array($deptFeeMap)) $deptFeeMap = [];
+                                    // 优先查 dept_config.php（网站售后部独立配置）
+                                    static $deptConfigMap = null;
+                                    if ($deptConfigMap === null) {
+                                        $deptConfigFile = __DIR__ . '/../config/dept_config.php';
+                                        if (file_exists($deptConfigFile)) {
+                                            $dc = include $deptConfigFile;
+                                            if (is_array($dc) && isset($dc['dept_name'], $dc['service_fee_rate'])) {
+                                                $deptConfigMap = [$dc['dept_name'] => (float)$dc['service_fee_rate']];
+                                            } else {
+                                                $deptConfigMap = [];
+                                            }
+                                        } else {
+                                            $deptConfigMap = [];
+                                        }
                                     }
-                                    $feeRate = isset($deptFeeMap[$dept_name]) ? (float)$deptFeeMap[$dept_name] : 0.0;
+                                    $feeRate = isset($deptConfigMap[$dept_name]) ? $deptConfigMap[$dept_name] : 0.0;
+
+                                    // 再回退到 dept_fee.php（通用部门费率配置）
+                                    if ($feeRate === 0) {
+                                        static $deptFeeMap = null;
+                                        if ($deptFeeMap === null) {
+                                            $deptFeeFile = __DIR__ . '/../config/dept_fee.php';
+                                            $deptFeeMap = file_exists($deptFeeFile) ? (include $deptFeeFile) : [];
+                                            if (!is_array($deptFeeMap)) $deptFeeMap = [];
+                                        }
+                                        $feeRate = isset($deptFeeMap[$dept_name]) ? (float)$deptFeeMap[$dept_name] : 0.0;
+                                    }
                                 }
 
                                 // 3. 扣除手续费
