@@ -6,7 +6,11 @@
             "enabled": true,
             "config": {
                 "rate": 0.1406,
-                "comment": "售后提成=(售价-6%服务费-SSL)×15%。售价×94%×15%≈14.06%"
+                "comment": "售后提成=(售价-6%服务费-SSL)×15%。售价×94%×15%≈14.06%",
+                "service_fee_rate": "0",
+                "min_amount": "",
+                "max_amount": "",
+                "shop_keyword": ""
             }
         },
         {
@@ -15,10 +19,14 @@
             "enabled": true,
             "config": {
                 "rate": 0.1406,
-                "comment": "网站定制售后提成，同算法"
+                "comment": "网站定制售后提成，同算法",
+                "service_fee_rate": "0",
+                "min_amount": "",
+                "max_amount": "",
+                "shop_keyword": ""
             }
         }
     ],
-    "updated_at": "2026-07-10",
+    "updated_at": "2026-07-17 16:07:56",
     "description": "李子晖（定制售后）：底薪10460.14 + (售价-6%服务费-SSL)×15%。5月：售价1100，SSL150，利润884，提成132.6"
 }

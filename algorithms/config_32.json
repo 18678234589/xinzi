@@ -1,23 +1,49 @@
 {
     "modules": [
         {
-            "name": "成本比例提成",
+            "name": "标书提成",
             "type": "profit_commission",
             "enabled": true,
             "config": {
+                "_name": "标书提成",
                 "commission_rate": 0.1,
                 "service_fee_rate": 0.03
             }
         },
         {
-            "name": "缺勤扣款",
-            "type": "attendance_deduct",
+            "name": "引流订单",
+            "type": "referral_order",
             "enabled": true,
             "config": {
-                "absent_days": 0,
-                "deduct_per_day": 100
+                "subsidy": 3,
+                "count_keyword_match": "all",
+                "count_mode": "keyword",
+                "count_column": "",
+                "count_keyword": ""
+            }
+        },
+        {
+            "name": "底薪",
+            "type": "base_salary",
+            "enabled": true,
+            "config": {
+                "_name": "底薪",
+                "base_amount": 800
+            }
+        },
+        {
+            "name": "小程序提成",
+            "type": "miniprogram_commission",
+            "enabled": true,
+            "config": {
+                "commission_rate": 0.05,
+                "service_fee_rate": 0.03,
+                "filter_column": "订单类型",
+                "filter_value": "新订单",
+                "customer_subsidy": 20
             }
         }
     ],
-    "updated_at": "2026-07-13 16:43:17"
+    "dept_share": 1,
+    "updated_at": "2026-07-17 16:07:56"
 }

@@ -55,11 +55,34 @@ $is_insurance   = (strpos($_rel, 'insurance/') === 0);
         .stat-card.blue { border-left-color: #17a2b8; }
         .stat-card.orange { border-left-color: #fd7e14; }
         .stat-card.purple { border-left-color: #6f42c1; }
+
+        /* ===== 响应式：侧栏抽屉 ===== */
+        .sidebar-backdrop {
+            position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,.5); z-index: 99; display: none;
+        }
+        .sidebar-backdrop.show { display: block; }
+        @media (max-width: 991.98px) {
+            .sidebar {
+                transform: translateX(-100%);
+                transition: transform .3s ease;
+                z-index: 1000;
+            }
+            .sidebar.open { transform: translateX(0); }
+            .main-content { margin-left: 0 !important; }
+        }
+        @media (min-width: 992px) {
+            #sidebarToggle { display: none; }
+        }
     </style>
 </head>
 <body>
 <nav class="navbar navbar-expand-lg navbar-dark bg-dark fixed-top">
     <a class="navbar-brand" href="<?php echo BASE_URL; ?>/index.php"><i class="fas fa-coins"></i> 财务薪资结算系统</a>
+    <button class="navbar-toggler d-lg-none border-0" type="button" id="sidebarToggle"
+            style="position:fixed;top:10px;left:10px;z-index:1100;background:#343a40;color:#fff;">
+        <i class="fas fa-bars"></i>
+    </button>
     <div class="ml-auto d-flex align-items-center">
         <span class="text-light mr-3">
             <i class="fas fa-user-circle"></i>
@@ -68,6 +91,8 @@ $is_insurance   = (strpos($_rel, 'insurance/') === 0);
         <a href="<?php echo BASE_URL; ?>/logout.php" class="btn btn-outline-light btn-sm"><i class="fas fa-sign-out-alt"></i> 退出</a>
     </div>
 </nav>
+
+<div class="sidebar-backdrop" id="sidebarBackdrop"></div>
 
 <div class="sidebar">
     <a href="<?php echo BASE_URL; ?>/index.php" class="<?php echo $is_home ? 'active' : ''; ?>"><i class="fas fa-tachometer-alt"></i> 系统首页</a>
@@ -83,3 +108,13 @@ $is_insurance   = (strpos($_rel, 'insurance/') === 0);
 </div>
 
 <div class="main-content">
+<script>
+(function(){
+    var btn = document.getElementById('sidebarToggle');
+    var sb  = document.querySelector('.sidebar');
+    var bd  = document.getElementById('sidebarBackdrop');
+    function toggle(){ sb.classList.toggle('open'); bd.classList.toggle('show'); }
+    if(btn) btn.addEventListener('click', toggle);
+    if(bd) bd.addEventListener('click', toggle);
+})();
+</script>

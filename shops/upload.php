@@ -1,6 +1,7 @@
 <?php
 require_once __DIR__ . '/../includes/auth.php';
 require_login();
+require_once __DIR__ . '/../includes/SalaryCalculator.php';
 require_once __DIR__ . '/../classes/SimpleXLSX.php';
 
 $page_title = '店铺订单上传';
@@ -13,6 +14,27 @@ $shop = get_shop($shop_id);
 if (!$shop) {
     header('Location: ' . BASE_URL . '/shops/index.php');
     exit;
+}
+
+/**
+ * 从 raw_data 中提取订单状态
+ * 优先读 __order_status__ 标记键（新上传已写入）；
+ * 缺失时回退扫描原始列名（历史数据按原名原样存储），兼容无需同步的历史订单
+ */
+function extract_order_status($raw)
+{
+    if (!is_array($raw)) return '';
+    if (isset($raw['__order_status__']) && $raw['__order_status__'] !== '') {
+        return $raw['__order_status__'];
+    }
+    foreach ($raw as $k => $v) {
+        if (strlen($k) > 4 && substr($k, 0, 2) === '__' && substr($k, -2) === '__') continue;
+        if (mb_strpos($k, '订单状态') !== false) {
+            $v = trim((string)$v);
+            if ($v !== '') return $v;
+        }
+    }
+    return '';
 }
 
 /**
@@ -68,6 +90,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $success = '已批量删除 ' . $stmt->rowCount() . ' 条订单（移入回收站）';
             } catch (PDOException $ex) {
                 $error = '批量删除失败: ' . $ex->getMessage();
+            }
+        }
+    } elseif ($action === 'delete_month') {
+        $del_month = trim($_POST['del_month'] ?? '');
+        if ($del_month === '' || !preg_match('/^\d{4}-\d{2}$/', $del_month)) {
+            $error = '无效的月份';
+        } else {
+            try {
+                $stmt = db()->prepare("UPDATE orders SET is_deleted=1 WHERE shop = ? AND DATE_FORMAT(order_date, '%Y-%m') = ? AND COALESCE(is_deleted, 0) = 0");
+                $stmt->execute([$shop['name'], $del_month]);
+                $cnt = $stmt->rowCount();
+                $success = "已删除 {$del_month} 的 {$cnt} 条订单（移入回收站）";
+            } catch (PDOException $ex) {
+                $error = '删除失败: ' . $ex->getMessage();
             }
         }
     } elseif ($action === 'manual_add') {
@@ -131,8 +167,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
 
                 if ($error === '' && !empty($rows)) {
-                    $firstRow = $rows[0];
-                    $dataRows = array_slice($rows, 1);
+                    // 自动跳过标题行：如果第一行不包含已知列名，取下一行做表头
+                    $headerIdx = 0;
+                    $knownCols = ['金额','价格','售价','成本','检索号','交易时间','时间','订单号','订单编号','订单金额','交易金额'];
+                    for ($ri = 0; $ri < min(5, count($rows)); $ri++) {
+                        $rowStr = implode('', $rows[$ri]);
+                        foreach ($knownCols as $kc) {
+                            if (mb_strpos($rowStr, $kc) !== false) { $headerIdx = $ri; break 2; }
+                        }
+                    }
+                    $firstRow = $rows[$headerIdx];
+                    $dataRows = array_slice($rows, $headerIdx + 1);
 
                     // 原样保存表头（空列用"列N"占位）
                     $normalizedHeaders = [];
@@ -145,17 +190,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                     // 找金额/价格/成本列（模糊匹配，支持多种表头名称）
                     $idxPrice = null; $idxCost = null; $idxAmount = null;
+                    $idxOrderNo = null; $idxTradeTime = null; $idxOrderStatus = null;
                     foreach ($colMap as $k => $idx) {
-                        if ($idxAmount === null && (mb_strpos($k, '订单金额') !== false || mb_strpos($k, '金额') !== false)) $idxAmount = $idx;
+                        if ($idxAmount === null && (mb_strpos($k, '订单金额') !== false || mb_strpos($k, '交易金额') !== false || mb_strpos($k, '金额') !== false)) $idxAmount = $idx;
                         if ($idxPrice === null && (mb_strpos($k, '价格') !== false || mb_strpos($k, '售价') !== false)) $idxPrice = $idx;
                         if ($idxCost  === null && (mb_strpos($k, '成本') !== false)) $idxCost  = $idx;
+                        if ($idxOrderNo === null && (mb_strpos($k, '检索号') !== false || mb_strpos($k, '订单编号') !== false)) $idxOrderNo = $idx;
+                        if ($idxTradeTime === null && (mb_strpos($k, '交易时间') !== false || mb_strpos($k, '时间') !== false)) $idxTradeTime = $idx;
+                        if ($idxOrderStatus === null && (mb_strpos($k, '订单状态') !== false)) $idxOrderStatus = $idx;
                     }
 
                     // 校验：要么有订单金额列，要么有价格和成本列
                     if ($idxAmount === null && ($idxPrice === null || $idxCost === null)) {
                         $error = '表头缺少金额字段：需要"订单金额"列，或同时有"价格/售价"和"成本/总成本"列';
-                        goto upload_done;
-                    }
+                    } else {
 
                     // 保存表头到 upload_batches
                     $batchHeaders = json_encode(array_values($normalizedHeaders), JSON_UNESCAPED_UNICODE);
@@ -165,20 +213,46 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $inserted = 0; $skipped = 0;
                     $stmt = db()->prepare("INSERT INTO orders (employee_id, order_amount, order_date, shop, order_no, raw_data, is_abnormal, abnormal_reason, order_scope) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'department')");
 
+                    db()->beginTransaction();
+                    try {
                     foreach ($dataRows as $row) {
                         if (count(array_filter($row, fn($v) => trim($v) !== '')) === 0) continue;
 
                         // 计算订单金额
+                        $originalPrice = 0; // 原始售价（供异常订单对比使用）
                         if ($idxAmount !== null) {
                             $amount = (float)preg_replace('/[^\d.\-]/', '', trim($row[$idxAmount] ?? ''));
+                            $originalPrice = $amount;
                         } else {
                             $price  = (float)preg_replace('/[^\d.\-]/', '', trim($row[$idxPrice] ?? ''));
-                            $cost   = (float)preg_replace('/[^\d.\-]/', '', trim($row[$idxCost]  ?? ''));
+                            $cost   = (float)preg_replace('/[^\d.\-]/', '', trim($row[$idxCost] ?? ''));
+                            $originalPrice = $price;
                             $amount = $price - $cost;
                         }
 
-                        // 日期：使用归属月份的第一天作为订单日期
+                        // 日期：归属月份首日（用于分组），实际交易时间存入raw_data供展示
                         $parsedDate = $upload_month . '-01';
+                        $tradeTimeStr = '';
+                        if ($idxTradeTime !== null) {
+                            $tradeTime = trim((string)($row[$idxTradeTime] ?? ''));
+                            if ($tradeTime !== '') {
+                                $dt = '';
+                                if (is_numeric($tradeTime) && $tradeTime > 30000 && $tradeTime < 60000) {
+                                    $ts = ((int)floor((float)$tradeTime) - 25569) * 86400;
+                                    $frac = (float)$tradeTime - floor((float)$tradeTime);
+                                    $ts += (int)round($frac * 86400);
+                                    // Excel序列号是时区无关的，用gmdate避免服务器时区重复偏移
+                                    $dt = gmdate('Y-m-d', $ts);
+                                    $tradeTimeStr = gmdate('Y-m-d H:i:s', $ts);
+                                } elseif (preg_match('/(\d{4}-\d{2}-\d{2})/', $tradeTime, $m)) {
+                                    $dt = $m[1]; $tradeTimeStr = $tradeTime;
+                                } elseif (preg_match('/(\d{4})\/(\d{1,2})\/(\d{1,2})/', $tradeTime, $m)) {
+                                    $dt = sprintf('%s-%02d-%02d', $m[1], $m[2], $m[3]); $tradeTimeStr = $tradeTime;
+                                } elseif (preg_match('/(\d{4})(\d{2})(\d{2})\s/', $tradeTime, $m)) {
+                                    $dt = "{$m[1]}-{$m[2]}-{$m[3]}"; $tradeTimeStr = $tradeTime;
+                                }
+                            }
+                        }
 
                         // 异常标记：金额为0才标记异常，负数金额视为退款订单正常处理
                         $isAbn = 0; $abnReason = '';
@@ -195,14 +269,40 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             $rawMap[$hdr] = $row[$ci] ?? '';
                         }
                         $rawMap['__shop__'] = $shop['name'];
+                        // 始终存储原始售价，供异常订单对比使用（售价匹配，非利润匹配）
+                        if ($originalPrice > 0) {
+                            $rawMap['__original_price__'] = $originalPrice;
+                        }
+                        if ($tradeTimeStr !== '') { $rawMap['__trade_time__'] = $tradeTimeStr; }
                         if ($isRefund) {
                             $rawMap['__is_refund__'] = '1';
                         }
-                        // 提取订单号
-                        $orderNo = extract_order_no($rawMap);
+                        // 提取订单状态（如"交易成功""卖家已发货""等待买家确认"等）
+                        $orderStatus = '';
+                        if ($idxOrderStatus !== null) {
+                            $orderStatus = trim((string)($row[$idxOrderStatus] ?? ''));
+                        }
+                        // 科恒扫码收款、对公收款：有订单状态按订单状态，没有则默认交易成功
+                        if (in_array($shop['name'], ['科恒扫码收款', '对公收款'])) {
+                            if ($orderStatus === '') { $orderStatus = '交易成功'; }
+                        }
+                        if ($orderStatus !== '') { $rawMap['__order_status__'] = $orderStatus; }
+                        // 提取订单号：优先使用检索号列，否则用通用提取
+                        $orderNo = '';
+                        if ($idxOrderNo !== null) {
+                            $orderNo = trim($row[$idxOrderNo] ?? '');
+                        }
+                        if ($orderNo === '') {
+                            $orderNo = extract_order_no($rawMap);
+                        }
 
                         $stmt->execute([0, $amount, $parsedDate, $shop['name'], $orderNo, json_encode($rawMap, JSON_UNESCAPED_UNICODE), $isAbn, $abnReason]);
                         $isAbn ? $skipped++ : $inserted++;
+                    }
+                    db()->commit();
+                    } catch (Exception $txEx) {
+                        db()->rollBack();
+                        throw $txEx;
                     }
 
                     if ($error === '') {
@@ -210,20 +310,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         header('Location: ' . BASE_URL . '/shops/upload.php?' . http_build_query($rq));
                         exit;
                     }
+
+                    }
                 }
             } catch (Exception $ex) {
                 $error = '解析失败: ' . $ex->getMessage();
             }
-            upload_done:
         }
     }
 }
 
 // 查询该店铺已有订单（按月份分组汇总）
-$filter_month = $_GET['month'] ?? '';
+$filter_month = $_GET['month'] ?? date('Y-m', strtotime('-1 month'));
+$search_no = trim($_GET['search_no'] ?? '');
 $baseWhere  = " WHERE o.shop = ? AND COALESCE(o.is_deleted, 0) = 0";
 $baseParams = [$shop['name']];
 if ($filter_month) { $baseWhere .= " AND DATE_FORMAT(o.order_date, '%Y-%m') = ?"; $baseParams[] = $filter_month; }
+if ($search_no !== '') { $baseWhere .= " AND o.order_no LIKE ?"; $baseParams[] = '%' . $search_no . '%'; }
 
 $groupSql = "SELECT DATE_FORMAT(o.order_date, '%Y-%m') as order_month,
                     COUNT(*) as cnt,
@@ -234,34 +337,42 @@ $groupSql = "SELECT DATE_FORMAT(o.order_date, '%Y-%m') as order_month,
 $gStmt = db()->prepare($groupSql);
 $gStmt->execute($baseParams);
 $monthGroups = $gStmt->fetchAll();
+$gStmt->closeCursor();
 
 $total_count  = array_sum(array_column($monthGroups, 'cnt'));
 $total_amount = array_sum(array_column($monthGroups, 'normal_amount'));
 
-// 详细订单列表（点击某个月份展开）
+// 详细订单列表（点击某个月份展开 或 全局搜索）
 $detail_month = $_GET['detail'] ?? '';
+$detail_search = $search_no;
 $detail_orders = [];
 $detail_total = 0;
 $page = max(1, (int)($_GET['page'] ?? 1));
 $page_size = (int)($_GET['page_size'] ?? 20);
-if (!in_array($page_size, [10, 20, 50, 100])) $page_size = 20;
+if (!in_array($page_size, [10, 20, 50, 100, 500, 1000, 2000, 0])) $page_size = 20;
 
-if ($detail_month !== '') {
-    // 该月份的订单总数
-    $cStmt = db()->prepare("SELECT COUNT(*) FROM orders WHERE shop = ? AND DATE_FORMAT(order_date, '%Y-%m') = ? AND COALESCE(is_deleted, 0) = 0");
-    $cStmt->execute([$shop['name'], $detail_month]);
+if ($detail_month !== '' || $detail_search !== '') {
+    // 该月份的订单总数（或全局搜索）
+    $searchWhere = " WHERE shop = ? AND COALESCE(is_deleted, 0) = 0";
+    $searchParams = [$shop['name']];
+    if ($detail_month !== '') { $searchWhere .= " AND DATE_FORMAT(order_date, '%Y-%m') = ?"; $searchParams[] = $detail_month; }
+    if ($detail_search !== '') { $searchWhere .= " AND order_no LIKE ?"; $searchParams[] = '%' . $detail_search . '%'; }
+    $cStmt = db()->prepare("SELECT COUNT(*) FROM orders" . $searchWhere);
+    $cStmt->execute($searchParams);
     $detail_total = (int)$cStmt->fetchColumn();
+    $cStmt->closeCursor();
 
     $offset = ($page - 1) * $page_size;
+    $limitSql = $page_size > 0 ? " LIMIT $page_size OFFSET $offset" : "";
     $dStmt = db()->prepare("SELECT id, order_amount, order_date, order_no, is_abnormal, abnormal_reason, raw_data
-                            FROM orders
-                            WHERE shop = ? AND DATE_FORMAT(order_date, '%Y-%m') = ? AND COALESCE(is_deleted, 0) = 0
-                            ORDER BY order_date DESC, id DESC
-                            LIMIT $page_size OFFSET $offset");
-    $dStmt->execute([$shop['name'], $detail_month]);
+                            FROM orders"
+                            . $searchWhere
+                            . " ORDER BY order_date DESC, id DESC"
+                            . $limitSql);
+    $dStmt->execute($searchParams);
     $detail_orders = $dStmt->fetchAll();
 }
-$detail_pages = $page_size > 0 ? (int)ceil($detail_total / $page_size) : 0;
+$detail_pages = $page_size > 0 ? (int)ceil($detail_total / $page_size) : 1;
 
 define('BASE_PATH', dirname(__DIR__));
 include __DIR__ . '/../includes/header.php';
@@ -304,7 +415,7 @@ include __DIR__ . '/../includes/header.php';
                     <!-- 订单归属月份选择（必填，默认当前月份，可自定义） -->
                     <div class="form-group">
                         <label><i class="fas fa-calendar text-warning"></i> 订单归属月份 <span class="required">*</span></label>
-                        <input type="month" name="upload_month" class="form-control" value="<?php echo e($_POST['upload_month'] ?? date('Y-m')); ?>" min="2020-01" max="2030-12" required>
+                        <input type="month" name="upload_month" class="form-control" value="<?php echo e($_POST['upload_month'] ?? date('Y-m', strtotime('-1 month'))); ?>" min="2020-01" max="2030-12" required>
                         <small class="text-muted"><i class="fas fa-info-circle"></i> 默认为当前月份，可自定义修改；该批订单统一归属到所选月份（不受Excel中日期列影响）</small>
                     </div>
 
@@ -359,22 +470,142 @@ include __DIR__ . '/../includes/header.php';
                     </h5>
                     <form method="get" class="form-inline" id="filterForm">
                         <input type="hidden" name="shop_id" value="<?php echo $shop_id; ?>">
-                        <?php if ($detail_month): ?><input type="hidden" name="detail" value="<?php echo e($detail_month); ?>"><?php endif; ?>
+                        <input type="text" name="search_no" value="<?php echo e($search_no); ?>" class="form-control form-control-sm mr-1" placeholder="搜索订单号…" style="width:160px">
                         <input type="month" name="month" class="form-control form-control-sm mr-1" value="<?php echo e($filter_month); ?>" onchange="document.getElementById('filterForm').submit()">
-                        <?php if ($filter_month): ?>
-                            <button type="submit" name="month" value="" class="btn btn-sm btn-outline-secondary" title="显示全部月份">全部</button>
+                        <button type="submit" class="btn btn-sm btn-outline-primary mr-1"><i class="fas fa-search"></i></button>
+                        <?php if ($filter_month || $search_no): ?>
+                            <a href="?shop_id=<?php echo $shop_id; ?>" class="btn btn-sm btn-outline-secondary" title="清除筛选"><i class="fas fa-times"></i></a>
                         <?php endif; ?>
                     </form>
                 </div>
             </div>
             <div class="card-body p-0">
-                <?php if (empty($monthGroups)): ?>
+                    <?php if ($search_no !== ''): ?>
+                    <!-- 全局搜索结果 -->
+                    <div class="p-2 bg-light border-bottom">
+                        <small class="text-muted"><i class="fas fa-search"></i> 搜索 "<b><?php echo e($search_no); ?></b>" 的结果：共 <?php echo $detail_total; ?> 条</small>
+                    </div>
+                    <?php if (empty($detail_orders)): ?>
+                        <div class="text-center text-muted py-5"><i class="fas fa-search fa-2x mb-2 d-block"></i>未找到匹配的订单</div>
+                    <?php else: ?>
+                    <div class="p-2">
+                        <form method="post" id="detailForm">
+                            <input type="hidden" name="action" value="batch_delete">
+                            <div class="d-flex justify-content-between align-items-center mb-2 flex-wrap">
+                                <div class="d-flex align-items-center">
+                                    <button type="submit" class="btn btn-sm btn-outline-danger mr-2" onclick="return confirm('确定删除选中的订单？')">
+                                        <i class="fas fa-trash-alt"></i> 批量删除
+                                    </button>
+                                    <span class="text-muted small">已选 <b id="selCount">0</b> 条</span>
+                                </div>
+                                <div class="d-flex align-items-center">
+                                    <label class="text-muted small mb-0 mr-1">每页</label>
+                                    <select class="form-control form-control-sm mr-1" style="width:auto" onchange="changePageSize(this.value)">
+                                        <?php foreach ([10, 20, 50, 100, 500, 1000, 2000, 0] as $ps): ?>
+                                            <option value="<?php echo $ps; ?>" <?php if($page_size==$ps) echo 'selected'; ?>><?php echo $ps === 0 ? '全部' : $ps; ?></option>
+                                        <?php endforeach; ?>
+                                    </select>
+                                    <span class="text-muted small">条</span>
+                                </div>
+                            </div>
+                            <div class="table-responsive">
+                                <table class="table table-sm table-bordered mb-2 bg-white">
+                                    <thead class="thead-light">
+                                        <tr>
+                                            <th style="width:36px"><input type="checkbox" id="chkAll" onclick="toggleAll(this)"></th>
+                                            <th style="width:70px">ID</th>
+                                            <th>订单号</th>
+                                            <th>订单金额</th>
+                                            <th>订单日期</th>
+                                            <th>订单状态</th>
+                                            <th>状态</th>
+                                            <th style="width:110px">操作</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                    <?php foreach ($detail_orders as $o):
+                                        $raw = $o['raw_data'] ? json_decode($o['raw_data'], true) : [];
+                                        $isAbn = (int)$o['is_abnormal'] === 1;
+                                        $isRefund = (float)$o['order_amount'] < 0;
+                                        $orderStatus = extract_order_status($raw);
+                                    ?>
+                                        <tr>
+                                            <td><input type="checkbox" name="ids[]" value="<?php echo $o['id']; ?>" class="row-chk" onclick="updateSelCount()"></td>
+                                            <td><small class="text-muted"><?php echo $o['id']; ?></small></td>
+                                            <td><span class="text-monospace small"><?php echo e($o['order_no'] ?: '--'); ?></span></td>
+                                            <td class="<?php echo $isRefund ? 'text-danger' : ''; ?>">
+                                                <?php if ($isRefund): ?>
+                                                    <span class="font-weight-bold">¥<?php echo money($o['order_amount']); ?></span>
+                                                    <small class="text-muted">(退款)</small>
+                                                <?php else:
+                                                    $feeInfo = get_order_fee_info($raw, $o);
+                                                    if ($feeInfo['rate'] > 0 && $feeInfo['original_price'] > 0):
+                                                ?>
+                                                    <div class="text-muted small">售价: ¥<?php echo money($feeInfo['original_price']); ?></div>
+                                                    <div class="text-warning small">手续费: ¥<?php echo money($feeInfo['amount']); ?> (<?php echo rtrim(rtrim(number_format($feeInfo['rate'] * 100, 2, '.', ''), '0'), '.'); ?>%)</div>
+                                                    <div class="text-success font-weight-bold">净额: ¥<?php echo money($feeInfo['net']); ?></div>
+                                                <?php else: ?>
+                                                    <span class="text-success font-weight-bold">¥<?php echo money($o['order_amount']); ?></span>
+                                                <?php endif; endif; ?>
+                                            </td>
+                                            <td><small><?php echo e(substr($raw['__trade_time__'] ?? $o['order_date'], 0, 10)); ?></small></td>
+                                            <td><small><?php echo e($orderStatus ?: '--'); ?></small></td>
+                                            <td>
+                                                <?php if ($isAbn): ?>
+                                                    <span class="badge badge-warning" title="<?php echo e($o['abnormal_reason']); ?>">异常</span>
+                                                <?php elseif ($isRefund): ?>
+                                                    <span class="badge badge-info">退款</span>
+                                                <?php else: ?>
+                                                    <span class="badge badge-success">正常</span>
+                                                <?php endif; ?>
+                                            </td>
+                                            <td>
+                                                <button type="button" class="btn btn-sm btn-link p-0 text-info" data-detail='<?php echo htmlspecialchars(json_encode(["id"=>$o["id"],"order_no"=>$o["order_no"],"amount"=>$o["order_amount"],"date"=>$raw['__trade_time__'] ?? $o['order_date'],"status"=>$orderStatus,"reason"=>$o["abnormal_reason"],"raw"=>$raw], JSON_UNESCAPED_UNICODE | JSON_HEX_APOS | JSON_HEX_AMP), ENT_QUOTES, 'UTF-8'); ?>' onclick="showDetail(JSON.parse(this.dataset.detail))">
+                                                    <i class="fas fa-eye"></i>
+                                                </button>
+                                                <button type="button" class="btn btn-sm btn-link p-0 text-danger" onclick="deleteOrder(<?php echo $o['id']; ?>, '<?php echo e($o['order_date']); ?>')">
+                                                    <i class="fas fa-trash-alt"></i>
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    <?php endforeach; ?>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </form>
+                        <?php if ($detail_pages > 1): ?>
+                        <nav class="d-flex justify-content-between align-items-center">
+                            <ul class="pagination pagination-sm mb-0">
+                                <?php
+                                $baseLink = BASE_URL . '/shops/upload.php?shop_id=' . $shop_id
+                                    . '&search_no=' . urlencode($search_no)
+                                    . '&page_size=' . $page_size . '&page=';
+                                ?>
+                                <li class="page-item <?php if($page<=1) echo 'disabled'; ?>"><a class="page-link" href="<?php echo $baseLink.($page-1); ?>">&laquo;</a></li>
+                                <?php
+                                $startP = max(1, $page - 2);
+                                $endP = min($detail_pages, $page + 2);
+                                if ($startP > 1) echo '<li class="page-item disabled"><span class="page-link">…</span></li>';
+                                for ($i = $startP; $i <= $endP; $i++):
+                                ?>
+                                    <li class="page-item <?php if($i==$page) echo 'active'; ?>"><a class="page-link" href="<?php echo $baseLink.$i; ?>"><?php echo $i; ?></a></li>
+                                <?php endfor;
+                                if ($endP < $detail_pages) echo '<li class="page-item disabled"><span class="page-link">…</span></li>';
+                                ?>
+                                <li class="page-item <?php if($page>=$detail_pages) echo 'disabled'; ?>"><a class="page-link" href="<?php echo $baseLink.($page+1); ?>">&raquo;</a></li>
+                            </ul>
+                            <span class="text-muted small">第 <?php echo $page; ?> / <?php echo $detail_pages; ?> 页</span>
+                        </nav>
+                        <?php endif; ?>
+                    </div>
+                    <?php endif; ?>
+                <?php elseif (empty($monthGroups)): ?>
                     <div class="text-center text-muted py-5"><i class="fas fa-inbox fa-2x mb-2 d-block"></i>暂无订单数据</div>
                 <?php else: ?>
                     <div class="table-responsive">
                         <table class="table table-sm table-hover mb-0">
                             <thead class="thead-light">
-                                <tr><th>归属月份</th><th style="width:100px">订单数</th><th style="width:120px">异常</th><th class="text-right" style="width:120px">正常金额</th></tr>
+                                <tr><th>归属月份</th><th style="width:100px">订单数</th><th style="width:120px">异常</th><th class="text-right" style="width:120px">正常金额</th><th style="width:80px"></th></tr>
                             </thead>
                             <tbody>
                             <?php foreach ($monthGroups as $m):
@@ -392,11 +623,46 @@ include __DIR__ . '/../includes/header.php';
                                     <td><span class="badge badge-secondary"><?php echo $m['cnt']; ?> 笔</span></td>
                                     <td><?php if ($m['abn_cnt'] > 0): ?><span class="badge badge-danger"><?php echo $m['abn_cnt']; ?> 条</span><?php else: ?><span class="text-muted">--</span><?php endif; ?></td>
                                     <td class="text-success font-weight-bold">¥<?php echo money($m['normal_amount']); ?></td>
+                                    <td class="text-right" style="width:80px">
+                                        <button type="button" class="btn btn-sm btn-outline-danger" onclick="event.stopPropagation();deleteMonth('<?php echo e($m['order_month']); ?>', <?php echo $m['cnt']; ?>)" title="一键删除该月全部订单">
+                                            <i class="fas fa-trash-alt"></i>
+                                        </button>
+                                    </td>
                                 </tr>
                                 <?php if ($isExpanded): ?>
-                                <tr><td colspan="4" class="p-0">
+                                <tr><td colspan="5" class="p-0">
                                     <!-- 详细订单列表 -->
                                     <div class="p-2 bg-light border-top">
+                                        <!-- 搜索表单（独立于 detailForm，避免嵌套） -->
+                                        <div class="d-flex justify-content-between align-items-center mb-2 flex-wrap">
+                                            <div class="d-flex align-items-center">
+                                                <span class="text-muted small mr-2">共 <?php echo $detail_total; ?> 条</span>
+                                            </div>
+                                            <div class="d-flex align-items-center">
+                                                <form method="get" class="form-inline mr-2" id="orderSearchForm">
+                                                    <input type="hidden" name="shop_id" value="<?php echo $shop_id; ?>">
+                                                    <input type="hidden" name="detail" value="<?php echo e($detail_month); ?>">
+                                                    <input type="hidden" name="page_size" value="<?php echo $page_size; ?>">
+                                                    <div class="input-group input-group-sm">
+                                                        <input type="text" name="search_no" value="<?php echo e($detail_search); ?>" class="form-control" placeholder="搜索订单号…" style="max-width:160px;width:100%" autocomplete="off">
+                                                        <div class="input-group-append">
+                                                            <button class="btn btn-outline-primary" type="submit"><i class="fas fa-search"></i></button>
+                                                            <?php if ($detail_search !== ''): ?>
+                                                                <a class="btn btn-outline-secondary" href="?shop_id=<?php echo $shop_id; ?>&detail=<?php echo urlencode($detail_month); ?>&page_size=<?php echo $page_size; ?>" title="清除搜索"><i class="fas fa-times"></i></a>
+                                                            <?php endif; ?>
+                                                        </div>
+                                                    </div>
+                                                </form>
+                                                <label class="text-muted small mb-0 mr-1">每页</label>
+                                                <select class="form-control form-control-sm mr-1" style="width:auto" onchange="changePageSize(this.value)">
+                                                    <?php foreach ([10, 20, 50, 100, 500, 1000, 2000, 0] as $ps): ?>
+                                                        <option value="<?php echo $ps; ?>" <?php if($page_size==$ps) echo 'selected'; ?>><?php echo $ps === 0 ? '全部' : $ps; ?></option>
+                                                    <?php endforeach; ?>
+                                                </select>
+                                                <span class="text-muted small">条</span>
+                                            </div>
+                                        </div>
+
                                         <form method="post" id="detailForm">
                                             <input type="hidden" name="action" value="batch_delete">
                                             <div class="d-flex justify-content-between align-items-center mb-2 flex-wrap">
@@ -404,16 +670,7 @@ include __DIR__ . '/../includes/header.php';
                                                     <button type="submit" class="btn btn-sm btn-outline-danger mr-2" onclick="return confirm('确定删除选中的订单？')">
                                                         <i class="fas fa-trash-alt"></i> 批量删除
                                                     </button>
-                                                    <span class="text-muted small">已选 <b id="selCount">0</b> 条 / 共 <?php echo $detail_total; ?> 条</span>
-                                                </div>
-                                                <div class="d-flex align-items-center">
-                                                    <label class="text-muted small mb-0 mr-1">每页</label>
-                                                    <select class="form-control form-control-sm mr-1" style="width:auto" onchange="changePageSize(this.value)">
-                                                        <?php foreach ([10,20,50,100] as $ps): ?>
-                                                            <option value="<?php echo $ps; ?>" <?php if($page_size==$ps) echo 'selected'; ?>><?php echo $ps; ?></option>
-                                                        <?php endforeach; ?>
-                                                    </select>
-                                                    <span class="text-muted small">条</span>
+                                                    <span class="text-muted small">已选 <b id="selCount">0</b> 条</span>
                                                 </div>
                                             </div>
 
@@ -429,6 +686,7 @@ include __DIR__ . '/../includes/header.php';
                                                             <th>订单号</th>
                                                             <th>订单金额</th>
                                                             <th>订单日期</th>
+                                                            <th>订单状态</th>
                                                             <th>状态</th>
                                                             <th style="width:110px">操作</th>
                                                         </tr>
@@ -438,16 +696,29 @@ include __DIR__ . '/../includes/header.php';
                                                         $raw = $o['raw_data'] ? json_decode($o['raw_data'], true) : [];
                                                         $isAbn = (int)$o['is_abnormal'] === 1;
                                                         $isRefund = (float)$o['order_amount'] < 0;
+                                                        $orderStatus = extract_order_status($raw);
                                                     ?>
                                                         <tr>
                                                             <td><input type="checkbox" name="ids[]" value="<?php echo $o['id']; ?>" class="row-chk" onclick="updateSelCount()"></td>
                                                             <td><small class="text-muted"><?php echo $o['id']; ?></small></td>
                                                             <td><span class="text-monospace small"><?php echo e($o['order_no'] ?: '--'); ?></span></td>
-                                                            <td class="<?php echo $isRefund ? 'text-danger' : 'text-success'; ?> font-weight-bold">
-                                                                ¥<?php echo money($o['order_amount']); ?>
-                                                                <?php if ($isRefund): ?><small class="text-muted">(退款)</small><?php endif; ?>
+                                                            <td class="<?php echo $isRefund ? 'text-danger' : ''; ?>">
+                                                                <?php if ($isRefund): ?>
+                                                                    <span class="font-weight-bold">¥<?php echo money($o['order_amount']); ?></span>
+                                                                    <small class="text-muted">(退款)</small>
+                                                                <?php else:
+                                                                    $feeInfo = get_order_fee_info($raw, $o);
+                                                                    if ($feeInfo['rate'] > 0 && $feeInfo['original_price'] > 0):
+                                                                ?>
+                                                                    <div class="text-muted small">售价: ¥<?php echo money($feeInfo['original_price']); ?></div>
+                                                                    <div class="text-warning small">手续费: ¥<?php echo money($feeInfo['amount']); ?> (<?php echo rtrim(rtrim(number_format($feeInfo['rate'] * 100, 2, '.', ''), '0'), '.'); ?>%)</div>
+                                                                    <div class="text-success font-weight-bold">净额: ¥<?php echo money($feeInfo['net']); ?></div>
+                                                                <?php else: ?>
+                                                                    <span class="text-success font-weight-bold">¥<?php echo money($o['order_amount']); ?></span>
+                                                                <?php endif; endif; ?>
                                                             </td>
-                                                            <td><small><?php echo e($o['order_date']); ?></small></td>
+                                                            <td><small><?php echo e(substr($raw['__trade_time__'] ?? $o['order_date'], 0, 10)); ?></small></td>
+                                                            <td><small><?php echo e($orderStatus ?: '--'); ?></small></td>
                                                             <td>
                                                                 <?php if ($isAbn): ?>
                                                                     <span class="badge badge-warning" title="<?php echo e($o['abnormal_reason']); ?>">异常</span>
@@ -458,7 +729,7 @@ include __DIR__ . '/../includes/header.php';
                                                                 <?php endif; ?>
                                                             </td>
                                                             <td>
-                                                                <button type="button" class="btn btn-sm btn-link p-0 text-info" onclick='showDetail(<?php echo json_encode(["id"=>$o["id"],"order_no"=>$o["order_no"],"amount"=>$o["order_amount"],"date"=>$o["order_date"],"reason"=>$o["abnormal_reason"],"raw"=>$raw], JSON_UNESCAPED_UNICODE); ?>)'>
+                                                                <button type="button" class="btn btn-sm btn-link p-0 text-info" data-detail='<?php echo htmlspecialchars(json_encode(["id"=>$o["id"],"order_no"=>$o["order_no"],"amount"=>$o["order_amount"],"date"=>$raw['__trade_time__'] ?? $o['order_date'],"status"=>$orderStatus,"reason"=>$o["abnormal_reason"],"raw"=>$raw], JSON_UNESCAPED_UNICODE | JSON_HEX_APOS | JSON_HEX_AMP), ENT_QUOTES, 'UTF-8'); ?>' onclick="showDetail(JSON.parse(this.dataset.detail))">
                                                                     <i class="fas fa-eye"></i>
                                                                 </button>
                                                                 <button type="button" class="btn btn-sm btn-link p-0 text-danger" onclick="deleteOrder(<?php echo $o['id']; ?>, '<?php echo e($o['order_date']); ?>')">
@@ -479,6 +750,7 @@ include __DIR__ . '/../includes/header.php';
                                                     $baseLink = BASE_URL . '/shops/upload.php?shop_id=' . $shop_id
                                                         . ($filter_month ? '&month=' . urlencode($filter_month) : '')
                                                         . '&detail=' . urlencode($detail_month)
+                                                        . ($detail_search !== '' ? '&search_no=' . urlencode($detail_search) : '')
                                                         . '&page_size=' . $page_size . '&page=';
                                                     ?>
                                                     <li class="page-item <?php if($page<=1) echo 'disabled'; ?>"><a class="page-link" href="<?php echo $baseLink.($page-1); ?>">&laquo;</a></li>
@@ -562,6 +834,15 @@ function deleteOrder(id, date){
     document.body.appendChild(f);
     f.submit();
 }
+// 一键删除整月订单
+function deleteMonth(month, count){
+    if (!confirm('确定删除 ' + month + ' 的全部 ' + count + ' 条订单？\n\n订单将移入回收站，可恢复。')) return;
+    var f = document.createElement('form');
+    f.method = 'post';
+    f.innerHTML = '<input type="hidden" name="action" value="delete_month"><input type="hidden" name="del_month" value="' + month + '">';
+    document.body.appendChild(f);
+    f.submit();
+}
 // 查看订单详情
 function showDetail(d){
     var raw = d.raw || {};
@@ -569,6 +850,7 @@ function showDetail(d){
              + '<div class="mb-2"><b>订单号：</b>' + (d.order_no ? '<span class="text-monospace">' + d.order_no + '</span>' : '<span class="text-muted">无</span>') + '</div>'
              + '<div class="mb-2"><b>金额：</b>¥' + d.amount + '</div>'
              + '<div class="mb-2"><b>日期：</b>' + d.date + '</div>'
+             + (d.status ? '<div class="mb-2"><b>订单状态：</b>' + d.status + '</div>' : '')
              + (d.reason ? '<div class="mb-2"><b>异常原因：</b><span class="text-warning">' + d.reason + '</span></div>' : '');
     if (Object.keys(raw).length) {
         html += '<hr><h6>原始数据</h6><table class="table table-sm table-bordered"><tbody>';

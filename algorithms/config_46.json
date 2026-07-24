@@ -5,7 +5,11 @@
             "type": "attendance_full",
             "enabled": true,
             "config": {
-                "full_amount": 200
+                "full_amount": 200,
+                "deduct_mode": "none",
+                "work_hours": "176",
+                "absent_hours": "0",
+                "absent_threshold_hours": ""
             }
         },
         {
@@ -13,9 +17,13 @@
             "type": "standard",
             "enabled": true,
             "config": {
+                "_name": "起名",
                 "rate": 0.1261,
-                "service_fee_rate": 0.03,
-                "comment": "起名提成=业绩×97%×13%（扣3%服务费后按13%计算）"
+                "comment": "起名业绩×13%×97%（扣3%服务费）= 0.1261",
+                "service_fee_rate": "0",
+                "min_amount": "",
+                "max_amount": "",
+                "shop_keyword": ""
             }
         },
         {
@@ -23,9 +31,13 @@
             "type": "standard",
             "enabled": true,
             "config": {
+                "_name": "图片",
                 "rate": 0.0485,
-                "service_fee_rate": 0.03,
-                "comment": "图片提成=业绩×97%×5%"
+                "comment": "图片营业额×5%×97%（扣3%服务费）= 0.0485",
+                "service_fee_rate": "0",
+                "min_amount": "",
+                "max_amount": "",
+                "shop_keyword": ""
             }
         },
         {
@@ -33,9 +45,13 @@
             "type": "standard",
             "enabled": true,
             "config": {
+                "_name": "视频",
                 "rate": 0.0485,
-                "service_fee_rate": 0.03,
-                "comment": "视频提成=业绩×97%×5%"
+                "comment": "视频营业额×5%×97%（扣3%服务费）= 0.0485",
+                "service_fee_rate": "0",
+                "min_amount": "",
+                "max_amount": "",
+                "shop_keyword": ""
             }
         },
         {
@@ -43,27 +59,44 @@
             "type": "per_order",
             "enabled": true,
             "config": {
-                "per_reward": 2,
-                "comment": "视频单量提成，每单2元，同一客户拍多单算一单"
+                "_name": "视频单量",
+                "per_amount": 2,
+                "per_reward": 0,
+                "comment": "视频单量×2元（同一客户拍多单算一单）",
+                "service_fee_rate": "0",
+                "count_column": "",
+                "count_distinct": "是"
             }
         },
         {
             "name": "代写",
-            "type": "manual",
+            "type": "standard",
             "enabled": true,
             "config": {
-                "comment": "代写提成+单量补助，手动输入金额"
+                "_name": "代写",
+                "rate": 0.1261,
+                "comment": "代写提成+单量补助",
+                "service_fee_rate": "0",
+                "min_amount": "",
+                "max_amount": "",
+                "shop_keyword": ""
             }
         },
         {
             "name": "留学",
-            "type": "manual",
+            "type": "standard",
             "enabled": true,
             "config": {
-                "comment": "留学提成，手动输入金额"
+                "_name": "留学",
+                "rate": 0.1261,
+                "comment": "留学业务提成（同起名比例13%扣3%服务费）",
+                "service_fee_rate": "0",
+                "min_amount": "",
+                "max_amount": "",
+                "shop_keyword": ""
             }
         }
     ],
-    "updated_at": "2026-07-24",
-    "description": "刘洋洋（起名）：底薪800+全勤200+起名提成(业绩×97%×13%)+图片(×97%×5%)+视频(×97%×5%)+视频单量×2+代写(手动)+留学(手动)。6月：800+200+37.83+702.97=1740.80"
+    "updated_at": "2026-07-17 16:07:56",
+    "description": "刘洋洋工资核算：底薪800 + 全勤200 + 起名(收入×13%×97%) + 图片(营业额×5%×97%) + 视频(营业额×5%×97%) + 视频单量×2元 + 代写 + 留学。上传订单时project字段需填对应业务名（起名\/图片\/视频\/代写\/留学）"
 }

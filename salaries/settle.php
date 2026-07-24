@@ -131,13 +131,14 @@ function applyProratedBaseSalary(&$result, $empId, $month) {
  * @return array ['orders'=>[], 'order_total'=>float]
  */
 function loadEmployeeOrdersWithDept($employeeId, $month, $deptName, $deptShare = true) {
-    // 1. 个人订单（排除旧的物理拆分行，避免与虚拟拆分重复；排除已软删除的）
+    // 1. 个人订单（排除旧的物理拆分行，避免与虚拟拆分重复；排除已软删除的；排除未核验订单）
     $ostmt = db()->prepare(
         "SELECT *, order_amount, order_date, project FROM orders
          WHERE employee_id = ? AND DATE_FORMAT(order_date, '%Y-%m') = ?
          AND COALESCE(is_abnormal, 0) = 0
          AND COALESCE(is_deleted, 0) = 0
          AND (raw_data IS NULL OR raw_data NOT LIKE '%\"__from_dept__\"%')
+         AND (raw_data IS NULL OR JSON_UNQUOTE(JSON_EXTRACT(raw_data, '$.__order_status__')) != '未核验')
          ORDER BY order_date"
     );
     $ostmt->execute([$employeeId, $month]);
@@ -154,7 +155,8 @@ function loadEmployeeOrdersWithDept($employeeId, $month, $deptName, $deptShare =
              AND DATE_FORMAT(order_date, '%Y-%m') = ?
              AND COALESCE(is_abnormal, 0) = 0
              AND COALESCE(is_deleted, 0) = 0
-             AND JSON_UNQUOTE(JSON_EXTRACT(raw_data, '$.__dept__')) = ?"
+             AND JSON_UNQUOTE(JSON_EXTRACT(raw_data, '$.__dept__')) = ?
+             AND (raw_data IS NULL OR JSON_UNQUOTE(JSON_EXTRACT(raw_data, '$.__order_status__')) != '未核验')"
         );
         $dstmt->execute([$month, $deptName]);
         $deptOrders = $dstmt->fetchAll();
@@ -225,8 +227,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
 
                 {
-                    // 自定义额外金额（正数加、负数减）
-                    $extraAmount = (float)($_POST['extra_amount'] ?? 0);
+                    // 自定义额外金额（多项，每项含金额+备注）
+                    $extraItems = [];  // [{amount, remark}, ...]
+                    $extraAmount = 0;
+                    $amounts = $_POST['extra_amounts'] ?? [];
+                    $remarks = $_POST['extra_remarks'] ?? [];
+                    foreach ($amounts as $i => $amt) {
+                        $a = round((float)$amt, 2);
+                        $r = trim($remarks[$i] ?? '');
+                        if ($a != 0 || $r !== '') {
+                            $extraItems[] = ['amount' => $a, 'remark' => $r];
+                            $extraAmount += $a;
+                        }
+                    }
+                    $extraAmount = round($extraAmount, 2);
 
                     // 全勤奖（先加后扣：自动抓取考勤，按请假小时数扣除）
                     $bonusBase = (float)($_POST['full_attendance_bonus'] ?? 200);
@@ -241,14 +255,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     // 将自定义金额叠加到最终结果
                     $result['net_pay']    = round($result['net_pay'] + $extraAmount, 2);
                     $result['module_total'] = round(($result['module_total'] ?? 0) + $extraAmount, 2);
-                    // 在模块列表末尾追加一项，便于明细展示
-                    if ($extraAmount != 0) {
-                        $result['modules'][] = [
-                            'name'   => '自定义额外金额',
-                            'amount' => round($extraAmount, 2),
-                            'formula'=> sprintf('手动调整 %+.2f', $extraAmount),
-                            'type'   => 'extra_amount',
-                        ];
+                    // 在模块列表末尾逐项追加，便于明细展示
+                    foreach ($extraItems as $ei) {
+                        if ($ei['amount'] != 0) {
+                            $result['modules'][] = [
+                                'name'   => $ei['remark'] !== '' ? $ei['remark'] : '自定义额外金额',
+                                'amount' => round($ei['amount'], 2),
+                                'formula'=> $ei['remark'] !== '' ? sprintf('手动调整 %+.2f（%s）', $ei['amount'], $ei['remark']) : sprintf('手动调整 %+.2f', $ei['amount']),
+                                'type'   => 'extra_amount',
+                            ];
+                        }
                     }
 
                     // 全勤奖叠加（先加后扣模式：净额累加到实发工资）
@@ -379,6 +395,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         'commission'     => $result['module_total'] ?? $result['commission'],
                         'net_pay'        => $result['net_pay'],
                         'extra_amount'   => $extraAmount,
+                        'extra_items'    => $extraItems,
                         'full_attendance_bonus' => $bonusBase,
                         'bonus_info'     => $bonus,
                         'base_info'      => $baseInfo,
@@ -390,6 +407,33 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         'is_custom'      => $result['is_custom'],
                         'insurance_amount' => ($deductInsurance && $insuranceAmount > 0) ? $insuranceAmount : 0,
                     ];
+
+                    // 查询异常订单按模块分组统计
+                    $abnormalStmt = db()->prepare(
+                        "SELECT project, COUNT(*) AS cnt, COALESCE(SUM(order_amount), 0) AS total
+                         FROM orders
+                         WHERE employee_id = ? AND DATE_FORMAT(order_date, '%Y-%m') = ?
+                         AND COALESCE(is_abnormal, 0) = 1 AND COALESCE(is_deleted, 0) = 0
+                         GROUP BY project ORDER BY total DESC"
+                    );
+                    $abnormalStmt->execute([$employee_id, $month]);
+                    $abnormalRows = $abnormalStmt->fetchAll();
+                    $abnormalStmt->closeCursor();
+                    $preview['abnormal_modules'] = $abnormalRows;
+
+                    // 查询未核验订单按模块分组统计
+                    $unverifiedStmt = db()->prepare(
+                        "SELECT project, COUNT(*) AS cnt, COALESCE(SUM(order_amount), 0) AS total
+                         FROM orders
+                         WHERE employee_id = ? AND DATE_FORMAT(order_date, '%Y-%m') = ?
+                         AND COALESCE(is_deleted, 0) = 0
+                         AND JSON_UNQUOTE(JSON_EXTRACT(raw_data, '$.__order_status__')) = '未核验'
+                         GROUP BY project ORDER BY total DESC"
+                    );
+                    $unverifiedStmt->execute([$employee_id, $month]);
+                    $unverifiedRows = $unverifiedStmt->fetchAll();
+                    $unverifiedStmt->closeCursor();
+                    $preview['unverified_modules'] = $unverifiedRows;
                 }
             }
         }
@@ -414,7 +458,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                 // 调用薪资算法
                 $result = SalaryCalculator::calculate($emp, $orderList, $order_total, $month);
-                $extraAmount = (float)($_POST['extra_amount'] ?? 0);
+
+                // 自定义额外金额（多项，每项含金额+备注，求和为总额）
+                $extraItems = [];
+                $extraAmount = 0;
+                $amounts = $_POST['extra_amounts'] ?? [];
+                $remarks = $_POST['extra_remarks'] ?? [];
+                foreach ($amounts as $i => $amt) {
+                    $a = round((float)$amt, 2);
+                    $r = trim($remarks[$i] ?? '');
+                    if ($a != 0 || $r !== '') {
+                        $extraItems[] = ['amount' => $a, 'remark' => $r];
+                        $extraAmount += $a;
+                    }
+                }
+                $extraAmount = round($extraAmount, 2);
 
                 // 全勤奖（先加后扣：自动抓取考勤）
                 $bonusBase = (float)($_POST['full_attendance_bonus'] ?? 200);
@@ -473,6 +531,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                     // 追加全勤奖模块到模块列表（便于结算后预览展示）
                     $settleModules = $result['modules'] ?? [];
+                    // 逐项追加自定义额外金额模块
+                    foreach ($extraItems as $ei) {
+                        if ($ei['amount'] != 0) {
+                            $settleModules[] = [
+                                'name'   => $ei['remark'] !== '' ? $ei['remark'] : '自定义额外金额',
+                                'amount' => round($ei['amount'], 2),
+                                'formula'=> $ei['remark'] !== '' ? sprintf('手动调整 %+.2f（%s）', $ei['amount'], $ei['remark']) : sprintf('手动调整 %+.2f', $ei['amount']),
+                                'type'   => 'extra_amount',
+                            ];
+                        }
+                    }
                     if ($bonusNet != 0) {
                         $settleModules[] = [
                             'name'   => '全勤奖',
@@ -506,6 +575,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         'commission'     => $commission,
                         'net_pay'        => $net_pay,
                         'extra_amount'   => $extraAmount,
+                        'extra_items'    => $extraItems,
                         'full_attendance_bonus' => $bonusBase,
                         'bonus_info'     => $bonus,
                         'base_info'      => $baseInfo,
@@ -583,15 +653,17 @@ include __DIR__ . '/../includes/header.php';
                     </div>
                     <div class="form-group">
                         <label>选择月份 <span class="required">*</span></label>
-                        <input type="month" name="month" class="form-control" value="<?php echo e($preview['month'] ?? date('Y-m')); ?>" required>
+                        <input type="month" name="month" class="form-control" value="<?php echo e($preview['month'] ?? date('Y-m', strtotime('-1 month'))); ?>" required>
                     </div>
                     <div class="form-group">
                         <label><i class="fas fa-hand-holding-usd text-warning"></i> 自定义额外金额</label>
-                        <div class="input-group">
-                            <div class="input-group-prepend"><span class="input-group-text">¥</span></div>
-                            <input type="number" name="extra_amount" class="form-control" step="0.01" value="<?php echo e($_POST['extra_amount'] ?? '0'); ?>" placeholder="手动调整金额，如 -50 或 100">
+                        <div id="extraItems">
+                            <!-- 动态行由 JS 填充 -->
                         </div>
-                        <small class="text-muted">用于无法通过订单计算的金额，正数加、负数减，结算时累加到实发工资</small>
+                        <button type="button" class="btn btn-sm btn-outline-warning mt-1" onclick="addExtraRow(0, '')">
+                            <i class="fas fa-plus"></i> 添加一项
+                        </button>
+                        <small class="text-muted d-block mt-1">用于无法通过订单计算的金额，正数加、负数减，结算时累加到实发工资</small>
                     </div>
                     <div class="form-group">
                         <label><i class="fas fa-award text-success"></i> 全勤奖金额</label>
@@ -696,6 +768,58 @@ include __DIR__ . '/../includes/header.php';
                             </td>
                         </tr>
                         <?php endif; ?>
+                        <?php $abnormalMods = $preview['abnormal_modules'] ?? []; if (!empty($abnormalMods)): ?>
+                        <tr>
+                            <th class="text-danger" width="20%"><i class="fas fa-exclamation-triangle"></i> 异常订单</th>
+                            <td colspan="3">
+                                <span class="text-danger font-weight-bold"><?php echo count($abnormalMods); ?> 个模块存在异常，共 <?php echo array_sum(array_column($abnormalMods, 'cnt')); ?> 笔，合计 ¥<?php echo money(array_sum(array_column($abnormalMods, 'total'))); ?>（不计入薪资）</span>
+                                <table class="table table-sm table-bordered mb-0 mt-2" style="font-size:13px;">
+                                    <thead class="thead-light"><tr><th>模块</th><th class="text-center">笔数</th><th class="text-right">金额</th><th class="text-center" style="width:80px;">操作</th></tr></thead>
+                                    <tbody>
+                                    <?php foreach ($abnormalMods as $am): ?>
+                                        <tr class="table-danger">
+                                            <td><?php echo e($am['project'] ?: '未分类'); ?></td>
+                                            <td class="text-center"><?php echo $am['cnt']; ?></td>
+                                            <td class="text-right text-danger font-weight-bold">¥<?php echo money($am['total']); ?></td>
+                                            <td class="text-center">
+                                                <a href="<?php echo BASE_URL; ?>/orders/index.php?employee_id=<?php echo $emp['id']; ?>&project=<?php echo urlencode($am['project'] ?: '订单'); ?>&month=<?php echo urlencode($preview['month']); ?>&abnormal=1"
+                                                   class="btn btn-sm btn-outline-danger py-0" title="查看异常订单明细" target="_blank">
+                                                    <i class="fas fa-external-link-alt"></i> 详情
+                                                </a>
+                                            </td>
+                                        </tr>
+                                    <?php endforeach; ?>
+                                    </tbody>
+                                </table>
+                            </td>
+                        </tr>
+                        <?php endif; ?>
+                        <?php $unverifiedMods = $preview['unverified_modules'] ?? []; if (!empty($unverifiedMods)): ?>
+                        <tr>
+                            <th class="text-warning" width="20%"><i class="fas fa-question-circle"></i> 未核验订单</th>
+                            <td colspan="3">
+                                <span class="text-warning font-weight-bold"><?php echo count($unverifiedMods); ?> 个模块存在未核验订单，共 <?php echo array_sum(array_column($unverifiedMods, 'cnt')); ?> 笔，合计 ¥<?php echo money(array_sum(array_column($unverifiedMods, 'total'))); ?>（不计入薪资）</span>
+                                <table class="table table-sm table-bordered mb-0 mt-2" style="font-size:13px;">
+                                    <thead class="thead-light"><tr><th>模块</th><th class="text-center">笔数</th><th class="text-right">金额</th><th class="text-center" style="width:80px;">操作</th></tr></thead>
+                                    <tbody>
+                                    <?php foreach ($unverifiedMods as $um): ?>
+                                        <tr class="table-warning">
+                                            <td><?php echo e($um['project'] ?: '未分类'); ?></td>
+                                            <td class="text-center"><?php echo $um['cnt']; ?></td>
+                                            <td class="text-right text-warning font-weight-bold">¥<?php echo money($um['total']); ?></td>
+                                            <td class="text-center">
+                                                <a href="<?php echo BASE_URL; ?>/orders/index.php?employee_id=<?php echo $emp['id']; ?>&project=<?php echo urlencode($um['project'] ?: '订单'); ?>&month=<?php echo urlencode($preview['month']); ?>&status=未核验"
+                                                   class="btn btn-sm btn-outline-warning py-0" title="查看未核验订单明细" target="_blank">
+                                                    <i class="fas fa-external-link-alt"></i> 详情
+                                                </a>
+                                            </td>
+                                        </tr>
+                                    <?php endforeach; ?>
+                                    </tbody>
+                                </table>
+                            </td>
+                        </tr>
+                        <?php endif; ?>
                     </tbody>
                     
                     <!-- DEBUG 调试信息 -->
@@ -727,35 +851,34 @@ include __DIR__ . '/../includes/header.php';
                                     $typeNames = ['standard'=>'标准比例','tiered'=>'阶梯','per_order'=>'每笔奖励','attendance_full'=>'全勤奖','attendance_daily'=>'考勤日薪','attendance_deduct'=>'缺勤扣款','insurance'=>'保险','refund_deduction'=>'退款扣除','extra_amount'=>'自定义'];
                                     echo $typeNames[$m['type']] ?? $m['type'];
                                 ?></span></td>
-                                <td class="font-weight-bold"><?php echo $m['amount'] >= 0 ? '+' : ''; ?>¥<?php echo money(abs($m['amount'])); ?></td>
+                                <td class="font-weight-bold"><?php echo $m['amount'] >= 0 ? '+' : '-'; ?>¥<?php echo money(abs($m['amount'])); ?></td>
                             </tr>
                         <?php endforeach; ?>
                     </tbody>
                     <?php endif; ?>
 
                     <tbody>
-                        <?php if (abs((float)($preview['extra_amount'] ?? 0)) > 0.001): ?>
-                        <tr class="table-warning">
-                            <th colspan="3" class="text-right h6 mb-0"><i class="fas fa-hand-holding-usd text-warning"></i> 自定义额外金额</th>
-                            <td class="h6 mb-0 <?php echo $preview['extra_amount'] >= 0 ? 'text-success' : 'text-danger'; ?> font-weight-bold"><?php echo $preview['extra_amount'] >= 0 ? '+' : ''; ?>¥<?php echo money($preview['extra_amount']); ?></td>
-                        </tr>
-                        <?php endif; ?>
-                        <?php if (!empty($preview['bonus_info']) && $preview['bonus_info']['base'] > 0): ?>
-                        <tr class="table-info">
-                            <th colspan="3" class="text-right h6 mb-0"><i class="fas fa-award text-success"></i> 全勤奖（<?php echo e($preview['bonus_info']['status']); ?>）</th>
-                            <td class="h6 mb-0 text-success font-weight-bold">+¥<?php echo money($preview['bonus_info']['net']); ?>
-                                <?php if ($preview['bonus_info']['deduct'] > 0): ?>
-                                    <small class="text-danger d-block">满勤¥<?php echo money($preview['bonus_info']['base']); ?> − 扣除¥<?php echo money($preview['bonus_info']['deduct']); ?></small>
+                        <?php if (!empty($preview['extra_items'])): ?>
+                            <?php foreach ($preview['extra_items'] as $ei): ?>
+                                <?php if (abs($ei['amount']) > 0.001): ?>
+                                <tr class="table-warning">
+                                    <th colspan="3" class="text-right h6 mb-0">
+                                        <i class="fas fa-hand-holding-usd text-warning"></i>
+                                        <?php echo e($ei['remark'] !== '' ? $ei['remark'] : '自定义额外金额'); ?>
+                                    </th>
+                                    <td class="h6 mb-0 <?php echo $ei['amount'] >= 0 ? 'text-success' : 'text-danger'; ?> font-weight-bold"><?php echo $ei['amount'] >= 0 ? '+' : ''; ?>¥<?php echo money(abs($ei['amount'])); ?></td>
+                                </tr>
                                 <?php endif; ?>
-                            </td>
-                        </tr>
+                            <?php endforeach; ?>
+                            <?php if (count(array_filter($preview['extra_items'], fn($x) => abs($x['amount']) > 0.001)) > 1): ?>
+                            <tr class="table-warning border-top">
+                                <th colspan="3" class="text-right mb-0"><small class="text-muted">额外金额合计</small></th>
+                                <td class="mb-0 <?php echo $preview['extra_amount'] >= 0 ? 'text-success' : 'text-danger'; ?> font-weight-bold"><?php echo $preview['extra_amount'] >= 0 ? '+' : ''; ?>¥<?php echo money(abs($preview['extra_amount'])); ?></td>
+                            </tr>
+                            <?php endif; ?>
                         <?php endif; ?>
-                        <?php if (($preview['insurance_amount'] ?? 0) > 0): ?>
-                        <tr class="table-secondary">
-                            <th colspan="3" class="text-right h6 mb-0"><i class="fas fa-shield-alt text-info"></i> 保险扣除</th>
-                            <td class="h6 mb-0 text-danger font-weight-bold">−¥<?php echo money($preview['insurance_amount']); ?></td>
-                        </tr>
-                        <?php endif; ?>
+
+
                         <?php if (!empty($preview['base_info']) && abs($preview['base_info']['prorated'] - $preview['base_info']['original']) > 0.001): ?>
                         <tr class="table-light">
                             <th colspan="3" class="text-right h6 mb-0"><i class="fas fa-money-bill-wave text-primary"></i> 底薪折算（<?php echo e($preview['base_info']['status']); ?>）</th>
@@ -776,20 +899,21 @@ include __DIR__ . '/../includes/header.php';
                     <strong>计算明细：</strong>
                     <?php 
                     $baseSalaryAmount = (float)($preview['base_salary'] ?? $emp['base_salary']);
-                    $parts = [];
+                    $detailStr = '';
                     if ($baseSalaryAmount > 0) {
                         $bi = $preview['base_info'] ?? null;
                         if ($bi && abs($bi['prorated'] - $bi['original']) > 0.001) {
-                            $parts[] = '底薪 ¥' . money($baseSalaryAmount) . '（按出勤折算）';
+                            $detailStr = '底薪 ¥' . money($baseSalaryAmount) . '（按出勤折算）';
                         } else {
-                            $parts[] = '底薪 ¥' . money($baseSalaryAmount);
+                            $detailStr = '底薪 ¥' . money($baseSalaryAmount);
                         }
                     }
                     foreach ($mods as $m) {
                         if (($m['type'] ?? '') === 'base_salary') continue;
-                        $parts[] = ($m['amount']>=0?'':'') . money(abs($m['amount'])) . '(' . e($m['name']) . ')';
+                        $op = $m['amount'] >= 0 ? ' + ' : ' − ';
+                        $detailStr .= $op . money(abs($m['amount'])) . '(' . e($m['name']) . ')';
                     }
-                    echo implode(' + ', $parts);
+                    echo $detailStr;
                     ?>
                     = <strong>¥<?php echo money($preview['net_pay']); ?></strong>
                 </div>
@@ -802,7 +926,10 @@ include __DIR__ . '/../includes/header.php';
                     <input type="hidden" name="action" value="settle">
                     <input type="hidden" name="employee_id" value="<?php echo $emp['id']; ?>">
                     <input type="hidden" name="month" value="<?php echo e($preview['month']); ?>">
-                    <input type="hidden" name="extra_amount" value="<?php echo e($preview['extra_amount'] ?? 0); ?>">
+                    <?php foreach (($preview['extra_items'] ?? []) as $ei): ?>
+                    <input type="hidden" name="extra_amounts[]" value="<?php echo e($ei['amount']); ?>">
+                    <input type="hidden" name="extra_remarks[]" value="<?php echo e($ei['remark']); ?>">
+                    <?php endforeach; ?>
                     <input type="hidden" name="full_attendance_bonus" value="<?php echo e($preview['full_attendance_bonus'] ?? 200); ?>">
                     <?php if (($preview['insurance_amount'] ?? 0) > 0): ?>
                     <input type="hidden" name="deduct_insurance" value="1">
@@ -840,6 +967,26 @@ function syncEmpId() {
     hidden.value = empMap[text] || '';
 }
 
+// ===== 自定义额外金额：动态多行 =====
+function addExtraRow(amount, remark) {
+    var container = document.getElementById('extraItems');
+    if (!container) return;
+    var row = document.createElement('div');
+    row.className = 'input-group input-group-sm mb-1';
+    row.innerHTML =
+        '<div class="input-group-prepend"><span class="input-group-text">¥</span></div>' +
+        '<input type="number" name="extra_amounts[]" class="form-control" step="0.01" placeholder="金额，如 -50 或 100" value="' + (amount || '') + '">' +
+        '<input type="text" name="extra_remarks[]" class="form-control" placeholder="备注（可选）" value="' + (remark || '').replace(/"/g, '&quot;') + '">' +
+        '<div class="input-group-append">' +
+            '<button type="button" class="btn btn-outline-danger" onclick="removeExtraRow(this)" title="删除"><i class="fas fa-times"></i></button>' +
+        '</div>';
+    container.appendChild(row);
+}
+function removeExtraRow(btn) {
+    var row = btn.closest('.input-group');
+    if (row) row.remove();
+}
+
 // 选部门后筛选 datalist 候选
 function loadEmp() {
     var dept = document.getElementById('deptSel').value;
@@ -875,5 +1022,16 @@ document.addEventListener('DOMContentLoaded', function() {
     // 输入时也实时同步
     var search = document.getElementById('empSearch');
     if (search) search.addEventListener('input', syncEmpId);
+
+    // 从 POST 数据回填已输入的行
+    var postedAmounts = <?php echo json_encode($_POST['extra_amounts'] ?? [], JSON_UNESCAPED_UNICODE); ?>;
+    var postedRemarks = <?php echo json_encode($_POST['extra_remarks'] ?? [], JSON_UNESCAPED_UNICODE); ?>;
+    if (postedAmounts.length > 0) {
+        postedAmounts.forEach(function(amt, i) {
+            addExtraRow(amt, postedRemarks[i] || '');
+        });
+    } else {
+        addExtraRow(0, '');  // 默认一行
+    }
 });
 </script>
