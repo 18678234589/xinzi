@@ -1344,22 +1344,12 @@ class SalaryCalculator
         $filterValue     = trim($cfg['filter_value'] ?? '');
         $customerSubsidy = (float)($cfg['customer_subsidy'] ?? 0);
 
-        // 直接查库获取该员工当月该模块的个人订单（绕过 loadEmployeeOrdersWithDept 的虚拟拆分）
-        $employeeId = (int)($c['employee']['id'] ?? 0);
-        $month = $c['month'] ?? '';
+        // 使用 $c['orders']（已由 loadEmployeeOrdersWithDept 加载，包含个人订单 + 部门虚拟拆分订单）
+        // 不能直接查库（employee_id=?），否则部门订单（employee_id=0）的虚拟拆分行会被遗漏
         $orders = [];
-        if ($employeeId > 0 && $month !== '' && $moduleName !== '') {
-            try {
-                $stmt = db()->prepare(
-                    // 不按未核验过滤——订单上传时统一标记为"未核验"，手动核验后才改状态，
-                // 若此处过滤会导致所有未核验订单的小程序提成为0
-                "SELECT * FROM orders WHERE employee_id = ? AND project = ? AND DATE_FORMAT(order_date, '%Y-%m') = ? AND COALESCE(is_abnormal, 0) = 0 AND COALESCE(is_deleted, 0) = 0"
-                );
-                $stmt->execute([$employeeId, $moduleName, $month]);
-                $orders = $stmt->fetchAll();
-            } catch (\Throwable $e) {
-                error_log("calcMiniProgramCommission: query error: " . $e->getMessage());
-            }
+        foreach (($c['orders'] ?? []) as $o) {
+            if ($moduleName !== '' && trim($o['project'] ?? '') !== $moduleName) continue;
+            $orders[] = $o;
         }
 
         // ===== 第一部分：利润提成 =====
