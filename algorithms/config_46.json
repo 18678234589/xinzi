@@ -13,9 +13,9 @@
             "type": "standard",
             "enabled": true,
             "config": {
-                "_name": "起名",
                 "rate": 0.1261,
-                "comment": "起名业绩×13%×97%（扣3%服务费）= 0.1261"
+                "service_fee_rate": 0.03,
+                "comment": "起名提成=业绩×97%×13%（扣3%服务费后按13%计算）"
             }
         },
         {
@@ -23,9 +23,9 @@
             "type": "standard",
             "enabled": true,
             "config": {
-                "_name": "图片",
                 "rate": 0.0485,
-                "comment": "图片营业额×5%×97%（扣3%服务费）= 0.0485"
+                "service_fee_rate": 0.03,
+                "comment": "图片提成=业绩×97%×5%"
             }
         },
         {
@@ -33,9 +33,9 @@
             "type": "standard",
             "enabled": true,
             "config": {
-                "_name": "视频",
                 "rate": 0.0485,
-                "comment": "视频营业额×5%×97%（扣3%服务费）= 0.0485"
+                "service_fee_rate": 0.03,
+                "comment": "视频提成=业绩×97%×5%"
             }
         },
         {
@@ -43,33 +43,27 @@
             "type": "per_order",
             "enabled": true,
             "config": {
-                "_name": "视频单量",
-                "per_amount": 2,
-                "per_reward": 0,
-                "comment": "视频单量×2元（同一客户拍多单算一单）"
+                "per_reward": 2,
+                "comment": "视频单量提成，每单2元，同一客户拍多单算一单"
             }
         },
         {
             "name": "代写",
-            "type": "standard",
+            "type": "manual",
             "enabled": true,
             "config": {
-                "_name": "代写",
-                "rate": 0.1261,
-                "comment": "代写提成+单量补助"
+                "comment": "代写提成+单量补助，手动输入金额"
             }
         },
         {
             "name": "留学",
-            "type": "standard",
+            "type": "manual",
             "enabled": true,
             "config": {
-                "_name": "留学",
-                "rate": 0.1261,
-                "comment": "留学业务提成（同起名比例13%扣3%服务费）"
+                "comment": "留学提成，手动输入金额"
             }
         }
     ],
-    "updated_at": "2026-07-10",
-    "description": "刘洋洋工资核算：底薪800 + 全勤200 + 起名(收入×13%×97%) + 图片(营业额×5%×97%) + 视频(营业额×5%×97%) + 视频单量×2元 + 代写 + 留学。上传订单时project字段需填对应业务名（起名/图片/视频/代写/留学）"
+    "updated_at": "2026-07-24",
+    "description": "刘洋洋（起名）：底薪800+全勤200+起名提成(业绩×97%×13%)+图片(×97%×5%)+视频(×97%×5%)+视频单量×2+代写(手动)+留学(手动)。6月：800+200+37.83+702.97=1740.80"
 }
