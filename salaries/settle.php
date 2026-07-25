@@ -312,6 +312,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             'type'   => 'insurance',
                         ];
                     }
+
+                    // 实发薪资下限保护：不应为负
+                    if (($result['net_pay'] ?? 0) < 0) {
+                        $result['net_pay'] = 0;
+                    }
                     
                     // DEBUG: 分析订单金额分布
                     $debug_info = "调试信息：\n";
@@ -511,6 +516,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 if ($insuranceDeduct > 0) {
                     $net_pay    = round($net_pay - $insuranceDeduct, 2);
                     $commission = round($commission - $insuranceDeduct, 2);
+                }
+
+                // 实发薪资下限保护：不应为负
+                if ($net_pay < 0) {
+                    $net_pay = 0;
+                }
+                if ($commission < 0) {
+                    $commission = 0;
                 }
 
                 try {
