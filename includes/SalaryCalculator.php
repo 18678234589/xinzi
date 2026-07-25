@@ -160,17 +160,11 @@ class SalaryCalculator
                     $formulaParts[] = "+{$r['amount']}({$r['name']})";
                 }
 
-                $netPay = round($baseSalary + $moduleTotal, 2);
-                // 实发薪资不应为负（扣除项不应超过底薪+提成）
-                if ($netPay < 0) {
-                    $netPay = 0;
-                }
-
                 return [
                     'base_salary'   => $baseSalary,
                     'modules'       => $results,
                     'module_total'  => round($moduleTotal, 2),
-                    'net_pay'       => $netPay,
+                    'net_pay'       => round($baseSalary + $moduleTotal, 2),
                     'formula_text'  => implode(' ', $formulaParts),
                     'algorithm_name'=> count($results) > 0 ? '多模块组合' : '仅底薪',
                     'is_custom'     => true,
@@ -195,10 +189,6 @@ class SalaryCalculator
         // 默认算法
         $commission = $orderTotal * (float)$employee['commission_rate'];
         $netPay = $baseSalary + $commission;
-        // 实发薪资不应为负
-        if ($netPay < 0) {
-            $netPay = 0;
-        }
         return [
             'base_salary'   => $baseSalary,
             'modules'       => [[
