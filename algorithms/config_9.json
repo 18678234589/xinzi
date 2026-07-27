@@ -8,8 +8,33 @@
                 "new_customer_reward": 6,
                 "old_customer_reward": 3
             }
+        },
+        {
+            "name": "商标部提成",
+            "type": "trademark_commission",
+            "enabled": true,
+            "config": {
+                "commission_rate": 0.12,
+                "service_fee_rate": 0.01
+            }
+        },
+        {
+            "name": "商标部小额返现提成",
+            "type": "trademark_cashback",
+            "enabled": true,
+            "config": {
+                "per_amount": 3
+            }
+        },
+        {
+            "name": "底薪（自定义）",
+            "type": "base_salary",
+            "enabled": true,
+            "config": {
+                "base_amount": 800
+            }
         }
     ],
     "dept_share": 1,
-    "updated_at": "2026-07-15 15:45:25"
+    "updated_at": "2026-07-21 17:07:30"
 }
