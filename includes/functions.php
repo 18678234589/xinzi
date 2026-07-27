@@ -164,7 +164,7 @@ function ensureOrderNoColumn()
     try {
         $cols = db()->query("SHOW COLUMNS FROM `orders` LIKE 'order_no'")->fetchAll();
         if (empty($cols)) {
-            db()->exec("ALTER TABLE `orders` ADD COLUMN `order_no` VARCHAR(64) DEFAULT '' COMMENT '订单号(从raw_data提取)' AFTER `shop`");
+            db()->exec("ALTER TABLE `orders` ADD COLUMN `order_no` VARCHAR(255) DEFAULT '' COMMENT '订单号(从raw_data提取)' AFTER `shop`");
             db()->exec("ALTER TABLE `orders` ADD INDEX `idx_order_no` (`order_no`)");
         }
         // 回填历史订单：对 order_no 为空但有 raw_data 的记录，从 raw_data 提取订单号

@@ -1,0 +1,52 @@
+{
+    "modules": [
+        {
+            "name": "底薪（自定义）",
+            "type": "base_salary",
+            "enabled": true,
+            "config": {
+                "base_amount": 800
+            }
+        },
+        {
+            "name": "商标部提成",
+            "type": "trademark_commission",
+            "enabled": true,
+            "config": {
+                "commission_rate": 0.12,
+                "service_fee_rate": 0.01
+            }
+        },
+        {
+            "name": "新老客户订单奖励",
+            "type": "customer_reward",
+            "enabled": true,
+            "config": {
+                "new_customer_reward": 6,
+                "old_customer_reward": 3
+            }
+        },
+        {
+            "name": "商标部小额返现提成",
+            "type": "trademark_cashback",
+            "enabled": true,
+            "config": {
+                "per_amount": 3
+            }
+        },
+        {
+            "name": "全勤奖金",
+            "type": "attendance_full",
+            "enabled": true,
+            "config": {
+                "full_amount": 200,
+                "work_hours": 176,
+                "absent_hours": 0,
+                "deduct_mode": "none",
+                "absent_threshold_hours": ""
+            }
+        }
+    ],
+    "dept_share": 1,
+    "updated_at": "2026-07-27 15:03:54"
+}
