@@ -632,6 +632,12 @@ function calcPreview(idx) {
             result.amount = demoCount * perAmt;
             result.detail = '小额返现' + demoCount + '单×¥' + perAmt;
             break;
+        case 'trademark_fixed':
+            var perAmt = cfg.per_amount || 0;
+            var demoCount = Math.round(orderTotalDemo/1000)||5;
+            result.amount = demoCount * perAmt;
+            result.detail = '商标个数' + demoCount + '个×¥' + perAmt;
+            break;
         case 'customer_reward':
             var newCnt = Math.round(orderTotalDemo/5000)||2;
             var oldCnt = Math.round(orderTotalDemo/8000)||1;

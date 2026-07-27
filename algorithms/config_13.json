@@ -1,0 +1,14 @@
+{
+    "modules": [
+        {
+            "name": "商标部固定提成",
+            "type": "trademark_fixed",
+            "enabled": true,
+            "config": {
+                "per_amount": 2.2
+            }
+        }
+    ],
+    "dept_share": 1,
+    "updated_at": "2026-07-27 16:03:28"
+}

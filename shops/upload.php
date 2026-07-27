@@ -230,6 +230,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             $amount = $price - $cost;
                         }
 
+                        // 数值范围检查：防止超出数据库字段范围
+                        // DECIMAL(15,2) 最大值约 999999999999999.99，这里限制在合理范围内
+                        $maxAmount = 999999999.99; // 10亿，足够大且安全
+                        if (abs($amount) > $maxAmount) {
+                            $isAbn = 1;
+                            $abnReason = '订单金额超出范围（原始值：' . $amount . '）';
+                            $amount = $amount > 0 ? $maxAmount : -$maxAmount;
+                        }
+
                         // 日期：归属月份首日（用于分组），实际交易时间存入raw_data供展示
                         $parsedDate = $upload_month . '-01';
                         $tradeTimeStr = '';

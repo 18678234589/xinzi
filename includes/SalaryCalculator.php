@@ -220,6 +220,7 @@ class SalaryCalculator
             case 'profit_commission': return self::calcProfitCommission($config, $ctx, $moduleName);
             case 'trademark_commission': return self::calcTrademarkCommission($config, $ctx, $moduleName);
             case 'trademark_cashback': return self::calcTrademarkCashback($config, $ctx, $moduleName);
+            case 'trademark_fixed':    return self::calcTrademarkFixedCommission($config, $ctx, $moduleName);
             case 'referral_order':    return self::calcReferralOrder($config, $ctx, $moduleName);
             case 'miniprogram_commission': return self::calcMiniProgramCommission($config, $ctx, $moduleName);
             case 'attendance_full':   return self::calcAttendanceFull($config, $ctx);
@@ -598,6 +599,46 @@ class SalaryCalculator
             'amount' => round($amt, 2),
             'formula' => sprintf('小额返现%d单×¥%.2f=¥%.2f', $count, $perAmount, $amt),
             'type' => 'trademark_cashback',
+        ];
+    }
+
+    // ---- 商标部固定提成 ----
+    private static function calcTrademarkFixedCommission($cfg, $c, $moduleName = '')
+    {
+        $perAmount = (float)($cfg['per_amount'] ?? 0);
+        $employeeId = $c['employee']['id'] ?? 0;
+
+        $totalCount = 0;
+
+        foreach (($c['orders'] ?? []) as $o) {
+            if ($o['employee_id'] != $employeeId) continue;
+
+            $rawData = is_string($o['raw_data'] ?? '') ? json_decode($o['raw_data'], true) : ($o['raw_data'] ?? []);
+
+            // 模块名过滤
+            if ($moduleName !== '' && trim($o['project'] ?? '') !== $moduleName) continue;
+
+            // 从 raw_data 提取商标个数
+            $trademarkCount = 0;
+            if (is_array($rawData)) {
+                foreach ($rawData as $key => $value) {
+                    $lowerKey = mb_strtolower(trim($key));
+                    if (mb_strpos($key, '商标个数') !== false || mb_strpos($key, '商标数量') !== false || mb_strpos($lowerKey, 'trademark') !== false) {
+                        $trademarkCount = (int)preg_replace('/[^\d]/', '', trim((string)$value));
+                        break;
+                    }
+                }
+            }
+
+            $totalCount += $trademarkCount;
+        }
+
+        $amt = $totalCount * $perAmount;
+
+        return [
+            'amount' => round($amt, 2),
+            'formula' => sprintf('商标个数%d个×¥%.2f=¥%.2f', $totalCount, $perAmount, $amt),
+            'type' => 'trademark_fixed',
         ];
     }
 
@@ -1851,6 +1892,16 @@ class SalaryCalculator
                 'fields' => [
                     ['key'=>'_name','label'=>'模块名称（必填）','type'=>'text','placeholder'=>'如：小额返现提成','default'=>''],
                     ['key'=>'per_amount','label'=>'每单提成金额','type'=>'number','step'=>'0.01','min'=>'0','placeholder'=>'如 10 元/单','default'=>'10'],
+                ],
+            ],
+            'trademark_fixed' => [
+                'label' => '商标部固定提成',
+                'icon' => 'fa-stamp',
+                'color' => 'info',
+                'desc' => '读取"商标个数"列，按数量×提成金额计算',
+                'fields' => [
+                    ['key'=>'_name','label'=>'模块名称（必填）','type'=>'text','placeholder'=>'如：商标固定提成','default'=>''],
+                    ['key'=>'per_amount','label'=>'每个商标提成金额','type'=>'number','step'=>'0.01','min'=>'0','placeholder'=>'如 5 元/个','default'=>'5'],
                 ],
             ],
             'base_salary_tiered' => [
