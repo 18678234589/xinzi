@@ -2,6 +2,9 @@
 debug_*.txt
 php_server.log
 
+# 运行时缓存（异常检测缓存、schema 检查标志等）
+storage/
+
 
 # System files
 .htaccess

@@ -61,6 +61,163 @@ if (($_GET['ajax'] ?? '') === 'modules' && $ajax_employee_id > 0) {
     exit;
 }
 
+/**
+ * 对一组订单执行核验：按订单号匹配店铺订单的状态与金额，不符合的标记为异常；
+ * 通过核验的订单清除「未核验」标记并写入 __verified_month__（核验当月），供结算按核验月归月。
+ * 由 verify_status（按模块整批核验）与 verify_pending（待核验清单批量核验）复用，逻辑保持一致。
+ * @param array $rows 每行需含 id/order_no/order_amount/raw_data/is_abnormal/abnormal_reason
+ * @param string $verifyType  shipped=已发货判定 | success=交易成功判定
+ * @param string $creditMonth 核验通过后计入的薪资月份（核验当月，形如 YYYY-MM）
+ * @return array ['updated'=>, 'normal'=>, 'abnormal'=>, 'total'=>]
+ */
+function applyOrderVerification(array $rows, $verifyType, $creditMonth) {
+    $orderNos = [];
+    foreach ($rows as $r) {
+        $rd = json_decode($r['raw_data'], true) ?: [];
+        $ono = trim($r['order_no'] ?? '');
+        if ($ono === '') {
+            foreach ($rd as $k => $v) {
+                if (mb_strpos($k, '订单号') !== false || mb_strpos($k, '订单编号') !== false) {
+                    $ono = trim((string)$v);
+                    if ($ono !== '') break;
+                }
+            }
+        }
+        if ($ono !== '') $orderNos[$r['id']] = $ono;
+    }
+    $updated = 0;
+    $normalCount = 0;
+    $abnormalCount = 0;
+    if (empty($orderNos)) return ['updated' => $updated, 'normal' => $normalCount, 'abnormal' => $abnormalCount, 'total' => count($rows)];
+    $shopStatusMap = [];
+    $shopAmountMap = [];
+    // array_unique 会保留原 key，拆分订单（重复订单号）会让 key 不连续；
+    // PDO EMULATE_PREPARES=false 时 execute() 按 key 绑定参数，非连续 key 会导致 IN 查询绑定错乱（店铺查询返回空→全部误判店铺无此订单），必须强制重排 key
+    $onoList = array_values(array_unique(array_values($orderNos)));
+    $ph = implode(',', array_fill(0, count($onoList), '?'));
+    $shopQ = db()->prepare("SELECT order_no, raw_data, order_amount FROM orders WHERE shop <> '' AND order_no IN ($ph) AND COALESCE(is_deleted, 0) = 0");
+    $shopQ->execute($onoList);
+    $shopRows = $shopQ->fetchAll();
+    $shopQ->closeCursor();
+    foreach ($shopRows as $sr) {
+        $srRaw = json_decode($sr['raw_data'], true) ?: [];
+        $status = '';
+        if (isset($srRaw['__order_status__']) && $srRaw['__order_status__'] !== '') {
+            $status = $srRaw['__order_status__'];
+        } else {
+            foreach ($srRaw as $k => $v) {
+                if (strlen($k) > 4 && substr($k, 0, 2) === '__' && substr($k, -2) === '__') continue;
+                if (mb_strpos($k, '订单状态') !== false && trim((string)$v) !== '') {
+                    $status = trim((string)$v);
+                    break;
+                }
+            }
+        }
+        if ($status !== '') $shopStatusMap[$sr['order_no']] = $status;
+        // 店铺侧金额：同一订单号只取第一条（部门上传会重复/多店铺，取首条避免把重复行累加虚高）
+        if (isset($shopAmountMap[$sr['order_no']])) continue;
+        $shopOrig = (float)($srRaw['__original_price__'] ?? 0);
+        if ($shopOrig <= 0) $shopOrig = (float)$sr['order_amount'];
+        $shopAmountMap[$sr['order_no']] = $shopOrig;
+    }
+    // 员工侧原始售价合计（按订单号求和，处理一单拆多行）
+    $empOrigSum = [];
+    foreach ($rows as $r) {
+        $rd = json_decode($r['raw_data'], true) ?: [];
+        $orig = (float)($rd['__original_price__'] ?? 0);
+        if ($orig <= 0) $orig = (float)$r['order_amount'];
+        $ono = $orderNos[(int)$r['id']] ?? '';
+        if ($ono !== '') $empOrigSum[$ono] = ($empOrigSum[$ono] ?? 0) + $orig;
+    }
+    foreach ($rows as $r) {
+        $rid = (int)$r['id'];
+        $ono = $orderNos[$rid] ?? '';
+        $status = $shopStatusMap[$ono] ?? '';
+        $shopAmt = $shopAmountMap[$ono] ?? null;
+        $wasAbnormal = (int)$r['is_abnormal'] === 1;
+        // 当前已是正常状态（人工已确认或此前已核验通过）的订单：重新核验时保持正常，
+        // 不再用店铺侧数据覆盖 is_abnormal（否则手工改成正常的订单一核验就被标回异常，改动等于没保存）。
+        // 但若仍带着"未核验"标记且店铺侧有状态可依，则把 __order_status__ 更新为店铺状态，
+        // 避免薪资预览里"未核验订单"提示一直存在（这些正常订单本就计入薪资）。
+        if (!$wasAbnormal) {
+            $raw = json_decode($r['raw_data'], true) ?: [];
+            $oldStatus = trim((string)($raw['__order_status__'] ?? ''));
+            if ($oldStatus === '未核验' || $oldStatus === '') {
+                // 有店铺状态的可对照则写入店铺状态；
+                // 对公/财务等无店铺状态可对照的订单，点击核验即确认到账，按"交易成功"处理，
+                // 以清除"未核验"标记（否则薪资预览会一直提示未核验）
+                $setStatus = ($status !== '') ? $status : '交易成功';
+                $raw['__order_status__'] = $setStatus;
+                $raw['__shop_order_status__'] = $setStatus;
+                // 记录计入薪资的月份（核验当月），供结算按核验月归月
+                $raw['__verified_month__'] = $creditMonth;
+                $upd = db()->prepare("UPDATE orders SET raw_data = ? WHERE id = ?");
+                $upd->execute([json_encode($raw, JSON_UNESCAPED_UNICODE), $rid]);
+                $upd->closeCursor();
+                $updated++;
+            }
+            $normalCount++;
+            continue;
+        }
+        $nowAbnormal = 0;
+        $reasons = [];
+        // 1. 核验订单状态
+        if ($status === '') {
+            $nowAbnormal = 1;
+            $reasons[] = '店铺无此订单';
+        } elseif ($verifyType === 'shipped') {
+            if (mb_strpos($status, '已发货') !== false || mb_strpos($status, '交易成功') !== false || mb_strpos($status, '已到账') !== false) {
+                // 状态达标
+            } else {
+                $nowAbnormal = 1;
+                $reasons[] = "状态[{$status}]不达标";
+            }
+        } elseif ($verifyType === 'success') {
+            if (mb_strpos($status, '交易成功') !== false || mb_strpos($status, '已到账') !== false) {
+                // 状态达标
+            } else {
+                $nowAbnormal = 1;
+                $reasons[] = "状态[{$status}]未交易成功";
+            }
+        }
+        // 2. 核验订单金额（用原始售价求和比对）
+        if ($shopAmt !== null) {
+            $curAmt = $empOrigSum[$ono] ?? (float)$r['order_amount'];
+            if (abs($curAmt - $shopAmt) > 0.005) {
+                $nowAbnormal = 1;
+                $reasons[] = "金额不符(本:" . number_format($curAmt, 2) . "/店:" . number_format($shopAmt, 2) . ")";
+            }
+        }
+        $reason = implode('；', $reasons);
+        if ($nowAbnormal !== $wasAbnormal || ($nowAbnormal && ($r['abnormal_reason'] ?? '') !== $reason) || $status !== '') {
+            if ($status !== '') {
+                $raw = json_decode($r['raw_data'], true) ?: [];
+                $raw['__shop_order_status__'] = $status;
+                // 核验通过(非异常)的订单：把本人订单状态更新为已核验状态，
+                // 否则薪资结算仍按 __order_status__='未核验' 把本正常订单拦掉
+                if ($nowAbnormal === 0) {
+                    $prevStatus = trim((string)($raw['__order_status__'] ?? ''));
+                    // 首次从未核验通过核验：记录计入薪资的月份（核验当月）
+                    if ($prevStatus === '未核验' || $prevStatus === '') {
+                        $raw['__verified_month__'] = $creditMonth;
+                    }
+                    $raw['__order_status__'] = $status;
+                }
+                $newRawJson = json_encode($raw, JSON_UNESCAPED_UNICODE);
+                $upd = db()->prepare("UPDATE orders SET is_abnormal = ?, abnormal_reason = ?, raw_data = ? WHERE id = ?");
+                $upd->execute([$nowAbnormal, $reason, $newRawJson, $rid]);
+            } else {
+                $upd = db()->prepare("UPDATE orders SET is_abnormal = ?, abnormal_reason = ? WHERE id = ?");
+                $upd->execute([$nowAbnormal, $reason, $rid]);
+            }
+            $upd->closeCursor();
+            $updated++;
+        }
+        if ($nowAbnormal) $abnormalCount++; else $normalCount++;
+    }
+    return ['updated' => $updated, 'normal' => $normalCount, 'abnormal' => $abnormalCount, 'total' => count($rows)];
+}
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = $_POST['action'] ?? '';
 
@@ -307,12 +464,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             $originalPrice = 0;  // 原始售价（扣手续费前）
                             if ($idxAmount !== null) {
                                 // 直接使用订单金额列（美工部等），售价即为订单金额
-                                $amount = (float)preg_replace('/[^\d.\-]/', '', trim($row[$idxAmount] ?? ''));
+                                $amount = extract_amount($row[$idxAmount] ?? '');
                                 $originalPrice = $amount;
                             } elseif ($idxPrice !== null && $idxCost !== null) {
                                 // 金额 = 售价 - 成本
-                                $price  = (float)preg_replace('/[^\d.\-]/', '', trim($row[$idxPrice] ?? ''));
-                                $cost   = (float)preg_replace('/[^\d.\-]/', '', trim($row[$idxCost] ?? ''));
+                                $price  = extract_amount($row[$idxPrice] ?? '');
+                                $cost   = extract_amount($row[$idxCost] ?? '');
                                 $originalPrice = $price;
                                 $amount = $price - $cost;
 
@@ -696,6 +853,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $vAbnormal  = (($_POST['abnormal'] ?? '') === '1');
         $vRefund    = (($_POST['refund'] ?? '') === '1');
         $vSearch    = trim($_POST['search_no'] ?? '');
+        // 计入薪资月份：未核验订单核验通过后归属的薪资月份（核验当月）
+        $creditMonth = trim($_POST['credit_month'] ?? $month ?? '');
+        if ($creditMonth === '') $creditMonth = date('Y-m');
         if ($project === '' || !in_array($verifyType, ['shipped', 'success'])) {
             echo json_encode(['ok' => false, 'msg' => '参数错误']);
             exit;
@@ -744,105 +904,35 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 echo json_encode(['ok' => true, 'updated' => 0, 'msg' => '该模块无订单数据']);
                 exit;
             }
-            $orderNos = [];
-            foreach ($rows as $r) {
-                $rd = json_decode($r['raw_data'], true) ?: [];
-                $ono = trim($r['order_no'] ?? '');
-                if ($ono === '') {
-                    foreach ($rd as $k => $v) {
-                        if (mb_strpos($k, '订单号') !== false || mb_strpos($k, '订单编号') !== false) {
-                            $ono = trim((string)$v);
-                            if ($ono !== '') break;
-                        }
-                    }
-                }
-                if ($ono !== '') $orderNos[$r['id']] = $ono;
-            }
-            if (empty($orderNos)) {
-                echo json_encode(['ok' => true, 'updated' => 0, 'msg' => '无有效订单号']);
+            $vr = applyOrderVerification($rows, $verifyType, $creditMonth);
+            echo json_encode(['ok' => true, 'updated' => $vr['updated'], 'normal' => $vr['normal'], 'abnormal' => $vr['abnormal'], 'total' => $vr['total']]);
+        } catch (PDOException $ex) {
+            echo json_encode(['ok' => false, 'msg' => '数据库错误: ' . $ex->getMessage()]);
+        }
+        exit;
+    } elseif ($action === 'verify_pending') {
+        // 待核验清单批量核验（AJAX接口，直接输出JSON并exit）
+        header('Content-Type: application/json; charset=utf-8');
+        $verifyType = trim($_POST['verify_type'] ?? '');
+        $creditMonth = trim($_POST['credit_month'] ?? date('Y-m'));
+        $ids = array_values(array_filter(array_map('intval', $_POST['ids'] ?? [])));
+        if (!in_array($verifyType, ['shipped', 'success']) || empty($ids)) {
+            echo json_encode(['ok' => false, 'msg' => '参数错误']);
+            exit;
+        }
+        try {
+            $ph = implode(',', array_fill(0, count($ids), '?'));
+            $q = db()->prepare("SELECT id, order_no, order_amount, raw_data, is_abnormal, abnormal_reason
+                                FROM orders WHERE id IN ($ph) AND COALESCE(is_deleted, 0) = 0");
+            $q->execute($ids);
+            $rows = $q->fetchAll();
+            $q->closeCursor();
+            if (empty($rows)) {
+                echo json_encode(['ok' => true, 'updated' => 0, 'msg' => '未找到待核验订单']);
                 exit;
             }
-            $shopStatusMap = [];
-            $shopAmountMap = [];
-            $onoList = array_unique(array_values($orderNos));
-            $ph = implode(',', array_fill(0, count($onoList), '?'));
-            $shopQ = db()->prepare("SELECT order_no, raw_data, order_amount FROM orders WHERE shop <> '' AND order_no IN ($ph) AND COALESCE(is_deleted, 0) = 0");
-            $shopQ->execute($onoList);
-            $shopRows = $shopQ->fetchAll();
-            $shopQ->closeCursor();
-            foreach ($shopRows as $sr) {
-                $srRaw = json_decode($sr['raw_data'], true) ?: [];
-                $status = '';
-                if (isset($srRaw['__order_status__']) && $srRaw['__order_status__'] !== '') {
-                    $status = $srRaw['__order_status__'];
-                } else {
-                    foreach ($srRaw as $k => $v) {
-                        if (strlen($k) > 4 && substr($k, 0, 2) === '__' && substr($k, -2) === '__') continue;
-                        if (mb_strpos($k, '订单状态') !== false && trim((string)$v) !== '') {
-                            $status = trim((string)$v);
-                            break;
-                        }
-                    }
-                }
-                if ($status !== '') $shopStatusMap[$sr['order_no']] = $status;
-                $shopAmountMap[$sr['order_no']] = (float)$sr['order_amount'];
-            }
-            $updated = 0;
-            $normalCount = 0;
-            $abnormalCount = 0;
-            foreach ($rows as $r) {
-                $rid = (int)$r['id'];
-                $ono = $orderNos[$rid] ?? '';
-                $status = $shopStatusMap[$ono] ?? '';
-                $shopAmt = $shopAmountMap[$ono] ?? null;
-                $wasAbnormal = (int)$r['is_abnormal'] === 1;
-                $nowAbnormal = 0;
-                $reasons = [];
-                // 1. 核验订单状态
-                if ($status === '') {
-                    $nowAbnormal = 1;
-                    $reasons[] = '店铺无此订单';
-                } elseif ($verifyType === 'shipped') {
-                    if (mb_strpos($status, '已发货') !== false || mb_strpos($status, '交易成功') !== false || mb_strpos($status, '已到账') !== false) {
-                        // 状态达标
-                    } else {
-                        $nowAbnormal = 1;
-                        $reasons[] = "状态[{$status}]不达标";
-                    }
-                } elseif ($verifyType === 'success') {
-                    if (mb_strpos($status, '交易成功') !== false || mb_strpos($status, '已到账') !== false) {
-                        // 状态达标
-                    } else {
-                        $nowAbnormal = 1;
-                        $reasons[] = "状态[{$status}]未交易成功";
-                    }
-                }
-                // 2. 核验订单金额
-                if ($shopAmt !== null) {
-                    $curAmt = (float)$r['order_amount'];
-                    if (abs($curAmt - $shopAmt) > 0.005) {
-                        $nowAbnormal = 1;
-                        $reasons[] = "金额不符(本:" . number_format($curAmt, 2) . "/店:" . number_format($shopAmt, 2) . ")";
-                    }
-                }
-                $reason = implode('；', $reasons);
-                if ($nowAbnormal !== $wasAbnormal || ($nowAbnormal && ($r['abnormal_reason'] ?? '') !== $reason) || $status !== '') {
-                    if ($status !== '') {
-                        $raw = json_decode($r['raw_data'], true) ?: [];
-                        $raw['__shop_order_status__'] = $status;
-                        $newRawJson = json_encode($raw, JSON_UNESCAPED_UNICODE);
-                        $upd = db()->prepare("UPDATE orders SET is_abnormal = ?, abnormal_reason = ?, raw_data = ? WHERE id = ?");
-                        $upd->execute([$nowAbnormal, $reason, $newRawJson, $rid]);
-                    } else {
-                        $upd = db()->prepare("UPDATE orders SET is_abnormal = ?, abnormal_reason = ? WHERE id = ?");
-                        $upd->execute([$nowAbnormal, $reason, $rid]);
-                    }
-                    $upd->closeCursor();
-                    $updated++;
-                }
-                if ($nowAbnormal) $abnormalCount++; else $normalCount++;
-            }
-            echo json_encode(['ok' => true, 'updated' => $updated, 'normal' => $normalCount, 'abnormal' => $abnormalCount, 'total' => count($rows)]);
+            $vr = applyOrderVerification($rows, $verifyType, $creditMonth);
+            echo json_encode(['ok' => true, 'updated' => $vr['updated'], 'normal' => $vr['normal'], 'abnormal' => $vr['abnormal'], 'total' => $vr['total']]);
         } catch (PDOException $ex) {
             echo json_encode(['ok' => false, 'msg' => '数据库错误: ' . $ex->getMessage()]);
         }
@@ -1244,13 +1334,23 @@ include __DIR__ . '/../includes/header.php';
         <?php endif; ?>
     </div>
     <?php if ($locked_employee): ?>
-        <a href="<?php echo BASE_URL; ?>/employees/index.php" class="btn btn-outline-secondary btn-sm">
-            <i class="fas fa-arrow-left"></i> 返回员工管理
-        </a>
+        <div class="d-flex align-items-center">
+            <a href="<?php echo BASE_URL; ?>/orders/pending.php" class="btn btn-outline-warning btn-sm mr-2" title="跨月全部待核验订单">
+                <i class="fas fa-hourglass-half"></i> 待核验
+            </a>
+            <a href="<?php echo BASE_URL; ?>/employees/index.php" class="btn btn-outline-secondary btn-sm">
+                <i class="fas fa-arrow-left"></i> 返回员工管理
+            </a>
+        </div>
     <?php else: ?>
-        <a href="<?php echo BASE_URL; ?>/orders/recycle.php" class="btn btn-outline-warning btn-sm">
-            <i class="fas fa-recycle"></i> 回收站
-        </a>
+        <div class="d-flex align-items-center">
+            <a href="<?php echo BASE_URL; ?>/orders/pending.php" class="btn btn-outline-warning btn-sm mr-2" title="跨月全部待核验订单">
+                <i class="fas fa-hourglass-half"></i> 待核验
+            </a>
+            <a href="<?php echo BASE_URL; ?>/orders/recycle.php" class="btn btn-outline-secondary btn-sm">
+                <i class="fas fa-recycle"></i> 回收站
+            </a>
+        </div>
     <?php endif; ?>
 </div>
 
@@ -2256,7 +2356,9 @@ function deleteProject(project, count, empId, dept, deptOrders) {
     };
 
     window.editOrder = function(id) {
-        window.location.href = '<?php echo BASE_URL; ?>/orders/edit.php?id=' + id;
+        // back 带上当前页面URL（模块明细/筛选），让编辑页“返回上一层”能回到本页，而不是总列表
+        window.location.href = '<?php echo BASE_URL; ?>/orders/edit.php?id=' + id
+            + '&back=' + encodeURIComponent(location.href);
     };
 })();
 </script>

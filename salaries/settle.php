@@ -92,7 +92,7 @@ function calcProratedBaseSalary($empId, $month, $baseSalary) {
             'prorated' => $prorated, 'status' => $status, 'has_att' => true];
 }
 
-// 在 $result 上应用底薪折算（处理 base_salary 字段与 base_salary_tiered 模块两种来源）
+// 在 $result 上应用底薪折算（员工表底薪与阶梯底薪模块各自独立折算）
 // 直接修改 $result，返回 base_info 数组
 function applyProratedBaseSalary(&$result, $empId, $month) {
     $rawBase = (float)($result['base_salary'] ?? 0);
@@ -106,22 +106,29 @@ function applyProratedBaseSalary(&$result, $empId, $month) {
             break;
         }
     }
-    $effectiveBase = $rawBase + $baseModAmount;
-    $baseInfo = calcProratedBaseSalary($empId, $month, $effectiveBase);
 
-    if ($baseModIdx >= 0) {
-        // 阶梯底薪：折算模块金额，并重算 module_total / net_pay
-        $result['modules'][$baseModIdx]['amount']  = round($baseInfo['prorated'], 2);
-        $result['modules'][$baseModIdx]['formula'] = $baseInfo['status'] . '（原 ¥' . number_format($baseModAmount, 2) . '）';
+    // 1. 员工表底薪单独折算
+    $rawBaseInfo = calcProratedBaseSalary($empId, $month, $rawBase);
+    $baseDiff = round($rawBaseInfo['prorated'] - $rawBase, 2);
+    $result['base_salary'] = $rawBaseInfo['prorated'];
+    $result['net_pay']  = round(($result['net_pay'] ?? 0) + $baseDiff, 2);
+
+    // 2. 阶梯底薪模块单独折算
+    if ($baseModIdx >= 0 && $baseModAmount > 0) {
+        $modBaseInfo = calcProratedBaseSalary($empId, $month, $baseModAmount);
+        $result['modules'][$baseModIdx]['amount']  = round($modBaseInfo['prorated'], 2);
+        $result['modules'][$baseModIdx]['formula'] = $modBaseInfo['status'] . '（原 ¥' . number_format($baseModAmount, 2) . '）';
+        $modDiff = round($modBaseInfo['prorated'] - $baseModAmount, 2);
         $result['module_total'] = round(array_sum(array_column($result['modules'], 'amount')), 2);
-        $result['net_pay']      = round($rawBase + $result['module_total'], 2);
-    } else {
-        // 自定义底薪或员工表底薪：折算 base_salary 字段
-        $baseDiff = round($baseInfo['prorated'] - $rawBase, 2);
-        $result['base_salary'] = $baseInfo['prorated'];
-        $result['net_pay']     = round(($result['net_pay'] ?? 0) + $baseDiff, 2);
+        $result['net_pay']      = round($result['net_pay'] + $modDiff, 2);
+    } elseif ($baseModIdx >= 0) {
+        // 阶梯底薪模块金额为0，保持0，不把员工表底薪塞进去
+        $result['modules'][$baseModIdx]['formula'] = '阶梯底薪¥0.00（未匹配阶梯或未配置base_amount）';
+        $result['module_total'] = round(array_sum(array_column($result['modules'], 'amount')), 2);
     }
-    return $baseInfo;
+
+    // 返回员工表底薪的折算信息（主底薪）
+    return $rawBaseInfo;
 }
 
 /**
@@ -136,19 +143,29 @@ function applyProratedBaseSalary(&$result, $empId, $month) {
  * @param bool   $deptShare 是否参与部门订单提成（false 则跳过虚拟拆分）
  * @return array ['orders'=>[], 'order_total'=>float]
  */
-function loadEmployeeOrdersWithDept($employeeId, $month, $deptName, $deptShare = true) {
+function loadEmployeeOrdersWithDept($employeeId, $month, $deptName, $deptShare = true, $backendName = '') {
+    // 计薪月份 = 核验月：未核验订单不计入薪资；___verified_month__ = 当月 或 遗留(无标记且已核验)按 order_date 归月。
+    // 未核验订单核验通过后才计入，归属核验时写入的 __verified_month__（核验当月），实现跨月晚核验计入当月的规则。
+    $creditSql = "(JSON_UNQUOTE(JSON_EXTRACT(raw_data, '$.__verified_month__')) = ?"
+        . " OR ("
+        . "  (raw_data IS NULL OR JSON_UNQUOTE(JSON_EXTRACT(raw_data, '$.__verified_month__')) IS NULL"
+        . "   OR JSON_UNQUOTE(JSON_EXTRACT(raw_data, '$.__verified_month__')) = '')"
+        . "  AND (raw_data IS NULL OR JSON_UNQUOTE(JSON_EXTRACT(raw_data, '$.__order_status__')) IS NULL"
+        . "   OR JSON_UNQUOTE(JSON_EXTRACT(raw_data, '$.__order_status__')) = ''"
+        . "   OR JSON_UNQUOTE(JSON_EXTRACT(raw_data, '$.__order_status__')) <> '未核验')"
+        . "  AND DATE_FORMAT(order_date, '%Y-%m') = ?"
+        . " ))";
+
     // 1. 个人订单（排除旧的物理拆分行，避免与虚拟拆分重复；排除已软删除的）
-    // 注意：不按未核验过滤——订单上传时统一标记为"未核验"，需手动核验后才改状态，
-    // 若此处过滤会导致所有未核验订单的提成（标书/引流/小程序）都为0
     $ostmt = db()->prepare(
         "SELECT *, order_amount, order_date, project FROM orders
-         WHERE employee_id = ? AND DATE_FORMAT(order_date, '%Y-%m') = ?
+         WHERE employee_id = ? AND $creditSql
          AND COALESCE(is_abnormal, 0) = 0
          AND COALESCE(is_deleted, 0) = 0
          AND (raw_data IS NULL OR raw_data NOT LIKE '%\"__from_dept__\"%')
          ORDER BY order_date"
     );
-    $ostmt->execute([$employeeId, $month]);
+    $ostmt->execute([$employeeId, $month, $month]);
     $personalOrders = $ostmt->fetchAll();
 
     $orders = $personalOrders;
@@ -156,16 +173,16 @@ function loadEmployeeOrdersWithDept($employeeId, $month, $deptName, $deptShare =
     // 2. 部门订单虚拟拆分
     if ($deptShare && $deptName !== '') {
         // 用 JSON_EXTRACT 精确匹配部门名
-        // 注意：部门订单不按 is_abnormal 过滤、不按未核验过滤——部门汇总订单是提成基数来源，必须参与计算
-        // （异常检测标记为"金额不符"、上传时标记为"未核验"都是部门汇总的固有特征）
+        // 注意：部门订单不按 is_abnormal 过滤——部门汇总订单是提成基数来源，必须参与计算
+        // （异常检测标记为"金额不符"是部门汇总的固有特征）。但按核验月/未核验过滤，未核验不计薪
         $dstmt = db()->prepare(
             "SELECT *, order_amount, order_date, project, raw_data FROM orders
              WHERE employee_id = 0 AND order_scope = 'department'
-             AND DATE_FORMAT(order_date, '%Y-%m') = ?
+             AND $creditSql
              AND COALESCE(is_deleted, 0) = 0
              AND JSON_UNQUOTE(JSON_EXTRACT(raw_data, '$.__dept__')) = ?"
         );
-        $dstmt->execute([$month, $deptName]);
+        $dstmt->execute([$month, $month, $deptName]);
         $deptOrders = $dstmt->fetchAll();
 
         foreach ($deptOrders as $do) {
@@ -195,7 +212,31 @@ function loadEmployeeOrdersWithDept($employeeId, $month, $deptName, $deptShare =
         }
     }
 
-    // 3. 计算总金额
+    // 3. 后端/技术员工：追加 raw_data.后端 或（环境配置项目的）raw_data.技术 = 员工名 的订单，
+    //    本人名下可能无订单行，按其姓名参与汇总，按 id 去重避免重复计入
+    if ($backendName !== '') {
+        $bstmt = db()->prepare(
+            "SELECT *, order_amount, order_date, project FROM orders
+             WHERE $creditSql
+             AND COALESCE(is_deleted, 0) = 0
+             AND ( JSON_UNQUOTE(JSON_EXTRACT(raw_data, '$.\"后端\"')) = ?
+                   OR (project LIKE '%环境配置%' AND JSON_UNQUOTE(JSON_EXTRACT(raw_data, '$.\"技术\"')) = ?) )
+             ORDER BY order_date"
+        );
+        $bstmt->execute([$month, $month, $backendName, $backendName]);
+        $seen = [];
+        foreach ($orders as $o) $seen[(int)$o['id']] = true;
+        foreach ($bstmt->fetchAll() as $bo) {
+            $bid = (int)$bo['id'];
+            if (isset($seen[$bid])) continue;
+            // 退款订单同样保留在列表中：销售金额不计，但域名/SSL 等已发生的成本仍计入提成扣减
+            $seen[$bid] = true;
+            $orders[] = $bo;
+        }
+        $bstmt->closeCursor();
+    }
+
+    // 4. 计算总金额
     $orderTotal = 0;
     foreach ($orders as $o) {
         $orderTotal += (float)($o['order_amount'] ?? 0);
@@ -229,7 +270,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $deptShare = $deptConfigShare;
                 }
 
-                $loaded = loadEmployeeOrdersWithDept($employee_id, $month, $emp['department'] ?? '', $deptShare);
+                $loaded = loadEmployeeOrdersWithDept($employee_id, $month, $emp['department'] ?? '', $deptShare, $emp['name'] ?? '');
                 $orderList = $loaded['orders'];
                 $order_total = $loaded['order_total'];
 
@@ -471,7 +512,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $deptShare = $deptConfigShare;
                 }
 
-                $loaded = loadEmployeeOrdersWithDept($employee_id, $month, $emp['department'] ?? '', $deptShare);
+                $loaded = loadEmployeeOrdersWithDept($employee_id, $month, $emp['department'] ?? '', $deptShare, $emp['name'] ?? '');
                 $orderList = $loaded['orders'];
                 $order_total = $loaded['order_total'];
 
@@ -817,7 +858,7 @@ include __DIR__ . '/../includes/header.php';
                         <tr>
                             <th class="text-warning" width="20%"><i class="fas fa-question-circle"></i> 未核验订单</th>
                             <td colspan="3">
-                                <span class="text-warning font-weight-bold"><?php echo count($unverifiedMods); ?> 个模块存在未核验订单，共 <?php echo array_sum(array_column($unverifiedMods, 'cnt')); ?> 笔，合计 ¥<?php echo money(array_sum(array_column($unverifiedMods, 'total'))); ?>（不计入薪资）</span>
+                                <span class="text-warning font-weight-bold"><?php echo count($unverifiedMods); ?> 个模块存在未核验订单，共 <?php echo array_sum(array_column($unverifiedMods, 'cnt')); ?> 笔，合计 ¥<?php echo money(array_sum(array_column($unverifiedMods, 'total'))); ?>（已计入薪资，待核验确认）</span>
                                 <table class="table table-sm table-bordered mb-0 mt-2" style="font-size:13px;">
                                     <thead class="thead-light"><tr><th>模块</th><th class="text-center">笔数</th><th class="text-right">金额</th><th class="text-center" style="width:80px;">操作</th></tr></thead>
                                     <tbody>

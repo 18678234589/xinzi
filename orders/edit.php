@@ -80,12 +80,37 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 $page_title = '编辑订单';
 define('BASE_PATH', dirname(__DIR__));
 include __DIR__ . '/../includes/header.php';
+
+// “返回上一层”：优先用 URL 的 back 参数（能跨“保存修改”的 POST 保持，不随 Referer 变化），
+// 其次用来源页 Referer，都不可用或无来源时回订单列表。
+// 使用 history.back() 会在直接打开/新标签打开无历史时报错，所以不用。
+$backUrl = BASE_URL . '/orders/index.php';
+$_curHost = preg_replace('/:\d+$/', '', (string)($_SERVER['HTTP_HOST'] ?? ''));
+function _caiwu_valid_back($url, $curHost) {
+    $host = parse_url($url, PHP_URL_HOST);
+    $path = parse_url($url, PHP_URL_PATH) ?: '';
+    if ($host !== null && $host === $curHost
+        && strpos($path, 'orders/edit.php') === false
+        && strpos($path, 'login.php') === false) {
+        return $url;
+    }
+    return '';
+}
+$_rawBack = trim((string)($_GET['back'] ?? ($_POST['back'] ?? '')));
+$_cand = _caiwu_valid_back($_rawBack, $_curHost);
+if ($_cand === '') {
+    $_cand = _caiwu_valid_back((string)($_SERVER['HTTP_REFERER'] ?? ''), $_curHost);
+}
+if ($_cand !== '') $backUrl = $_cand;
 ?>
 
 <div class="d-flex justify-content-between align-items-center mb-3">
     <h4><i class="fas fa-edit text-primary"></i> 编辑订单 #<?php echo $order_id; ?></h4>
     <a href="<?php echo BASE_URL; ?>/orders/index.php" class="btn btn-outline-secondary btn-sm">
         <i class="fas fa-arrow-left"></i> 返回列表
+    </a>
+    <a href="<?php echo e($backUrl); ?>" class="btn btn-outline-primary btn-sm ml-2">
+        <i class="fas fa-level-up-alt"></i> 返回上一层
     </a>
 </div>
 
@@ -103,6 +128,7 @@ include __DIR__ . '/../includes/header.php';
             <div class="card-body">
                 <form method="post">
                     <input type="hidden" name="action" value="update">
+                    <input type="hidden" name="back" value="<?php echo e($backUrl); ?>">
                     
                     <div class="form-row">
                         <div class="form-group col-md-6">
