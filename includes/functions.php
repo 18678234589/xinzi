@@ -192,6 +192,172 @@ function money($amount)
 }
 
 /**
+ * 从单元格值安全提取金额数字。
+ *
+ * 支持多种录入习惯：
+ *  - 纯数字："4500" / "-1200"
+ *  - 货币/千分位："¥1,200.50" / "1,200"
+ *  - 成本等写成算式的："999+999+150+900"（=3048）、"(100+50)*2"
+ *  - 只有 + 减 乘 除 与括号、小数点，其余字符一律剔除
+ *
+ * 无法解析时返回 0.0。避免把"成本=999+999+150+900"剥符号拼成天文数字。
+ *
+ * @param mixed $v
+ * @return float
+ */
+function extract_amount($v)
+{
+    $s = trim((string)$v);
+    if ($s === '') return 0.0;
+
+    // 仅保留数字和四则运算符号、括号、小数点、空格
+    $expr = trim(preg_replace('~[^0-9+\-*/(). ]~', '', $s));
+    if ($expr === '' || $expr === '-' || $expr === '+' || $expr === '.') return 0.0;
+
+    // 纯数字（含负数/小数）：直接返回
+    if (preg_match('/^-?\d+(\.\d+)?$/', $expr)) {
+        return (float)$expr;
+    }
+
+    // 其余按四则运算求值（安全：输入已被过滤为仅含数字与运算符）
+    try {
+        $val = eval_amount_expr($expr);
+        return is_finite($val) ? $val : 0.0;
+    } catch (\Throwable $e) {
+        return 0.0;
+    }
+}
+
+/**
+ * 解析 SSL 证书使用金额（根据业务新规则）
+ *
+ * 规则（优先级从高到低）：
+ *  1. 值含"通配符"字眼 → 250 元（通配符证书）
+ *  2. 有明确数字 → 该数字（如 "30" → 30，"真实成本250元" → 250）
+ *  3. 模糊"已购买"标记（是/一年/1/true 等）→ 30 元
+ *  4. 空或无 SSL 信息 → null（表示未使用）
+ *
+ * @param mixed $v
+ * @return float|null 金额；未使用/无法识别时返回 null
+ */
+function parse_ssl_amount($v)
+{
+    $sv = trim((string)$v);
+    if ($sv === '') return null;
+
+    // 通配符证书统一 250
+    if (mb_strpos($sv, '通配符') !== false) return 250.0;
+
+    // 有明确数字按数字（如 "30"、"真实成本250元"）
+    $num = extract_amount($sv);
+    if ($num > 0) return $num;
+
+    // 模糊"已购买"标记 → 30
+    if ($sv === '1' || $sv === 'true'
+        || mb_strpos($sv, '是') !== false || mb_strpos($sv, '一年') !== false) {
+        return 30.0;
+    }
+
+    return null;
+}
+
+/**
+ * 解析域名使用年限：返回 0 = 未使用域名；否则返回年限（>=1）
+ *
+ * 识别规则：
+ *  - 否 / 空 → 0（未使用域名）
+ *  - "是"/"1"/"true" → 1 年
+ *  - "是*4年" / "4年" / "四年" → 4 年（域名成本按 4 倍计）
+ *  - 其它含"是"但无明确年限 → 默认 1 年
+ *
+ * @param mixed $val
+ * @return int 年限；0 表示未使用
+ */
+function domain_years($val)
+{
+    $s = trim((string)$val);
+    if ($s === '') return 0;
+    if (mb_strpos($s, '否') !== false) return 0;   // 否 = 未使用域名
+
+    // 阿拉伯数字年限："4年"、"是*4年"
+    if (preg_match('/(\d+)\s*年/', $s, $m)) return (int)$m[1];
+
+    // 中文数字年限："四年"、"两年" …
+    $cn = ['一' => 1, '两' => 2, '二' => 2, '三' => 3, '四' => 4,
+           '五' => 5, '六' => 6, '七' => 7, '八' => 8, '九' => 9, '十' => 10];
+    foreach ($cn as $c => $n) {
+        if (mb_strpos($s, $c . '年') !== false) return $n;
+    }
+
+    // 明确"是"而未写年限 → 1 年
+    if (mb_strpos($s, '是') !== false || $s === '1' || $s === 'true') return 1;
+
+    return 0;
+}
+
+/**
+ * 求值单值金额表达式（仅支持 + - * / 与括号、小数、一元正负号）。
+ * 输入必须是已经 extract_amount 过滤、仅含数字和运算符的字符串。
+ *
+ * @param string $expr
+ * @return float
+ * @throws \RuntimeException
+ */
+function eval_amount_expr($expr)
+{
+    $expr = str_replace(['(', ')', '+', '-', '*', '/'],
+                        [' ( ', ' ) ', ' + ', ' - ', ' * ', ' / '], $expr);
+    $tokens = array_values(array_filter(preg_split('/\s+/', trim($expr)), fn($t) => $t !== ''));
+
+    $ops      = ['+' => 1, '-' => 1, '*' => 2, '/' => 2];
+    $numStack = [];
+    $opStack  = [];
+    $needOperand = true; // 期待操作数（用于一元正负号）
+
+    $applyTop = function () use (&$numStack, &$opStack, $ops) {
+        $op = array_pop($opStack);
+        $b  = array_pop($numStack);
+        $a  = array_pop($numStack);
+        if ($op === '+')      $r = $a + $b;
+        elseif ($op === '-')  $r = $a - $b;
+        elseif ($op === '*')  $r = $a * $b;
+        else { if ($b == 0) throw new \RuntimeException('division by zero'); $r = $a / $b; }
+        $numStack[] = $r;
+    };
+
+    foreach ($tokens as $t) {
+        if ($t === '(') {
+            $opStack[] = '(';
+            $needOperand = true;
+        } elseif ($t === ')') {
+            while ($opStack && end($opStack) !== '(') $applyTop();
+            if (!$opStack) throw new \RuntimeException('unmatched )');
+            array_pop($opStack);
+            $needOperand = false;
+        } elseif (isset($ops[$t])) {
+            // 一元正负号：期待操作数时，把 -x 当作 0-x，+x 忽略
+            if ($needOperand) {
+                if ($t === '-') $numStack[] = 0.0;
+                $needOperand = false;
+            }
+            while ($opStack && end($opStack) !== '(' && $ops[end($opStack)] >= $ops[$t]) $applyTop();
+            $opStack[] = $t;
+            $needOperand = true;
+        } else {
+            if (!preg_match('/^-?\d+(\.\d+)?$/', $t)) throw new \RuntimeException('bad token ' . $t);
+            $numStack[] = (float)$t;
+            $needOperand = false;
+        }
+    }
+    while ($opStack) {
+        if (end($opStack) === '(') { array_pop($opStack); continue; }
+        $applyTop();
+    }
+    if (count($numStack) !== 1) throw new \RuntimeException('expression parse failed');
+    return $numStack[0];
+}
+
+/**
  * 获取订单的手续费信息（用于前端展示）
  *
  * 优先级：
@@ -296,7 +462,7 @@ function get_order_fee_info($rawData, $order)
         $price = 0;
         foreach ($rawData as $k => $v) {
             if (mb_strpos($k, '价格') !== false || mb_strpos($k, '售价') !== false) {
-                $price = (float)preg_replace('/[^\d.\-]/', '', trim($v));
+                $price = extract_amount($v);
                 if ($price > 0) break;
             }
         }
@@ -524,9 +690,11 @@ function get_abnormal_orders($shopName = '', $month = '', $employeeName = '')
     $params = [];
 
     // 文件缓存（5分钟有效期），避免每次刷新都全量重算
+    // 缓存键纳入本源码文件修改时间：只要核验逻辑被改动，旧 JSON 结果立即失效，
+    // 避免线上仍读到改动前缓存出的结果（无需手动去猜当前页面对应哪个 MD5 文件）。
     $cacheDir = __DIR__ . '/../storage/abnormal_cache';
     if (!is_dir($cacheDir)) @mkdir($cacheDir, 0755, true);
-    $cacheKey = md5($shopName . '|' . $month . '|' . $employeeName);
+    $cacheKey = md5(__FILE__ . '@' . @filemtime(__FILE__) . '|' . $shopName . '|' . $month . '|' . $employeeName);
     $cacheFile = $cacheDir . '/' . $cacheKey . '.json';
     $cacheTTL = 300; // 5分钟
     if (file_exists($cacheFile) && (time() - filemtime($cacheFile)) < $cacheTTL) {
@@ -604,9 +772,12 @@ function get_abnormal_orders($shopName = '', $month = '', $employeeName = '')
     $empStmt->execute();
     $empOrders = $empStmt->fetchAll();
 
-    // 拉取店铺订单（department），始终拉取所有店铺
-    // （员工 personal 订单的 shop 字段为空，需从 raw_data 提取店铺名后定位对应店铺订单）
-    // 修复WHERE条件让索引生效
+    // 拉取店铺订单（department），分两批：
+    // 批次1：当月 department 订单，构建 shopMap（按 shop+order_no 索引，主匹配用）
+    // 批次2：全量 department 订单（不限月份），构建 deptByNo（按 order_no 索引，跨月回退匹配用）
+    // 只拉轻量字段（不拉raw_data），配合索引，全量拉取可接受
+
+    // ---- 批次1：当月 department 订单 ----
     $shopWhere = " WHERE o.order_scope = 'department' AND o.order_no <> '' AND (o.is_deleted = 0 OR o.is_deleted IS NULL) ";
     $shopParams = [];
     if ($month !== '') {
@@ -614,8 +785,6 @@ function get_abnormal_orders($shopName = '', $month = '', $employeeName = '')
         $shopParams[] = $monthStart;
         $shopParams[] = $monthEnd;
     }
-    // 不加LIMIT：department订单需要全量构建shopMap用于比对，
-    // 只拉轻量字段（不拉raw_data），配合索引，全量拉取可接受
     $shopSql = "SELECT o.id, o.shop, o.order_no, o.order_amount, o.order_date,"
              . " JSON_UNQUOTE(JSON_EXTRACT(o.raw_data, '$.\"__original_price__\"')) AS shop_orig_price"
              . " FROM orders o " . $shopWhere
@@ -625,18 +794,36 @@ function get_abnormal_orders($shopName = '', $month = '', $employeeName = '')
     $shopStmt->execute();
     $shopOrders = $shopStmt->fetchAll();
 
-    // 店铺订单按 (shop, order_no) 索引；同一店铺同一订单号取第一条
+    // ---- 批次2：全量 department 订单（跨月回退用）----
+    $allDeptSql = "SELECT o.id, o.shop, o.order_no, o.order_amount, o.order_date,"
+                 . " JSON_UNQUOTE(JSON_EXTRACT(o.raw_data, '$.\"__original_price__\"')) AS shop_orig_price"
+                 . " FROM orders o WHERE o.order_scope = 'department' AND o.order_no <> ''"
+                 . " AND (o.is_deleted = 0 OR o.is_deleted IS NULL)"
+                 . " ORDER BY o.id ASC";
+    $allDeptStmt = $pdo->prepare($allDeptSql);
+    $allDeptStmt->execute();
+    $allDeptOrders = $allDeptStmt->fetchAll();
+
+    // 店铺订单按 (shop, order_no) 索引；同一店铺同一订单号取第一条（当月）
     $shopMap = [];
     $shopNameMap = []; // shop name => shop id
-    // 全局订单号索引：order_no => department 订单记录（员工没填店铺名时，用订单号反查归属店铺）
+    // 全局订单号索引，order_no => department 订单记录（不限月份，用于跨月回退匹配）
+    // 订单号统一 trim + 字符串化后建索引，避免导入表格里带不可见空格导致同一订单号对不上
     $deptByNo = [];
     foreach ($shopOrders as $so) {
         $sn = $so['shop'] !== '' ? $so['shop'] : '未归属店铺';
-        if (!isset($shopMap[$sn][$so['order_no']])) {
-            $shopMap[$sn][$so['order_no']] = $so;
+        $okey = trim((string)$so['order_no']);
+        if ($okey === '') continue;
+        if (!isset($shopMap[$sn][$okey])) {
+            $shopMap[$sn][$okey] = $so;
         }
-        if (!isset($deptByNo[$so['order_no']])) {
-            $deptByNo[$so['order_no']] = $so;
+    }
+    // deptByNo 用全量数据构建，确保跨月订单也能反查到
+    foreach ($allDeptOrders as $so) {
+        $okey = trim((string)$so['order_no']);
+        if ($okey === '') continue;
+        if (!isset($deptByNo[$okey])) {
+            $deptByNo[$okey] = $so;
         }
     }
     foreach ($allShops as $sh) {
@@ -667,43 +854,67 @@ function get_abnormal_orders($shopName = '', $month = '', $employeeName = '')
     $orphanKey = '未归属';
     $shopStats[$orphanKey] = ['shop_name' => $orphanKey, 'shop_id' => 0, 'missing' => 0, 'mismatch' => 0, 'total' => 0];
 
-    // 遍历员工订单
+    // 第一步：员工订单按订单号求和分组。
+    // 一单可能被拆成多行（主款 + SSL/HTTPS 证书 + 备案等），先按订单号聚合，
+    // 用求和合计与店铺订单比对，避免“拆多行被逐条误报为金额不一致”。
+    $groups = [];
     foreach ($empOrders as $eo) {
-        $ono = $eo['order_no'];
+        // 订单号同样 trim + 字符串化，与上面索引保持一致
+        $ono = trim((string)$eo['order_no']);
+        if ($ono === '') continue;
 
         // 从 SQL 提取的店铺名（COALESCE已取第一个非空）
         $empShopRaw = trim($eo['emp_shop_raw'] ?? '');
 
-        // 将员工填写的店铺名匹配到标准店铺名（如"清风易"→"清风易软件专营店"）
-        $empShop = $empShopRaw !== '' ? match_shop_name($empShopRaw, $knownShopNames) : '';
-
-        // 提取员工的原始售价（SQL已提取，无需PHP解析JSON）
+        // 提取该行的原始售价（SQL已提取，无需PHP解析JSON）
         $empOriginalPrice = $eo['emp_orig_price'] !== null && (float)$eo['emp_orig_price'] > 0
             ? (float)$eo['emp_orig_price'] : (float)$eo['order_amount'];
 
-        // 确定该员工订单归属的店铺，优先用匹配到的标准店铺名，否则用订单号反查
+        if (!isset($groups[$ono])) {
+            $groups[$ono] = [
+                'sum'          => 0.0,
+                'rows'         => 0,
+                'emp_shop_raw' => $empShopRaw,
+                'first'        => $eo,
+            ];
+        }
+        $groups[$ono]['sum'] += $empOriginalPrice;
+        $groups[$ono]['rows']++;
+    }
+
+    // 第二步：逐订单号做两步比对（先匹配订单号，再匹配金额，任一不符都标异常）
+    foreach ($groups as $ono => $g) {
+        $eo = $g['first'];
+        $empShopRaw = $g['emp_shop_raw'];
+
+        // 将员工填写的店铺名匹配到标准店铺名（如"清风易"→"清风易软件专营店"）
+        $empShop = $empShopRaw !== '' ? match_shop_name($empShopRaw, $knownShopNames) : '';
+
+        // 该订单号的售价合计（求和）
+        $empOriginalPrice = round($g['sum'], 2);
+
+        // 确定归属店铺：优先用匹配到的标准店铺名，否则用订单号反查
         if ($empShop === '') {
-            // 员工表格里没填店铺名，拿订单号去全量 department 订单里反查
+            // 员工没填店铺名，拿订单号去全量 department 订单里反查
             if (isset($deptByNo[$ono])) {
-                $so = $deptByNo[$ono];
-                $empShop = $so['shop']; // 归属到 department 订单里的店铺
-                // 继续走下方的金额比对逻辑
+                $empShop = $deptByNo[$ono]['shop'];
             } else {
                 // 全量 department 订单里也查不到此订单号 → 真孤儿缺失
                 $items[] = [
                     'shop_name'     => $orphanKey,
                     'shop_id'        => 0,
                     'order_no'       => $ono,
-                    'emp_amount'     => $eo['order_amount'],
-                    'emp_date'      => $eo['order_date'],
+                    'emp_amount'     => $empOriginalPrice,
+                    'emp_rows'       => $g['rows'],
+                    'emp_date'       => $eo['order_date'],
                     'emp_order_id'   => $eo['id'],
-                    'emp_name'      => $eo['emp_name'],
+                    'emp_name'       => $eo['emp_name'],
                     'employee_id'    => $eo['employee_id'],
                     'shop_amount'    => null,
                     'shop_date'      => null,
                     'shop_order_id'  => null,
                     'diff_type'      => 'missing',
-                    'diff_amount'    => round($empOriginalPrice, 2),
+                    'diff_amount'    => $empOriginalPrice,
                 ];
                 $shopStats[$orphanKey]['missing']++;
                 $shopStats[$orphanKey]['total']++;
@@ -711,64 +922,73 @@ function get_abnormal_orders($shopName = '', $month = '', $employeeName = '')
             }
         }
 
-        // 只跟该员工订单归属的店铺做比对
+        // 第 1 步·订单号匹配：先按 (shop, order_no) 在当前月查，再按 order_no 全量回退（跨月/空 shop）
+        $so = null;
         $sOrders = $shopMap[$empShop] ?? [];
         if (isset($sOrders[$ono])) {
-            // 该店铺有此订单号 → 比对金额（用售价对比，非利润）
             $so = $sOrders[$ono];
+        } elseif (isset($deptByNo[$ono])) {
+            $so = $deptByNo[$ono];
+        }
 
-            // 从SQL提取的 __original_price__ 直接取
-            $shopOriginalPrice = $so['shop_orig_price'] !== null && (float)$so['shop_orig_price'] > 0
-                ? (float)$so['shop_orig_price'] : (float)$so['order_amount'];
-
-            $diff = round($empOriginalPrice - $shopOriginalPrice, 2);
-            if (abs($diff) > 0.001) {
-                // 金额不一致（按售价对比）
-                $items[] = [
-                    'shop_name'     => $empShop,
-                    'shop_id'       => $shopNameMap[$empShop] ?? 0,
-                    'order_no'      => $ono,
-                    'emp_amount'    => $empOriginalPrice,
-                    'emp_date'      => $eo['order_date'],
-                    'emp_order_id'  => $eo['id'],
-                    'emp_name'      => $eo['emp_name'],
-                    'employee_id'   => $eo['employee_id'],
-                    'shop_amount'   => $shopOriginalPrice,
-                    'shop_date'     => $so['order_date'],
-                    'shop_order_id' => $so['id'],
-                    'diff_type'     => 'mismatch',
-                    'diff_amount'   => $diff,
-                ];
-                if (!isset($shopStats[$empShop])) {
-                    $shopStats[$empShop] = ['shop_name' => $empShop, 'shop_id' => $shopNameMap[$empShop] ?? 0, 'missing' => 0, 'mismatch' => 0, 'total' => 0];
-                }
-                $shopStats[$empShop]['mismatch']++;
-                $shopStats[$empShop]['total']++;
-            }
-            // 金额一致 = match，不记录
-        } else {
-            // 该店铺的 department 表里查不到此订单号 → 店铺缺失
+        if ($so === null) {
+            // 第 1 步失败：该店铺 department 表里查不到此订单号 → 店铺缺失
             $items[] = [
                 'shop_name'     => $empShop,
                 'shop_id'        => $shopNameMap[$empShop] ?? 0,
                 'order_no'       => $ono,
                 'emp_amount'     => $empOriginalPrice,
-                'emp_date'      => $eo['order_date'],
+                'emp_rows'       => $g['rows'],
+                'emp_date'       => $eo['order_date'],
                 'emp_order_id'   => $eo['id'],
-                'emp_name'      => $eo['emp_name'],
+                'emp_name'       => $eo['emp_name'],
                 'employee_id'    => $eo['employee_id'],
                 'shop_amount'    => null,
                 'shop_date'      => null,
                 'shop_order_id'  => null,
                 'diff_type'      => 'missing',
-                'diff_amount'    => round($empOriginalPrice, 2),
+                'diff_amount'    => $empOriginalPrice,
             ];
             if (!isset($shopStats[$empShop])) {
                 $shopStats[$empShop] = ['shop_name' => $empShop, 'shop_id' => $shopNameMap[$empShop] ?? 0, 'missing' => 0, 'mismatch' => 0, 'total' => 0];
             }
             $shopStats[$empShop]['missing']++;
             $shopStats[$empShop]['total']++;
+            continue;
         }
+
+        // 第 2 步·金额匹配：用求和合计与该店铺订单金额（售价）对比
+        $shopOriginalPrice = $so['shop_orig_price'] !== null && (float)$so['shop_orig_price'] > 0
+            ? (float)$so['shop_orig_price'] : (float)$so['order_amount'];
+        $diff = round($empOriginalPrice - $shopOriginalPrice, 2);
+
+        if (abs($diff) <= 0.001) {
+            // 金额一致 = match，不记录
+            continue;
+        }
+
+        // 金额不一致（按售价对比）
+        $items[] = [
+            'shop_name'     => $empShop,
+            'shop_id'       => $shopNameMap[$empShop] ?? 0,
+            'order_no'      => $ono,
+            'emp_amount'    => $empOriginalPrice,
+            'emp_rows'      => $g['rows'],
+            'emp_date'      => $eo['order_date'],
+            'emp_order_id'  => $eo['id'],
+            'emp_name'      => $eo['emp_name'],
+            'employee_id'   => $eo['employee_id'],
+            'shop_amount'   => $shopOriginalPrice,
+            'shop_date'     => $so['order_date'],
+            'shop_order_id' => $so['id'],
+            'diff_type'     => 'mismatch',
+            'diff_amount'   => $diff,
+        ];
+        if (!isset($shopStats[$empShop])) {
+            $shopStats[$empShop] = ['shop_name' => $empShop, 'shop_id' => $shopNameMap[$empShop] ?? 0, 'missing' => 0, 'mismatch' => 0, 'total' => 0];
+        }
+        $shopStats[$empShop]['mismatch']++;
+        $shopStats[$empShop]['total']++;
     }
 
     // 排序，先缺失后不一致，再按日期倒序

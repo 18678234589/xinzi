@@ -32,6 +32,21 @@
                 "max_amount": "",
                 "shop_keyword": ""
             }
+        },
+        {
+            "name": "环境配置技术提成",
+            "type": "standard",
+            "enabled": true,
+            "config": {
+                "rate": 0.15,
+                "service_fee_rate": 0.03,
+                "price_source": "selling_price",
+                "filter_column": "技术",
+                "filter_value": "孙磊",
+                "min_amount": "",
+                "max_amount": "",
+                "shop_keyword": ""
+            }
         }
     ],
     "updated_at": "2026-07-17 16:07:56",

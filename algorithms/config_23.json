@@ -5,12 +5,14 @@
             "type": "standard",
             "enabled": true,
             "config": {
-                "rate": 0.097,
-                "comment": "利润×10%，利润=售价-成本-3%服务费。因系统按售价总额计算，近似为售价×9.7%（已扣3%服务费后的10%）",
-                "service_fee_rate": "0",
+                "rate": 0.1,
+                "service_fee_rate": 0.03,
+                "price_source": "selling_price",
                 "min_amount": "",
                 "max_amount": "",
-                "shop_keyword": ""
+                "shop_keyword": "",
+                "filter_column": "",
+                "filter_value": ""
             }
         },
         {
@@ -18,15 +20,25 @@
             "type": "standard",
             "enabled": true,
             "config": {
-                "rate": 0.1455,
-                "comment": "利润×15%，利润=售价-成本-3%服务费。因系统按售价总额计算，近似为售价×14.55%",
-                "service_fee_rate": "0",
+                "rate": 0.15,
+                "service_fee_rate": 0.03,
+                "price_source": "selling_price",
+                "filter_column": "技术",
+                "filter_value": "纪鹏程",
                 "min_amount": "",
                 "max_amount": "",
                 "shop_keyword": ""
             }
+        },
+        {
+            "name": "底薪（自定义）",
+            "type": "base_salary",
+            "enabled": true,
+            "config": {
+                "base_amount": 1500
+            }
         }
     ],
-    "updated_at": "2026-07-17 16:07:56",
-    "description": "纪鹏程（环境配置）：底薪1500（员工表）+ 客服提成(利润×10%) + 技术提成(利润×15%)。利润=售价-成本-3%服务费。5月数据：售价7610，成本1868，利润5513.7，客服提成551.37+技术提成827.055=1378.43"
+    "dept_share": 1,
+    "updated_at": "2026-08-05 15:50:13"
 }

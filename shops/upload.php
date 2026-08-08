@@ -221,11 +221,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         // 计算订单金额
                         $originalPrice = 0; // 原始售价（供异常订单对比使用）
                         if ($idxAmount !== null) {
-                            $amount = (float)preg_replace('/[^\d.\-]/', '', trim($row[$idxAmount] ?? ''));
+                            $amount = extract_amount($row[$idxAmount] ?? '');
                             $originalPrice = $amount;
                         } else {
-                            $price  = (float)preg_replace('/[^\d.\-]/', '', trim($row[$idxPrice] ?? ''));
-                            $cost   = (float)preg_replace('/[^\d.\-]/', '', trim($row[$idxCost] ?? ''));
+                            $price  = extract_amount($row[$idxPrice] ?? '');
+                            $cost   = extract_amount($row[$idxCost] ?? '');
                             $originalPrice = $price;
                             $amount = $price - $cost;
                         }
