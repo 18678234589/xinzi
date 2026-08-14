@@ -229,6 +229,7 @@ class SalaryCalculator
             case 'attendance_deduct': return self::calcAttendanceDeduct($config, $ctx);
             case 'customer_reward':   return self::calcCustomerReward($config, $ctx, $moduleName);
             case 'fixed_subsidy':     return self::calcFixedSubsidy($config, $ctx, $moduleName);
+            case 'cs_performance':    return self::calcCsPerformance($config, $ctx, $moduleName);
             default: return null;
         }
     }
@@ -1749,6 +1750,78 @@ class SalaryCalculator
         ];
     }
 
+    // ---- 客服绩效底薪 ----
+    // 绩效指标：回复速度（越低越好）、进线人数、成交转化率。
+    // 达成率 = 各指标实际/目标 × 权重 → 综合达成率 → 绩效应发 = 基数 × 综合达成率。
+    // 无绩效数据按 0 计（可直接不在算法里启用该模块）。
+    private static function calcCsPerformance($cfg, $c, $moduleName = '')
+    {
+        $base           = (float)($cfg['base'] ?? 0);
+        $targetReplySec = (float)($cfg['target_reply_sec'] ?? 0);
+        $targetIncoming = (float)($cfg['target_incoming'] ?? 0);
+        $targetConvPct  = (float)($cfg['target_conversion_pct'] ?? 0);
+        $wReply         = (float)($cfg['weight_reply'] ?? 1);
+        $wIncoming      = (float)($cfg['weight_incoming'] ?? 1);
+        $wConv          = (float)($cfg['weight_conversion'] ?? 1);
+        $floorPct       = (float)($cfg['floor_pct'] ?? 0);
+        $capPct         = (float)($cfg['cap_pct'] ?? 0);
+
+        $year = 0; $month = 0;
+        $parts = explode('-', (string)($c['month'] ?? ''));
+        if (count($parts) === 2) { $year = (int)$parts[0]; $month = (int)$parts[1]; }
+        if ($year <= 0 || $month < 1 || $month > 12) {
+            return ['amount' => 0, 'formula' => '月份无效', 'type' => 'cs_performance'];
+        }
+
+        ensureCsPerfSchema();
+        $perf = get_cs_performance((int)$c['employee']['id'], $year, $month);
+        if (!$perf) {
+            return ['amount' => 0, 'formula' => '当月无绩效数据', 'type' => 'cs_performance'];
+        }
+        $replySpeed = (float)$perf['reply_speed'];
+        $incoming   = (int)$perf['incoming_count'];
+
+        // 成交数：手动覆盖优先，否则按该员工当月订单实时统计（与核验月规则一致）
+        $dealCount = $perf['deal_count'];
+        if ($dealCount === null || $dealCount === '') {
+            $dealCount = 0;
+            foreach (($c['orders'] ?? []) as $o) {
+                if ((float)($o['order_amount'] ?? 0) < 0) continue; // 退款不计
+                $rd = is_string($o['raw_data'] ?? '') ? json_decode($o['raw_data'], true) : ($o['raw_data'] ?? []);
+                if (is_array($rd) && isset($rd['__is_refund__']) && $rd['__is_refund__'] === '1') continue;
+                $dealCount++;
+            }
+        }
+
+        // 各指标达成率（回复速度越低越好）
+        $replyRate = 0.0;
+        if ($targetReplySec > 0 && $replySpeed > 0) $replyRate = $targetReplySec / $replySpeed;
+        $incomingRate = 0.0;
+        if ($targetIncoming > 0) $incomingRate = $incoming / $targetIncoming;
+        $convPct = 0.0;
+        if ($incoming > 0) $convPct = $dealCount / $incoming * 100;
+        $convRate = 0.0;
+        if ($targetConvPct > 0) $convRate = $convPct / $targetConvPct;
+
+        $wSum = $wReply + $wIncoming + $wConv;
+        $composite = 0.0;
+        if ($wSum > 0) {
+            $composite = ($wReply * $replyRate + $wIncoming * $incomingRate + $wConv * $convRate) / $wSum;
+        }
+
+        $amount = $base * $composite;
+        if ($floorPct > 0) $amount = max($amount, $base * $floorPct / 100); // 保底
+        if ($capPct > 0)   $amount = min($amount, $base * $capPct / 100);   // 封顶
+
+        $formula = sprintf('回复%d%%×%.1f + 进线%d%%×%.1f + 转化%.1f%%×%.1f → 综合%.1f%% × 基数%.2f = %.2f',
+            (int)round($replyRate * 100), $wReply,
+            (int)round($incomingRate * 100), $wIncoming,
+            $convPct, $wConv,
+            $composite * 100, $base, $amount);
+
+        return ['amount' => round($amount, 2), 'formula' => $formula, 'type' => 'cs_performance'];
+    }
+
     // ==================== 配置 CRUD ====================
 
     /**
@@ -2087,6 +2160,24 @@ class SalaryCalculator
                 'fields' => [
                     ['key'=>'_name','label'=>'模块名称（必填）','type'=>'text','placeholder'=>'如：交通补助、餐补、住房补贴','default'=>''],
                     ['key'=>'amount','label'=>'补助金额','type'=>'number','step'=>'0.01','min'=>'0','placeholder'=>'如 500 元/月','default'=>'500'],
+                ],
+            ],
+            'cs_performance' => [
+                'label' => '客服绩效底薪',
+                'icon' => 'fa-comments-dollar',
+                'color' => 'success',
+                'desc' => '按客服绩效达成率发放：绩效基数 ×（回复速度/进线人数/转化率加权综合达成率），可设保底与封顶。绩效数据由客服采集工具自动上传',
+                'fields' => [
+                    ['key'=>'_name','label'=>'模块名称（必填）','type'=>'text','placeholder'=>'如：绩效底薪','default'=>''],
+                    ['key'=>'base','label'=>'绩效基数(元)','type'=>'number','step'=>'any','placeholder'=>'全达成时发放金额，如 3300','default'=>'3300'],
+                    ['key'=>'target_reply_sec','label'=>'目标回复速度(秒)','type'=>'number','step'=>'1','placeholder'=>'如 60 = 平均60秒内首次回复','default'=>''],
+                    ['key'=>'target_incoming','label'=>'目标进线人数(个)','type'=>'number','step'=>'1','placeholder'=>'当月进线会话目标数','default'=>''],
+                    ['key'=>'target_conversion_pct','label'=>'目标转化率(%)','type'=>'number','step'=>'any','placeholder'=>'如 30 表示 30%','default'=>''],
+                    ['key'=>'weight_reply','label'=>'回复速度权重','type'=>'number','step'=>'any','placeholder'=>'如 2','default'=>'1'],
+                    ['key'=>'weight_incoming','label'=>'进线人数权重','type'=>'number','step'=>'any','placeholder'=>'如 1','default'=>'1'],
+                    ['key'=>'weight_conversion','label'=>'转化率权重','type'=>'number','step'=>'any','placeholder'=>'如 1','default'=>'1'],
+                    ['key'=>'floor_pct','label'=>'保底比例(%)','type'=>'number','step'=>'any','placeholder'=>'如 50=至少发基数的50%，0=不保底','default'=>'0'],
+                    ['key'=>'cap_pct','label'=>'封顶比例(%)','type'=>'number','step'=>'any','placeholder'=>'如 120=最多发基数的120%，0=不封顶','default'=>'0'],
                 ],
             ],
         ];

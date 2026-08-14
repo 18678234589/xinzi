@@ -1187,3 +1187,303 @@ function export_excel($headers, $rows, $filename)
     echo "</Table>\n</Worksheet>\n</Workbook>\n";
     exit;
 }
+
+/* ==================== 客服绩效（cs_perf） ==================== */
+
+/**
+ * 确保客服绩效相关表与员工旺旺字段存在（运行时自动建表/补列）。
+ * 客服绩效采集工具上传的数据与绩效底薪模块共用这些表。
+ */
+function ensureCsPerfSchema()
+{
+    static $done = false;
+    if ($done) return;
+    $done = true;
+    $pdo = db();
+
+    // 1. employees 增加旺旺账号列（用于采集文件匹配员工）
+    try {
+        $cols = $pdo->query("SHOW COLUMNS FROM `employees` LIKE 'wangwang'")->fetchAll();
+        if (empty($cols)) {
+            $pdo->exec("ALTER TABLE `employees` ADD COLUMN `wangwang` VARCHAR(100) DEFAULT '' COMMENT '旺旺账号(客服绩效采集用)' AFTER `department`");
+        }
+    } catch (\Throwable $e) {}
+
+    // 2. 客服绩效主表（每人每月一条，UNIQUE 覆盖式导入）
+    try {
+        $pdo->query("SELECT 1 FROM `customer_service_performance` LIMIT 1");
+    } catch (\Throwable $e) {
+        $pdo->exec("CREATE TABLE IF NOT EXISTS `customer_service_performance` (
+            `id` INT AUTO_INCREMENT PRIMARY KEY,
+            `employee_id` INT NOT NULL COMMENT '员工ID',
+            `year` SMALLINT NOT NULL,
+            `month` TINYINT NOT NULL,
+            `reply_speed` DECIMAL(8,1) NOT NULL DEFAULT 0 COMMENT '平均回复速度(秒)',
+            `incoming_count` INT NOT NULL DEFAULT 0 COMMENT '进线会话数',
+            `deal_count` INT NULL DEFAULT NULL COMMENT '成交数(空=按订单自动,非空=手动覆盖)',
+            `remark` VARCHAR(500) DEFAULT '' COMMENT '备注',
+            `source_file` VARCHAR(255) DEFAULT '' COMMENT '最近来源文件',
+            `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            UNIQUE KEY `uk_emp_month` (`employee_id`, `year`, `month`),
+            INDEX `idx_ym` (`year`, `month`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT '客服绩效采集数据'");
+    }
+
+    // 3. 未匹配员工暂存表（等待在管理页补录归属员工）
+    try {
+        $pdo->query("SELECT 1 FROM `cs_perf_pending` LIMIT 1");
+    } catch (\Throwable $e) {
+        $pdo->exec("CREATE TABLE IF NOT EXISTS `cs_perf_pending` (
+            `id` INT AUTO_INCREMENT PRIMARY KEY,
+            `wangwang` VARCHAR(100) DEFAULT '' COMMENT '文件中旺旺账号',
+            `name` VARCHAR(100) DEFAULT '' COMMENT '文件中姓名',
+            `year` SMALLINT NOT NULL,
+            `month` TINYINT NOT NULL,
+            `incoming_count` INT NOT NULL DEFAULT 0,
+            `total_reply_seconds` DECIMAL(12,1) NOT NULL DEFAULT 0,
+            `source_file` VARCHAR(255) DEFAULT '',
+            `raw_json` TEXT NULL COMMENT '原始行',
+            `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            INDEX `idx_ym` (`year`, `month`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT '客服绩效未匹配暂存'");
+    }
+
+    // 4. 同步日志
+    try {
+        $pdo->query("SELECT 1 FROM `cs_perf_sync_log` LIMIT 1");
+    } catch (\Throwable $e) {
+        $pdo->exec("CREATE TABLE IF NOT EXISTS `cs_perf_sync_log` (
+            `id` INT AUTO_INCREMENT PRIMARY KEY,
+            `source_file` VARCHAR(255) DEFAULT '',
+            `matched` INT NOT NULL DEFAULT 0,
+            `pending` INT NOT NULL DEFAULT 0,
+            `errors` INT NOT NULL DEFAULT 0,
+            `detail` TEXT NULL,
+            `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT '客服绩效同步日志'");
+    }
+}
+
+/**
+ * 读取某员工某月客服绩效
+ */
+function get_cs_performance($employeeId, $year, $month)
+{
+    try {
+        $stmt = db()->prepare("SELECT * FROM customer_service_performance WHERE employee_id=? AND year=? AND month=?");
+        $stmt->execute([(int)$employeeId, (int)$year, (int)$month]);
+        $row = $stmt->fetch();
+        return $row ?: null;
+    } catch (\Throwable $e) {
+        return null;
+    }
+}
+
+/**
+ * 实时统计某客服员工当月成交订单数（与薪资结算的核验月/未核验规则一致）。
+ * 成交 = 该员工名下当月、已核验、非异常、非软删除、金额>=0 且非退款的订单数。
+ * @return int
+ */
+function get_employee_deal_count($employeeId, $year, $month)
+{
+    try {
+        $monthStr = sprintf('%04d-%02d', (int)$year, (int)$month);
+        $credit = "(JSON_UNQUOTE(JSON_EXTRACT(raw_data, '$.__verified_month__')) = ?"
+            . " OR ((raw_data IS NULL OR JSON_UNQUOTE(JSON_EXTRACT(raw_data, '$.__verified_month__')) IS NULL"
+            . "   OR JSON_UNQUOTE(JSON_EXTRACT(raw_data, '$.__verified_month__')) = '')"
+            . "  AND (raw_data IS NULL OR JSON_UNQUOTE(JSON_EXTRACT(raw_data, '$.__order_status__')) IS NULL"
+            . "   OR JSON_UNQUOTE(JSON_EXTRACT(raw_data, '$.__order_status__')) = ''"
+            . "   OR JSON_UNQUOTE(JSON_EXTRACT(raw_data, '$.__order_status__')) <> '未核验')"
+            . "  AND DATE_FORMAT(order_date, '%Y-%m') = ?))";
+        $stmt = db()->prepare("SELECT o.order_amount, o.raw_data FROM orders o"
+            . " WHERE o.employee_id=? AND $credit AND COALESCE(o.is_abnormal,0)=0"
+            . " AND COALESCE(o.is_deleted,0)=0"
+            . " AND (o.raw_data IS NULL OR o.raw_data NOT LIKE '%\"__from_dept__\"%')");
+        $stmt->execute([(int)$employeeId, $monthStr, $monthStr]);
+        $rows = $stmt->fetchAll();
+        $count = 0;
+        foreach ($rows as $r) {
+            if ((float)$r['order_amount'] < 0) continue; // 退款(负数)不计
+            $rd = is_string($r['raw_data'] ?? '') ? json_decode($r['raw_data'], true) : ($r['raw_data'] ?? []);
+            if (is_array($rd) && isset($rd['__is_refund__']) && $rd['__is_refund__'] === '1') continue;
+            $count++;
+        }
+        return $count;
+    } catch (\Throwable $e) {
+        return 0;
+    }
+}
+
+/**
+ * 从 CSV 文本识别列位置（模糊匹配）
+ * @param array $header 表头行（已转UTF-8）
+ * @return array 标准列名 => 列索引（找不到则为 null）
+ */
+function detect_cs_perf_columns($header)
+{
+    $map = ['name'=>null,'wangwang'=>null,'date'=>null,'year'=>null,'month'=>null,
+            'incoming'=>null,'total_sec'=>null,'reply_speed'=>null,'reply_count'=>null];
+    foreach ($header as $i => $cell) {
+        $c = mb_strtolower(trim((string)$cell));
+        $c = str_replace([' ', "\xEF\xBB\xBF"], '', $c);
+        if ($map['name'] === null && (strpos($c, '姓名') !== false || strpos($c, '客服') !== false || $c === 'name' || $c === 'employee')) $map['name'] = $i;
+        if ($map['wangwang'] === null && (strpos($c, '旺旺') !== false || $c === 'wangwang' || $c === 'wangwangno')) $map['wangwang'] = $i;
+        if ($map['date'] === null && (strpos($c, '日期') !== false || strpos($c, 'date') !== false)) $map['date'] = $i;
+        if ($map['year'] === null && (strpos($c, '年份') !== false || $c === 'year')) $map['year'] = $i;
+        if ($map['month'] === null && (strpos($c, '月份') !== false || $c === 'month')) $map['month'] = $i;
+        if ($map['incoming'] === null && (strpos($c, '进线') !== false || strpos($c, '接待') !== false || strpos($c, '会话') !== false || strpos($c, '人数') !== false)) $map['incoming'] = $i;
+        if ($map['total_sec'] === null && (strpos($c, '总秒') !== false || strpos($c, '总回复') !== false || strpos($c, '回复时长') !== false || strpos($c, '回复秒数') !== false)) $map['total_sec'] = $i;
+        if ($map['reply_count'] === null && (strpos($c, '回复次数') !== false || strpos($c, '回复条数') !== false || $c === 'replycount' || $c === 'replycounts')) $map['reply_count'] = $i;
+        if ($map['reply_speed'] === null && (strpos($c, '平均回复') !== false || strpos($c, '回复速度') !== false)) $map['reply_speed'] = $i;
+    }
+    return $map;
+}
+
+/**
+ * 导入一份客服绩效采集文件（工具上传或计划任务扫描共用）。
+ *
+ * 支持的工具标准列：员工姓名,旺旺账号,日期,进线数,回复总秒数
+ * 兼容第三方导出：按列名模糊匹配；未匹配到员工的行暂存 cs_perf_pending。
+ *
+ * @param string $filePath 文件绝对路径
+ * @param string $source   来源标识（文件名/说明）
+ * @return array ['matched'=>n,'pending'=>n,'errors'=>n,'detail'=>[每员工写入说明]]
+ */
+function import_cs_perf_file($filePath, $source = '')
+{
+    if ($source === '') $source = basename($filePath);
+
+    // 读文件并转为 UTF-8（兼容 GBK）
+    $content = @file_get_contents($filePath);
+    if ($content === false || trim($content) === '') {
+        return ['matched'=>0,'pending'=>0,'errors'=>1,'detail'=>['文件为空或不可读']];
+    }
+    if (substr($content, 0, 3) === "\xEF\xBB\xBF") $content = substr($content, 3);
+    if (!mb_check_encoding($content, 'UTF-8')) {
+        $converted = @mb_convert_encoding($content, 'UTF-8', 'GBK');
+        if ($converted !== false) $content = $converted;
+    }
+
+    $lines = [];
+    foreach (preg_split('/\r\n|\r|\n/', $content) as $line) {
+        if (trim($line) === '') continue;
+        $lines[] = str_getcsv($line);
+    }
+    if (count($lines) < 2) {
+        return ['matched'=>0,'pending'=>0,'errors'=>1,'detail'=>['无数据行']];
+    }
+
+    $header = array_shift($lines);
+    $cols = detect_cs_perf_columns($header);
+
+    ensureCsPerfSchema();
+    $pdo = db();
+
+    // 员工映射：姓名精确、旺旺账号(大小写不敏感)
+    $byName = [];
+    $byWang = [];
+    foreach (get_employees() as $e) {
+        if (trim($e['name']) !== '') $byName[trim($e['name'])] = $e;
+        if (trim($e['wangwang'] ?? '') !== '') $byWang[mb_strtolower(trim($e['wangwang']))] = $e;
+    }
+
+    // 聚合：monthAgg[key] = [emp, year, month, incoming, totalSec(sum模式), replySum/replyCnt(avg模式)]
+    $monthAgg = [];
+    $pendingKey = []; // 未匹配：key(wangwang|name+ym) => [aggregated]
+    $errors = 0;
+
+    foreach ($lines as $row) {
+        $vals = array_pad($row, count($header), '');
+        $name = isset($cols['name']) && $cols['name'] !== null && isset($vals[$cols['name']]) ? trim((string)$vals[$cols['name']]) : '';
+        $wang = isset($cols['wangwang']) && $cols['wangwang'] !== null && isset($vals[$cols['wangwang']]) ? trim((string)$vals[$cols['wangwang']]) : '';
+        $incoming = 0;
+        $totalSec = 0.0;
+        $replyCount = 0;
+        $replySpeed = 0.0;
+        if ($cols['incoming'] !== null && isset($vals[$cols['incoming']])) $incoming = (int)extract_amount($vals[$cols['incoming']]);
+        if ($cols['total_sec'] !== null && isset($vals[$cols['total_sec']])) $totalSec = (float)extract_amount($vals[$cols['total_sec']]);
+        if ($cols['reply_count'] !== null && isset($vals[$cols['reply_count']])) $replyCount = (int)extract_amount($vals[$cols['reply_count']]);
+        if ($cols['reply_speed'] !== null && isset($vals[$cols['reply_speed']])) $replySpeed = (float)extract_amount($vals[$cols['reply_speed']]);
+
+        // 日期 → 年月
+        $year = 0; $month = 0;
+        if ($cols['date'] !== null && isset($vals[$cols['date']]) && trim((string)$vals[$cols['date']]) !== '') {
+            $d = trim((string)$vals[$cols['date']]);
+            if (preg_match('/(\d{4})[-/.年](\d{1,2})/', $d, $m)) { $year = (int)$m[1]; $month = (int)$m[2]; }
+        }
+        if ($year <= 0 && $cols['year'] !== null && isset($vals[$cols['year']])) $year = (int)extract_amount($vals[$cols['year']]);
+        if ($month <= 0 && $cols['month'] !== null && isset($vals[$cols['month']])) $month = (int)extract_amount($vals[$cols['month']]);
+        if ($year <= 0 || $month < 1 || $month > 12) { $errors++; continue; }
+
+        // 匹配员工：优先旺旺账号，其次姓名
+        $emp = null;
+        $wangKey = mb_strtolower($wang);
+        if ($wangKey !== '' && isset($byWang[$wangKey])) $emp = $byWang[$wangKey];
+        if ($emp === null && $name !== '' && isset($byName[$name])) $emp = $byName[$name];
+
+        if ($emp === null) {
+            // 未匹配 → 暂存
+            $pk = ($wang !== '' ? 'w:' . $wangKey : 'n:' . $name) . "|$year-$month";
+            if (!isset($pendingKey[$pk])) {
+                $pendingKey[$pk] = ['wangwang'=>$wang,'name'=>$name,'year'=>$year,'month'=>$month,'incoming'=>0,'total'=>0.0,'replyCnt'=>0,'avgSum'=>0.0,'avgN'=>0];
+            }
+            $pendingKey[$pk]['incoming'] += $incoming;
+            $pendingKey[$pk]['total'] += $totalSec;
+            $pendingKey[$pk]['replyCnt'] += $replyCount;
+            if ($replySpeed > 0) { $pendingKey[$pk]['avgSum'] += $replySpeed; $pendingKey[$pk]['avgN']++; }
+            continue;
+        }
+
+        $ek = (int)$emp['id'] . "|$year-$month";
+        if (!isset($monthAgg[$ek])) {
+            $monthAgg[$ek] = ['emp'=>$emp,'year'=>$year,'month'=>$month,'incoming'=>0,'total'=>0.0,'replyCnt'=>0,'avgSum'=>0.0,'avgN'=>0];
+        }
+        $monthAgg[$ek]['incoming'] += $incoming;
+        $monthAgg[$ek]['total'] += $totalSec;
+        $monthAgg[$ek]['replyCnt'] += $replyCount;
+        if ($replySpeed > 0) { $monthAgg[$ek]['avgSum'] += $replySpeed; $monthAgg[$ek]['avgN']++; }
+    }
+
+    $detail = [];
+
+    // 已匹配 → 覆盖式写入主表（保留 remark / deal_count 手动值）
+    $upsert = $pdo->prepare("INSERT INTO customer_service_performance
+        (employee_id, year, month, reply_speed, incoming_count, source_file)
+        VALUES (?, ?, ?, ?, ?, ?)
+        ON DUPLICATE KEY UPDATE
+        reply_speed=VALUES(reply_speed), incoming_count=VALUES(incoming_count), source_file=VALUES(source_file)");
+    foreach ($monthAgg as $agg) {
+        $incoming = $agg['incoming'];
+        $replySpeed = 0.0;
+        if ($incoming > 0 && $agg['replyCnt'] > 0 && $agg['total'] > 0) {
+            $replySpeed = round($agg['total'] / $agg['replyCnt'], 1); // 总回复秒 ÷ 回复条数 = 平均回复秒
+        } elseif ($incoming > 0 && $agg['total'] > 0) {
+            $replySpeed = round($agg['total'] / $incoming, 1); // 兼容无回复次数列的文件
+        } elseif ($agg['avgN'] > 0) {
+            $replySpeed = round($agg['avgSum'] / $agg['avgN'], 1); // 第三方平均回复速度列回退
+        }
+        $upsert->execute([(int)$agg['emp']['id'], $agg['year'], $agg['month'], $replySpeed, $incoming, $source]);
+        $detail[] = sprintf('%s %04d-%02d 进线%d 回复%.1fs', $agg['emp']['name'], $agg['year'], $agg['month'], $incoming, $replySpeed);
+    }
+
+    // 未匹配 → 先清该 key 旧暂存再写入（避免重复上传叠加）
+    $delPending = $pdo->prepare("DELETE FROM cs_perf_pending WHERE wangwang=? AND name=? AND year=? AND month=?");
+    $insPending = $pdo->prepare("INSERT INTO cs_perf_pending
+        (wangwang, name, year, month, incoming_count, total_reply_seconds, source_file, raw_json)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
+    $pendingCount = 0;
+    foreach ($pendingKey as $pk => $p) {
+        $delPending->execute([$p['wangwang'], $p['name'], $p['year'], $p['month']]);
+        $raw = json_encode(['wangwang'=>$p['wangwang'],'name'=>$p['name'],'year'=>$p['year'],'month'=>$p['month'],'incoming'=>$p['incoming'],'total_reply_seconds'=>$p['total']], JSON_UNESCAPED_UNICODE);
+        $insPending->execute([$p['wangwang'], $p['name'], $p['year'], $p['month'], $p['incoming'], $p['total'], $source, $raw]);
+        $pendingCount++;
+        $detail[] = sprintf('未匹配暂存：%s %04d-%02d', $p['name'] !== '' ? $p['name'] : $p['wangwang'], $p['year'], $p['month']);
+    }
+
+    // 写同步日志
+    $stmt = $pdo->prepare("INSERT INTO cs_perf_sync_log (source_file, matched, pending, errors, detail) VALUES (?,?,?,?,?)");
+    $stmt->execute([$source, count($monthAgg), $pendingCount, $errors, json_encode($detail, JSON_UNESCAPED_UNICODE)]);
+
+    return ['matched'=>count($monthAgg), 'pending'=>$pendingCount, 'errors'=>$errors, 'detail'=>$detail];
+}
+
