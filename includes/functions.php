@@ -1340,6 +1340,36 @@ function detect_cs_perf_columns($header)
 }
 
 /**
+ * 逐行解析 CSV（兼容 PHP 7.4 str_getcsv/fgetcsv 对 UTF-8 多字节中文字段的解析 bug）。
+ * 支持标准双引号包裹字段与 "" 转义引号；未闭合引号按普通字符处理。
+ * @param string $line
+ * @return array
+ */
+function csv_parse_line($line)
+{
+    $fields = [];
+    $cur = '';
+    $len = strlen($line);
+    $inQuotes = false;
+    $i = 0;
+    while ($i < $len) {
+        $ch = $line[$i];
+        if ($inQuotes) {
+            if ($ch === '"') {
+                if ($i + 1 < $len && $line[$i+1] === '"') { $cur .= '"'; $i += 2; continue; }
+                $inQuotes = false; $i++; continue;
+            }
+            $cur .= $ch; $i++; continue;
+        }
+        if ($ch === '"') { $inQuotes = true; $i++; continue; }
+        if ($ch === ',') { $fields[] = $cur; $cur = ''; $i++; continue; }
+        $cur .= $ch; $i++;
+    }
+    $fields[] = $cur; // 最后一段（含可能存在的空尾段）
+    return $fields;
+}
+
+/**
  * 导入一份客服绩效采集文件（工具上传或计划任务扫描共用）。
  *
  * 支持的工具标准列：员工姓名,旺旺账号,日期,进线数,回复总秒数
@@ -1367,7 +1397,7 @@ function import_cs_perf_file($filePath, $source = '')
     $lines = [];
     foreach (preg_split('/\r\n|\r|\n/', $content) as $line) {
         if (trim($line) === '') continue;
-        $lines[] = str_getcsv($line);
+        $lines[] = csv_parse_line(rtrim($line, "\r"));
     }
     if (count($lines) < 2) {
         return ['matched'=>0,'pending'=>0,'errors'=>1,'detail'=>['无数据行']];
@@ -1409,7 +1439,7 @@ function import_cs_perf_file($filePath, $source = '')
         $year = 0; $month = 0;
         if ($cols['date'] !== null && isset($vals[$cols['date']]) && trim((string)$vals[$cols['date']]) !== '') {
             $d = trim((string)$vals[$cols['date']]);
-            if (preg_match('/(\d{4})[-/.年](\d{1,2})/', $d, $m)) { $year = (int)$m[1]; $month = (int)$m[2]; }
+            if (preg_match('#(\d{4})[-/.年](\d{1,2})#', $d, $m)) { $year = (int)$m[1]; $month = (int)$m[2]; }
         }
         if ($year <= 0 && $cols['year'] !== null && isset($vals[$cols['year']])) $year = (int)extract_amount($vals[$cols['year']]);
         if ($month <= 0 && $cols['month'] !== null && isset($vals[$cols['month']])) $month = (int)extract_amount($vals[$cols['month']]);
