@@ -29,19 +29,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } else {
             $upErr = '移除失败，请重试';
         }
-    } elseif ($action === 'member_set_wangwang') {
-        $eid = (int)($_POST['employee_id'] ?? 0);
-        $ww  = trim($_POST['wangwang'] ?? '');
-        try {
-            $st = db()->prepare("UPDATE employees SET wangwang=? WHERE id=?");
-            $st->execute([$ww, $eid]);
-            $upMsg = '旺旺账号已保存（采集数据将按此账号自动匹配到此员工）';
-        } catch (\Throwable $e) {
-            $upErr = '保存旺旺账号失败，请重试';
-        }
     } elseif ($action === 'import') {
         if (!empty($_FILES['file']['tmp_name']) && is_uploaded_file($_FILES['file']['tmp_name'])) {
-            $r = import_cs_perf_file($_FILES['file']['tmp_name'], 'admin:' . basename($_FILES['file']['name']));
+            $r = import_cs_perf_file($_FILES['file']['tmp_name'], 'admin:' . basename($_FILES['file']['name']), $year, $month);
             $upMsg = sprintf('导入完成：匹配 %d 人，未匹配 %d 条，错误 %d 条', $r['matched'], $r['pending'], $r['errors']);
         } else {
             $upErr = '请选择要导入的采集文件（CSV）';
@@ -144,25 +134,13 @@ include __DIR__ . '/../includes/header.php';
         <div class="table-responsive">
             <table class="table table-sm table-bordered mb-0">
                 <thead class="thead-light">
-                    <tr><th>姓名</th><th>部门</th><th>旺旺账号</th><th style="width:100px">操作</th></tr>
+                    <tr><th>姓名</th><th>部门</th><th style="width:100px">操作</th></tr>
                 </thead>
                 <tbody>
                 <?php foreach ($roster as $emp): ?>
                     <tr>
                         <td><?php echo e($emp['name']); ?></td>
                         <td><span class="badge badge-info"><?php echo e($emp['department']); ?></span></td>
-                        <td>
-                            <form method="post" class="m-0">
-                                <input type="hidden" name="action" value="member_set_wangwang">
-                                <input type="hidden" name="employee_id" value="<?php echo (int)$emp['id']; ?>">
-                                <div class="input-group input-group-sm">
-                                    <input type="text" name="wangwang" class="form-control form-control-sm" style="min-width:160px" value="<?php echo e($emp['wangwang'] ?? ''); ?>" placeholder="多个旺旺账号用逗号分隔">
-                                    <div class="input-group-append">
-                                        <button class="btn btn-outline-success" title="保存该员工对应的旺旺账号"><i class="fas fa-save"></i></button>
-                                    </div>
-                                </div>
-                            </form>
-                        </td>
                         <td style="width:100px">
                             <form method="post" onsubmit="return confirm('移除后将不再统计该员工的客服绩效，确定？')">
                                 <input type="hidden" name="action" value="member_remove">
@@ -178,7 +156,7 @@ include __DIR__ . '/../includes/header.php';
                 </tbody>
             </table>
         </div>
-        <small class="text-muted d-block mt-2"><i class="fas fa-info-circle"></i> 采集工具记录的是「旺旺账号」，请在列表里给每位员工填上对应的旺旺账号，上传数据就会自动匹配到该员工；一人可登多个店铺旺旺，<b>多个账号用逗号分隔</b>（如：shopA,shopB）；留空则匹配不到，会进下方「待匹配清单」。</small>
+        <small class="text-muted d-block mt-2"><i class="fas fa-info-circle"></i> 只有名单内的员工参与绩效底薪；采集工具上传的数据会按「员工姓名 → 旺旺账号」自动归到对应员工名下。</small>
     </div>
 </div>
 
@@ -299,7 +277,7 @@ include __DIR__ . '/../includes/header.php';
                     <button type="button" class="close" data-dismiss="modal">&times;</button>
                 </div>
                 <div class="modal-body">
-                    <p class="text-muted small">选择客服采集工具（或第三方）生成的 CSV，列名需含：姓名/旺旺、日期、进线数、回复总秒数（或回复速度）。导入后按旺旺账号/姓名自动匹配员工。</p>
+                    <p class="text-muted small">支持千牛/官网导出的客服绩效表 或 采集工具 CSV。系统会自动识别列名（如：客服、接待人数、平均响应时长、进线数、回复总秒数等），时长支持 HH:MM:SS / X分X秒 / 秒。文件里没有日期的月度汇总表，默认归到页面当前选择的月份。导入后按旺旺账号/姓名自动匹配员工，未匹配的进「待匹配清单」。</p>
                     <input type="file" name="file" accept=".csv,.txt" class="form-control-file">
                 </div>
                 <div class="modal-footer">

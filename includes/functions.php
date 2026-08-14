@@ -1397,17 +1397,54 @@ function detect_cs_perf_columns($header)
     foreach ($header as $i => $cell) {
         $c = mb_strtolower(trim((string)$cell));
         $c = str_replace([' ', "\xEF\xBB\xBF"], '', $c);
-        if ($map['name'] === null && (strpos($c, '姓名') !== false || strpos($c, '客服') !== false || $c === 'name' || $c === 'employee')) $map['name'] = $i;
-        if ($map['wangwang'] === null && (strpos($c, '旺旺') !== false || $c === 'wangwang' || $c === 'wangwangno')) $map['wangwang'] = $i;
+        $hasWW  = (strpos($c, '旺旺') !== false || $c === 'wangwang' || $c === 'wangwangno');
+        $hasKefu = (strpos($c, '客服') !== false || strpos($c, '姓名') !== false || strpos($c, '员工') !== false || $c === 'name' || $c === 'employee');
+        if ($map['wangwang'] === null && $hasWW) $map['wangwang'] = $i;
+        if ($map['name'] === null && $hasKefu && !$hasWW) $map['name'] = $i;
         if ($map['date'] === null && (strpos($c, '日期') !== false || strpos($c, 'date') !== false)) $map['date'] = $i;
         if ($map['year'] === null && (strpos($c, '年份') !== false || $c === 'year')) $map['year'] = $i;
         if ($map['month'] === null && (strpos($c, '月份') !== false || $c === 'month')) $map['month'] = $i;
-        if ($map['incoming'] === null && (strpos($c, '进线') !== false || strpos($c, '接待') !== false || strpos($c, '会话') !== false || strpos($c, '人数') !== false)) $map['incoming'] = $i;
-        if ($map['total_sec'] === null && (strpos($c, '总秒') !== false || strpos($c, '总回复') !== false || strpos($c, '回复时长') !== false || strpos($c, '回复秒数') !== false)) $map['total_sec'] = $i;
+        // 接待/进线人数
+        if ($map['incoming'] === null && (strpos($c, '接待') !== false || strpos($c, '进线') !== false || strpos($c, '会话') !== false || strpos($c, '咨询') !== false || strpos($c, '人数') !== false || strpos($c, '买家数') !== false)) $map['incoming'] = $i;
+        // 总回复时长（秒）
+        if ($map['total_sec'] === null && (strpos($c, '总秒') !== false || strpos($c, '总回复') !== false || strpos($c, '回复秒数') !== false || strpos($c, '回复总时长') !== false)) $map['total_sec'] = $i;
         if ($map['reply_count'] === null && (strpos($c, '回复次数') !== false || strpos($c, '回复条数') !== false || $c === 'replycount' || $c === 'replycounts')) $map['reply_count'] = $i;
-        if ($map['reply_speed'] === null && (strpos($c, '平均回复') !== false || strpos($c, '回复速度') !== false)) $map['reply_speed'] = $i;
+        // 平均回复/响应时长（千牛官方导出常用「平均响应时长」「平均首次响应时长」）
+        if ($map['reply_speed'] === null && (strpos($c, '响应时长') !== false || strpos($c, '响应时间') !== false || strpos($c, '回复时长') !== false || strpos($c, '平均回复') !== false || strpos($c, '回复速度') !== false || strpos($c, '首次响应') !== false)) $map['reply_speed'] = $i;
     }
     return $map;
+}
+
+/**
+ * 把导出的时长文本转成秒。兼容千牛/官方导出常见格式：
+ *   "00:01:30" / "3:25"（时:分:秒 或 分:秒）
+ *   "1分30秒" / "1分钟30秒" / "90秒" / "90"
+ *   "1分 30秒" 等含空白/中文
+ * @param mixed $raw
+ * @return float 秒；无法解析返回 0
+ */
+function parse_duration_to_seconds($raw)
+{
+    $s = trim((string)$raw);
+    if ($s === '' || $s === '-') return 0.0;
+    // 冒号格式：HH:MM:SS 或 MM:SS
+    if (strpos($s, ':') !== false) {
+        $parts = array_map('intval', explode(':', $s));
+        $n = count($parts);
+        if ($n === 3) return (float)($parts[0]*3600 + $parts[1]*60 + $parts[2]);
+        if ($n === 2) return (float)($parts[0]*60 + $parts[1]);
+    }
+    // 中文：X分Y秒 / X分钟Y秒 / X秒 / X时...
+    if (mb_strpos($s, '秒') !== false || mb_strpos($s, '分') !== false || mb_strpos($s, '时') !== false) {
+        $h = 0; $m = 0; $sec = 0;
+        if (preg_match('#(\d+(?:\.\d+)?)\s*秒#u', $s, $mm)) $sec = (float)$mm[1];
+        if (preg_match('#(\d+(?:\.\d+)?)\s*分#u', $s, $mm)) $m = (float)$mm[1];
+        if (preg_match('#(\d+(?:\.\d+)?)\s*时#u', $s, $mm)) $h = (float)$mm[1];
+        if ($h > 0 || $m > 0 || $sec > 0) return (float)($h*3600 + $m*60 + $sec);
+    }
+    // 纯数字 → 秒
+    if (preg_match('#^\d+(\.\d+)?$#', str_replace(',', '', $s))) return (float)str_replace(',', '', $s);
+    return 0.0;
 }
 
 /**
@@ -1441,16 +1478,34 @@ function csv_parse_line($line)
 }
 
 /**
- * 导入一份客服绩效采集文件（工具上传或计划任务扫描共用）。
+ * 归一化单个旺旺账号：兼容「店铺名:账号」或「纯账号」写法，取冒号后的账号（如 美呀美旗舰店:依蝶雅涵涵 → 依蝶雅涵涵）。
+ */
+function normalize_cs_wangwang($s)
+{
+    $s = trim((string)$s);
+    if ($s === '') return '';
+    if (strpos($s, ':') !== false || strpos($s, '：') !== false) {
+        $parts = explode(':', str_replace('：', ':', $s));
+        if (count($parts) > 1) $s = trim((string)end($parts));
+    }
+    return $s;
+}
+
+/**
+ * 导入一份客服绩效数据文件（采集工具上传 / 千牛官网导出 / 计划任务扫描共用）。
  *
- * 支持的工具标准列：员工姓名,旺旺账号,日期,进线数,回复总秒数
- * 兼容第三方导出：按列名模糊匹配；未匹配到员工的行暂存 cs_perf_pending。
+ * 自动识别列名（含千牛/官方导出：客服、接待人数、平均响应时长等），
+ * 时长支持 "HH:MM:SS" / "X分X秒" / 纯秒 等格式。
+ * 文件里没有日期列的月度汇总表，可传入 $defaultYear/$defaultMonth 归到指定月份。
+ * 未匹配到员工的行暂存 cs_perf_pending。
  *
  * @param string $filePath 文件绝对路径
  * @param string $source   来源标识（文件名/说明）
+ * @param int    $defaultYear  文件无日期时使用的年份（0=必须从文件取）
+ * @param int    $defaultMonth 文件无日期时使用的月份（0=必须从文件取）
  * @return array ['matched'=>n,'pending'=>n,'errors'=>n,'detail'=>[每员工写入说明]]
  */
-function import_cs_perf_file($filePath, $source = '')
+function import_cs_perf_file($filePath, $source = '', $defaultYear = 0, $defaultMonth = 0)
 {
     if ($source === '') $source = basename($filePath);
 
@@ -1480,13 +1535,15 @@ function import_cs_perf_file($filePath, $source = '')
     ensureCsPerfSchema();
     $pdo = db();
 
-    // 员工映射：姓名精确、旺旺账号(大小写不敏感；一人可同时登录多个账号，用逗号/空格分隔)
+    // 员工映射：姓名精确、旺旺账号(大小写不敏感；一人可同时登录多个账号，用逗号/空格分隔，兼容「店铺名:账号」写法)
+    // 注意：PHP7.4 的 preg_split 不带 /u 会破坏 UTF-8 中文，这里用字节安全的 str_replace+explode 拆分
     $byName = [];
     $byWang = [];
     foreach (get_employees() as $e) {
         if (trim($e['name']) !== '') $byName[trim($e['name'])] = $e;
-        foreach (preg_split('/[,，;；\s]+/', (string)($e['wangwang'] ?? '')) as $ww) {
-            $ww = trim($ww);
+        $wws = str_replace(['，','；',';',',',' ','　',"\t","\r","\n"], ',', (string)($e['wangwang'] ?? ''));
+        foreach (explode(',', $wws) as $ww) {
+            $ww = normalize_cs_wangwang($ww);
             if ($ww !== '') $byWang[mb_strtolower($ww)] = $e;
         }
     }
@@ -1507,9 +1564,10 @@ function import_cs_perf_file($filePath, $source = '')
         if ($cols['incoming'] !== null && isset($vals[$cols['incoming']])) $incoming = (int)extract_amount($vals[$cols['incoming']]);
         if ($cols['total_sec'] !== null && isset($vals[$cols['total_sec']])) $totalSec = (float)extract_amount($vals[$cols['total_sec']]);
         if ($cols['reply_count'] !== null && isset($vals[$cols['reply_count']])) $replyCount = (int)extract_amount($vals[$cols['reply_count']]);
-        if ($cols['reply_speed'] !== null && isset($vals[$cols['reply_speed']])) $replySpeed = (float)extract_amount($vals[$cols['reply_speed']]);
+        // 平均回复/响应时长：可能是 HH:MM:SS、X分X秒、纯秒，统一转成秒
+        if ($cols['reply_speed'] !== null && isset($vals[$cols['reply_speed']])) $replySpeed = (float)parse_duration_to_seconds($vals[$cols['reply_speed']]);
 
-        // 日期 → 年月
+        // 日期 → 年月（文件无日期时用调用方给定的默认年月）
         $year = 0; $month = 0;
         if ($cols['date'] !== null && isset($vals[$cols['date']]) && trim((string)$vals[$cols['date']]) !== '') {
             $d = trim((string)$vals[$cols['date']]);
@@ -1517,13 +1575,16 @@ function import_cs_perf_file($filePath, $source = '')
         }
         if ($year <= 0 && $cols['year'] !== null && isset($vals[$cols['year']])) $year = (int)extract_amount($vals[$cols['year']]);
         if ($month <= 0 && $cols['month'] !== null && isset($vals[$cols['month']])) $month = (int)extract_amount($vals[$cols['month']]);
+        if ($year <= 0 && $defaultYear > 0) $year = (int)$defaultYear;
+        if ($month <= 0 && $defaultMonth > 0) $month = (int)$defaultMonth;
         if ($year <= 0 || $month < 1 || $month > 12) { $errors++; continue; }
 
-        // 匹配员工：优先旺旺账号，其次姓名
+        // 匹配员工：优先旺旺账号(归一化)，其次姓名；导出表把账号填在「客服」列等情形再做兜底
         $emp = null;
-        $wangKey = mb_strtolower($wang);
+        $wangKey = mb_strtolower(normalize_cs_wangwang($wang));
         if ($wangKey !== '' && isset($byWang[$wangKey])) $emp = $byWang[$wangKey];
         if ($emp === null && $name !== '' && isset($byName[$name])) $emp = $byName[$name];
+        if ($emp === null && $name !== '' && isset($byWang[mb_strtolower(normalize_cs_wangwang($name))])) $emp = $byWang[mb_strtolower(normalize_cs_wangwang($name))];
 
         if ($emp === null) {
             // 未匹配 → 暂存
@@ -1559,7 +1620,9 @@ function import_cs_perf_file($filePath, $source = '')
     foreach ($monthAgg as $agg) {
         $incoming = $agg['incoming'];
         $replySpeed = 0.0;
-        if ($incoming > 0 && $agg['replyCnt'] > 0 && $agg['total'] > 0) {
+        if ($agg['avgN'] > 0) {
+            $replySpeed = round($agg['avgSum'] / $agg['avgN'], 1); // 优先直接用导出的平均回复/响应时长
+        } elseif ($incoming > 0 && $agg['replyCnt'] > 0 && $agg['total'] > 0) {
             $replySpeed = round($agg['total'] / $agg['replyCnt'], 1); // 总回复秒 ÷ 回复条数 = 平均回复秒
         } elseif ($incoming > 0 && $agg['total'] > 0) {
             $replySpeed = round($agg['total'] / $incoming, 1); // 兼容无回复次数列的文件
