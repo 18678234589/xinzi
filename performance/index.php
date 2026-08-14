@@ -29,6 +29,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } else {
             $upErr = '移除失败，请重试';
         }
+    } elseif ($action === 'member_set_wangwang') {
+        $eid = (int)($_POST['employee_id'] ?? 0);
+        $ww  = trim($_POST['wangwang'] ?? '');
+        try {
+            $st = db()->prepare("UPDATE employees SET wangwang=? WHERE id=?");
+            $st->execute([$ww, $eid]);
+            $upMsg = '旺旺账号已保存（采集数据将按此账号自动匹配到此员工）';
+        } catch (\Throwable $e) {
+            $upErr = '保存旺旺账号失败，请重试';
+        }
     } elseif ($action === 'import') {
         if (!empty($_FILES['file']['tmp_name']) && is_uploaded_file($_FILES['file']['tmp_name'])) {
             $r = import_cs_perf_file($_FILES['file']['tmp_name'], 'admin:' . basename($_FILES['file']['name']));
@@ -141,8 +151,19 @@ include __DIR__ . '/../includes/header.php';
                     <tr>
                         <td><?php echo e($emp['name']); ?></td>
                         <td><span class="badge badge-info"><?php echo e($emp['department']); ?></span></td>
-                        <td><?php echo e($emp['wangwang'] ?? ''); ?></td>
                         <td>
+                            <form method="post" class="m-0">
+                                <input type="hidden" name="action" value="member_set_wangwang">
+                                <input type="hidden" name="employee_id" value="<?php echo (int)$emp['id']; ?>">
+                                <div class="input-group input-group-sm">
+                                    <input type="text" name="wangwang" class="form-control form-control-sm" style="min-width:130px" value="<?php echo e($emp['wangwang'] ?? ''); ?>" placeholder="填写对应旺旺账号">
+                                    <div class="input-group-append">
+                                        <button class="btn btn-outline-success" title="保存该员工对应的旺旺账号"><i class="fas fa-save"></i></button>
+                                    </div>
+                                </div>
+                            </form>
+                        </td>
+                        <td style="width:100px">
                             <form method="post" onsubmit="return confirm('移除后将不再统计该员工的客服绩效，确定？')">
                                 <input type="hidden" name="action" value="member_remove">
                                 <input type="hidden" name="employee_id" value="<?php echo (int)$emp['id']; ?>">
@@ -157,6 +178,7 @@ include __DIR__ . '/../includes/header.php';
                 </tbody>
             </table>
         </div>
+        <small class="text-muted d-block mt-2"><i class="fas fa-info-circle"></i> 采集工具记录的是「旺旺账号」，请在列表里给每位员工填上对应的旺旺账号，上传数据就会自动匹配到该员工；留空则匹配不到，会进下方「待匹配清单」。</small>
     </div>
 </div>
 
