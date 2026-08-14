@@ -1282,6 +1282,49 @@ function ensureCsPerfSchema()
             SELECT id FROM `employees`
             WHERE department IN ('网站客服', '设计客服') OR name IN ('郭文娟', '刘媛媛')");
     }
+
+    // 6. 绩效方案（算法）：绩效基数之外的指标权重/目标/金额阶梯
+    $schemesExists = true;
+    try {
+        $pdo->query("SELECT 1 FROM `cs_perf_schemes` LIMIT 1");
+    } catch (\Throwable $e) {
+        $schemesExists = false;
+        $pdo->exec("CREATE TABLE IF NOT EXISTS `cs_perf_schemes` (
+            `id` INT AUTO_INCREMENT PRIMARY KEY,
+            `name` VARCHAR(100) NOT NULL COMMENT '方案名称',
+            `weight_reply` DECIMAL(5,2) NOT NULL DEFAULT 1 COMMENT '回复速度权重',
+            `target_reply_sec` DECIMAL(8,1) NOT NULL DEFAULT 0 COMMENT '目标回复速度(秒)',
+            `weight_incoming` DECIMAL(5,2) NOT NULL DEFAULT 1 COMMENT '接待人数权重',
+            `target_incoming` INT NOT NULL DEFAULT 0 COMMENT '目标进线人数',
+            `weight_conv` DECIMAL(5,2) NOT NULL DEFAULT 1 COMMENT '转化率权重',
+            `target_conversion_pct` DECIMAL(6,2) NOT NULL DEFAULT 0 COMMENT '目标转化率(%)',
+            `weight_amount` DECIMAL(5,2) NOT NULL DEFAULT 1 COMMENT '接单金额权重',
+            `amount_tiers` TEXT NULL COMMENT '金额阶梯JSON [{threshold,factor}]',
+            `floor_pct` DECIMAL(6,2) NOT NULL DEFAULT 0 COMMENT '保底(基数的%)',
+            `cap_pct` DECIMAL(6,2) NOT NULL DEFAULT 0 COMMENT '封顶(基数的%)',
+            `is_default` TINYINT(1) NOT NULL DEFAULT 0 COMMENT '默认方案',
+            `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT '客服绩效方案(算法)'");
+    }
+    // 仅首次建表时创建默认方案，便于直接沿用/修改
+    if (!$schemesExists) {
+        $pdo->exec("INSERT IGNORE INTO `cs_perf_schemes`
+            (id, name, weight_reply, target_reply_sec, weight_incoming, weight_conv, weight_amount, is_default)
+            VALUES (1, '默认方案', 1, 90, 1, 1, 1, 1)");
+    }
+
+    // 7. 部门基数配置：绩效基数按部门设置（部门可自定义添加）
+    try {
+        $pdo->query("SELECT 1 FROM `cs_perf_dept_config` LIMIT 1");
+    } catch (\Throwable $e) {
+        $pdo->exec("CREATE TABLE IF NOT EXISTS `cs_perf_dept_config` (
+            `department` VARCHAR(100) NOT NULL PRIMARY KEY COMMENT '部门名称',
+            `scheme_id` INT NOT NULL DEFAULT 1 COMMENT '绩效方案ID',
+            `base` DECIMAL(10,2) NOT NULL DEFAULT 0 COMMENT '绩效基数(元)',
+            `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT '客服绩效部门基数配置'");
+    }
 }
 
 /**
@@ -1383,6 +1426,320 @@ function get_employee_deal_count($employeeId, $year, $month)
     } catch (\Throwable $e) {
         return 0;
     }
+}
+
+/**
+ * 实时汇总某客服员工当月成交/接单金额（口径同 get_employee_deal_count：核验月、非异常、非退款、非部门拆分）。
+ * @return float 元
+ */
+function get_employee_order_total($employeeId, $year, $month)
+{
+    try {
+        $monthStr = sprintf('%04d-%02d', (int)$year, (int)$month);
+        $credit = "(JSON_UNQUOTE(JSON_EXTRACT(raw_data, '$.__verified_month__')) = ?"
+            . " OR ((raw_data IS NULL OR JSON_UNQUOTE(JSON_EXTRACT(raw_data, '$.__verified_month__')) IS NULL"
+            . "   OR JSON_UNQUOTE(JSON_EXTRACT(raw_data, '$.__verified_month__')) = '')"
+            . "  AND (raw_data IS NULL OR JSON_UNQUOTE(JSON_EXTRACT(raw_data, '$.__order_status__')) IS NULL"
+            . "   OR JSON_UNQUOTE(JSON_EXTRACT(raw_data, '$.__order_status__')) = ''"
+            . "   OR JSON_UNQUOTE(JSON_EXTRACT(raw_data, '$.__order_status__')) <> '未核验')"
+            . "  AND DATE_FORMAT(order_date, '%Y-%m') = ?))";
+        $stmt = db()->prepare("SELECT o.order_amount, o.raw_data FROM orders o"
+            . " WHERE o.employee_id=? AND $credit AND COALESCE(o.is_abnormal,0)=0"
+            . " AND COALESCE(o.is_deleted,0)=0"
+            . " AND (o.raw_data IS NULL OR o.raw_data NOT LIKE '%\"__from_dept__\"%')");
+        $stmt->execute([(int)$employeeId, $monthStr, $monthStr]);
+        $total = 0.0;
+        foreach ($stmt->fetchAll() as $r) {
+            if ((float)$r['order_amount'] < 0) continue; // 退款(负数)不计
+            $rd = is_string($r['raw_data'] ?? '') ? json_decode($r['raw_data'], true) : ($r['raw_data'] ?? []);
+            if (is_array($rd) && isset($rd['__is_refund__']) && $rd['__is_refund__'] === '1') continue;
+            $total += (float)$r['order_amount'];
+        }
+        return round($total, 2);
+    } catch (\Throwable $e) {
+        return 0.0;
+    }
+}
+
+/* ---------------- 绩效方案（算法） ---------------- */
+
+/**
+ * 全部绩效方案列表
+ * @return array
+ */
+function get_cs_perf_schemes()
+{
+    try {
+        return db()->query("SELECT * FROM cs_perf_schemes ORDER BY is_default DESC, id ASC")->fetchAll();
+    } catch (\Throwable $e) {
+        return [];
+    }
+}
+
+/**
+ * 读取单个绩效方案
+ */
+function get_cs_perf_scheme($id)
+{
+    try {
+        $st = db()->prepare("SELECT * FROM cs_perf_schemes WHERE id=?");
+        $st->execute([(int)$id]);
+        $row = $st->fetch();
+        return $row ?: null;
+    } catch (\Throwable $e) {
+        return null;
+    }
+}
+
+/**
+ * 保存/新增一个绩效方案。$id=0 表示新增。
+ * @param array $p 键：name, weight_reply, target_reply_sec, weight_incoming, target_incoming,
+ *                  weight_conv, target_conversion_pct, weight_amount, amount_tiers(string JSON), floor_pct, cap_pct, is_default
+ * @return bool
+ */
+function save_cs_perf_scheme($id, $p)
+{
+    try {
+        $pdo  = db();
+        $id   = (int)$id;
+        $name = (string)($p['name'] ?? '');
+        if (trim($name) === '') return false;
+        $fields = [
+            (float)($p['weight_reply'] ?? 1),   (float)($p['target_reply_sec'] ?? 0),
+            (float)($p['weight_incoming'] ?? 1),(int)($p['target_incoming'] ?? 0),
+            (float)($p['weight_conv'] ?? 1),    (float)($p['target_conversion_pct'] ?? 0),
+            (float)($p['weight_amount'] ?? 1),
+            (string)($p['amount_tiers'] ?? ''),
+            (float)($p['floor_pct'] ?? 0),      (float)($p['cap_pct'] ?? 0),
+            (int)(!empty($p['is_default']) ? 1 : 0),
+        ];
+        if ($fields[10]) $pdo->exec("UPDATE cs_perf_schemes SET is_default=0");
+        if ($id > 0) {
+            $st = $pdo->prepare("UPDATE cs_perf_schemes SET name=?, weight_reply=?, target_reply_sec=?, weight_incoming=?, target_incoming=?, weight_conv=?, target_conversion_pct=?, weight_amount=?, amount_tiers=?, floor_pct=?, cap_pct=?, is_default=? WHERE id=?");
+            return (bool)$st->execute(array_merge($fields, [$id]));
+        }
+        $st = $pdo->prepare("INSERT INTO cs_perf_schemes (name, weight_reply, target_reply_sec, weight_incoming, target_incoming, weight_conv, target_conversion_pct, weight_amount, amount_tiers, floor_pct, cap_pct, is_default) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)");
+        return (bool)$st->execute(array_merge([$name], $fields));
+    } catch (\Throwable $e) {
+        return false;
+    }
+}
+
+/**
+ * 删除绩效方案；被删方案在部门配置里回退到剩余的最小 id 方案，并把该方案设为默认。
+ */
+function delete_cs_perf_scheme($id)
+{
+    try {
+        $pdo = db();
+        $id  = (int)$id;
+        $pdo->prepare("DELETE FROM cs_perf_schemes WHERE id=?")->execute([$id]);
+        $remain = (int)$pdo->query("SELECT COUNT(*) FROM cs_perf_schemes")->fetchColumn();
+        if ($remain > 0) {
+            $defId = (int)$pdo->query("SELECT MIN(id) FROM cs_perf_schemes")->fetchColumn();
+            if ($defId > 0) {
+                $pdo->exec("UPDATE cs_perf_schemes SET is_default=0");
+                $pdo->exec("UPDATE cs_perf_schemes SET is_default=1 WHERE id=$defId");
+                $pdo->exec("UPDATE cs_perf_dept_config SET scheme_id=$defId WHERE scheme_id=$id");
+            }
+        }
+        return true;
+    } catch (\Throwable $e) {
+        return false;
+    }
+}
+
+/* ---------------- 部门基数配置 ---------------- */
+
+/**
+ * 全部部门基数配置（含方案名）
+ */
+function get_cs_perf_dept_configs()
+{
+    try {
+        return db()->query("SELECT c.*, s.name scheme_name FROM cs_perf_dept_config c"
+            . " LEFT JOIN cs_perf_schemes s ON s.id=c.scheme_id ORDER BY c.department")->fetchAll();
+    } catch (\Throwable $e) {
+        return [];
+    }
+}
+
+/**
+ * 读取某部门的绩效基数配置
+ */
+function get_cs_perf_dept_config($dept)
+{
+    try {
+        $st = db()->prepare("SELECT c.*, s.name scheme_name FROM cs_perf_dept_config c"
+            . " LEFT JOIN cs_perf_schemes s ON s.id=c.scheme_id WHERE c.department=?");
+        $st->execute([(string)$dept]);
+        $row = $st->fetch();
+        return $row ?: null;
+    } catch (\Throwable $e) {
+        return null;
+    }
+}
+
+/**
+ * 保存/新增部门绩效配置（部门 → 基数 + 方案）。$oldDept 用于重命名（不等于 $dept 时先删旧)。
+ */
+function save_cs_perf_dept_config($dept, $schemeId, $base, $oldDept = '')
+{
+    try {
+        $pdo    = db();
+        $dept   = trim((string)$dept);
+        $oldDept = $oldDept !== '' ? $oldDept : $dept;
+        if ($dept === '') return false;
+        if ($oldDept !== $dept) $pdo->prepare("DELETE FROM cs_perf_dept_config WHERE department=?")->execute([$oldDept]);
+        $st = $pdo->prepare("INSERT INTO cs_perf_dept_config (department, scheme_id, base) VALUES (?,?,?)"
+            . " ON DUPLICATE KEY UPDATE scheme_id=VALUES(scheme_id), base=VALUES(base)");
+        return (bool)$st->execute([$dept, (int)$schemeId, (float)$base]);
+    } catch (\Throwable $e) {
+        return false;
+    }
+}
+
+/**
+ * 删除部门绩效配置
+ */
+function delete_cs_perf_dept_config($dept)
+{
+    try {
+        return (bool)db()->prepare("DELETE FROM cs_perf_dept_config WHERE department=?")->execute([(string)$dept]);
+    } catch (\Throwable $e) {
+        return false;
+    }
+}
+
+/* ---------------- 绩效金额计算（共享算法） ---------------- */
+
+/**
+ * 计算某员工某月客服绩效金额。绩效页展示与薪资结算共用此函数，保证结果一致。
+ *
+ * 公式：绩效金额 = 部门绩效基数 × 综合达成率（可设保底/封顶）
+ * 综合达成率 = Σ(启用指标 权重×达成率) / Σ(启用权重)
+ * 启用判定：权重>0 且 对应目标/阶梯已配置。
+ *   回复速度达成率 = 目标秒 / 实际秒（越低越快越好）
+ *   接待人数达成率 = 实际进线 / 目标进线
+ *   转化率达成率 = 实际转化率% / 目标转化率%（转化率 = 成交数/进线×100）
+ *   接单金额达成率 = 累计接单金额命中的阶梯系数
+ *
+ * 数据来源：cs_perf_dept_config（部门→基数+方案）；无部门配置时回退 $legacyCfg（旧版模块参数，无金额阶梯）。
+ *
+ * @param int        $employeeId 员工ID
+ * @param int        $year 年
+ * @param int        $month 月(1-12)
+ * @param array|null $legacyCfg 旧版「客服绩效底薪」模块参数（仅当部门未配置时回退使用）
+ * @return array ['amount'=>float, 'formula'=>string, 'base'=>float]
+ */
+function cs_perf_calc($employeeId, $year, $month, $legacyCfg = null)
+{
+    $employeeId = (int)$employeeId;
+    $base   = 0.0;
+    $params = null;
+
+    // 员工部门
+    $dept = '';
+    try {
+        $st = db()->prepare("SELECT department FROM employees WHERE id=?");
+        $st->execute([$employeeId]);
+        $dept = (string)$st->fetchColumn();
+    } catch (\Throwable $e) {}
+
+    // 优先部门基数+方案
+    $deptCfg = ($dept !== '') ? get_cs_perf_dept_config($dept) : null;
+    if ($deptCfg && (float)$deptCfg['base'] > 0 && (int)$deptCfg['scheme_id'] > 0) {
+        $base   = (float)$deptCfg['base'];
+        $scheme = get_cs_perf_scheme((int)$deptCfg['scheme_id']);
+        if ($scheme) {
+            $params = [
+                'weight_reply' => (float)$scheme['weight_reply'], 'target_reply_sec' => (float)$scheme['target_reply_sec'],
+                'weight_incoming' => (float)$scheme['weight_incoming'], 'target_incoming' => (int)$scheme['target_incoming'],
+                'weight_conv' => (float)$scheme['weight_conv'], 'target_conversion_pct' => (float)$scheme['target_conversion_pct'],
+                'weight_amount' => (float)$scheme['weight_amount'],
+                'amount_tiers' => is_string($scheme['amount_tiers'] ?? '') ? (json_decode($scheme['amount_tiers'], true) ?: []) : [],
+                'floor_pct' => (float)$scheme['floor_pct'], 'cap_pct' => (float)$scheme['cap_pct'],
+            ];
+        }
+    }
+
+    // 回退：旧版模块参数（无金额阶梯）
+    if ($params === null && is_array($legacyCfg)) {
+        $base = (float)($legacyCfg['base'] ?? 0);
+        $params = [
+            'weight_reply' => (float)($legacyCfg['weight_reply'] ?? 1), 'target_reply_sec' => (float)($legacyCfg['target_reply_sec'] ?? 0),
+            'weight_incoming' => (float)($legacyCfg['weight_incoming'] ?? 1), 'target_incoming' => (int)($legacyCfg['target_incoming'] ?? 0),
+            'weight_conv' => (float)($legacyCfg['weight_conversion'] ?? 1), 'target_conversion_pct' => (float)($legacyCfg['target_conversion_pct'] ?? 0),
+            'weight_amount' => 0, 'amount_tiers' => [],
+            'floor_pct' => (float)($legacyCfg['floor_pct'] ?? 0), 'cap_pct' => (float)($legacyCfg['cap_pct'] ?? 0),
+        ];
+    }
+
+    if ($params === null) {
+        return ['amount' => 0.0, 'formula' => '部门未配置绩效基数/方案', 'base' => 0.0];
+    }
+    if ($base <= 0) {
+        return ['amount' => 0.0, 'formula' => '绩效基数为0（部门未设置基数）', 'base' => 0.0];
+    }
+
+    $perf = get_cs_performance($employeeId, (int)$year, (int)$month);
+    if (!$perf) {
+        return ['amount' => 0.0, 'formula' => '当月无绩效数据', 'base' => $base];
+    }
+    $replySpeed = (float)$perf['reply_speed'];
+    $incoming   = (int)$perf['incoming_count'];
+    $dealCount  = $perf['deal_count'];
+    if ($dealCount === null || $dealCount === '') $dealCount = get_employee_deal_count($employeeId, (int)$year, (int)$month);
+    $orderTotal = get_employee_order_total($employeeId, (int)$year, (int)$month);
+
+    $parts  = [];
+    $wSum   = 0.0;
+    $rateSum = 0.0;
+
+    // 1. 回复速度（越低越快越好）
+    if ($params['weight_reply'] > 0 && $params['target_reply_sec'] > 0 && $replySpeed > 0) {
+        $rate = $params['target_reply_sec'] / $replySpeed;
+        $wSum += $params['weight_reply']; $rateSum += $params['weight_reply'] * $rate;
+        $parts[] = sprintf('回复%.1f%%×%.1f', $rate * 100, $params['weight_reply']);
+    }
+    // 2. 接待人数
+    if ($params['weight_incoming'] > 0 && $params['target_incoming'] > 0) {
+        $rate = $incoming / $params['target_incoming'];
+        $wSum += $params['weight_incoming']; $rateSum += $params['weight_incoming'] * $rate;
+        $parts[] = sprintf('接待%.1f%%×%.1f', $rate * 100, $params['weight_incoming']);
+    }
+    // 3. 转化率
+    if ($params['weight_conv'] > 0 && $params['target_conversion_pct'] > 0 && $incoming > 0) {
+        $convPct = $dealCount / $incoming * 100;
+        $rate    = $convPct / $params['target_conversion_pct'];
+        $wSum += $params['weight_conv']; $rateSum += $params['weight_conv'] * $rate;
+        $parts[] = sprintf('转化%.1f%%×%.1f', $rate * 100, $params['weight_conv']);
+    }
+    // 4. 接单金额阶梯（累计金额命中档位 → 系数）
+    $tiers = is_array($params['amount_tiers']) ? $params['amount_tiers'] : [];
+    if ($params['weight_amount'] > 0 && !empty($tiers)) {
+        usort($tiers, function($a, $b) { return ((float)($a['threshold'] ?? 0)) <=> ((float)($b['threshold'] ?? 0)); });
+        $factor = (float)($tiers[0]['factor'] ?? 1.0); // 默认取最低档系数
+        foreach ($tiers as $t) {
+            if ($orderTotal >= (float)($t['threshold'] ?? 0)) $factor = (float)($t['factor'] ?? $factor);
+        }
+        $wSum += $params['weight_amount']; $rateSum += $params['weight_amount'] * $factor;
+        $parts[] = sprintf('金额%.1f×%.1f', $factor, $params['weight_amount']);
+    }
+
+    if ($wSum <= 0) {
+        return ['amount' => 0.0, 'formula' => '方案未配置有效指标（需设置权重与目标/阶梯）', 'base' => $base];
+    }
+
+    $composite = $rateSum / $wSum;
+    $amount    = $base * $composite;
+    $clamp = '';
+    if ($params['floor_pct'] > 0) { $amount = max($amount, $base * $params['floor_pct'] / 100); $clamp .= ' 保底' . $params['floor_pct'] . '%'; }
+    if ($params['cap_pct'] > 0)   { $amount = min($amount, $base * $params['cap_pct'] / 100);   $clamp .= ' 封顶' . $params['cap_pct'] . '%'; }
+
+    $formula = (implode(' + ', $parts) ?: '-')
+        . sprintf(' → 综合%.1f%% × 基数%.2f = %.2f', $composite * 100, $base, $amount) . $clamp;
+    return ['amount' => round($amount, 2), 'formula' => $formula, 'base' => $base];
 }
 
 /**

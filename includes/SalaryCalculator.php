@@ -1756,16 +1756,6 @@ class SalaryCalculator
     // 无绩效数据按 0 计（可直接不在算法里启用该模块）。
     private static function calcCsPerformance($cfg, $c, $moduleName = '')
     {
-        $base           = (float)($cfg['base'] ?? 0);
-        $targetReplySec = (float)($cfg['target_reply_sec'] ?? 0);
-        $targetIncoming = (float)($cfg['target_incoming'] ?? 0);
-        $targetConvPct  = (float)($cfg['target_conversion_pct'] ?? 0);
-        $wReply         = (float)($cfg['weight_reply'] ?? 1);
-        $wIncoming      = (float)($cfg['weight_incoming'] ?? 1);
-        $wConv          = (float)($cfg['weight_conversion'] ?? 1);
-        $floorPct       = (float)($cfg['floor_pct'] ?? 0);
-        $capPct         = (float)($cfg['cap_pct'] ?? 0);
-
         $year = 0; $month = 0;
         $parts = explode('-', (string)($c['month'] ?? ''));
         if (count($parts) === 2) { $year = (int)$parts[0]; $month = (int)$parts[1]; }
@@ -1778,52 +1768,9 @@ class SalaryCalculator
         if (!is_cs_perf_member((int)$c['employee']['id'])) {
             return ['amount' => 0, 'formula' => '不在绩效名单内', 'type' => 'cs_performance'];
         }
-        $perf = get_cs_performance((int)$c['employee']['id'], $year, $month);
-        if (!$perf) {
-            return ['amount' => 0, 'formula' => '当月无绩效数据', 'type' => 'cs_performance'];
-        }
-        $replySpeed = (float)$perf['reply_speed'];
-        $incoming   = (int)$perf['incoming_count'];
-
-        // 成交数：手动覆盖优先，否则按该员工当月订单实时统计（与核验月规则一致）
-        $dealCount = $perf['deal_count'];
-        if ($dealCount === null || $dealCount === '') {
-            $dealCount = 0;
-            foreach (($c['orders'] ?? []) as $o) {
-                if ((float)($o['order_amount'] ?? 0) < 0) continue; // 退款不计
-                $rd = is_string($o['raw_data'] ?? '') ? json_decode($o['raw_data'], true) : ($o['raw_data'] ?? []);
-                if (is_array($rd) && isset($rd['__is_refund__']) && $rd['__is_refund__'] === '1') continue;
-                $dealCount++;
-            }
-        }
-
-        // 各指标达成率（回复速度越低越好）
-        $replyRate = 0.0;
-        if ($targetReplySec > 0 && $replySpeed > 0) $replyRate = $targetReplySec / $replySpeed;
-        $incomingRate = 0.0;
-        if ($targetIncoming > 0) $incomingRate = $incoming / $targetIncoming;
-        $convPct = 0.0;
-        if ($incoming > 0) $convPct = $dealCount / $incoming * 100;
-        $convRate = 0.0;
-        if ($targetConvPct > 0) $convRate = $convPct / $targetConvPct;
-
-        $wSum = $wReply + $wIncoming + $wConv;
-        $composite = 0.0;
-        if ($wSum > 0) {
-            $composite = ($wReply * $replyRate + $wIncoming * $incomingRate + $wConv * $convRate) / $wSum;
-        }
-
-        $amount = $base * $composite;
-        if ($floorPct > 0) $amount = max($amount, $base * $floorPct / 100); // 保底
-        if ($capPct > 0)   $amount = min($amount, $base * $capPct / 100);   // 封顶
-
-        $formula = sprintf('回复%d%%×%.1f + 进线%d%%×%.1f + 转化%.1f%%×%.1f → 综合%.1f%% × 基数%.2f = %.2f',
-            (int)round($replyRate * 100), $wReply,
-            (int)round($incomingRate * 100), $wIncoming,
-            $convPct, $wConv,
-            $composite * 100, $base, $amount);
-
-        return ['amount' => round($amount, 2), 'formula' => $formula, 'type' => 'cs_performance'];
+        // 统一走共享算法（绩效页与薪资结算共用）：优先「部门基数+绩效方案」，未配置时回退本模块旧参数
+        $r = cs_perf_calc((int)$c['employee']['id'], $year, $month, $cfg);
+        return ['amount' => $r['amount'], 'formula' => $r['formula'], 'type' => 'cs_performance'];
     }
 
     // ==================== 配置 CRUD ====================

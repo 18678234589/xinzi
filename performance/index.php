@@ -50,11 +50,18 @@ foreach ($allEmployees as $e) {
 }
 
 $rows = [];
+$deptCfgMap = [];
+foreach (get_cs_perf_dept_configs() as $dc) $deptCfgMap[(string)$dc['department']] = $dc;
 foreach ($roster as $emp) {
     $perf = get_cs_performance((int)$emp['id'], $year, $month);
     $liveDeal = get_employee_deal_count((int)$emp['id'], $year, $month);
     $deal = $perf && $perf['deal_count'] !== null ? (int)$perf['deal_count'] : $liveDeal;
-    $rows[] = ['emp' => $emp, 'perf' => $perf, 'deal' => $deal, 'liveDeal' => $liveDeal];
+    $rows[] = [
+        'emp' => $emp, 'perf' => $perf, 'deal' => $deal, 'liveDeal' => $liveDeal,
+        'calc' => cs_perf_calc((int)$emp['id'], $year, $month),
+        'orderTotal' => get_employee_order_total((int)$emp['id'], $year, $month),
+        'deptCfg' => $deptCfgMap[(string)$emp['department']] ?? null,
+    ];
 }
 
 // 待匹配清单
@@ -78,6 +85,9 @@ include __DIR__ . '/../includes/header.php';
     <div>
         <a href="month.php?year=<?php echo $year; ?>&month=<?php echo $month; ?>" class="btn btn-outline-primary btn-sm">
             <i class="fas fa-edit"></i> 本月的补录/编辑
+        </a>
+        <a href="schemes.php" class="btn btn-outline-primary btn-sm">
+            <i class="fas fa-tasks"></i> 绩效方案/算法
         </a>
         <a href="#perfUpload" class="btn btn-primary btn-sm">
             <i class="fas fa-cloud-upload-alt"></i> 上传绩效表
@@ -157,13 +167,22 @@ include __DIR__ . '/../includes/header.php';
         <div class="table-responsive">
             <table class="table table-sm table-bordered mb-0">
                 <thead class="thead-light">
-                    <tr><th>姓名</th><th>部门</th><th style="width:100px">操作</th></tr>
+                    <tr><th>姓名</th><th>部门</th><th>绩效基数</th><th style="width:100px">操作</th></tr>
                 </thead>
                 <tbody>
                 <?php foreach ($roster as $emp): ?>
+                    <?php $rc = $deptCfgMap[(string)$emp['department']] ?? null; ?>
                     <tr>
                         <td><?php echo e($emp['name']); ?></td>
                         <td><span class="badge badge-info"><?php echo e($emp['department']); ?></span></td>
+                        <td>
+                            <?php if ($rc): ?>
+                                <strong><?php echo number_format((float)$rc['base'], 2); ?></strong>
+                                <small class="text-muted">(<?php echo e($rc['scheme_name'] ?: '默认方案'); ?>)</small>
+                            <?php else: ?>
+                                <span class="text-danger small"><i class="fas fa-exclamation-circle"></i> 未配置，去<a href="schemes.php">设置</a></span>
+                            <?php endif; ?>
+                        </td>
                         <td style="width:100px">
                             <form method="post" onsubmit="return confirm('移除后将不再统计该员工的客服绩效，确定？')">
                                 <input type="hidden" name="action" value="member_remove">
@@ -192,7 +211,8 @@ include __DIR__ . '/../includes/header.php';
                 <thead class="thead-light">
                     <tr>
                         <th>员工</th><th>旺旺账号</th><th>部门</th>
-                        <th>进线人数</th><th>平均回复(秒)</th><th>成交数</th><th>转化率</th>
+                        <th>进线人数</th><th>平均回复(秒)</th><th>成交数</th><th>转化率</th><th>接单金额</th>
+                        <th>绩效金额</th>
                         <th>来源</th><th>操作</th>
                     </tr>
                 </thead>
@@ -205,6 +225,7 @@ include __DIR__ . '/../includes/header.php';
                     $replySpd = $perf ? (float)$perf['reply_speed'] : 0;
                     $conv = $incoming > 0 ? round($r['deal'] / $incoming * 100, 1) : 0;
                     $hasData = $perf && $incoming > 0;
+                    $calc = $r['calc'];
                     ?>
                     <tr>
                         <td><?php echo e($emp['name']); ?></td>
@@ -219,13 +240,21 @@ include __DIR__ . '/../includes/header.php';
                             <?php endif; ?>
                         </td>
                         <td><?php echo $hasData ? $conv . '%' : '<span class="text-muted">-</span>'; ?></td>
+                        <td><?php echo $r['orderTotal'] > 0 ? number_format($r['orderTotal'], 2) : '<span class="text-muted">-</span>'; ?></td>
+                        <td>
+                            <?php if ((float)$calc['amount'] > 0): ?>
+                                <a href="#" class="text-decoration-none" data-toggle="tooltip" title="<?php echo e($calc['formula']); ?>" onclick="return false;"><strong><?php echo number_format((float)$calc['amount'], 2); ?></strong> <i class="fas fa-info-circle text-muted"></i></a>
+                            <?php else: ?>
+                                <span class="text-muted" title="<?php echo e($calc['formula']); ?>">0</span>
+                            <?php endif; ?>
+                        </td>
                         <td><?php echo $perf ? e($perf['source_file'] ?: '已录入') : '<span class="text-muted">无数据</span>'; ?></td>
                         <td>
                             <a href="month.php?employee_id=<?php echo (int)$emp['id']; ?>&year=<?php echo $year; ?>&month=<?php echo $month; ?>" class="btn btn-sm btn-outline-primary"><i class="fas fa-edit"></i> 编辑</a>
                         </td>
                     </tr>
                 <?php endforeach; else: ?>
-                    <tr><td colspan="9" class="text-center text-muted py-4">暂无员工</td></tr>
+                    <tr><td colspan="11" class="text-center text-muted py-4">暂无员工</td></tr>
                 <?php endif; ?>
                 </tbody>
             </table>
