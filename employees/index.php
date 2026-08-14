@@ -203,7 +203,7 @@ include __DIR__ . '/../includes/header.php';
                     <div class="form-group">
                         <label>旺旺账号</label>
                         <input type="text" name="wangwang" class="form-control" placeholder="客服旺旺账号，用于客服绩效数据匹配">
-                        <small class="text-muted">客服绩效采集工具上传的数据按此账号/姓名自动匹配到员工</small>
+                        <small class="text-muted">客服绩效导入时按此账号/姓名自动匹配到员工，一人多账号用逗号/空格分隔</small>
                     </div>
                     <input type="hidden" name="base_salary" value="0">
                     <input type="hidden" name="commission_rate" value="0">

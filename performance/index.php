@@ -34,7 +34,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $r = import_cs_perf_file($_FILES['file']['tmp_name'], 'admin:' . basename($_FILES['file']['name']), $year, $month);
             $upMsg = sprintf('导入完成：匹配 %d 人，未匹配 %d 条，错误 %d 条', $r['matched'], $r['pending'], $r['errors']);
         } else {
-            $upErr = '请选择要导入的采集文件（CSV）';
+            $upErr = '请选择要导入的绩效表文件（CSV/TXT）';
         }
     }
 }
@@ -79,9 +79,9 @@ include __DIR__ . '/../includes/header.php';
         <a href="month.php?year=<?php echo $year; ?>&month=<?php echo $month; ?>" class="btn btn-outline-primary btn-sm">
             <i class="fas fa-edit"></i> 本月的补录/编辑
         </a>
-        <button class="btn btn-outline-secondary btn-sm" data-toggle="modal" data-target="#importModal">
-            <i class="fas fa-file-upload"></i> 手动导入采集文件
-        </button>
+        <a href="#perfUpload" class="btn btn-primary btn-sm">
+            <i class="fas fa-cloud-upload-alt"></i> 上传绩效表
+        </a>
     </div>
 </div>
 
@@ -110,6 +110,29 @@ include __DIR__ . '/../includes/header.php';
                 </select>
             </div>
             <button type="submit" class="btn btn-sm btn-info"><i class="fas fa-search"></i> 查看</button>
+        </form>
+    </div>
+</div>
+
+<!-- 上传绩效表（官网导出） -->
+<div class="card border-primary mb-3" id="perfUpload">
+    <div class="card-header bg-primary text-white"><i class="fas fa-cloud-upload-alt"></i> 上传绩效表（<?php echo $year; ?>年<?php echo $month; ?>月）</div>
+    <div class="card-body">
+        <form method="post" enctype="multipart/form-data" class="mb-0">
+            <input type="hidden" name="action" value="import">
+            <div class="form-row align-items-end">
+                <div class="col">
+                    <label class="small text-muted">选择千牛/百牛官网导出的客服绩效表（CSV / TXT，UTF-8 或 GBK）</label>
+                    <input type="file" name="file" accept=".csv,.txt" class="form-control" required>
+                </div>
+                <div class="col-auto">
+                    <button type="submit" class="btn btn-primary"><i class="fas fa-upload"></i> 上传并自动匹配</button>
+                </div>
+            </div>
+            <small class="text-muted d-block mt-2">
+                <i class="fas fa-info-circle"></i> 系统自动识别列名（客服/旺旺、接待人数、平均响应时长/回复时长/首次响应、进线数等），时长支持 HH:MM:SS / X分X秒 / 秒；
+                文件中没有日期时默认归入当前所选月份；导入后按「旺旺账号 → 姓名」自动匹配名单内员工，未匹配的进入下方【待匹配清单】。
+            </small>
         </form>
     </div>
 </div>
@@ -156,7 +179,7 @@ include __DIR__ . '/../includes/header.php';
                 </tbody>
             </table>
         </div>
-        <small class="text-muted d-block mt-2"><i class="fas fa-info-circle"></i> 只有名单内的员工参与绩效底薪；采集工具上传的数据会按「员工姓名 → 旺旺账号」自动归到对应员工名下。</small>
+        <small class="text-muted d-block mt-2"><i class="fas fa-info-circle"></i> 只有名单内的员工参与绩效底薪；导入的绩效表会按「旺旺账号 → 姓名」自动匹配到对应员工名下。</small>
     </div>
 </div>
 
@@ -265,28 +288,5 @@ include __DIR__ . '/../includes/header.php';
     </div>
 </div>
 <?php endif; ?>
-
-<!-- 手动导入模态 -->
-<div class="modal fade" id="importModal" tabindex="-1">
-    <div class="modal-dialog">
-        <div class="modal-content">
-            <form method="post" enctype="multipart/form-data">
-                <input type="hidden" name="action" value="import">
-                <div class="modal-header">
-                    <h5 class="modal-title">手动导入客服绩效采集文件</h5>
-                    <button type="button" class="close" data-dismiss="modal">&times;</button>
-                </div>
-                <div class="modal-body">
-                    <p class="text-muted small">支持千牛/官网导出的客服绩效表 或 采集工具 CSV。系统会自动识别列名（如：客服、接待人数、平均响应时长、进线数、回复总秒数等），时长支持 HH:MM:SS / X分X秒 / 秒。文件里没有日期的月度汇总表，默认归到页面当前选择的月份。导入后按旺旺账号/姓名自动匹配员工，未匹配的进「待匹配清单」。</p>
-                    <input type="file" name="file" accept=".csv,.txt" class="form-control-file">
-                </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-dismiss="modal">取消</button>
-                    <button type="submit" class="btn btn-primary"><i class="fas fa-upload"></i> 导入</button>
-                </div>
-            </form>
-        </div>
-    </div>
-</div>
 
 <?php include __DIR__ . '/../includes/footer.php'; ?>

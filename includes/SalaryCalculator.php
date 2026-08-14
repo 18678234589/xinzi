@@ -2170,7 +2170,7 @@ class SalaryCalculator
                 'label' => '客服绩效底薪',
                 'icon' => 'fa-comments-dollar',
                 'color' => 'success',
-                'desc' => '按客服绩效达成率发放：绩效基数 ×（回复速度/进线人数/转化率加权综合达成率），可设保底与封顶。绩效数据由客服采集工具自动上传',
+                'desc' => '按客服绩效达成率发放：绩效基数 ×（回复速度/进线人数/转化率加权综合达成率），可设保底与封顶。绩效数据在「客服绩效」页上传官网导出表后自动匹配',
                 'fields' => [
                     ['key'=>'_name','label'=>'模块名称（必填）','type'=>'text','placeholder'=>'如：绩效底薪','default'=>''],
                     ['key'=>'base','label'=>'绩效基数(元)','type'=>'number','step'=>'any','placeholder'=>'全达成时发放金额，如 3300','default'=>'3300'],
