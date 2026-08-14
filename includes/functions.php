@@ -1480,12 +1480,15 @@ function import_cs_perf_file($filePath, $source = '')
     ensureCsPerfSchema();
     $pdo = db();
 
-    // 员工映射：姓名精确、旺旺账号(大小写不敏感)
+    // 员工映射：姓名精确、旺旺账号(大小写不敏感；一人可同时登录多个账号，用逗号/空格分隔)
     $byName = [];
     $byWang = [];
     foreach (get_employees() as $e) {
         if (trim($e['name']) !== '') $byName[trim($e['name'])] = $e;
-        if (trim($e['wangwang'] ?? '') !== '') $byWang[mb_strtolower(trim($e['wangwang']))] = $e;
+        foreach (preg_split('/[,，;；\s]+/', (string)($e['wangwang'] ?? '')) as $ww) {
+            $ww = trim($ww);
+            if ($ww !== '') $byWang[mb_strtolower($ww)] = $e;
+        }
     }
 
     // 聚合：monthAgg[key] = [emp, year, month, incoming, totalSec(sum模式), replySum/replyCnt(avg模式)]

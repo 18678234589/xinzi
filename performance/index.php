@@ -156,7 +156,7 @@ include __DIR__ . '/../includes/header.php';
                                 <input type="hidden" name="action" value="member_set_wangwang">
                                 <input type="hidden" name="employee_id" value="<?php echo (int)$emp['id']; ?>">
                                 <div class="input-group input-group-sm">
-                                    <input type="text" name="wangwang" class="form-control form-control-sm" style="min-width:130px" value="<?php echo e($emp['wangwang'] ?? ''); ?>" placeholder="填写对应旺旺账号">
+                                    <input type="text" name="wangwang" class="form-control form-control-sm" style="min-width:160px" value="<?php echo e($emp['wangwang'] ?? ''); ?>" placeholder="多个旺旺账号用逗号分隔">
                                     <div class="input-group-append">
                                         <button class="btn btn-outline-success" title="保存该员工对应的旺旺账号"><i class="fas fa-save"></i></button>
                                     </div>
@@ -178,7 +178,7 @@ include __DIR__ . '/../includes/header.php';
                 </tbody>
             </table>
         </div>
-        <small class="text-muted d-block mt-2"><i class="fas fa-info-circle"></i> 采集工具记录的是「旺旺账号」，请在列表里给每位员工填上对应的旺旺账号，上传数据就会自动匹配到该员工；留空则匹配不到，会进下方「待匹配清单」。</small>
+        <small class="text-muted d-block mt-2"><i class="fas fa-info-circle"></i> 采集工具记录的是「旺旺账号」，请在列表里给每位员工填上对应的旺旺账号，上传数据就会自动匹配到该员工；一人可登多个店铺旺旺，<b>多个账号用逗号分隔</b>（如：shopA,shopB）；留空则匹配不到，会进下方「待匹配清单」。</small>
     </div>
 </div>
 
