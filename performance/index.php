@@ -10,21 +10,47 @@ $month = (int)($_GET['month'] ?? date('m'));
 if ($year < 2000 || $year > 2100) $year = (int)date('Y');
 if ($month < 1 || $month > 12)    $month = (int)date('m');
 
-// 手动上传导入一份采集文件
+// 绩效名单：绩效底薪只涉及名单内员工，页面可自定义增删
 $upMsg = '';
 $upErr = '';
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'import') {
-    if (!empty($_FILES['file']['tmp_name']) && is_uploaded_file($_FILES['file']['tmp_name'])) {
-        $r = import_cs_perf_file($_FILES['file']['tmp_name'], 'admin:' . basename($_FILES['file']['name']));
-        $upMsg = sprintf('导入完成：匹配 %d 人，未匹配 %d 条，错误 %d 条', $r['matched'], $r['pending'], $r['errors']);
-    } else {
-        $upErr = '请选择要导入的采集文件（CSV）';
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    $action = $_POST['action'] ?? '';
+    if ($action === 'member_add') {
+        $eid = (int)($_POST['employee_id'] ?? 0);
+        if ($eid > 0 && add_cs_perf_member($eid)) {
+            $upMsg = '已加入绩效名单，之后计入客服绩效';
+        } else {
+            $upErr = '加入失败，请重试';
+        }
+    } elseif ($action === 'member_remove') {
+        $eid = (int)($_POST['employee_id'] ?? 0);
+        if ($eid > 0 && remove_cs_perf_member($eid)) {
+            $upMsg = '已从绩效名单移除';
+        } else {
+            $upErr = '移除失败，请重试';
+        }
+    } elseif ($action === 'import') {
+        if (!empty($_FILES['file']['tmp_name']) && is_uploaded_file($_FILES['file']['tmp_name'])) {
+            $r = import_cs_perf_file($_FILES['file']['tmp_name'], 'admin:' . basename($_FILES['file']['name']));
+            $upMsg = sprintf('导入完成：匹配 %d 人，未匹配 %d 条，错误 %d 条', $r['matched'], $r['pending'], $r['errors']);
+        } else {
+            $upErr = '请选择要导入的采集文件（CSV）';
+        }
     }
 }
 
-$employees = get_employees();
+$allEmployees = get_employees();
+$roster       = get_cs_perf_members();
+$rosterIds = [];
+foreach ($roster as $r) $rosterIds[(int)$r['id']] = true;
+$addable = [];
+foreach ($allEmployees as $e) {
+    if (isset($rosterIds[(int)$e['id']])) continue;
+    $addable[] = $e;
+}
+
 $rows = [];
-foreach ($employees as $emp) {
+foreach ($roster as $emp) {
     $perf = get_cs_performance((int)$emp['id'], $year, $month);
     $liveDeal = get_employee_deal_count((int)$emp['id'], $year, $month);
     $deal = $perf && $perf['deal_count'] !== null ? (int)$perf['deal_count'] : $liveDeal;
@@ -85,6 +111,52 @@ include __DIR__ . '/../includes/header.php';
             </div>
             <button type="submit" class="btn btn-sm btn-info"><i class="fas fa-search"></i> 查看</button>
         </form>
+    </div>
+</div>
+
+<!-- 绩效人员名单管理 -->
+<div class="card mb-3">
+    <div class="card-header"><i class="fas fa-user-cog"></i> 绩效人员名单（绩效底薪只统计名单内员工，按需增删）</div>
+    <div class="card-body">
+        <form method="post" class="form-inline mb-2">
+            <input type="hidden" name="action" value="member_add">
+            <select name="employee_id" class="form-control form-control-sm mr-1" style="width:240px" required>
+                <option value="">选择员工加入名单</option>
+                <?php foreach ($addable as $emp): ?>
+                    <option value="<?php echo (int)$emp['id']; ?>"><?php echo e($emp['name']); ?>（<?php echo e($emp['department']); ?>）</option>
+                <?php endforeach; ?>
+            </select>
+            <button class="btn btn-sm btn-primary"><i class="fas fa-plus"></i> 添加</button>
+            <?php if (!$addable): ?>
+                <span class="ml-2 text-muted small">所有员工都已在名单中</span>
+            <?php endif; ?>
+        </form>
+        <div class="table-responsive">
+            <table class="table table-sm table-bordered mb-0">
+                <thead class="thead-light">
+                    <tr><th>姓名</th><th>部门</th><th>旺旺账号</th><th style="width:100px">操作</th></tr>
+                </thead>
+                <tbody>
+                <?php foreach ($roster as $emp): ?>
+                    <tr>
+                        <td><?php echo e($emp['name']); ?></td>
+                        <td><span class="badge badge-info"><?php echo e($emp['department']); ?></span></td>
+                        <td><?php echo e($emp['wangwang'] ?? ''); ?></td>
+                        <td>
+                            <form method="post" onsubmit="return confirm('移除后将不再统计该员工的客服绩效，确定？')">
+                                <input type="hidden" name="action" value="member_remove">
+                                <input type="hidden" name="employee_id" value="<?php echo (int)$emp['id']; ?>">
+                                <button class="btn btn-sm btn-outline-danger"><i class="fas fa-times"></i> 移除</button>
+                            </form>
+                        </td>
+                    </tr>
+                <?php endforeach; ?>
+                <?php if (!$roster): ?>
+                    <tr><td colspan="4" class="text-center text-muted py-3">名单为空，请从上方选择员工加入</td></tr>
+                <?php endif; ?>
+                </tbody>
+            </table>
+        </div>
     </div>
 </div>
 

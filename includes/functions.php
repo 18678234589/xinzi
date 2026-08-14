@@ -1262,6 +1262,77 @@ function ensureCsPerfSchema()
             `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT '客服绩效同步日志'");
     }
+
+    // 5. 绩效人员名单：绩效底薪只统计名单内员工；页面可自定义增删
+    $membersExists = true;
+    try {
+        $pdo->query("SELECT 1 FROM `cs_perf_members` LIMIT 1");
+    } catch (\Throwable $e) {
+        $membersExists = false;
+        $pdo->exec("CREATE TABLE IF NOT EXISTS `cs_perf_members` (
+            `id` INT AUTO_INCREMENT PRIMARY KEY,
+            `employee_id` INT NOT NULL COMMENT '员工ID',
+            `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE KEY `uk_emp` (`employee_id`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT '客服绩效名单(仅此名单内员工参与绩效底薪)'");
+    }
+    // 仅首次建表时自动纳入：网站客服/设计客服 部门 + 郭文娟、刘媛媛；之后全部手动增删，不会重新自动添加
+    if (!$membersExists) {
+        $pdo->exec("INSERT IGNORE INTO `cs_perf_members` (employee_id)
+            SELECT id FROM `employees`
+            WHERE department IN ('网站客服', '设计客服') OR name IN ('郭文娟', '刘媛媛')");
+    }
+}
+
+/**
+ * 绩效名单内的员工（仅这些人参与客服绩效底薪；页面可自定义增删）
+ * @return array
+ */
+function get_cs_perf_members()
+{
+    try {
+        return db()->query("SELECT e.* FROM employees e INNER JOIN cs_perf_members m ON m.employee_id = e.id ORDER BY e.department, e.id")->fetchAll();
+    } catch (\Throwable $e) {
+        return [];
+    }
+}
+
+/**
+ * 加入绩效名单（去重）
+ */
+function add_cs_perf_member($employeeId)
+{
+    try {
+        return (bool)db()->prepare("INSERT IGNORE INTO cs_perf_members (employee_id) VALUES (?)")->execute([(int)$employeeId]);
+    } catch (\Throwable $e) {
+        return false;
+    }
+}
+
+/**
+ * 从绩效名单移除
+ */
+function remove_cs_perf_member($employeeId)
+{
+    try {
+        return (bool)db()->prepare("DELETE FROM cs_perf_members WHERE employee_id=?")->execute([(int)$employeeId]);
+    } catch (\Throwable $e) {
+        return false;
+    }
+}
+
+/**
+ * 是否在绩效名单内（绩效底薪仅名单内员工参与）
+ */
+function is_cs_perf_member($employeeId)
+{
+    try {
+        $st = db()->prepare("SELECT 1 FROM cs_perf_members WHERE employee_id=? LIMIT 1");
+        $st->execute([(int)$employeeId]);
+        return (bool)$st->fetchColumn();
+    } catch (\Throwable $e) {
+        return false;
+    }
 }
 
 /**

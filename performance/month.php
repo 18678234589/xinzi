@@ -72,7 +72,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-$employees = get_employees();
+$employees = get_cs_perf_members(); // 绩效名单内员工：绩效底薪只看名单，页面按需增删
 $rows = [];
 foreach ($employees as $emp) {
     if ($filterEmp > 0 && (int)$emp['id'] !== $filterEmp) continue;

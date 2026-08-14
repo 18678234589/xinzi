@@ -1774,6 +1774,10 @@ class SalaryCalculator
         }
 
         ensureCsPerfSchema();
+        // 绩效底薪仅名单（cs_perf_members）内员工参与；非名单员工即使配置了该模块也不计。
+        if (!is_cs_perf_member((int)$c['employee']['id'])) {
+            return ['amount' => 0, 'formula' => '不在绩效名单内', 'type' => 'cs_performance'];
+        }
         $perf = get_cs_performance((int)$c['employee']['id'], $year, $month);
         if (!$perf) {
             return ['amount' => 0, 'formula' => '当月无绩效数据', 'type' => 'cs_performance'];
