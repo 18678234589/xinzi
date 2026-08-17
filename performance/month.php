@@ -23,17 +23,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $m = (int)($_POST['month'] ?? 0);
         $replySpeed = (float)($_POST['reply_speed'] ?? 0);
         $incoming   = (int)($_POST['incoming_count'] ?? 0);
+        $netSales = (float)($_POST['net_sales'] ?? 0);
+        $inquiryConv = parse_percent((string)($_POST['inquiry_conv'] ?? ''));
+        $wangReply = parse_percent((string)($_POST['wangwang_reply'] ?? ''));
         $deal = trim($_POST['deal_count'] ?? '');
         $remark = trim($_POST['remark'] ?? '');
         if ($employeeId > 0 && $y >= 2000 && $m >= 1 && $m <= 12) {
             $dealVal = $deal === '' ? null : (int)$deal;
             $stmt = db()->prepare("INSERT INTO customer_service_performance
-                (employee_id, year, month, reply_speed, incoming_count, deal_count, remark)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                (employee_id, year, month, reply_speed, incoming_count, deal_count, remark,
+                 net_sales, inquiry_conv, wangwang_reply)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON DUPLICATE KEY UPDATE
                 reply_speed=VALUES(reply_speed), incoming_count=VALUES(incoming_count),
-                deal_count=VALUES(deal_count), remark=VALUES(remark), source_file='admin编辑'");
-            $stmt->execute([$employeeId, $y, $m, $replySpeed, $incoming, $dealVal, $remark]);
+                deal_count=VALUES(deal_count), remark=VALUES(remark), source_file='admin编辑',
+                net_sales=VALUES(net_sales), inquiry_conv=VALUES(inquiry_conv), wangwang_reply=VALUES(wangwang_reply)");
+            $stmt->execute([$employeeId, $y, $m, $replySpeed, $incoming, $dealVal, $remark, $netSales, $inquiryConv, $wangReply]);
             $msg = '已保存员工绩效';
         } else {
             $err = '参数错误';
@@ -52,12 +57,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $replySpeed = round((float)$p['total_reply_seconds'] / $incoming, 1);
                 }
                 $up = db()->prepare("INSERT INTO customer_service_performance
-                    (employee_id, year, month, reply_speed, incoming_count, deal_count, remark, source_file)
-                    VALUES (?, ?, ?, ?, ?, NULL, ?, ?)
+                    (employee_id, year, month, reply_speed, incoming_count, deal_count, remark, source_file,
+                     net_sales, inquiry_conv, wangwang_reply)
+                    VALUES (?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?)
                     ON DUPLICATE KEY UPDATE
-                    reply_speed=VALUES(reply_speed), incoming_count=VALUES(incoming_count), source_file=VALUES(source_file)");
+                    reply_speed=VALUES(reply_speed), incoming_count=VALUES(incoming_count), source_file=VALUES(source_file),
+                    net_sales=VALUES(net_sales), inquiry_conv=VALUES(inquiry_conv), wangwang_reply=VALUES(wangwang_reply)");
                 $remark = '由待匹配补录（' . ($p['name'] !== '' ? $p['name'] : $p['wangwang']) . '）';
-                $up->execute([$employeeId, (int)$p['year'], (int)$p['month'], $replySpeed, $incoming, $remark, 'pending:' . basename((string)$p['source_file'])]);
+                $up->execute([$employeeId, (int)$p['year'], (int)$p['month'], $replySpeed, $incoming, $remark, 'pending:' . basename((string)$p['source_file']),
+                    (float)$p['net_sales'], (float)$p['inquiry_conv'], (float)$p['wangwang_reply']]);
                 db()->prepare("DELETE FROM cs_perf_pending WHERE id=?")->execute([$pendingId]);
                 $msg = '已把待匹配数据归属到员工并写入';
             } else {
@@ -129,13 +137,13 @@ include __DIR__ . '/../includes/header.php';
 
 <!-- 员工绩效逐人编辑 -->
 <div class="card mb-3">
-    <div class="card-header"><i class="fas fa-users"></i> 逐人编辑（进线人数 = 采集上报；平均回复秒 = 采集上报；成交数留空则按订单自动统计）</div>
+    <div class="card-header"><i class="fas fa-users"></i> 逐人编辑（净销售额/询单转化率/旺旺回复率 = 采集上报；平均回复秒 = 采集上报；成交数留空则按订单自动统计）</div>
     <div class="card-body p-0">
         <div class="table-responsive">
             <table class="table table-bordered mb-0 align-middle">
                 <thead class="thead-light">
                     <tr>
-                        <th>员工</th><th>旺旺账号</th><th>进线人数</th><th>平均回复(秒)</th>
+                        <th>员工</th><th>旺旺账号</th><th>净销售额(元)</th><th>询单转化率(%)</th><th>旺旺回复率(%)</th><th>进线人数</th><th>平均回复(秒)</th>
                         <th>成交数(留空自动)</th><th>备注</th><th style="width:100px">操作</th>
                     </tr>
                 </thead>
@@ -154,8 +162,11 @@ include __DIR__ . '/../includes/header.php';
                                 <input type="hidden" name="month" value="<?php echo $month; ?>">
                                 <td><?php echo e($emp['name']); ?><br><small class="text-muted"><?php echo e($emp['department']); ?></small></td>
                                 <td><?php echo e($emp['wangwang'] ?? ''); ?></td>
-                                <td><input type="number" name="incoming_count" min="0" class="form-control form-control-sm" style="width:110px" value="<?php echo $perf ? (int)$perf['incoming_count'] : 0; ?>"></td>
-                                <td><input type="number" name="reply_speed" min="0" step="any" class="form-control form-control-sm" style="width:110px" value="<?php echo $perf ? (float)$perf['reply_speed'] : 0; ?>"></td>
+                                <td><input type="number" name="net_sales" min="0" step="any" class="form-control form-control-sm" style="width:110px" value="<?php echo $perf ? (float)$perf['net_sales'] : 0; ?>"></td>
+                                <td><input type="number" name="inquiry_conv" min="0" step="any" class="form-control form-control-sm" style="width:100px" value="<?php echo $perf ? (float)$perf['inquiry_conv'] : 0; ?>"></td>
+                                <td><input type="number" name="wangwang_reply" min="0" step="any" class="form-control form-control-sm" style="width:100px" value="<?php echo $perf ? (float)$perf['wangwang_reply'] : 0; ?>"></td>
+                                <td><input type="number" name="incoming_count" min="0" class="form-control form-control-sm" style="width:100px" value="<?php echo $perf ? (int)$perf['incoming_count'] : 0; ?>"></td>
+                                <td><input type="number" name="reply_speed" min="0" step="any" class="form-control form-control-sm" style="width:100px" value="<?php echo $perf ? (float)$perf['reply_speed'] : 0; ?>"></td>
                                 <td>
                                     <input type="number" name="deal_count" min="0" class="form-control form-control-sm" style="width:120px" placeholder="自动:<?php echo $r['liveDeal']; ?>" value="<?php echo e($dealDisplay); ?>">
                                     <small class="text-muted">订单自动统计 <?php echo $r['liveDeal']; ?> 个</small>
@@ -166,7 +177,7 @@ include __DIR__ . '/../includes/header.php';
                         </tr>
                     <?php endforeach;
                 else: ?>
-                    <tr><td colspan="7" class="text-center text-muted py-4">暂无员工</td></tr>
+                    <tr><td colspan="10" class="text-center text-muted py-4">暂无员工</td></tr>
                 <?php endif; ?>
                 </tbody>
             </table>
@@ -181,13 +192,16 @@ include __DIR__ . '/../includes/header.php';
         <div class="table-responsive">
             <table class="table table-hover table-bordered mb-0">
                 <thead class="thead-light">
-                    <tr><th>旺旺账号</th><th>姓名</th><th>进线</th><th>回复总秒</th><th>来源</th><th>归属员工</th><th style="width:190px">操作</th></tr>
+                    <tr><th>旺旺账号</th><th>姓名</th><th>净销售额(元)</th><th>询单转化率(%)</th><th>旺旺回复率(%)</th><th>进线</th><th>回复总秒</th><th>来源</th><th>归属员工</th><th style="width:190px">操作</th></tr>
                 </thead>
                 <tbody>
                 <?php if ($pending): foreach ($pending as $p): ?>
                     <tr>
                         <td><?php echo e($p['wangwang']); ?></td>
                         <td><?php echo e($p['name']); ?></td>
+                        <td><?php echo (float)$p['net_sales'] ? number_format((float)$p['net_sales'], 2) : '0.00'; ?></td>
+                        <td><?php echo (float)$p['inquiry_conv'] ? rtrim(rtrim(number_format((float)$p['inquiry_conv'], 2), '0'), '.') . '%' : '-'; ?></td>
+                        <td><?php echo (float)$p['wangwang_reply'] ? rtrim(rtrim(number_format((float)$p['wangwang_reply'], 2), '0'), '.') . '%' : '-'; ?></td>
                         <td><?php echo (int)$p['incoming_count']; ?></td>
                         <td><?php echo (float)$p['total_reply_seconds']; ?></td>
                         <td><small class="text-muted"><?php echo e($p['source_file']); ?></small></td>
@@ -213,7 +227,7 @@ include __DIR__ . '/../includes/header.php';
                         </td>
                     </tr>
                 <?php endforeach; else: ?>
-                    <tr><td colspan="7" class="text-center text-muted py-3">本月没有待匹配数据</td></tr>
+                    <tr><td colspan="10" class="text-center text-muted py-3">本月没有待匹配数据</td></tr>
                 <?php endif; ?>
                 </tbody>
             </table>

@@ -59,6 +59,10 @@ foreach ($roster as $emp) {
     $rows[] = [
         'emp' => $emp, 'perf' => $perf, 'deal' => $deal, 'liveDeal' => $liveDeal,
         'calc' => cs_perf_calc((int)$emp['id'], $year, $month),
+        'netSales'     => $perf ? (float)$perf['net_sales'] : 0.0,
+        'inquiryConv'  => $perf ? (float)$perf['inquiry_conv'] : 0.0,
+        'wangReply'    => $perf ? (float)$perf['wangwang_reply'] : 0.0,
+        'avgResponse'  => $perf ? (float)$perf['reply_speed'] : 0.0,
         'orderTotal' => get_employee_order_total((int)$emp['id'], $year, $month),
         'deptCfg' => $deptCfgMap[(string)$emp['department']] ?? null,
     ];
@@ -140,7 +144,7 @@ include __DIR__ . '/../includes/header.php';
                 </div>
             </div>
             <small class="text-muted d-block mt-2">
-                <i class="fas fa-info-circle"></i> 系统自动识别列名（客服/旺旺、接待人数、平均响应时长/回复时长/首次响应、进线数等），时长支持 HH:MM:SS / X分X秒 / 秒；
+                <i class="fas fa-info-circle"></i> 系统自动识别列名：客服/旺旺、净销售额、询单最终下单转化率、旺旺回复率、平均响应时长（响应时长支持 HH:MM:SS / X分X秒 / 秒）；
                 文件中没有日期时默认归入当前所选月份；导入后按「旺旺账号 → 姓名」自动匹配名单内员工，未匹配的进入下方【待匹配清单】。
             </small>
         </form>
@@ -211,7 +215,7 @@ include __DIR__ . '/../includes/header.php';
                 <thead class="thead-light">
                     <tr>
                         <th>员工</th><th>旺旺账号</th><th>部门</th>
-                        <th>进线人数</th><th>平均回复(秒)</th><th>成交数</th><th>转化率</th><th>接单金额</th>
+                        <th>净销售额(元)</th><th>询单转化率(%)</th><th>旺旺回复率(%)</th><th>平均响应(秒)</th>
                         <th>绩效金额</th>
                         <th>来源</th><th>操作</th>
                     </tr>
@@ -221,26 +225,20 @@ include __DIR__ . '/../includes/header.php';
                     <?php
                     $emp  = $r['emp'];
                     $perf = $r['perf'];
-                    $incoming = $perf ? (int)$perf['incoming_count'] : 0;
-                    $replySpd = $perf ? (float)$perf['reply_speed'] : 0;
-                    $conv = $incoming > 0 ? round($r['deal'] / $incoming * 100, 1) : 0;
-                    $hasData = $perf && $incoming > 0;
+                    $netSales   = $perf ? (float)$perf['net_sales'] : 0.0;
+                    $inquiryConv = $perf ? (float)$perf['inquiry_conv'] : 0.0;
+                    $wangReply  = $perf ? (float)$perf['wangwang_reply'] : 0.0;
+                    $avgResponse = $perf ? (float)$perf['reply_speed'] : 0.0;
                     $calc = $r['calc'];
                     ?>
                     <tr>
                         <td><?php echo e($emp['name']); ?></td>
                         <td><?php echo e($emp['wangwang'] ?? ''); ?></td>
                         <td><span class="badge badge-info"><?php echo e($emp['department']); ?></span></td>
-                        <td><?php echo $incoming ?: '<span class="text-muted">-</span>'; ?></td>
-                        <td><?php echo $replySpd > 0 ? $replySpd : '<span class="text-muted">-</span>'; ?></td>
-                        <td>
-                            <?php echo $r['deal']; ?>
-                            <?php if ($perf && $perf['deal_count'] !== null): ?>
-                                <span class="badge badge-warning" title="手动覆盖">改</span>
-                            <?php endif; ?>
-                        </td>
-                        <td><?php echo $hasData ? $conv . '%' : '<span class="text-muted">-</span>'; ?></td>
-                        <td><?php echo $r['orderTotal'] > 0 ? number_format($r['orderTotal'], 2) : '<span class="text-muted">-</span>'; ?></td>
+                        <td><?php echo $netSales > 0 ? number_format($netSales, 2) : '<span class="text-muted">-</span>'; ?></td>
+                        <td><?php echo $inquiryConv > 0 ? $inquiryConv . '%' : '<span class="text-muted">-</span>'; ?></td>
+                        <td><?php echo $wangReply > 0 ? $wangReply . '%' : '<span class="text-muted">-</span>'; ?></td>
+                        <td><?php echo $avgResponse > 0 ? $avgResponse : '<span class="text-muted">-</span>'; ?></td>
                         <td>
                             <?php if ((float)$calc['amount'] > 0): ?>
                                 <a href="#" class="text-decoration-none" data-toggle="tooltip" title="<?php echo e($calc['formula']); ?>" onclick="return false;"><strong><?php echo number_format((float)$calc['amount'], 2); ?></strong> <i class="fas fa-info-circle text-muted"></i></a>
@@ -254,7 +252,7 @@ include __DIR__ . '/../includes/header.php';
                         </td>
                     </tr>
                 <?php endforeach; else: ?>
-                    <tr><td colspan="11" class="text-center text-muted py-4">暂无员工</td></tr>
+                    <tr><td colspan="10" class="text-center text-muted py-4">暂无员工</td></tr>
                 <?php endif; ?>
                 </tbody>
             </table>

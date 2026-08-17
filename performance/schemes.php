@@ -13,28 +13,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     if ($action === 'scheme_save') {
         $id = (int)($_POST['id'] ?? 0);
-        $thr = $_POST['t_threshold'] ?? [];
-        $fac = $_POST['t_factor'] ?? [];
-        $tiers = [];
-        $n = count($thr);
-        for ($i = 0; $i < $n; $i++) {
-            $t = (float)($thr[$i] ?? 0);
-            $f = (float)($fac[$i] ?? 0);
-            if ($f > 0) $tiers[] = ['threshold' => $t, 'factor' => $f];
-        }
+        // 每个指标的「启用」勾选框：未勾选则权重按 0 处理（该指标不参与加权）
+        $w = function($enName, $wName, $def) {
+            return !empty($_POST[$enName]) ? (float)($_POST[$wName] ?? $def) : 0.0;
+        };
         $p = [
-            'name' => trim($_POST['name'] ?? ''),
-            'weight_reply'         => $_POST['weight_reply'] ?? 1,
-            'target_reply_sec'     => $_POST['target_reply_sec'] ?? 0,
-            'weight_incoming'      => $_POST['weight_incoming'] ?? 1,
-            'target_incoming'      => $_POST['target_incoming'] ?? 0,
-            'weight_conv'          => $_POST['weight_conv'] ?? 1,
-            'target_conversion_pct'=> $_POST['target_conversion_pct'] ?? 0,
-            'weight_amount'        => $_POST['weight_amount'] ?? 1,
-            'amount_tiers'         => json_encode($tiers, JSON_UNESCAPED_UNICODE),
-            'floor_pct'            => $_POST['floor_pct'] ?? 0,
-            'cap_pct'              => $_POST['cap_pct'] ?? 0,
-            'is_default'           => !empty($_POST['is_default']) ? 1 : 0,
+            'name'             => trim($_POST['name'] ?? ''),
+            'w_net_sales'      => $w('en_net_sales', 'w_net_sales', 43),
+            't_net_sales'      => (float)($_POST['t_net_sales'] ?? 0),
+            'w_inquiry_conv'   => $w('en_inquiry_conv', 'w_inquiry_conv', 30),
+            't_inquiry_conv'   => (float)($_POST['t_inquiry_conv'] ?? 0),
+            'w_wangwang_reply' => $w('en_wangwang_reply', 'w_wangwang_reply', 17),
+            't_wangwang_reply' => (float)($_POST['t_wangwang_reply'] ?? 0),
+            'w_avg_response'   => $w('en_avg_response', 'w_avg_response', 15),
+            't_avg_response'   => (float)($_POST['t_avg_response'] ?? 0),
+            'floor_pct'        => $_POST['floor_pct'] ?? 0,
+            'cap_pct'          => $_POST['cap_pct'] ?? 0,
+            'is_default'       => !empty($_POST['is_default']) ? 1 : 0,
         ];
         if (save_cs_perf_scheme($id, $p)) {
             $msg = '方案已保存';
@@ -95,38 +90,50 @@ include __DIR__ . '/../includes/header.php';
 ?>
 <script>
 function esc2(s){ if(s===null||s===undefined) return ''; return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;'); }
+// 启用勾选框控制该指标的权重/目标输入框（未启用的指标权重按0提交，PHP 侧兜底）
+function refreshEnableState(){
+    [['s_en_net_sales','s_w_net_sales','s_t_net_sales'],
+     ['s_en_inquiry_conv','s_w_inquiry_conv','s_t_inquiry_conv'],
+     ['s_en_wangwang_reply','s_w_wangwang_reply','s_t_wangwang_reply'],
+     ['s_en_avg_response','s_w_avg_response','s_t_avg_response']].forEach(function(p){
+        var cb = document.getElementById(p[0]);
+        if (!cb) return;
+        var on = cb.checked;
+        document.getElementById(p[1]).disabled = !on;
+        document.getElementById(p[2]).disabled = !on;
+    });
+}
+document.addEventListener('DOMContentLoaded', function(){
+    [['s_en_net_sales','s_w_net_sales','s_t_net_sales'],
+     ['s_en_inquiry_conv','s_w_inquiry_conv','s_t_inquiry_conv'],
+     ['s_en_wangwang_reply','s_w_wangwang_reply','s_t_wangwang_reply'],
+     ['s_en_avg_response','s_w_avg_response','s_t_avg_response']].forEach(function(p){
+        var cb = document.getElementById(p[0]);
+        if (!cb) return;
+        cb.addEventListener('change', refreshEnableState);
+    });
+});
 function fillScheme(obj){
     document.getElementById('s_id').value = obj ? obj.id : 0;
     document.getElementById('s_name').value = obj ? obj.name : '';
     document.getElementById('s_default').checked = !!(obj && obj.is_default == 1);
-    document.getElementById('s_weight_reply').value   = obj?obj.weight_reply:1;
-    document.getElementById('s_target_reply').value   = obj?obj.target_reply_sec:0;
-    document.getElementById('s_weight_incoming').value= obj?obj.weight_incoming:1;
-    document.getElementById('s_target_incoming').value= obj?obj.target_incoming:0;
-    document.getElementById('s_weight_conv').value    = obj?obj.weight_conv:1;
-    document.getElementById('s_target_conv').value    = obj?obj.target_conversion_pct:0;
-    document.getElementById('s_weight_amount').value  = obj?obj.weight_amount:1;
+    document.getElementById('s_en_net_sales').checked = !!(obj && parseFloat(obj.w_net_sales)>0);
+    document.getElementById('s_w_net_sales').value = obj?obj.w_net_sales:43;
+    document.getElementById('s_t_net_sales').value = obj?obj.t_net_sales:0;
+    document.getElementById('s_en_inquiry_conv').checked = !!(obj && parseFloat(obj.w_inquiry_conv)>0);
+    document.getElementById('s_w_inquiry_conv').value = obj?obj.w_inquiry_conv:30;
+    document.getElementById('s_t_inquiry_conv').value = obj?obj.t_inquiry_conv:0;
+    document.getElementById('s_en_wangwang_reply').checked = !!(obj && parseFloat(obj.w_wangwang_reply)>0);
+    document.getElementById('s_w_wangwang_reply').value = obj?obj.w_wangwang_reply:17;
+    document.getElementById('s_t_wangwang_reply').value = obj?obj.t_wangwang_reply:0;
+    document.getElementById('s_en_avg_response').checked = !!(obj && parseFloat(obj.w_avg_response)>0);
+    document.getElementById('s_w_avg_response').value = obj?obj.w_avg_response:15;
+    document.getElementById('s_t_avg_response').value = obj?obj.t_avg_response:0;
     document.getElementById('s_floor').value = obj?obj.floor_pct:0;
     document.getElementById('s_cap').value   = obj?obj.cap_pct:0;
-    var box = document.getElementById('s_tiers');
-    box.innerHTML = '';
-    var tiers = (obj && obj.amount_tiers) ? obj.amount_tiers : [];
-    if(!tiers.length) addTier();
-    else tiers.forEach(function(t){ addTier(t); });
+    refreshEnableState();
     document.getElementById('schemeEditor').style.display = '';
     document.getElementById('schemeEditor').scrollIntoView({behavior:'smooth',block:'start'});
-}
-function addTier(t){
-    t = t || {};
-    var box = document.getElementById('s_tiers');
-    var d = document.createElement('div');
-    d.className = 'form-row align-items-center mb-1';
-    d.innerHTML =
-        '<div class="col"><input type="number" step="any" name="t_threshold[]" class="form-control form-control-sm" value="'+esc2(t.threshold)+'" placeholder="累计接单金额 ≥ (元)"></div>' +
-        '<div class="col-auto"><span class="text-muted">→ 达成系数</span></div>' +
-        '<div class="col"><input type="number" step="any" name="t_factor[]" class="form-control form-control-sm" value="'+esc2(t.factor)+'" placeholder="系数(如 0.8 / 1.0 / 1.2)"></div>' +
-        '<div class="col-auto"><button type="button" class="btn btn-sm btn-outline-danger" onclick="this.parentNode.parentNode.remove()"><i class="fas fa-times"></i></button></div>';
-    box.appendChild(d);
 }
 </script>
 
@@ -147,43 +154,40 @@ function addTier(t){
     <div class="card-header"><i class="fas fa-cubes"></i> 绩效方案（算法）列表</div>
     <div class="card-body">
         <p class="text-muted small mb-2">
-            绩效金额 = 部门绩效基数 × 综合达成率。综合达成率由「回复速度 / 接待人数 / 转化率 / 接单金额」四项中<strong>已启用</strong>的指标（权重&gt;0 且目标/阶梯已配置）按权重加权得出；可设保底/封顶。
+            绩效金额 = 部门绩效基数 × 综合达成率。综合达成率由「净销售额 / 询单最终下单转化率 / 旺旺回复率 / 平均响应时长」四项中<strong>已启用</strong>的指标（权重&gt;0 且目标已配置）按权重加权得出；可设保底/封顶。
+            默认权重建议：净销售额43%、询单转化率30%、旺旺回复率17%、平均响应时长15%。
         </p>
         <div class="table-responsive">
             <table class="table table-sm table-bordered mb-0">
                 <thead class="thead-light">
                     <tr>
-                        <th>名称</th><th>回复速度</th><th>接待人数</th><th>转化率</th><th>接单金额阶梯</th><th>保底/封顶</th><th style="width:140px">操作</th>
+                        <th>名称</th><th>净销售额</th><th>询单转化率</th><th>旺旺回复率</th><th>平均响应</th><th>保底/封顶</th><th style="width:140px">操作</th>
                     </tr>
                 </thead>
                 <tbody>
                 <?php foreach ($schemes as $s): ?>
-                    <?php
-                        $tiers = is_string($s['amount_tiers'] ?? '') ? (json_decode($s['amount_tiers'], true) ?: []) : [];
-                        $tierTxt = empty($tiers) ? '-' : implode(' / ', array_map(function($t){ return (int)$t['threshold'] . '→' . (float)$t['factor']; }, $tiers));
-                    ?>
                     <tr>
                         <td><?php echo e($s['name']); ?><?php if ($s['is_default']): ?> <span class="badge badge-info">默认</span><?php endif; ?></td>
                         <td>
-                            <?php echo (float)$s['weight_reply'] > 0 && (float)$s['target_reply_sec'] > 0 ? 'w' . $s['weight_reply'] . ' 目标' . $s['target_reply_sec'] . 's' : '<span class="text-muted">无</span>'; ?>
+                            <?php echo (float)$s['w_net_sales'] > 0 && (float)$s['t_net_sales'] > 0 ? 'w' . $s['w_net_sales'] . ' 目标' . number_format((float)$s['t_net_sales'], 2) . '元' : '<span class="text-muted">无</span>'; ?>
                         </td>
                         <td>
-                            <?php echo (float)$s['weight_incoming'] > 0 && (int)$s['target_incoming'] > 0 ? 'w' . $s['weight_incoming'] . ' 目标' . (int)$s['target_incoming'] . '人' : '<span class="text-muted">无</span>'; ?>
+                            <?php echo (float)$s['w_inquiry_conv'] > 0 && (float)$s['t_inquiry_conv'] > 0 ? 'w' . $s['w_inquiry_conv'] . ' 目标' . $s['t_inquiry_conv'] . '%' : '<span class="text-muted">无</span>'; ?>
                         </td>
                         <td>
-                            <?php echo (float)$s['weight_conv'] > 0 && (float)$s['target_conversion_pct'] > 0 ? 'w' . $s['weight_conv'] . ' 目标' . $s['target_conversion_pct'] . '%' : '<span class="text-muted">无</span>'; ?>
+                            <?php echo (float)$s['w_wangwang_reply'] > 0 && (float)$s['t_wangwang_reply'] > 0 ? 'w' . $s['w_wangwang_reply'] . ' 目标' . $s['t_wangwang_reply'] . '%' : '<span class="text-muted">无</span>'; ?>
                         </td>
                         <td>
-                            <?php if ((float)$s['weight_amount'] > 0 && !empty($tiers)): ?>w<?php echo $s['weight_amount']; ?>：<?php echo e($tierTxt); ?><?php else: ?><span class="text-muted">无</span><?php endif; ?>
+                            <?php echo (float)$s['w_avg_response'] > 0 && (float)$s['t_avg_response'] > 0 ? 'w' . $s['w_avg_response'] . ' 目标' . $s['t_avg_response'] . 's' : '<span class="text-muted">无</span>'; ?>
                         </td>
                         <td><?php echo ((float)$s['floor_pct'] > 0 ? '保底' . $s['floor_pct'] . '%' : '-') . ' / ' . ((float)$s['cap_pct'] > 0 ? '封顶' . $s['cap_pct'] . '%' : '-'); ?></td>
                         <td>
                             <button type="button" class="btn btn-sm btn-outline-primary" onclick='fillScheme(<?php echo json_encode([
                                 'id'=>$s['id'],'name'=>$s['name'],'is_default'=>$s['is_default'],
-                                'weight_reply'=>$s['weight_reply'],'target_reply_sec'=>$s['target_reply_sec'],
-                                'weight_incoming'=>$s['weight_incoming'],'target_incoming'=>$s['target_incoming'],
-                                'weight_conv'=>$s['weight_conv'],'target_conversion_pct'=>$s['target_conversion_pct'],
-                                'weight_amount'=>$s['weight_amount'],'amount_tiers'=>$tiers,
+                                'w_net_sales'=>$s['w_net_sales'],'t_net_sales'=>$s['t_net_sales'],
+                                'w_inquiry_conv'=>$s['w_inquiry_conv'],'t_inquiry_conv'=>$s['t_inquiry_conv'],
+                                'w_wangwang_reply'=>$s['w_wangwang_reply'],'t_wangwang_reply'=>$s['t_wangwang_reply'],
+                                'w_avg_response'=>$s['w_avg_response'],'t_avg_response'=>$s['t_avg_response'],
                                 'floor_pct'=>$s['floor_pct'],'cap_pct'=>$s['cap_pct'],
                             ], JSON_UNESCAPED_UNICODE); ?>);'><i class="fas fa-edit"></i> 编辑</button>
                             <form method="post" class="d-inline" onsubmit="return confirm('删除该方案？被引用的部门将回退到默认方案。')">
@@ -220,35 +224,44 @@ function addTier(t){
                     <label class="form-check mb-0 mt-3"><input type="checkbox" name="is_default" value="1" id="s_default" class="form-check-input"><span class="form-check-label">设为默认</span></label>
                 </div>
             </div>
+            <div class="table-responsive mt-2">
+                <table class="table table-sm table-bordered mb-2" style="max-width:980px">
+                    <thead class="thead-light">
+                        <tr><th style="width:80px">启用</th><th style="width:140px">指标</th><th style="width:150px">权重(%)</th><th>目标基准值</th><th>达成率算法</th></tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td><input type="checkbox" name="en_net_sales" value="1" id="s_en_net_sales" class="form-check-input"></td>
+                            <td class="align-middle">净销售额</td>
+                            <td><input type="number" step="0.1" name="w_net_sales" id="s_w_net_sales" class="form-control form-control-sm" placeholder="43"></td>
+                            <td><div class="input-group input-group-sm"><input type="number" step="any" name="t_net_sales" id="s_t_net_sales" class="form-control" placeholder="目标净销售额"><div class="input-group-append"><span class="input-group-text">元</span></div></div></td>
+                            <td class="text-muted small align-middle">实际净销售额 ÷ 目标净销售额</td>
+                        </tr>
+                        <tr>
+                            <td><input type="checkbox" name="en_inquiry_conv" value="1" id="s_en_inquiry_conv" class="form-check-input"></td>
+                            <td class="align-middle">询单最终下单转化率</td>
+                            <td><input type="number" step="0.1" name="w_inquiry_conv" id="s_w_inquiry_conv" class="form-control form-control-sm" placeholder="30"></td>
+                            <td><div class="input-group input-group-sm"><input type="number" step="any" name="t_inquiry_conv" id="s_t_inquiry_conv" class="form-control" placeholder="目标转化率"><div class="input-group-append"><span class="input-group-text">%</span></div></div></td>
+                            <td class="text-muted small align-middle">实际询单转化率% ÷ 目标转化率%</td>
+                        </tr>
+                        <tr>
+                            <td><input type="checkbox" name="en_wangwang_reply" value="1" id="s_en_wangwang_reply" class="form-check-input"></td>
+                            <td class="align-middle">旺旺回复率</td>
+                            <td><input type="number" step="0.1" name="w_wangwang_reply" id="s_w_wangwang_reply" class="form-control form-control-sm" placeholder="17"></td>
+                            <td><div class="input-group input-group-sm"><input type="number" step="any" name="t_wangwang_reply" id="s_t_wangwang_reply" class="form-control" placeholder="目标回复率"><div class="input-group-append"><span class="input-group-text">%</span></div></div></td>
+                            <td class="text-muted small align-middle">实际旺旺回复率% ÷ 目标回复率%</td>
+                        </tr>
+                        <tr>
+                            <td><input type="checkbox" name="en_avg_response" value="1" id="s_en_avg_response" class="form-check-input"></td>
+                            <td class="align-middle">平均响应时长</td>
+                            <td><input type="number" step="0.1" name="w_avg_response" id="s_w_avg_response" class="form-control form-control-sm" placeholder="15"></td>
+                            <td><div class="input-group input-group-sm"><input type="number" step="any" name="t_avg_response" id="s_t_avg_response" class="form-control" placeholder="目标响应秒数"><div class="input-group-append"><span class="input-group-text">秒</span></div></div></td>
+                            <td class="text-muted small align-middle">目标秒 ÷ 实际秒（越低越快越好）</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
             <div class="form-row">
-                <div class="col-md-3">
-                    <label class="small text-muted">回复速度 达成权重</label>
-                    <input type="number" step="0.1" name="weight_reply" id="s_weight_reply" class="form-control form-control-sm">
-                </div>
-                <div class="col-md-3">
-                    <label class="small text-muted">目标回复速度(秒)</label>
-                    <input type="number" step="any" name="target_reply_sec" id="s_target_reply" class="form-control form-control-sm">
-                </div>
-                <div class="col-md-3">
-                    <label class="small text-muted">接待人数 达成权重</label>
-                    <input type="number" step="0.1" name="weight_incoming" id="s_weight_incoming" class="form-control form-control-sm">
-                </div>
-                <div class="col-md-3">
-                    <label class="small text-muted">目标接待人数(人)</label>
-                    <input type="number" step="1" name="target_incoming" id="s_target_incoming" class="form-control form-control-sm">
-                </div>
-                <div class="col-md-3">
-                    <label class="small text-muted">转化率 达成权重</label>
-                    <input type="number" step="0.1" name="weight_conv" id="s_weight_conv" class="form-control form-control-sm">
-                </div>
-                <div class="col-md-3">
-                    <label class="small text-muted">目标转化率(%)</label>
-                    <input type="number" step="any" name="target_conversion_pct" id="s_target_conv" class="form-control form-control-sm">
-                </div>
-                <div class="col-md-3">
-                    <label class="small text-muted">接单金额 达成权重</label>
-                    <input type="number" step="0.1" name="weight_amount" id="s_weight_amount" class="form-control form-control-sm">
-                </div>
                 <div class="col-md-3">
                     <label class="small text-muted">保底(基数的%)</label>
                     <input type="number" step="any" name="floor_pct" id="s_floor" class="form-control form-control-sm">
@@ -258,11 +271,7 @@ function addTier(t){
                     <input type="number" step="any" name="cap_pct" id="s_cap" class="form-control form-control-sm">
                 </div>
             </div>
-            <div class="mt-2">
-                <label class="small text-muted d-block">接单金额阶梯（累计接单金额达到档位 → 达成的系数，金额越高系数越高；系数=0 的行会自动忽略）</label>
-                <div id="s_tiers"></div>
-                <button type="button" class="btn btn-sm btn-outline-info" onclick="addTier()"><i class="fas fa-plus"></i> 加一档</button>
-            </div>
+            <small class="text-muted d-block mt-1"><i class="fas fa-info-circle"></i> 权重即占比（默认 43/30/17/15）；未勾选或权重=0 的指标不参与加权；目标留空则该指标不计入加权。</small>
             <div class="mt-3">
                 <button type="submit" class="btn btn-primary"><i class="fas fa-save"></i> 保存方案</button>
                 <button type="button" class="btn btn-secondary" onclick="document.getElementById('schemeEditor').style.display='none'">取消</button>
