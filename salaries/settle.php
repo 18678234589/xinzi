@@ -92,16 +92,19 @@ function calcProratedBaseSalary($empId, $month, $baseSalary) {
             'prorated' => $prorated, 'status' => $status, 'has_att' => true];
 }
 
-// 在 $result 上应用底薪折算（员工表底薪与阶梯底薪模块各自独立折算）
+// 在 $result 上应用底薪折算（员工表底薪与底薪类模块——阶梯底薪/客服绩效底薪——各自独立折算）
 // 直接修改 $result，返回 base_info 数组
 function applyProratedBaseSalary(&$result, $empId, $month) {
     $rawBase = (float)($result['base_salary'] ?? 0);
-    // 检测阶梯底薪模块（其金额在 modules 里，不在 base_salary 字段）
+    // 检测需按出勤折算的底薪类模块（阶梯底薪 / 客服绩效底薪，其金额在 modules 里，不在 base_salary 字段）
+    $baseModTypes = ['base_salary_tiered', 'cs_performance'];
     $baseModIdx = -1;
+    $baseModType = '';
     $baseModAmount = 0;
     foreach (($result['modules'] ?? []) as $mi => $mod) {
-        if (($mod['type'] ?? '') === 'base_salary_tiered') {
+        if (in_array(($mod['type'] ?? ''), $baseModTypes, true)) {
             $baseModIdx = $mi;
+            $baseModType = (string)$mod['type'];
             $baseModAmount = (float)$mod['amount'];
             break;
         }
@@ -113,18 +116,26 @@ function applyProratedBaseSalary(&$result, $empId, $month) {
     $result['base_salary'] = $rawBaseInfo['prorated'];
     $result['net_pay']  = round(($result['net_pay'] ?? 0) + $baseDiff, 2);
 
-    // 2. 阶梯底薪模块单独折算
-    if ($baseModIdx >= 0 && $baseModAmount > 0) {
+    // 2. 底薪类模块单独折算（阶梯底薪 / 客服绩效底薪）
+    if ($baseModIdx >= 0) {
         $modBaseInfo = calcProratedBaseSalary($empId, $month, $baseModAmount);
-        $result['modules'][$baseModIdx]['amount']  = round($modBaseInfo['prorated'], 2);
-        $result['modules'][$baseModIdx]['formula'] = $modBaseInfo['status'] . '（原 ¥' . number_format($baseModAmount, 2) . '）';
-        $modDiff = round($modBaseInfo['prorated'] - $baseModAmount, 2);
+        $proAmount = round($modBaseInfo['prorated'], 2);
+        $result['modules'][$baseModIdx]['amount'] = $proAmount;
+        if ($baseModAmount > 0) {
+            if ($baseModType === 'cs_performance') {
+                // 客服绩效底薪：保留达成率明细，追加出勤折算说明
+                $result['modules'][$baseModIdx]['formula'] .= '；' . $modBaseInfo['status'] . '（原 ¥' . number_format($baseModAmount, 2) . ' → 折算后 ¥' . number_format($proAmount, 2) . '）';
+            } else {
+                $result['modules'][$baseModIdx]['formula'] = $modBaseInfo['status'] . '（原 ¥' . number_format($baseModAmount, 2) . '）';
+            }
+        } elseif ($baseModType === 'base_salary_tiered') {
+            // 阶梯底薪模块金额为0，保持0，不把员工表底薪塞进去
+            $result['modules'][$baseModIdx]['formula'] = '阶梯底薪¥0.00（未匹配阶梯或未配置base_amount）';
+        }
+        // 客服绩效底薪金额为0 时保留原公式（如"当月无绩效数据/不在绩效名单内"）以便诊断
         $result['module_total'] = round(array_sum(array_column($result['modules'], 'amount')), 2);
-        $result['net_pay']      = round($result['net_pay'] + $modDiff, 2);
-    } elseif ($baseModIdx >= 0) {
-        // 阶梯底薪模块金额为0，保持0，不把员工表底薪塞进去
-        $result['modules'][$baseModIdx]['formula'] = '阶梯底薪¥0.00（未匹配阶梯或未配置base_amount）';
-        $result['module_total'] = round(array_sum(array_column($result['modules'], 'amount')), 2);
+        $modDiff = round($proAmount - $baseModAmount, 2);
+        $result['net_pay'] = round($result['net_pay'] + $modDiff, 2);
     }
 
     // 返回员工表底薪的折算信息（主底薪）
@@ -303,7 +314,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     // 调用薪资算法（自动选择员工专属算法或默认算法）
                     $result = SalaryCalculator::calculate($emp, $orderList, $order_total, $month);
 
-                    // 底薪按出勤天数折算（分母固定30；处理 base_salary 字段与 base_salary_tiered 模块两种来源）
+                    // 底薪按出勤天数折算（分母固定30；处理 base_salary 字段与阶梯/客服绩效底薪等底薪类模块）
                     $baseInfo = applyProratedBaseSalary($result, $emp['id'], $month);
 
                     // 将自定义金额叠加到最终结果
@@ -539,7 +550,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $bonus = calcFullAttendanceBonus($emp['id'], $month, $bonusBase);
                 $bonusNet = (float)$bonus['net'];
 
-                // 底薪按出勤天数折算（直接修改 $result，处理阶梯底薪模块）
+                // 底薪按出勤天数折算（直接修改 $result，处理阶梯底薪/客服绩效底薪等底薪类模块）
                 $baseInfo = applyProratedBaseSalary($result, $emp['id'], $month);
 
                 $commission = $result['module_total'] ?? $result['commission'];
@@ -749,7 +760,7 @@ include __DIR__ . '/../includes/header.php';
                             <div class="input-group-prepend"><span class="input-group-text">¥</span></div>
                             <input type="text" class="form-control" value="<?php echo e($preview['base_info']['original'] ?? ($emp['base_salary'] ?? '')); ?>" readonly>
                         </div>
-                        <small class="text-muted">自动抓取员工底薪（自定义底薪或阶梯底薪），按出勤天数折算：底薪/30×实际出勤天数</small>
+                        <small class="text-muted">自动抓取员工底薪（自定义底薪、阶梯底薪或客服绩效底薪），按出勤天数折算：底薪/30×实际出勤天数</small>
                     </div>
                     <button type="submit" class="btn btn-info btn-block"><i class="fas fa-eye"></i> 预览计算</button>
                 </form>
