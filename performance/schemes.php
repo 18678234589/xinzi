@@ -185,7 +185,7 @@ function addTier(t){
                                 'weight_conv'=>$s['weight_conv'],'target_conversion_pct'=>$s['target_conversion_pct'],
                                 'weight_amount'=>$s['weight_amount'],'amount_tiers'=>$tiers,
                                 'floor_pct'=>$s['floor_pct'],'cap_pct'=>$s['cap_pct'],
-                            ], JSON_UNESCAPED_UNICODE); ?>);"><i class="fas fa-edit"></i> 编辑</button>
+                            ], JSON_UNESCAPED_UNICODE); ?>);'><i class="fas fa-edit"></i> 编辑</button>
                             <form method="post" class="d-inline" onsubmit="return confirm('删除该方案？被引用的部门将回退到默认方案。')">
                                 <input type="hidden" name="action" value="scheme_delete">
                                 <input type="hidden" name="id" value="<?php echo (int)$s['id']; ?>">
