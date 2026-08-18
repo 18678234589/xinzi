@@ -1360,6 +1360,16 @@ function ensureCsPerfSchema()
         if (isset($schemeCols[$col])) continue;
         try { $pdo->exec("ALTER TABLE `cs_perf_schemes` ADD COLUMN `$col` $def"); } catch (\Throwable $e) {}
     }
+    // 6.2 档位区间列（每个指标可配置多个「区间下限~上限 → 达成率%」，JSON 存储，空串=未配置）
+    foreach ([
+        'tiers_net_sales'      => "TEXT NULL COMMENT '净销售额档位JSON [{\"from\":0,\"to\":60000,\"rate\":50},...]'",
+        'tiers_inquiry_conv'   => "TEXT NULL COMMENT '询单转化率档位JSON'",
+        'tiers_wangwang_reply' => "TEXT NULL COMMENT '旺旺回复率档位JSON'",
+        'tiers_avg_response'   => "TEXT NULL COMMENT '平均响应时长档位JSON'",
+    ] as $col => $def) {
+        if (isset($schemeCols[$col])) continue;
+        try { $pdo->exec("ALTER TABLE `cs_perf_schemes` ADD COLUMN `$col` $def"); } catch (\Throwable $e) {}
+    }
     // 仅首次建表时创建默认方案，便于直接沿用/修改
     if (!$schemesExists) {
         $pdo->exec("INSERT IGNORE INTO `cs_perf_schemes`
@@ -1545,9 +1555,92 @@ function get_cs_perf_scheme($id)
 }
 
 /**
+ * 档位区间解析：把存储的 JSON / 数组转成规范化档位列表（按 from 升序）。
+ * 每档：['from'=>下限, 'to'=>上限(可 null=无上限), 'rate'=>达成率%]
+ */
+function cs_perf_tiers_parse($json)
+{
+    if (is_array($json)) {
+        $arr = $json;
+    } elseif (is_string($json) && trim($json) !== '') {
+        $arr = json_decode($json, true);
+    } else {
+        return [];
+    }
+    if (!is_array($arr)) return [];
+    $out = [];
+    foreach ($arr as $t) {
+        if (!is_array($t)) continue;
+        $out[] = [
+            'from' => (float)($t['from'] ?? 0),
+            'to'   => (isset($t['to']) && $t['to'] !== '' && $t['to'] !== null) ? (float)$t['to'] : null,
+            'rate' => (float)($t['rate'] ?? 0),
+        ];
+    }
+    usort($out, function ($a, $b) { return $a['from'] <=> $b['from']; });
+    return $out;
+}
+
+/**
+ * 档位列表转存储 JSON（空档位行会被丢弃；下行为空表示"无上限"）。
+ */
+function cs_perf_tiers_json($tiers)
+{
+    if (is_string($tiers)) return $tiers; // 已是 JSON 直接存
+    if (!is_array($tiers)) return '';
+    $out = [];
+    foreach ($tiers as $t) {
+        if (!is_array($t)) continue;
+        $from = (float)($t['from'] ?? 0);
+        $to   = (isset($t['to']) && $t['to'] !== '' && $t['to'] !== null) ? (float)$t['to'] : null;
+        $rate = (float)($t['rate'] ?? 0);
+        if ($from <= 0 && ($to === null || $to <= 0) && $rate <= 0) continue; // 完全空行
+        $out[] = ['from' => $from, 'to' => $to, 'rate' => $rate];
+    }
+    usort($out, function ($a, $b) { return $a['from'] <=> $b['from']; });
+    return $out ? json_encode($out, JSON_UNESCAPED_UNICODE) : '';
+}
+
+/**
+ * 档位达成率：取「区间下限 <= 实际值」的最后一个档位（连续区间下即命中档）。
+ * 实际值低于首档下限 → 首档达成率；高于末档 → 末档达成率（末档通常"无上限"）。
+ * 实际值落在档位间隔的空隙时取上一个档位的达成率。
+ * @param array $tiers 规范化档位列表
+ * @param float $value 实际值
+ * @return array|null ['from','to','rate']；无档位或值<=0 返回 null
+ */
+function cs_perf_tier_lookup($tiers, $value)
+{
+    $value = (float)$value;
+    if (!$tiers || $value <= 0) return null;
+    usort($tiers, function ($a, $b) { return $a['from'] <=> $b['from']; });
+    $hit = null;
+    foreach ($tiers as $t) {
+        if ($value >= (float)$t['from']) $hit = $t;
+        else break;
+    }
+    return $hit ?: $tiers[0];
+}
+
+/**
+ * 档位区间格式化（用于公式/列表展示）：≥8万 / ≤6万 / 3万~5万
+ */
+function cs_perf_fmt_range($tier)
+{
+    $f = function ($v) { return rtrim(rtrim(number_format((float)$v, 2, '.', ''), '0'), '.'); };
+    $from = (float)($tier['from'] ?? 0);
+    $to   = ($tier['to'] ?? null);
+    if ($to === null || $to === '') return '≥' . $f($from);
+    if ($from <= 0) return '≤' . $f($to);
+    return $f($from) . '~' . $f($to);
+}
+
+/**
  * 保存/新增一个绩效方案。$id=0 表示新增。
  * @param array $p 键：name, w_net_sales, t_net_sales, w_inquiry_conv, t_inquiry_conv,
- *                  w_wangwang_reply, t_wangwang_reply, w_avg_response, t_avg_response, floor_pct, cap_pct, is_default
+ *                  w_wangwang_reply, t_wangwang_reply, w_avg_response, t_avg_response,
+ *                  tiers_net_sales/tiers_inquiry_conv/tiers_wangwang_reply/tiers_avg_response（数组或JSON），
+ *                  floor_pct, cap_pct, is_default
  * @return bool
  */
 function save_cs_perf_scheme($id, $p)
@@ -1557,20 +1650,25 @@ function save_cs_perf_scheme($id, $p)
         $id   = (int)$id;
         $name = (string)($p['name'] ?? '');
         if (trim($name) === '') return false;
+        $isDefault = !empty($p['is_default']) ? 1 : 0;
         $fields = [
             (float)($p['w_net_sales'] ?? 43),       (float)($p['t_net_sales'] ?? 0),
             (float)($p['w_inquiry_conv'] ?? 30),    (float)($p['t_inquiry_conv'] ?? 0),
             (float)($p['w_wangwang_reply'] ?? 17),  (float)($p['t_wangwang_reply'] ?? 0),
             (float)($p['w_avg_response'] ?? 15),    (float)($p['t_avg_response'] ?? 0),
+            cs_perf_tiers_json($p['tiers_net_sales'] ?? []),
+            cs_perf_tiers_json($p['tiers_inquiry_conv'] ?? []),
+            cs_perf_tiers_json($p['tiers_wangwang_reply'] ?? []),
+            cs_perf_tiers_json($p['tiers_avg_response'] ?? []),
             (float)($p['floor_pct'] ?? 0),          (float)($p['cap_pct'] ?? 0),
-            (int)(!empty($p['is_default']) ? 1 : 0),
+            $isDefault,
         ];
-        if ($fields[10]) $pdo->exec("UPDATE cs_perf_schemes SET is_default=0");
+        if ($isDefault) $pdo->exec("UPDATE cs_perf_schemes SET is_default=0");
         if ($id > 0) {
-            $st = $pdo->prepare("UPDATE cs_perf_schemes SET name=?, w_net_sales=?, t_net_sales=?, w_inquiry_conv=?, t_inquiry_conv=?, w_wangwang_reply=?, t_wangwang_reply=?, w_avg_response=?, t_avg_response=?, floor_pct=?, cap_pct=?, is_default=? WHERE id=?");
+            $st = $pdo->prepare("UPDATE cs_perf_schemes SET name=?, w_net_sales=?, t_net_sales=?, w_inquiry_conv=?, t_inquiry_conv=?, w_wangwang_reply=?, t_wangwang_reply=?, w_avg_response=?, t_avg_response=?, tiers_net_sales=?, tiers_inquiry_conv=?, tiers_wangwang_reply=?, tiers_avg_response=?, floor_pct=?, cap_pct=?, is_default=? WHERE id=?");
             return (bool)$st->execute(array_merge($fields, [$id]));
         }
-        $st = $pdo->prepare("INSERT INTO cs_perf_schemes (name, w_net_sales, t_net_sales, w_inquiry_conv, t_inquiry_conv, w_wangwang_reply, t_wangwang_reply, w_avg_response, t_avg_response, floor_pct, cap_pct, is_default) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)");
+        $st = $pdo->prepare("INSERT INTO cs_perf_schemes (name, w_net_sales, t_net_sales, w_inquiry_conv, t_inquiry_conv, w_wangwang_reply, t_wangwang_reply, w_avg_response, t_avg_response, tiers_net_sales, tiers_inquiry_conv, tiers_wangwang_reply, tiers_avg_response, floor_pct, cap_pct, is_default) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)");
         return (bool)$st->execute(array_merge([$name], $fields));
     } catch (\Throwable $e) {
         return false;
@@ -1670,11 +1768,10 @@ function delete_cs_perf_dept_config($dept)
  *
  * 公式：绩效金额 = 部门绩效基数 × 综合达成率（可设保底/封顶）
  * 综合达成率 = Σ(启用指标 权重×达成率) / Σ(启用权重)
- * 启用判定：权重>0 且 对应目标已配置。
- *   净销售额达成率        = 实际净销售额 / 目标净销售额
- *   询单转化率达成率      = 实际询单转化率% / 目标询单转化率%
- *   旺旺回复率达成率      = 实际旺旺回复率% / 目标旺旺回复率%
- *   平均响应时长达成率    = 目标秒 / 实际秒（越低越快越好）
+ * 启用判定：权重>0 且 该指标已配置档位区间（tiers_* 非空）。
+ *   净销售额/询单转化率/旺旺回复率/平均响应时长 四个指标均为「多档位区间」：
+ *   实际值落入档位区间 → 取该档固定达成率（阶跃）；未配置档位的启用指标不参与加权。
+ *   平均响应时长「越低越好」通过把最好档位的区间下限设小实现。
  *
  * 数据来源：cs_perf_dept_config（部门→基数+方案）；
  * 无部门配置时回退 $legacyCfg（旧版「客服绩效底薪」模块参数），此时沿用旧四因素算法（回复/接待/转化率，无金额阶梯）。
@@ -1707,10 +1804,10 @@ function cs_perf_calc($employeeId, $year, $month, $legacyCfg = null)
         $scheme = get_cs_perf_scheme((int)$deptCfg['scheme_id']);
         if ($scheme) {
             $params = [
-                'w_net_sales' => (float)$scheme['w_net_sales'],         't_net_sales' => (float)$scheme['t_net_sales'],
-                'w_inquiry_conv' => (float)$scheme['w_inquiry_conv'],  't_inquiry_conv' => (float)$scheme['t_inquiry_conv'],
-                'w_wangwang_reply' => (float)$scheme['w_wangwang_reply'], 't_wangwang_reply' => (float)$scheme['t_wangwang_reply'],
-                'w_avg_response' => (float)$scheme['w_avg_response'],  't_avg_response' => (float)$scheme['t_avg_response'],
+                'w_net_sales' => (float)$scheme['w_net_sales'],         'tiers_net_sales' => cs_perf_tiers_parse($scheme['tiers_net_sales'] ?? ''),
+                'w_inquiry_conv' => (float)$scheme['w_inquiry_conv'],  'tiers_inquiry_conv' => cs_perf_tiers_parse($scheme['tiers_inquiry_conv'] ?? ''),
+                'w_wangwang_reply' => (float)$scheme['w_wangwang_reply'], 'tiers_wangwang_reply' => cs_perf_tiers_parse($scheme['tiers_wangwang_reply'] ?? ''),
+                'w_avg_response' => (float)$scheme['w_avg_response'],  'tiers_avg_response' => cs_perf_tiers_parse($scheme['tiers_avg_response'] ?? ''),
                 'floor_pct' => (float)$scheme['floor_pct'], 'cap_pct' => (float)$scheme['cap_pct'],
             ];
         }
@@ -1775,39 +1872,32 @@ function cs_perf_calc($employeeId, $year, $month, $legacyCfg = null)
             return ['amount' => 0.0, 'formula' => '方案未配置有效指标（需设置权重与目标）', 'base' => $base];
         }
     } else {
-        // ============ 新：四指标（净销售额/询单转化率/旺旺回复率/平均响应时长）加权达成 ============
+        // ============ 新：四指标（净销售额/询单转化率/旺旺回复率/平均响应时长）档位达成 ============
         $netSales    = (float)($perf['net_sales'] ?? 0);        // 净销售额(元)
         $inquiryConv = (float)($perf['inquiry_conv'] ?? 0);     // 询单最终下单转化率(%)
         $wangReply   = (float)($perf['wangwang_reply'] ?? 0);   // 旺旺回复率(%)
         $avgResponse = (float)$perf['reply_speed'];             // 平均响应时长(秒)
 
+        // 命中档位达成率：把（权重>0 且有档位区间 且 有实际值）的指标纳入加权
+        $ratio = function ($w, $tiers, $val) use (&$wSum, &$rateSum, &$parts) {
+            $tier = cs_perf_tier_lookup($tiers, $val);
+            if ($tier === null) return;
+            $rate = (float)$tier['rate'] / 100;
+            $wSum += $w; $rateSum += $w * $rate;
+            $parts[] = sprintf('档[%s]%.1f%%×%.1f', cs_perf_fmt_range($tier), $rate * 100, $w);
+        };
+
         // 1. 净销售额
-        if ($params['w_net_sales'] > 0 && $params['t_net_sales'] > 0 && $netSales > 0) {
-            $rate = $netSales / $params['t_net_sales'];
-            $wSum += $params['w_net_sales']; $rateSum += $params['w_net_sales'] * $rate;
-            $parts[] = sprintf('销售额%.1f%%×%.1f', $rate * 100, $params['w_net_sales']);
-        }
+        if ($params['w_net_sales'] > 0 && !empty($params['tiers_net_sales'])) $ratio($params['w_net_sales'], $params['tiers_net_sales'], $netSales);
         // 2. 询单最终下单转化率
-        if ($params['w_inquiry_conv'] > 0 && $params['t_inquiry_conv'] > 0 && $inquiryConv > 0) {
-            $rate = $inquiryConv / $params['t_inquiry_conv'];
-            $wSum += $params['w_inquiry_conv']; $rateSum += $params['w_inquiry_conv'] * $rate;
-            $parts[] = sprintf('询单转化%.1f%%×%.1f', $rate * 100, $params['w_inquiry_conv']);
-        }
+        if ($params['w_inquiry_conv'] > 0 && !empty($params['tiers_inquiry_conv'])) $ratio($params['w_inquiry_conv'], $params['tiers_inquiry_conv'], $inquiryConv);
         // 3. 旺旺回复率
-        if ($params['w_wangwang_reply'] > 0 && $params['t_wangwang_reply'] > 0 && $wangReply > 0) {
-            $rate = $wangReply / $params['t_wangwang_reply'];
-            $wSum += $params['w_wangwang_reply']; $rateSum += $params['w_wangwang_reply'] * $rate;
-            $parts[] = sprintf('回复率%.1f%%×%.1f', $rate * 100, $params['w_wangwang_reply']);
-        }
-        // 4. 平均响应时长（越低越快越好）
-        if ($params['w_avg_response'] > 0 && $params['t_avg_response'] > 0 && $avgResponse > 0) {
-            $rate = $params['t_avg_response'] / $avgResponse;
-            $wSum += $params['w_avg_response']; $rateSum += $params['w_avg_response'] * $rate;
-            $parts[] = sprintf('响应%.1f%%×%.1f', $rate * 100, $params['w_avg_response']);
-        }
+        if ($params['w_wangwang_reply'] > 0 && !empty($params['tiers_wangwang_reply'])) $ratio($params['w_wangwang_reply'], $params['tiers_wangwang_reply'], $wangReply);
+        // 4. 平均响应时长（越低越快越好：把最好档位下限设小）
+        if ($params['w_avg_response'] > 0 && !empty($params['tiers_avg_response'])) $ratio($params['w_avg_response'], $params['tiers_avg_response'], $avgResponse);
 
         if ($wSum <= 0) {
-            return ['amount' => 0.0, 'formula' => '方案未配置有效指标（需设置权重与目标）', 'base' => $base];
+            return ['amount' => 0.0, 'formula' => '方案未配置有效指标（需设置权重与档位区间）', 'base' => $base];
         }
     }
 
