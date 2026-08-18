@@ -1787,7 +1787,7 @@ function save_cs_perf_scheme($id, $p)
         if ($isDefault) $pdo->exec("UPDATE cs_perf_schemes SET is_default=0");
         if ($id > 0) {
             $st = $pdo->prepare("UPDATE cs_perf_schemes SET name=?, w_net_sales=?, t_net_sales=?, w_inquiry_conv=?, t_inquiry_conv=?, w_wangwang_reply=?, t_wangwang_reply=?, w_avg_response=?, t_avg_response=?, tiers_net_sales=?, tiers_inquiry_conv=?, tiers_wangwang_reply=?, tiers_avg_response=?, floor_pct=?, cap_pct=?, is_default=? WHERE id=?");
-            return (bool)$st->execute(array_merge($fields, [$id]));
+            return (bool)$st->execute(array_merge([$name], $fields, [$id])); // 注意 UPDATE 需补上 name 值，否则参数比占位符少一个报错
         }
         $st = $pdo->prepare("INSERT INTO cs_perf_schemes (name, w_net_sales, t_net_sales, w_inquiry_conv, t_inquiry_conv, w_wangwang_reply, t_wangwang_reply, w_avg_response, t_avg_response, tiers_net_sales, tiers_inquiry_conv, tiers_wangwang_reply, tiers_avg_response, floor_pct, cap_pct, is_default) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)");
         return (bool)$st->execute(array_merge([$name], $fields));
