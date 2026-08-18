@@ -10,6 +10,12 @@ $month = (int)($_GET['month'] ?? date('m'));
 if ($year < 2000 || $year > 2100) $year = (int)date('Y');
 if ($month < 1 || $month > 12)    $month = (int)date('m');
 
+// 上传默认归入上个月（可在上传卡里改）
+$upYD = (int)($_POST['upload_year']  ?? date('Y', strtotime('-1 month')));
+$upMD = (int)($_POST['upload_month'] ?? date('n', strtotime('-1 month')));
+if ($upYD < 2000 || $upYD > 2100) $upYD = (int)date('Y');
+if ($upMD < 1 || $upMD > 12)      $upMD = (int)date('n');
+
 // 绩效名单：绩效底薪只涉及名单内员工，页面可自定义增删
 $upMsg = '';
 $upErr = '';
@@ -31,10 +37,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     } elseif ($action === 'import') {
         if (!empty($_FILES['file']['tmp_name']) && is_uploaded_file($_FILES['file']['tmp_name'])) {
-            $r = import_cs_perf_file($_FILES['file']['tmp_name'], 'admin:' . basename($_FILES['file']['name']), $year, $month);
-            $upMsg = sprintf('导入完成：匹配 %d 人，未匹配 %d 条，错误 %d 条', $r['matched'], $r['pending'], $r['errors']);
+            $upY = (int)($_POST['upload_year'] ?? 0);
+            $upM = (int)($_POST['upload_month'] ?? 0);
+            if (!($upY >= 2000 && $upM >= 1 && $upM <= 12)) { $upY = (int)date('Y', strtotime('-1 month')); $upM = (int)date('n', strtotime('-1 month')); }
+            $r = import_cs_perf_file($_FILES['file']['tmp_name'], 'admin:' . basename($_FILES['file']['name']), $upY, $upM);
+            $upMsg = sprintf('导入完成（归入 %d-%02d 月）：匹配 %d 人，未匹配 %d 条，错误 %d 条', $upY, $upM, $r['matched'], $r['pending'], $r['errors']);
         } else {
-            $upErr = '请选择要导入的绩效表文件（CSV/TXT）';
+            $upErr = '请选择要导入的绩效表文件（XLSX / CSV / TXT）';
         }
     }
 }
@@ -130,14 +139,31 @@ include __DIR__ . '/../includes/header.php';
 
 <!-- 上传绩效表（官网导出） -->
 <div class="card border-primary mb-3" id="perfUpload">
-    <div class="card-header bg-primary text-white"><i class="fas fa-cloud-upload-alt"></i> 上传绩效表（<?php echo $year; ?>年<?php echo $month; ?>月）</div>
+    <div class="card-header bg-primary text-white"><i class="fas fa-cloud-upload-alt"></i> 上传绩效表（归入 <?php echo $upYD; ?>年<?php echo $upMD; ?>月）</div>
     <div class="card-body">
         <form method="post" enctype="multipart/form-data" class="mb-0">
             <input type="hidden" name="action" value="import">
+            <div class="form-row align-items-end mb-2">
+                <div class="col-auto">
+                    <label class="small text-muted">归入月份（文件里没有日期时使用，默认上个月）</label>
+                    <div class="form-inline">
+                        <select name="upload_year" class="form-control form-control-sm mr-1" style="width:92px">
+                            <?php for ($y = date('Y'); $y >= date('Y') - 2; $y--): ?>
+                                <option value="<?php echo $y; ?>" <?php echo $upYD === $y ? 'selected' : ''; ?>><?php echo $y; ?>年</option>
+                            <?php endfor; ?>
+                        </select>
+                        <select name="upload_month" class="form-control form-control-sm ml-1" style="width:86px">
+                            <?php for ($m = 1; $m <= 12; $m++): ?>
+                                <option value="<?php echo $m; ?>" <?php echo $upMD === $m ? 'selected' : ''; ?>><?php echo $m; ?>月</option>
+                            <?php endfor; ?>
+                        </select>
+                    </div>
+                </div>
+            </div>
             <div class="form-row align-items-end">
                 <div class="col">
-                    <label class="small text-muted">选择千牛/百牛官网导出的客服绩效表（CSV / TXT，UTF-8 或 GBK）</label>
-                    <input type="file" name="file" accept=".csv,.txt" class="form-control" required>
+                    <label class="small text-muted">选择千牛/百牛官网导出的客服绩效表（XLSX / CSV / TXT，UTF-8 或 GBK）</label>
+                    <input type="file" name="file" accept=".xlsx,.csv,.txt" class="form-control" required>
                 </div>
                 <div class="col-auto">
                     <button type="submit" class="btn btn-primary"><i class="fas fa-upload"></i> 上传并自动匹配</button>
@@ -145,7 +171,7 @@ include __DIR__ . '/../includes/header.php';
             </div>
             <small class="text-muted d-block mt-2">
                 <i class="fas fa-info-circle"></i> 系统自动识别列名：客服/旺旺、净销售额、询单最终下单转化率、旺旺回复率、平均响应时长（响应时长支持 HH:MM:SS / X分X秒 / 秒）；
-                文件中没有日期时默认归入当前所选月份；导入后按「旺旺账号 → 姓名」自动匹配名单内员工，未匹配的进入下方【待匹配清单】。
+                文件里没有日期时归入上方所选月份（默认上个月）；导入后按「旺旺账号 → 姓名」自动匹配名单内员工，未匹配的进入下方【待匹配清单】。
             </small>
         </form>
     </div>

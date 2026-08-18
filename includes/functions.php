@@ -1823,6 +1823,64 @@ function cs_perf_calc($employeeId, $year, $month, $legacyCfg = null)
 }
 
 /**
+ * 目标基准值「自动抓取」：取指定月份所有绩效员工的实际平均值，作为方案指标的目标基线。
+ * 默认抓取上个月；该月无数据时回退到最近一个有数据的月份。
+ * @param int $year  0 = 默认上个月
+ * @param int $month 0 = 默认上个月
+ * @return array|null ['year','month','emp_count','avg_sales','avg_conv','avg_reply','avg_resp']；无数据返回 null
+ */
+function get_cs_perf_target_suggestions($year = 0, $month = 0)
+{
+    $year  = (int)$year;
+    $month = (int)$month;
+    if (!($year >= 2000 && $month >= 1 && $month <= 12)) {
+        $year  = (int)date('Y', strtotime('-1 month'));
+        $month = (int)date('n', strtotime('-1 month'));
+    }
+    ensureCsPerfSchema();
+    $pdo = db();
+    $rows = [];
+    try {
+        $rows = $pdo->query("SELECT net_sales, inquiry_conv, wangwang_reply, reply_speed
+            FROM customer_service_performance
+            WHERE year={$year} AND month={$month} AND (net_sales>0 OR inquiry_conv>0 OR wangwang_reply>0 OR reply_speed>0)")->fetchAll();
+    } catch (\Throwable $e) {}
+    // 该月无数据 → 回退最近一个有数据的月份
+    if (!$rows) {
+        try {
+            $recent = $pdo->query("SELECT year, month FROM customer_service_performance
+                WHERE net_sales>0 OR inquiry_conv>0 OR wangwang_reply>0 OR reply_speed>0
+                ORDER BY year DESC, month DESC LIMIT 1")->fetch(PDO::FETCH_ASSOC);
+            if ($recent && (int)$recent['year'] > 0) {
+                $year  = (int)$recent['year'];
+                $month = (int)$recent['month'];
+                $rows = $pdo->query("SELECT net_sales, inquiry_conv, wangwang_reply, reply_speed
+                    FROM customer_service_performance
+                    WHERE year={$year} AND month={$month} AND (net_sales>0 OR inquiry_conv>0 OR wangwang_reply>0 OR reply_speed>0)")->fetchAll();
+            }
+        } catch (\Throwable $e) {}
+    }
+    if (!$rows) return null;
+
+    $nSales = $sumSales = $nConv = $sumConv = $nReply = $sumReply = $nResp = $sumResp = 0;
+    foreach ($rows as $r) {
+        $s = (float)$r['net_sales'];     if ($s > 0)    { $nSales++; $sumSales += $s; }
+        $c = (float)$r['inquiry_conv'];  if ($c > 0)    { $nConv++;  $sumConv  += $c; }
+        $w = (float)$r['wangwang_reply'];if ($w > 0)    { $nReply++; $sumReply += $w; }
+        $rs = (float)$r['reply_speed'];  if ($rs > 0)   { $nResp++;  $sumResp  += $rs; }
+    }
+    return [
+        'year'      => $year,
+        'month'     => $month,
+        'emp_count' => count($rows),
+        'avg_sales' => $nSales > 0 ? round($sumSales / $nSales, 2) : 0.0,
+        'avg_conv'  => $nConv  > 0 ? round($sumConv  / $nConv,  2) : 0.0,
+        'avg_reply' => $nReply > 0 ? round($sumReply / $nReply, 2) : 0.0,
+        'avg_resp'  => $nResp  > 0 ? round($sumResp  / $nResp,  1) : 0.0,
+    ];
+}
+
+/**
  * 从 CSV 文本识别列位置（模糊匹配）
  * @param array $header 表头行（已转UTF-8）
  * @return array 标准列名 => 列索引（找不到则为 null）
@@ -1974,27 +2032,75 @@ function import_cs_perf_file($filePath, $source = '', $defaultYear = 0, $default
 {
     if ($source === '') $source = basename($filePath);
 
-    // 读文件并转为 UTF-8（兼容 GBK）
-    $content = @file_get_contents($filePath);
-    if ($content === false || trim($content) === '') {
-        return ['matched'=>0,'pending'=>0,'errors'=>1,'detail'=>['文件为空或不可读']];
-    }
-    if (substr($content, 0, 3) === "\xEF\xBB\xBF") $content = substr($content, 3);
-    if (!mb_check_encoding($content, 'UTF-8')) {
-        $converted = @mb_convert_encoding($content, 'UTF-8', 'GBK');
-        if ($converted !== false) $content = $converted;
+    $ext = strtolower(pathinfo($source, PATHINFO_EXTENSION));
+    $header = null;
+    $lines  = [];
+
+    if ($ext === 'xlsx' || $ext === 'xls') {
+        // ===== .xlsx / .xls：用 SimpleXLSX 解析，自动定位含绩效表头的工作表/行 =====
+        // 表头须含「姓名/客服」或「旺旺」之一的身份列，并在所有行中取识别列数最多者（避开标题/汇总行）。
+        require_once dirname(__DIR__) . '/classes/SimpleXLSX.php';
+        $idKeys = ['name','wangwang','incoming','total_sec','reply_speed','reply_count','date','year','month','net_sales','inquiry_conv','wangwang_reply'];
+        $bestHeader = null;
+        $bestRows   = null;
+        $bestIdx    = -1;
+        $bestScore  = -1;
+        try {
+            $sheets = SimpleXLSX::parseAll($filePath); // ['工作表名' => 行数组]
+        } catch (\Throwable $e) {
+            return ['matched'=>0,'pending'=>0,'errors'=>1,'detail'=>['无法解析 ' . $ext . '：' . $e->getMessage()]];
+        }
+        foreach ($sheets as $sRows) {
+            if (!is_array($sRows)) continue;
+            for ($i = 0, $n = count($sRows); $i < $n; $i++) {
+                $c = detect_cs_perf_columns((array)$sRows[$i]);
+                if ($c['name'] === null && $c['wangwang'] === null) continue; // 无身份列，视为标题/汇总行
+                $score = 0;
+                foreach ($idKeys as $k) if ($c[$k] !== null) $score++;
+                if ($score > $bestScore) {
+                    $bestScore  = $score;
+                    $bestHeader = (array)$sRows[$i];
+                    $bestRows   = $sRows;
+                    $bestIdx    = $i;
+                }
+            }
+        }
+        if ($bestHeader === null) {
+            return ['matched'=>0,'pending'=>0,'errors'=>1,'detail'=>[$ext . ' 中未找到客服绩效表头（客服/旺旺/净销售额/转化率等）']];
+        }
+        $header = $bestHeader;
+        for ($j = $bestIdx + 1, $n = count($bestRows); $j < $n; $j++) {
+            $row = (array)$bestRows[$j];
+            $allEmpty = true;
+            foreach ($row as $cell) { if (trim((string)$cell) !== '') { $allEmpty = false; break; } }
+            if ($allEmpty) continue;
+            $lines[] = array_values($row);
+        }
+        if (count($lines) < 1) {
+            return ['matched'=>0,'pending'=>0,'errors'=>1,'detail'=>[$ext . ' 中未找到数据行']];
+        }
+    } else {
+        // ===== CSV / TXT：原有逻辑（兼容 GBK）=====
+        $content = @file_get_contents($filePath);
+        if ($content === false || trim($content) === '') {
+            return ['matched'=>0,'pending'=>0,'errors'=>1,'detail'=>['文件为空或不可读']];
+        }
+        if (substr($content, 0, 3) === "\xEF\xBB\xBF") $content = substr($content, 3);
+        if (!mb_check_encoding($content, 'UTF-8')) {
+            $converted = @mb_convert_encoding($content, 'UTF-8', 'GBK');
+            if ($converted !== false) $content = $converted;
+        }
+        $lines = [];
+        foreach (preg_split('/\r\n|\r|\n/', $content) as $line) {
+            if (trim($line) === '') continue;
+            $lines[] = csv_parse_line(rtrim($line, "\r"));
+        }
+        if (count($lines) < 2) {
+            return ['matched'=>0,'pending'=>0,'errors'=>1,'detail'=>['无数据行']];
+        }
+        $header = array_shift($lines);
     }
 
-    $lines = [];
-    foreach (preg_split('/\r\n|\r|\n/', $content) as $line) {
-        if (trim($line) === '') continue;
-        $lines[] = csv_parse_line(rtrim($line, "\r"));
-    }
-    if (count($lines) < 2) {
-        return ['matched'=>0,'pending'=>0,'errors'=>1,'detail'=>['无数据行']];
-    }
-
-    $header = array_shift($lines);
     $cols = detect_cs_perf_columns($header);
 
     ensureCsPerfSchema();

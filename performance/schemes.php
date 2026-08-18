@@ -78,6 +78,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 $schemes = get_cs_perf_schemes();
 $deptCfg = get_cs_perf_dept_configs();
 
+// 自动抓取目标基准值：返回某月绩效实际平均值 JSON（默认上个月，供编辑器按钮填充目标）
+if (($_GET['action'] ?? '') === 'suggest_targets' && ($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'GET') {
+    $s = get_cs_perf_target_suggestions((int)($_GET['year'] ?? 0), (int)($_GET['month'] ?? 0));
+    header('Content-Type: application/json; charset=utf-8');
+    echo json_encode($s === null ? ['found' => false] : array_merge(['found' => true], $s), JSON_UNESCAPED_UNICODE);
+    exit;
+}
+
+// 编辑器「自动抓取」默认月份 = 上个月
+$prevY = (int)date('Y', strtotime('-1 month'));
+$prevM = (int)date('n', strtotime('-1 month'));
+
 // 供前端加载已知员工的部门下拉（在“添加部门”时可选已有部门）
 $deptOptions = [];
 try {
@@ -134,6 +146,40 @@ function fillScheme(obj){
     refreshEnableState();
     document.getElementById('schemeEditor').style.display = '';
     document.getElementById('schemeEditor').scrollIntoView({behavior:'smooth',block:'start'});
+}
+// 自动抓取目标基准值：按所选月份所有绩效员工实际平均值填入目标（默认上个月）
+function autoFetchTargets(){
+    var y = document.getElementById('s_fetch_year').value;
+    var m = document.getElementById('s_fetch_month').value;
+    var info = document.getElementById('s_fetch_info');
+    info.className = 'small ml-3 text-muted';
+    info.textContent = '抓取中…';
+    fetch('schemes.php?action=suggest_targets&year='+encodeURIComponent(y)+'&month='+encodeURIComponent(m))
+        .then(function(r){ return r.json(); })
+        .then(function(d){
+            if(!d.found){
+                info.className = 'small ml-3 text-warning';
+                info.textContent = '该月没有绩效数据，目标保持原值（可换月份重试）';
+                return;
+            }
+            var mm = ('0'+d.month).slice(-2);
+            document.getElementById('s_en_net_sales').checked = true;
+            document.getElementById('s_t_net_sales').value = d.avg_sales;
+            document.getElementById('s_en_inquiry_conv').checked = true;
+            document.getElementById('s_t_inquiry_conv').value = d.avg_conv;
+            document.getElementById('s_en_wangwang_reply').checked = true;
+            document.getElementById('s_t_wangwang_reply').value = d.avg_reply;
+            document.getElementById('s_en_avg_response').checked = true;
+            document.getElementById('s_t_avg_response').value = d.avg_resp;
+            refreshEnableState();
+            info.className = 'small ml-3 text-success';
+            info.textContent = '已按 ' + d.year + '-' + mm + ' 月 ' + d.emp_count + ' 人平均值填入：净销售额 ' + d.avg_sales
+                + ' 元 / 转化率 ' + d.avg_conv + '% / 回复率 ' + d.avg_reply + '% / 响应 ' + d.avg_resp + ' 秒，请核对后保存';
+        })
+        .catch(function(e){
+            info.className = 'small ml-3 text-danger';
+            info.textContent = '抓取失败：' + e;
+        });
 }
 </script>
 
@@ -212,6 +258,22 @@ function fillScheme(obj){
 <div class="card mb-3 border-primary" id="schemeEditor" style="display:none">
     <div class="card-header bg-primary text-white" id="schemeEditorTitle">新增方案</div>
     <div class="card-body">
+        <!-- 自动抓取目标基准值（按所选月份实际平均值填目标） -->
+        <div class="d-flex flex-wrap align-items-center mb-2 p-2 bg-light rounded">
+            <span class="small text-muted mr-2"><i class="fas fa-magic"></i> 自动抓取目标基准值：按所选月份所有绩效员工的实际平均值换算，填入下方「目标基准值」</span>
+            <select id="s_fetch_year" class="form-control form-control-sm" style="width:92px">
+                <?php for ($y = date('Y'); $y >= date('Y') - 2; $y--): ?>
+                    <option value="<?php echo $y; ?>" <?php echo $prevY === $y ? 'selected' : ''; ?>><?php echo $y; ?>年</option>
+                <?php endfor; ?>
+            </select>
+            <select id="s_fetch_month" class="form-control form-control-sm ml-1" style="width:78px">
+                <?php for ($m = 1; $m <= 12; $m++): ?>
+                    <option value="<?php echo $m; ?>" <?php echo $prevM === $m ? 'selected' : ''; ?>><?php echo $m; ?>月</option>
+                <?php endfor; ?>
+            </select>
+            <button type="button" class="btn btn-sm btn-outline-success ml-2" onclick="autoFetchTargets()"><i class="fas fa-download"></i> 自动抓取</button>
+            <span id="s_fetch_info" class="small ml-3 text-muted">默认抓取上个月（<?php echo $prevY; ?>年<?php echo $prevM; ?>月）；该月无数据时自动取最近有数据的月份。</span>
+        </div>
         <form method="post">
             <input type="hidden" name="action" value="scheme_save">
             <input type="hidden" name="id" id="s_id" value="0">
