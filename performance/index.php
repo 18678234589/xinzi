@@ -45,6 +45,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } else {
             $upErr = '请选择要导入的绩效表文件（XLSX / CSV / TXT）';
         }
+    } elseif ($action === 'upload_delete') {
+        $src = trim($_POST['source_file'] ?? '');
+        if ($src !== '') {
+            $q = db()->quote($src);
+            db()->exec("DELETE FROM customer_service_performance WHERE source_file=$q");
+            db()->exec("DELETE FROM cs_perf_pending WHERE source_file=$q");
+            db()->exec("DELETE FROM cs_perf_sync_log WHERE source_file=$q");
+            $upMsg = '已删除该次上传的数据（匹配数据、待匹配记录及导入记录）';
+        } else {
+            $upErr = '删除失败：未指定来源文件';
+        }
     }
 }
 
@@ -88,6 +99,50 @@ $logs = [];
 try {
     $logs = db()->query("SELECT * FROM cs_perf_sync_log ORDER BY id DESC LIMIT 20")->fetchAll();
 } catch (\Throwable $e) {}
+
+// 查看某次上传的导入明细（模态框用，按 source_file 汇总已匹配/未匹配/错误）
+if (($_GET['action'] ?? '') === 'upload_view' && ($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'GET') {
+    header('Content-Type: application/json; charset=utf-8');
+    $src = (string)($_GET['source'] ?? '');
+    if ($src === '') {
+        echo json_encode(['found' => false], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+    $pdo  = db();
+    $log  = null;
+    try {
+        $st = $pdo->prepare("SELECT source_file, matched, pending, errors, detail, created_at FROM cs_perf_sync_log WHERE source_file=? ORDER BY id DESC LIMIT 1");
+        $st->execute([$src]);
+        $row = $st->fetch();
+        if ($row) {
+            $log = [
+                'source_file' => (string)$row['source_file'],
+                'matched'     => (int)$row['matched'],
+                'pending'     => (int)$row['pending'],
+                'errors'      => (int)$row['errors'],
+                'detail'      => json_decode((string)$row['detail'], true) ?: [],
+                'created_at'  => (string)$row['created_at'],
+            ];
+        }
+    } catch (\Throwable $e) {}
+    $matched = [];
+    $pending = [];
+    try {
+        $st = $pdo->prepare("SELECT c.year, c.month, c.net_sales, c.inquiry_conv, c.wangwang_reply, c.reply_speed, c.incoming_count,
+                e.name AS emp_name, e.wangwang AS emp_wang, e.department
+            FROM customer_service_performance c LEFT JOIN employees e ON e.id=c.employee_id
+            WHERE c.source_file=? ORDER BY c.year DESC, c.month DESC, e.name");
+        $st->execute([$src]);
+        $matched = $st->fetchAll();
+    } catch (\Throwable $e) {}
+    try {
+        $st = $pdo->prepare("SELECT wangwang, name, year, month, incoming_count, total_reply_seconds, net_sales, inquiry_conv, wangwang_reply FROM cs_perf_pending WHERE source_file=? ORDER BY year DESC, month DESC, name, wangwang");
+        $st->execute([$src]);
+        $pending = $st->fetchAll();
+    } catch (\Throwable $e) {}
+    echo json_encode(['found' => true, 'log' => $log, 'matched' => $matched, 'pending' => $pending], JSON_UNESCAPED_UNICODE);
+    exit;
+}
 
 define('BASE_PATH', dirname(__DIR__));
 include __DIR__ . '/../includes/header.php';
@@ -315,31 +370,115 @@ include __DIR__ . '/../includes/header.php';
 <?php endif; ?>
 
 <?php if ($logs): ?>
-<!-- 同步日志 -->
+<!-- 同步日志：已上传的绩效表（可查看/删除） -->
 <div class="card">
-    <div class="card-header"><i class="fas fa-history"></i> 最近导入记录</div>
+    <div class="card-header"><i class="fas fa-history"></i> 已上传的绩效表（最近导入记录，共 <?php echo count($logs); ?> 次）</div>
     <div class="card-body p-0">
         <div class="table-responsive">
             <table class="table table-sm table-hover mb-0">
                 <thead class="thead-light">
-                    <tr><th>时间</th><th>来源</th><th>匹配</th><th>未匹配</th><th>错误</th><th>明细</th></tr>
+                    <tr><th>时间</th><th>来源文件</th><th>匹配</th><th>未匹配</th><th>错误</th><th style="width:150px">操作</th></tr>
                 </thead>
                 <tbody>
                 <?php foreach ($logs as $l): ?>
+                    <?php $fname = preg_replace('/^admin:/', '', (string)($l['source_file'] ?? '')); ?>
                     <tr>
                         <td><?php echo e($l['created_at']); ?></td>
-                        <td><?php echo e($l['source_file']); ?></td>
+                        <td><?php echo e($fname !== '' ? $fname : ($l['source_file'] ?? '')); ?></td>
                         <td><?php echo (int)$l['matched']; ?></td>
                         <td><?php echo (int)$l['pending']; ?></td>
                         <td><?php echo (int)$l['errors']; ?></td>
-                        <td><small class="text-muted"><?php echo e($l['detail'] ?? ''); ?></small></td>
+                        <td class="text-nowrap">
+                            <button type="button" class="btn btn-sm btn-outline-info view-upload-btn"
+                                    data-source="<?php echo e($l['source_file']); ?>" data-name="<?php echo e($fname !== '' ? $fname : ($l['source_file'] ?? '')); ?>">
+                                <i class="fas fa-eye"></i> 查看
+                            </button>
+                            <form method="post" class="d-inline" onsubmit="return confirm('确定删除该次上传的所有数据？\n将移除本次导入的匹配数据与待匹配记录，员工该月绩效将变为无数据。');">
+                                <input type="hidden" name="action" value="upload_delete">
+                                <input type="hidden" name="source_file" value="<?php echo e($l['source_file']); ?>">
+                                <button class="btn btn-sm btn-outline-danger" title="删除"><i class="fas fa-trash-alt"></i></button>
+                            </form>
+                        </td>
                     </tr>
                 <?php endforeach; ?>
                 </tbody>
             </table>
         </div>
+        <small class="text-muted d-block p-2"><i class="fas fa-info-circle"></i> 「查看」展示该次上传实际导入的数据（已匹配 + 未匹配 + 错误明细）；「删除」会连同该文件导入的匹配/待匹配数据一并移除。</small>
     </div>
 </div>
 <?php endif; ?>
 
+<!-- 上传明细模态框 -->
+<div class="modal fade" id="uploadViewModal" tabindex="-1" role="dialog" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="fas fa-table"></i> 上传明细 <small id="uvSource" class="text-muted"></small></h5>
+                <button type="button" class="close" data-dismiss="modal" aria-label="Close"><span>&times;</span></button>
+            </div>
+            <div class="modal-body" id="uvBody"></div>
+        </div>
+    </div>
+</div>
+
 <?php include __DIR__ . '/../includes/footer.php'; ?>
+
+<script>
+function escHtml(s){ if(s===null||s===undefined) return ''; return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function pad2(n){ n = Number(n); if (isNaN(n)) return ''; return String(n).length < 2 ? '0'+n : String(n); }
+function renderUploadView(d){
+    var html = '', i;
+    if(!d || !d.found){ $('#uvBody').html('<div class="alert alert-warning mb-0">未找到该上传记录</div>'); return; }
+    var log = d.log;
+    if(log){
+        html += '<div class="alert alert-light border mb-3 py-2">导入时间 <b>'+escHtml(log.created_at)+'</b>；匹配 <b>'+escHtml(log.matched)+'</b> 人，未匹配 <b>'+escHtml(log.pending)+'</b> 条，错误 <b>'+escHtml(log.errors)+'</b> 条</div>';
+    }
+    if(log && log.errors > 0 && log.detail && log.detail.length){
+        html += '<div class="alert alert-danger py-2"><strong>错误明细：</strong><ul class="mb-0">';
+        for(i=0;i<log.detail.length;i++){ html += '<li>'+escHtml(log.detail[i])+'</li>'; }
+        html += '</ul></div>';
+    }
+    if(d.matched && d.matched.length){
+        html += '<h6 class="font-weight-bold text-primary mt-3"><i class="fas fa-user-check"></i> 已匹配数据（'+d.matched.length+'）</h6>';
+        html += '<div class="table-responsive"><table class="table table-sm table-bordered mb-3"><thead class="thead-light"><tr><th>员工</th><th>旺旺</th><th>部门</th><th>月份</th><th>净销售额</th><th>转化率%</th><th>回复率%</th><th>响应(秒)</th></tr></thead><tbody>';
+        for(i=0;i<d.matched.length;i++){
+            var r = d.matched[i];
+            html += '<tr><td>'+escHtml(r.emp_name||'')+'</td><td>'+escHtml(r.emp_wang||'')+'</td><td>'+escHtml(r.department||'')+'</td>'
+                  + '<td>'+escHtml(r.year)+'-'+pad2(r.month)+'</td><td>'+escHtml(r.net_sales)+'</td><td>'+escHtml(r.inquiry_conv)+'</td>'
+                  + '<td>'+escHtml(r.wangwang_reply)+'</td><td>'+escHtml(r.reply_speed)+'</td></tr>';
+        }
+        html += '</tbody></table></div>';
+    } else {
+        html += '<div class="alert alert-warning py-2"><i class="fas fa-exclamation-triangle"></i> 该次上传未匹配到任何员工数据（matched=0）。</div>';
+    }
+    if(d.pending && d.pending.length){
+        html += '<h6 class="font-weight-bold text-warning mt-3"><i class="fas fa-user-clock"></i> 未匹配暂存（'+d.pending.length+'）</h6>';
+        html += '<div class="table-responsive"><table class="table table-sm table-bordered mb-3"><thead class="thead-light"><tr><th>旺旺</th><th>姓名</th><th>月份</th><th>进线</th><th>回复总秒</th><th>净销售额</th><th>转化率%</th><th>回复率%</th></tr></thead><tbody>';
+        for(i=0;i<d.pending.length;i++){
+            var p = d.pending[i];
+            html += '<tr><td>'+escHtml(p.wangwang||'')+'</td><td>'+escHtml(p.name||'')+'</td><td>'+escHtml(p.year)+'-'+pad2(p.month)+'</td>'
+                  + '<td>'+escHtml(p.incoming_count)+'</td><td>'+escHtml(p.total_reply_seconds)+'</td><td>'+escHtml(p.net_sales)+'</td>'
+                  + '<td>'+escHtml(p.inquiry_conv)+'</td><td>'+escHtml(p.wangwang_reply)+'</td></tr>';
+        }
+        html += '</tbody></table></div>';
+    } else {
+        html += '<div class="alert alert-info py-2"><i class="fas fa-check"></i> 无未匹配暂存。</div>';
+    }
+    $('#uvBody').html(html);
+}
+$(document).ready(function(){
+    $(document).on('click', '.view-upload-btn', function(){
+        var src  = $(this).attr('data-source');
+        var name = $(this).attr('data-name');
+        $('#uvSource').text(name);
+        $('#uvBody').html('<div class="text-center py-4"><i class="fas fa-spinner fa-spin"></i> 加载中...</div>');
+        $('#uploadViewModal').modal('show');
+        fetch('index.php?action=upload_view&source='+encodeURIComponent(src))
+            .then(function(r){ return r.json(); })
+            .then(function(d){ renderUploadView(d); })
+            .catch(function(){ $('#uvBody').html('<div class="alert alert-danger mb-0">加载失败，请重试</div>'); });
+    });
+});
+</script>
+
