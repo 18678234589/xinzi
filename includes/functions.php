@@ -2247,3 +2247,11 @@ function import_cs_perf_file($filePath, $source = '', $defaultYear = 0, $default
     return ['matched'=>count($monthAgg), 'pending'=>$pendingCount, 'errors'=>$errors, 'detail'=>$detail];
 }
 
+
+// ===== 时区修正 =====
+// 服务器 MySQL 的 time_zone 常解析为 UTC，而 PHP 为东八区(PRC)，导致 DEFAULT CURRENT_TIMESTAMP
+// 写入/返回的时间比本地早 8 小时。统一将每个 MySQL 会话时区设为 +08:00，
+// 使时间戳与 PHP 本地一致（TIMESTAMP 列会自动换算显示，无需改写存量数据）。
+if (function_exists('db')) {
+    try { db()->exec("SET time_zone = '+08:00'"); } catch (\Throwable $e) {}
+}
