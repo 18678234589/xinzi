@@ -5,8 +5,9 @@ ensureCsPerfSchema();
 
 $page_title = '客服绩效';
 
-$year  = (int)($_GET['year'] ?? date('Y'));
-$month = (int)($_GET['month'] ?? date('m'));
+// 总览默认显示上月（与上传默认归入上月一致，绩效表通常是已结束的上月数据）
+$year  = (int)($_GET['year'] ?? date('Y', strtotime('-1 month')));
+$month = (int)($_GET['month'] ?? date('n', strtotime('-1 month')));
 if ($year < 2000 || $year > 2100) $year = (int)date('Y');
 if ($month < 1 || $month > 12)    $month = (int)date('m');
 
