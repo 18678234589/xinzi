@@ -1240,6 +1240,7 @@ function ensureCsPerfSchema()
         'net_sales'       => "DECIMAL(12,2) NOT NULL DEFAULT 0 COMMENT '净销售额(元)'",
         'inquiry_conv'    => "DECIMAL(6,2) NOT NULL DEFAULT 0 COMMENT '询单最终下单转化率(%)'",
         'wangwang_reply'  => "DECIMAL(6,2) NOT NULL DEFAULT 0 COMMENT '旺旺回复率(%)'",
+        'order_count'     => "INT NOT NULL DEFAULT 0 COMMENT '下单人数(转化率分子)'",
     ] as $col => $def) {
         if (isset($perfCols[$col])) continue;
         try { $pdo->exec("ALTER TABLE `customer_service_performance` ADD COLUMN `$col` $def"); } catch (\Throwable $e) {}
@@ -1287,6 +1288,7 @@ function ensureCsPerfSchema()
         'net_sales'      => "DECIMAL(12,2) NOT NULL DEFAULT 0 COMMENT '净销售额(元)'",
         'inquiry_conv'   => "DECIMAL(6,2) NOT NULL DEFAULT 0 COMMENT '询单最终下单转化率(%)'",
         'wangwang_reply' => "DECIMAL(6,2) NOT NULL DEFAULT 0 COMMENT '旺旺回复率(%)'",
+        'order_count'    => "INT NOT NULL DEFAULT 0 COMMENT '下单人数(转化率分子)'",
     ] as $col => $def) {
         if (isset($pendCols[$col])) continue;
         try { $pdo->exec("ALTER TABLE `cs_perf_pending` ADD COLUMN `$col` $def"); } catch (\Throwable $e) {}
@@ -1518,11 +1520,12 @@ function get_cs_performance($employeeId, $year, $month)
 
     $agg = $rows[0];
     $incomingSum = 0; $convSum = 0; $convN = 0; $wangSum = 0; $wangN = 0; $respWeighted = 0.0; $replyCount = 0;
-    $salesSum = 0.0; $dealSum = 0; $dealN = 0; $source = '';
+    $salesSum = 0.0; $dealSum = 0; $dealN = 0; $orderSum = 0; $source = '';
     foreach ($rows as $r) {
         $inc = (int)$r['incoming_count'];
         $salesSum += (float)$r['net_sales'];
         $incomingSum += $inc;
+        $orderSum += (int)$r['order_count'];
         $conv = (float)$r['inquiry_conv']; if ($conv > 0) { $convSum += $conv; $convN++; }
         $wang = (float)$r['wangwang_reply']; if ($wang > 0) { $wangSum += $wang; $wangN++; }
         $respWeighted += (float)$r['reply_speed'] * $inc; $replyCount++;
@@ -1532,6 +1535,7 @@ function get_cs_performance($employeeId, $year, $month)
     $agg['store']        = '';
     $agg['net_sales']    = round($salesSum, 2);
     $agg['incoming_count'] = $incomingSum;
+    $agg['order_count']  = $orderSum;
     $agg['inquiry_conv'] = $convN > 0 ? round($convSum / $convN, 2) : 0.0;
     $agg['wangwang_reply'] = $wangN > 0 ? round($wangSum / $wangN, 2) : 0.0;
     $agg['reply_speed']  = $incomingSum > 0 ? round($respWeighted / $incomingSum, 1) : round($respWeighted / $replyCount, 1);
@@ -1553,6 +1557,24 @@ function get_cs_performance_stores($employeeId, $year, $month)
     } catch (\Throwable $e) {
         return [];
     }
+}
+
+/**
+ * 询单转化率的「计算过程」说明：转化率 = 下单人数 ÷ 询单人数。
+ * 当文件/录入只有「询单人数 + 下单人数」时，系统据此算出转化率并保存，此处可还原推导式子
+ * （如「转化率 = 下单5 ÷ 询单20 = 25%」，用于页面展示计算过程）。
+ * @param float $inquiryConv 已存/已算出的转化率(%)（用它做最终展示值）
+ * @param int   $orderCount  下单人数（分子）
+ * @param int   $incoming    询单人数（分母）
+ * @return string|null 推导式子；下单/询单人数缺失时返回 null（此时仅显示百分值本身）
+ */
+function cs_perf_conv_derivation($inquiryConv, $orderCount, $incoming)
+{
+    $orderCount = (int)$orderCount; $incoming = (int)$incoming;
+    if ($orderCount <= 0 || $incoming <= 0) return null;
+    // 展示值以已存的转化率为准，式子按原始两数还原
+    $pct = rtrim(rtrim(number_format((float)$inquiryConv, 2, '.', ''), '0'), '.');
+    return sprintf('转化率 = 下单%d ÷ 询单%d = %s%%', $orderCount, $incoming, $pct);
 }
 
 /**
@@ -2212,7 +2234,7 @@ function detect_cs_perf_columns($header)
 {
     $map = ['name'=>null,'wangwang'=>null,'date'=>null,'year'=>null,'month'=>null,
             'incoming'=>null,'total_sec'=>null,'reply_speed'=>null,'reply_count'=>null,
-            'net_sales'=>null,'inquiry_conv'=>null,'wangwang_reply'=>null];
+            'net_sales'=>null,'inquiry_conv'=>null,'wangwang_reply'=>null,'order_count'=>null];
     foreach ($header as $i => $cell) {
         $c = mb_strtolower(trim((string)$cell));
         $c = str_replace([' ', "\xEF\xBB\xBF"], '', $c);
@@ -2225,8 +2247,14 @@ function detect_cs_perf_columns($header)
         if ($map['date'] === null && (strpos($c, '日期') !== false || strpos($c, 'date') !== false)) $map['date'] = $i;
         if ($map['year'] === null && (strpos($c, '年份') !== false || $c === 'year')) $map['year'] = $i;
         if ($map['month'] === null && (strpos($c, '月份') !== false || $c === 'month')) $map['month'] = $i;
-        // 接待/进线人数
-        if ($map['incoming'] === null && (strpos($c, '接待') !== false || strpos($c, '进线') !== false || strpos($c, '会话') !== false || strpos($c, '咨询') !== false || strpos($c, '人数') !== false || strpos($c, '买家数') !== false)) $map['incoming'] = $i;
+        // 下单人数（转化率分子）：下单人数/下单买家数/成交人数/下单客户数/下单量 等
+        if ($map['order_count'] === null && (strpos($c, '下单人数') !== false || strpos($c, '下单买家数') !== false || strpos($c, '成交人数') !== false || strpos($c, '下单客户数') !== false || strpos($c, '下单数') !== false || strpos($c, '下单量') !== false || $c === 'ordercount' || $c === 'order_count')) $map['order_count'] = $i;
+        // 询单最终下单转化率：须含「率」（且带 转化/询单 语境），避免把「询单人数」这类整数误认为转化率
+        $isConvRate = (strpos($c, '转化') !== false || strpos($c, '询单') !== false) && strpos($c, '率') !== false;
+        if ($map['inquiry_conv'] === null && $isConvRate) $map['inquiry_conv'] = $i;
+        // 接待/进线/询单/咨询人数（不含 下单/成交 人数）
+        $isUnder = (strpos($c, '下单') !== false || strpos($c, '成交') !== false);
+        if ($map['incoming'] === null && !$isUnder && (strpos($c, '接待') !== false || strpos($c, '进线') !== false || strpos($c, '会话') !== false || strpos($c, '咨询') !== false || strpos($c, '询单') !== false || strpos($c, '人数') !== false || strpos($c, '买家数') !== false)) $map['incoming'] = $i;
         // 总回复时长（秒）
         if ($map['total_sec'] === null && (strpos($c, '总秒') !== false || strpos($c, '总回复') !== false || strpos($c, '回复秒数') !== false || strpos($c, '回复总时长') !== false)) $map['total_sec'] = $i;
         if ($map['reply_count'] === null && (strpos($c, '回复次数') !== false || strpos($c, '回复条数') !== false || $c === 'replycount' || $c === 'replycounts')) $map['reply_count'] = $i;
@@ -2234,8 +2262,6 @@ function detect_cs_perf_columns($header)
         if ($map['reply_speed'] === null && (strpos($c, '响应时长') !== false || strpos($c, '响应时间') !== false || strpos($c, '回复时长') !== false || strpos($c, '平均回复') !== false || strpos($c, '回复速度') !== false || strpos($c, '首次响应') !== false)) $map['reply_speed'] = $i;
         // 净销售额
         if ($map['net_sales'] === null && (strpos($c, '净销售额') !== false || strpos($c, '销售额') !== false || strpos($c, '销售金额') !== false || $c === 'netsales' || $c === 'sales' || $c === 'orderamount')) $map['net_sales'] = $i;
-        // 询单最终下单转化率
-        if ($map['inquiry_conv'] === null && (strpos($c, '询单') !== false || strpos($c, '最终下单转化') !== false || strpos($c, '转化率') !== false)) $map['inquiry_conv'] = $i;
         // 旺旺回复率
         if ($map['wangwang_reply'] === null && (strpos($c, '回复率') !== false || strpos($c, '旺旺回复') !== false)) $map['wangwang_reply'] = $i;
     }
@@ -2365,7 +2391,7 @@ function import_cs_perf_file($filePath, $source = '', $defaultYear = 0, $default
         // ===== .xlsx / .xls：用 SimpleXLSX 解析，自动定位含绩效表头的工作表/行 =====
         // 表头须含「姓名/客服」或「旺旺」之一的身份列，并在所有行中取识别列数最多者（避开标题/汇总行）。
         require_once dirname(__DIR__) . '/classes/SimpleXLSX.php';
-        $idKeys = ['name','wangwang','incoming','total_sec','reply_speed','reply_count','date','year','month','net_sales','inquiry_conv','wangwang_reply'];
+        $idKeys = ['name','wangwang','incoming','total_sec','reply_speed','reply_count','date','year','month','net_sales','inquiry_conv','wangwang_reply','order_count'];
         $bestHeader = null;
         $bestRows   = null;
         $bestIdx    = -1;
@@ -2460,7 +2486,9 @@ function import_cs_perf_file($filePath, $source = '', $defaultYear = 0, $default
         $netSales = 0.0;
         $inquiryConv = 0.0;
         $wangReply = 0.0;
+        $orderCount = 0;
         if ($cols['incoming'] !== null && isset($vals[$cols['incoming']])) $incoming = (int)extract_amount($vals[$cols['incoming']]);
+        if ($cols['order_count'] !== null && isset($vals[$cols['order_count']])) $orderCount = (int)extract_amount($vals[$cols['order_count']]);
         if ($cols['total_sec'] !== null && isset($vals[$cols['total_sec']])) $totalSec = (float)extract_amount($vals[$cols['total_sec']]);
         if ($cols['reply_count'] !== null && isset($vals[$cols['reply_count']])) $replyCount = (int)extract_amount($vals[$cols['reply_count']]);
         // 平均回复/响应时长：可能是 HH:MM:SS、X分X秒、纯秒，统一转成秒
@@ -2494,9 +2522,10 @@ function import_cs_perf_file($filePath, $source = '', $defaultYear = 0, $default
             // 未匹配 → 暂存
             $pk = ($wang !== '' ? 'w:' . $wangKey : 'n:' . $name) . '|' . $store . "|$year-$month";
             if (!isset($pendingKey[$pk])) {
-                $pendingKey[$pk] = ['wangwang'=>$wang,'name'=>$name,'store'=>$store,'year'=>$year,'month'=>$month,'incoming'=>0,'total'=>0.0,'replyCnt'=>0,'avgSum'=>0.0,'avgN'=>0,'netSales'=>0.0,'convSum'=>0.0,'convN'=>0,'wangSum'=>0.0,'wangN'=>0];
+                $pendingKey[$pk] = ['wangwang'=>$wang,'name'=>$name,'store'=>$store,'year'=>$year,'month'=>$month,'incoming'=>0,'total'=>0.0,'replyCnt'=>0,'avgSum'=>0.0,'avgN'=>0,'netSales'=>0.0,'convSum'=>0.0,'convN'=>0,'wangSum'=>0.0,'wangN'=>0,'orderCnt'=>0];
             }
             $pendingKey[$pk]['incoming'] += $incoming;
+            $pendingKey[$pk]['orderCnt'] += $orderCount;
             $pendingKey[$pk]['total'] += $totalSec;
             $pendingKey[$pk]['replyCnt'] += $replyCount;
             if ($replySpeed > 0) { $pendingKey[$pk]['avgSum'] += $replySpeed; $pendingKey[$pk]['avgN']++; }
@@ -2508,9 +2537,10 @@ function import_cs_perf_file($filePath, $source = '', $defaultYear = 0, $default
 
         $ek = (int)$emp['id'] . '|' . $store . "|$year-$month";
         if (!isset($monthAgg[$ek])) {
-            $monthAgg[$ek] = ['emp'=>$emp,'store'=>$store,'year'=>$year,'month'=>$month,'incoming'=>0,'total'=>0.0,'replyCnt'=>0,'avgSum'=>0.0,'avgN'=>0,'netSales'=>0.0,'convSum'=>0.0,'convN'=>0,'wangSum'=>0.0,'wangN'=>0];
+            $monthAgg[$ek] = ['emp'=>$emp,'store'=>$store,'year'=>$year,'month'=>$month,'incoming'=>0,'total'=>0.0,'replyCnt'=>0,'avgSum'=>0.0,'avgN'=>0,'netSales'=>0.0,'convSum'=>0.0,'convN'=>0,'wangSum'=>0.0,'wangN'=>0,'orderCnt'=>0];
         }
         $monthAgg[$ek]['incoming'] += $incoming;
+        $monthAgg[$ek]['orderCnt'] += $orderCount;
         $monthAgg[$ek]['total'] += $totalSec;
         $monthAgg[$ek]['replyCnt'] += $replyCount;
         if ($replySpeed > 0) { $monthAgg[$ek]['avgSum'] += $replySpeed; $monthAgg[$ek]['avgN']++; }
@@ -2523,14 +2553,15 @@ function import_cs_perf_file($filePath, $source = '', $defaultYear = 0, $default
 
     // 已匹配 → 覆盖式写入主表（保留 remark / deal_count 手动值）；按 (员工,店铺,年月) 唯一，多店铺各占一行
     $upsert = $pdo->prepare("INSERT INTO customer_service_performance
-        (employee_id, store, year, month, reply_speed, incoming_count, net_sales, inquiry_conv, wangwang_reply, source_file)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        (employee_id, store, year, month, reply_speed, incoming_count, net_sales, inquiry_conv, wangwang_reply, order_count, source_file)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON DUPLICATE KEY UPDATE
         reply_speed=VALUES(reply_speed), incoming_count=VALUES(incoming_count),
         net_sales=VALUES(net_sales), inquiry_conv=VALUES(inquiry_conv), wangwang_reply=VALUES(wangwang_reply),
-        source_file=VALUES(source_file)");
+        order_count=VALUES(order_count), source_file=VALUES(source_file)");
     foreach ($monthAgg as $agg) {
         $incoming = $agg['incoming'];
+        $orderCnt = $agg['orderCnt'];
         $replySpeed = 0.0;
         if ($agg['avgN'] > 0) {
             $replySpeed = round($agg['avgSum'] / $agg['avgN'], 1); // 优先直接用导出的平均回复/响应时长
@@ -2542,25 +2573,29 @@ function import_cs_perf_file($filePath, $source = '', $defaultYear = 0, $default
             $replySpeed = round($agg['avgSum'] / $agg['avgN'], 1); // 第三方平均回复速度列回退
         }
         $netSales   = round($agg['netSales'], 2);
-        $inquiryConv = $agg['convN'] > 0 ? round($agg['convSum'] / $agg['convN'], 2) : 0.0;
+        // 转化率：文件直接给出时取平均；否则用「下单人数 ÷ 询单人数」计算（当行未匹配单行已聚合）
+        $inquiryConv = $agg['convN'] > 0 ? round($agg['convSum'] / $agg['convN'], 2)
+                     : ($orderCnt > 0 && $incoming > 0 ? round($orderCnt / $incoming * 100, 2) : 0.0);
         $wangReply   = $agg['wangN'] > 0 ? round($agg['wangSum'] / $agg['wangN'], 2) : 0.0;
-        $upsert->execute([(int)$agg['emp']['id'], $store, $agg['year'], $agg['month'], $replySpeed, $incoming, $netSales, $inquiryConv, $wangReply, $source]);
-        $detail[] = sprintf('%s[%s] %04d-%02d 进线%d 回复%.1fs 销售额%.2f 询单转化%.2f%% 旺旺回复率%.2f%%', $agg['emp']['name'], $store !== '' ? $store : '无店铺', $agg['year'], $agg['month'], $incoming, $replySpeed, $netSales, $inquiryConv, $wangReply);
+        $upsert->execute([(int)$agg['emp']['id'], $store, $agg['year'], $agg['month'], $replySpeed, $incoming, $netSales, $inquiryConv, $wangReply, $orderCnt, $source]);
+        $convTxt = cs_perf_conv_derivation($inquiryConv, $orderCnt, $incoming);
+        $detail[] = sprintf('%s[%s] %04d-%02d 进线%d 下单%d 回复%.1fs 销售额%.2f %s 旺旺回复率%.2f%%', $agg['emp']['name'], $store !== '' ? $store : '无店铺', $agg['year'], $agg['month'], $incoming, $orderCnt, $replySpeed, $netSales, $convTxt !== null ? $convTxt : sprintf('询单转化%.2f%%', $inquiryConv), $wangReply);
     }
 
     // 未匹配 → 先清该 key 旧暂存再写入（避免重复上传叠加）
     $delPending = $pdo->prepare("DELETE FROM cs_perf_pending WHERE wangwang=? AND name=? AND year=? AND month=?");
     $insPending = $pdo->prepare("INSERT INTO cs_perf_pending
-        (wangwang, name, year, month, incoming_count, total_reply_seconds, net_sales, inquiry_conv, wangwang_reply, source_file, raw_json)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+        (wangwang, name, year, month, incoming_count, total_reply_seconds, net_sales, inquiry_conv, wangwang_reply, order_count, source_file, raw_json)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
     $pendingCount = 0;
     foreach ($pendingKey as $pk => $p) {
         $delPending->execute([$p['wangwang'], $p['name'], $p['year'], $p['month']]);
         $netSales   = round($p['netSales'], 2);
-        $inquiryConv = $p['convN'] > 0 ? round($p['convSum'] / $p['convN'], 2) : 0.0;
+        $inquiryConv = $p['convN'] > 0 ? round($p['convSum'] / $p['convN'], 2)
+                     : ($p['orderCnt'] > 0 && $p['incoming'] > 0 ? round($p['orderCnt'] / $p['incoming'] * 100, 2) : 0.0);
         $wangReply   = $p['wangN'] > 0 ? round($p['wangSum'] / $p['wangN'], 2) : 0.0;
-        $raw = json_encode(['wangwang'=>$p['wangwang'],'name'=>$p['name'],'store'=>$p['store'],'year'=>$p['year'],'month'=>$p['month'],'incoming'=>$p['incoming'],'total_reply_seconds'=>$p['total'],'net_sales'=>$netSales,'inquiry_conv'=>$inquiryConv,'wangwang_reply'=>$wangReply], JSON_UNESCAPED_UNICODE);
-        $insPending->execute([$p['wangwang'], $p['name'], $p['year'], $p['month'], $p['incoming'], $p['total'], $netSales, $inquiryConv, $wangReply, $source, $raw]);
+        $raw = json_encode(['wangwang'=>$p['wangwang'],'name'=>$p['name'],'store'=>$p['store'],'year'=>$p['year'],'month'=>$p['month'],'incoming'=>$p['incoming'],'order_count'=>$p['orderCnt'],'total_reply_seconds'=>$p['total'],'net_sales'=>$netSales,'inquiry_conv'=>$inquiryConv,'wangwang_reply'=>$wangReply], JSON_UNESCAPED_UNICODE);
+        $insPending->execute([$p['wangwang'], $p['name'], $p['year'], $p['month'], $p['incoming'], $p['total'], $netSales, $inquiryConv, $wangReply, $p['orderCnt'], $source, $raw]);
         $pendingCount++;
         $detail[] = sprintf('未匹配暂存：%s[%s] %04d-%02d', $p['name'] !== '' ? $p['name'] : $p['wangwang'], $p['store'] !== '' ? $p['store'] : '无店铺', $p['year'], $p['month']);
     }

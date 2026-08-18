@@ -30,15 +30,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $remark = trim($_POST['remark'] ?? '');
         if ($employeeId > 0 && $y >= 2000 && $m >= 1 && $m <= 12) {
             $dealVal = $deal === '' ? null : (int)$deal;
+            $orderCount = (int)($_POST['order_count'] ?? 0);
+            $incoming   = (int)($_POST['incoming_count'] ?? 0);
+            // 转化率：有「下单人数 + 询单人数」时按 下单÷询单 计算，并展示计算过程；否则用直接录入值
+            if ($orderCount > 0 && $incoming > 0) $inquiryConv = round($orderCount / $incoming * 100, 2);
             $stmt = db()->prepare("INSERT INTO customer_service_performance
                 (employee_id, year, month, reply_speed, incoming_count, deal_count, remark,
-                 net_sales, inquiry_conv, wangwang_reply)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 net_sales, inquiry_conv, wangwang_reply, order_count)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON DUPLICATE KEY UPDATE
                 reply_speed=VALUES(reply_speed), incoming_count=VALUES(incoming_count),
                 deal_count=VALUES(deal_count), remark=VALUES(remark), source_file='admin编辑',
-                net_sales=VALUES(net_sales), inquiry_conv=VALUES(inquiry_conv), wangwang_reply=VALUES(wangwang_reply)");
-            $stmt->execute([$employeeId, $y, $m, $replySpeed, $incoming, $dealVal, $remark, $netSales, $inquiryConv, $wangReply]);
+                net_sales=VALUES(net_sales), inquiry_conv=VALUES(inquiry_conv), wangwang_reply=VALUES(wangwang_reply),
+                order_count=VALUES(order_count)");
+            $stmt->execute([$employeeId, $y, $m, $replySpeed, $incoming, $dealVal, $remark, $netSales, $inquiryConv, $wangReply, $orderCount]);
             $msg = '已保存员工绩效';
         } else {
             $err = '参数错误';
@@ -58,14 +63,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
                 $up = db()->prepare("INSERT INTO customer_service_performance
                     (employee_id, year, month, reply_speed, incoming_count, deal_count, remark, source_file,
-                     net_sales, inquiry_conv, wangwang_reply)
-                    VALUES (?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?)
+                     net_sales, inquiry_conv, wangwang_reply, order_count)
+                    VALUES (?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?)
                     ON DUPLICATE KEY UPDATE
                     reply_speed=VALUES(reply_speed), incoming_count=VALUES(incoming_count), source_file=VALUES(source_file),
-                    net_sales=VALUES(net_sales), inquiry_conv=VALUES(inquiry_conv), wangwang_reply=VALUES(wangwang_reply)");
+                    net_sales=VALUES(net_sales), inquiry_conv=VALUES(inquiry_conv), wangwang_reply=VALUES(wangwang_reply),
+                    order_count=VALUES(order_count)");
                 $remark = '由待匹配补录（' . ($p['name'] !== '' ? $p['name'] : $p['wangwang']) . '）';
+                // 转化率：待匹配行有 下单人数+询单人数 时按 下单÷询单 计算
+                $pInquiryConv = (float)$p['inquiry_conv'];
+                $pOrderCount  = (int)($p['order_count'] ?? 0);
+                if ($pOrderCount > 0 && $incoming > 0) $pInquiryConv = round($pOrderCount / $incoming * 100, 2);
                 $up->execute([$employeeId, (int)$p['year'], (int)$p['month'], $replySpeed, $incoming, $remark, 'pending:' . basename((string)$p['source_file']),
-                    (float)$p['net_sales'], (float)$p['inquiry_conv'], (float)$p['wangwang_reply']]);
+                    (float)$p['net_sales'], $pInquiryConv, (float)$p['wangwang_reply'], $pOrderCount]);
                 db()->prepare("DELETE FROM cs_perf_pending WHERE id=?")->execute([$pendingId]);
                 $msg = '已把待匹配数据归属到员工并写入';
             } else {
@@ -137,13 +147,13 @@ include __DIR__ . '/../includes/header.php';
 
 <!-- 员工绩效逐人编辑 -->
 <div class="card mb-3">
-    <div class="card-header"><i class="fas fa-users"></i> 逐人编辑（净销售额/询单转化率/旺旺回复率 = 采集上报；平均回复秒 = 采集上报；成交数留空则按订单自动统计）</div>
+    <div class="card-header"><i class="fas fa-users"></i> 逐人编辑（净销售额/询单转化率/旺旺回复率 = 采集上报；平均回复秒 = 采集上报；成交数留空则按订单自动统计；<strong>填了「下单人数」时转化率自动 = 下单 ÷ 询单并显示计算过程</strong>）</div>
     <div class="card-body p-0">
         <div class="table-responsive">
             <table class="table table-bordered mb-0 align-middle">
                 <thead class="thead-light">
                     <tr>
-                        <th>员工</th><th>旺旺账号</th><th>净销售额(元)</th><th>询单转化率(%)</th><th>旺旺回复率(%)</th><th>进线人数</th><th>平均回复(秒)</th>
+                        <th>员工</th><th>旺旺账号</th><th>净销售额(元)</th><th>询单转化率(%)</th><th>下单人数</th><th>旺旺回复率(%)</th><th>进线人数</th><th>平均回复(秒)</th>
                         <th>成交数(留空自动)</th><th>备注</th><th style="width:100px">操作</th>
                     </tr>
                 </thead>
@@ -164,6 +174,10 @@ include __DIR__ . '/../includes/header.php';
                                 <td><?php echo e($emp['wangwang'] ?? ''); ?></td>
                                 <td><input type="number" name="net_sales" min="0" step="any" class="form-control form-control-sm" style="width:110px" value="<?php echo $perf ? (float)$perf['net_sales'] : 0; ?>"></td>
                                 <td><input type="number" name="inquiry_conv" min="0" step="any" class="form-control form-control-sm" style="width:100px" value="<?php echo $perf ? (float)$perf['inquiry_conv'] : 0; ?>"></td>
+                                <td>
+                                    <input type="number" name="order_count" min="0" class="form-control form-control-sm" style="width:80px" value="<?php echo $perf ? (int)($perf['order_count'] ?? 0) : 0; ?>">
+                                    <div style="font-size:11px" class="text-muted">转化率=下单÷进线自动算</div>
+                                </td>
                                 <td><input type="number" name="wangwang_reply" min="0" step="any" class="form-control form-control-sm" style="width:100px" value="<?php echo $perf ? (float)$perf['wangwang_reply'] : 0; ?>"></td>
                                 <td><input type="number" name="incoming_count" min="0" class="form-control form-control-sm" style="width:100px" value="<?php echo $perf ? (int)$perf['incoming_count'] : 0; ?>"></td>
                                 <td><input type="number" name="reply_speed" min="0" step="any" class="form-control form-control-sm" style="width:100px" value="<?php echo $perf ? (float)$perf['reply_speed'] : 0; ?>"></td>
@@ -192,7 +206,7 @@ include __DIR__ . '/../includes/header.php';
         <div class="table-responsive">
             <table class="table table-hover table-bordered mb-0">
                 <thead class="thead-light">
-                    <tr><th>旺旺账号</th><th>姓名</th><th>净销售额(元)</th><th>询单转化率(%)</th><th>旺旺回复率(%)</th><th>进线</th><th>回复总秒</th><th>来源</th><th>归属员工</th><th style="width:190px">操作</th></tr>
+                    <tr><th>旺旺账号</th><th>姓名</th><th>净销售额(元)</th><th>询单转化率(%)</th><th>下单人数</th><th>旺旺回复率(%)</th><th>进线</th><th>回复总秒</th><th>来源</th><th>归属员工</th><th style="width:190px">操作</th></tr>
                 </thead>
                 <tbody>
                 <?php if ($pending): foreach ($pending as $p): ?>
@@ -200,7 +214,14 @@ include __DIR__ . '/../includes/header.php';
                         <td><?php echo e($p['wangwang']); ?></td>
                         <td><?php echo e($p['name']); ?></td>
                         <td><?php echo (float)$p['net_sales'] ? number_format((float)$p['net_sales'], 2) : '0.00'; ?></td>
-                        <td><?php echo (float)$p['inquiry_conv'] ? rtrim(rtrim(number_format((float)$p['inquiry_conv'], 2), '0'), '.') . '%' : '-'; ?></td>
+                        <td>
+                            <?php if ((float)$p['inquiry_conv'] > 0): ?>
+                                <?php $derivP = cs_perf_conv_derivation((float)$p['inquiry_conv'], (int)($p['order_count'] ?? 0), (int)$p['incoming_count']); ?>
+                                <?php echo rtrim(rtrim(number_format((float)$p['inquiry_conv'], 2), '0'), '.') . '%'; ?>
+                                <?php if ($derivP): ?><span class="text-muted" style="font-size:11px" title="<?php echo e($derivP); ?>">(下单<?php echo (int)$p['order_count']; ?>÷进线<?php echo (int)$p['incoming_count']; ?>)</span><?php endif; ?>
+                            <?php else: ?>-<?php endif; ?>
+                        </td>
+                        <td><?php echo (int)($p['order_count'] ?? 0); ?></td>
                         <td><?php echo (float)$p['wangwang_reply'] ? rtrim(rtrim(number_format((float)$p['wangwang_reply'], 2), '0'), '.') . '%' : '-'; ?></td>
                         <td><?php echo (int)$p['incoming_count']; ?></td>
                         <td><?php echo (float)$p['total_reply_seconds']; ?></td>

@@ -137,7 +137,7 @@ if (($_GET['action'] ?? '') === 'upload_view' && ($_SERVER['REQUEST_METHOD'] ?? 
     $matched = [];
     $pending = [];
     try {
-        $st = $pdo->prepare("SELECT c.year, c.month, c.net_sales, c.inquiry_conv, c.wangwang_reply, c.reply_speed, c.incoming_count,
+        $st = $pdo->prepare("SELECT c.year, c.month, c.net_sales, c.inquiry_conv, c.wangwang_reply, c.reply_speed, c.incoming_count, c.order_count,
                 e.name AS emp_name, e.wangwang AS emp_wang, e.department
             FROM customer_service_performance c LEFT JOIN employees e ON e.id=c.employee_id
             WHERE c.source_file=? ORDER BY c.year DESC, c.month DESC, e.name");
@@ -145,7 +145,7 @@ if (($_GET['action'] ?? '') === 'upload_view' && ($_SERVER['REQUEST_METHOD'] ?? 
         $matched = $st->fetchAll();
     } catch (\Throwable $e) {}
     try {
-        $st = $pdo->prepare("SELECT wangwang, name, year, month, incoming_count, total_reply_seconds, net_sales, inquiry_conv, wangwang_reply FROM cs_perf_pending WHERE source_file=? ORDER BY year DESC, month DESC, name, wangwang");
+        $st = $pdo->prepare("SELECT wangwang, name, year, month, incoming_count, total_reply_seconds, net_sales, inquiry_conv, wangwang_reply, order_count FROM cs_perf_pending WHERE source_file=? ORDER BY year DESC, month DESC, name, wangwang");
         $st->execute([$src]);
         $pending = $st->fetchAll();
     } catch (\Throwable $e) {}
@@ -239,6 +239,7 @@ include __DIR__ . '/../includes/header.php';
             </div>
             <small class="text-muted d-block mt-2">
                 <i class="fas fa-info-circle"></i> 系统自动识别列名：客服/旺旺、净销售额、询单最终下单转化率、旺旺回复率、平均响应时长（响应时长支持 HH:MM:SS / X分X秒 / 秒）；
+                <strong>转化率：</strong>上传表没有转化率列也没关系，识别到「下单人数 + 询单人数」时会自动按 <strong>转化率 = 下单人数 ÷ 询单人数</strong> 计算，并在页面显示计算过程（下单X ÷ 询单Y = Z%）；
                 文件里没有日期时归入上方所选月份（默认上个月）；导入后按「旺旺账号 → 姓名」自动匹配名单内员工，未匹配的进入下方【待匹配清单】。
                 <strong>设计客服：</strong>两店数据请分别上传（店铺名不同即可），系统会各自算出达成率并取平均值，再按部门内前三名定底薪 850/800/750 元。
             </small>
@@ -342,7 +343,17 @@ include __DIR__ . '/../includes/header.php';
                         <td><?php echo e($emp['wangwang'] ?? ''); ?></td>
                         <td><span class="badge badge-info"><?php echo e($emp['department']); ?></span></td>
                         <td><?php echo $netSales > 0 ? number_format($netSales, 2) : '<span class="text-muted">-</span>'; ?></td>
-                        <td><?php echo $inquiryConv > 0 ? $inquiryConv . '%' : '<span class="text-muted">-</span>'; ?></td>
+                        <td>
+                            <?php if ($inquiryConv > 0): ?>
+                                <?php
+                                $orderCount = (int)($perf['order_count'] ?? 0);
+                                $incTmp     = (int)($perf['incoming_count'] ?? 0);
+                                $deriv = cs_perf_conv_derivation($inquiryConv, $orderCount, $incTmp);
+                                ?>
+                                <span title="<?php echo $deriv ? e($deriv) : '询单转化率'; ?>"><?php echo rtrim(rtrim(number_format($inquiryConv, 2, '.', ''), '0'), '.') . '%'; ?></span>
+                                <?php if ($deriv): ?><span class="text-muted" style="font-size:11px">(下单<?php echo $orderCount; ?>÷询单<?php echo $incTmp; ?>)</span><?php endif; ?>
+                            <?php else: ?><span class="text-muted">-</span><?php endif; ?>
+                        </td>
                         <td><?php echo $wangReply > 0 ? $wangReply . '%' : '<span class="text-muted">-</span>'; ?></td>
                         <td><?php echo $avgResponse > 0 ? $avgResponse : '<span class="text-muted">-</span>'; ?></td>
                         <td>
@@ -472,11 +483,14 @@ function renderUploadView(d){
     }
     if(d.matched && d.matched.length){
         html += '<h6 class="font-weight-bold text-primary mt-3"><i class="fas fa-user-check"></i> 已匹配数据（'+d.matched.length+'）</h6>';
-        html += '<div class="table-responsive"><table class="table table-sm table-bordered mb-3"><thead class="thead-light"><tr><th>员工</th><th>旺旺</th><th>部门</th><th>月份</th><th>净销售额</th><th>转化率%</th><th>回复率%</th><th>响应(秒)</th></tr></thead><tbody>';
+        html += '<div class="table-responsive"><table class="table table-sm table-bordered mb-3"><thead class="thead-light"><tr><th>员工</th><th>旺旺</th><th>部门</th><th>月份</th><th>净销售额</th><th>转化率%</th><th>下单人数</th><th>回复率%</th><th>响应(秒)</th></tr></thead><tbody>';
         for(i=0;i<d.matched.length;i++){
             var r = d.matched[i];
+            var deriv = (r.order_count>0 && Number(r.incoming_count)>0) ? '（转化率=下单'+r.order_count+'÷询单'+r.incoming_count+'）' : '';
             html += '<tr><td>'+escHtml(r.emp_name||'')+'</td><td>'+escHtml(r.emp_wang||'')+'</td><td>'+escHtml(r.department||'')+'</td>'
-                  + '<td>'+escHtml(r.year)+'-'+pad2(r.month)+'</td><td>'+escHtml(r.net_sales)+'</td><td>'+escHtml(r.inquiry_conv)+'</td>'
+                  + '<td>'+escHtml(r.year)+'-'+pad2(r.month)+'</td><td>'+escHtml(r.net_sales)+'</td>'
+                  + '<td title="'+escHtml(deriv)+'">'+escHtml(r.inquiry_conv)+(deriv?' <span style="font-size:11px">'+escHtml('('+r.order_count+'÷'+r.incoming_count+')')+'</span>':'')+'</td>'
+                  + '<td>'+escHtml(r.order_count||0)+'</td>'
                   + '<td>'+escHtml(r.wangwang_reply)+'</td><td>'+escHtml(r.reply_speed)+'</td></tr>';
         }
         html += '</tbody></table></div>';
@@ -485,12 +499,15 @@ function renderUploadView(d){
     }
     if(d.pending && d.pending.length){
         html += '<h6 class="font-weight-bold text-warning mt-3"><i class="fas fa-user-clock"></i> 未匹配暂存（'+d.pending.length+'）</h6>';
-        html += '<div class="table-responsive"><table class="table table-sm table-bordered mb-3"><thead class="thead-light"><tr><th>旺旺</th><th>姓名</th><th>月份</th><th>进线</th><th>回复总秒</th><th>净销售额</th><th>转化率%</th><th>回复率%</th></tr></thead><tbody>';
+        html += '<div class="table-responsive"><table class="table table-sm table-bordered mb-3"><thead class="thead-light"><tr><th>旺旺</th><th>姓名</th><th>月份</th><th>进线</th><th>回复总秒</th><th>净销售额</th><th>转化率%</th><th>下单人数</th><th>回复率%</th></tr></thead><tbody>';
         for(i=0;i<d.pending.length;i++){
             var p = d.pending[i];
+            var deriv = (p.order_count>0 && Number(p.incoming_count)>0) ? '（转化率=下单'+p.order_count+'÷询单'+p.incoming_count+'）' : '';
             html += '<tr><td>'+escHtml(p.wangwang||'')+'</td><td>'+escHtml(p.name||'')+'</td><td>'+escHtml(p.year)+'-'+pad2(p.month)+'</td>'
                   + '<td>'+escHtml(p.incoming_count)+'</td><td>'+escHtml(p.total_reply_seconds)+'</td><td>'+escHtml(p.net_sales)+'</td>'
-                  + '<td>'+escHtml(p.inquiry_conv)+'</td><td>'+escHtml(p.wangwang_reply)+'</td></tr>';
+                  + '<td title="'+escHtml(deriv)+'">'+escHtml(p.inquiry_conv)+(deriv?' <span style="font-size:11px">'+escHtml('('+p.order_count+'÷'+p.incoming_count+')')+'</span>':'')+'</td>'
+                  + '<td>'+escHtml(p.order_count||0)+'</td>'
+                  + '<td>'+escHtml(p.wangwang_reply)+'</td></tr>';
         }
         html += '</tbody></table></div>';
     } else {
