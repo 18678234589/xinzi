@@ -80,11 +80,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-$employees = get_cs_perf_participants(); // 绩效参与按部门自动（部门已配置的员工），被排除者不在内
+$employees = get_cs_perf_participants(); // 绩效参与按部门自动（含设计客服恒参与），被排除者不在内
 $rows = [];
 foreach ($employees as $emp) {
     if ($filterEmp > 0 && (int)$emp['id'] !== $filterEmp) continue;
-    $perf = get_cs_performance((int)$emp['id'], $year, $month);
+    $perf = get_cs_performance((int)$emp['id'], $year, $month); // 多店聚合 / 人工综合行优先
     $liveDeal = get_employee_deal_count((int)$emp['id'], $year, $month);
     $rows[] = ['emp' => $emp, 'perf' => $perf, 'liveDeal' => $liveDeal];
 }

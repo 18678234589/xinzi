@@ -41,8 +41,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $upY = (int)($_POST['upload_year'] ?? 0);
             $upM = (int)($_POST['upload_month'] ?? 0);
             if (!($upY >= 2000 && $upM >= 1 && $upM <= 12)) { $upY = (int)date('Y', strtotime('-1 month')); $upM = (int)date('n', strtotime('-1 month')); }
-            $r = import_cs_perf_file($_FILES['file']['tmp_name'], 'admin:' . basename($_FILES['file']['name']), $upY, $upM);
-            $upMsg = sprintf('导入完成（归入 %d-%02d 月）：匹配 %d 人，未匹配 %d 条，错误 %d 条', $upY, $upM, $r['matched'], $r['pending'], $r['errors']);
+            $store = trim((string)($_POST['store'] ?? ''));
+            $r = import_cs_perf_file($_FILES['file']['tmp_name'], 'admin:' . basename($_FILES['file']['name']), $upY, $upM, $store);
+            $upMsg = sprintf('导入完成（归入 %d-%02d 月%s）：匹配 %d 人，未匹配 %d 条，错误 %d 条', $upY, $upM, $store !== '' ? '，「店铺」=' . htmlspecialchars($store, ENT_QUOTES, 'UTF-8') : '', $r['matched'], $r['pending'], $r['errors']);
         } else {
             $upErr = '请选择要导入的绩效表文件（XLSX / CSV / TXT）';
         }
@@ -222,6 +223,10 @@ include __DIR__ . '/../includes/header.php';
                         </select>
                     </div>
                 </div>
+                <div class="col-auto">
+                    <label class="small text-muted">店铺名称（同一员工允许多店；<strong>设计客服</strong>请按店铺分别上传两店并填写区分，用于「两店绩效平均」）</label>
+                    <input type="text" name="store" class="form-control form-control-sm" placeholder="如：美呀美旗舰店" style="width:180px">
+                </div>
             </div>
             <div class="form-row align-items-end">
                 <div class="col">
@@ -235,6 +240,7 @@ include __DIR__ . '/../includes/header.php';
             <small class="text-muted d-block mt-2">
                 <i class="fas fa-info-circle"></i> 系统自动识别列名：客服/旺旺、净销售额、询单最终下单转化率、旺旺回复率、平均响应时长（响应时长支持 HH:MM:SS / X分X秒 / 秒）；
                 文件里没有日期时归入上方所选月份（默认上个月）；导入后按「旺旺账号 → 姓名」自动匹配名单内员工，未匹配的进入下方【待匹配清单】。
+                <strong>设计客服：</strong>两店数据请分别上传（店铺名不同即可），系统会各自算出达成率并取平均值，再按部门内前三名定底薪 850/800/750 元。
             </small>
         </form>
     </div>
@@ -242,7 +248,7 @@ include __DIR__ . '/../includes/header.php';
 
 <!-- 绩效参与名单（按部门自动） -->
 <div class="card mb-3">
-    <div class="card-header"><i class="fas fa-user-cog"></i> 绩效参与名单（按部门自动匹配：部门配置了基数+方案 → 部门下员工自动参与）</div>
+    <div class="card-header"><i class="fas fa-user-cog"></i> 绩效参与名单（部门配置了基数+方案 → 自动参与；<strong>设计客服</strong>恒参与并按排名定底薪）</div>
     <div class="card-body">
         <div class="table-responsive">
             <table class="table table-sm table-bordered mb-0">
@@ -252,11 +258,14 @@ include __DIR__ . '/../includes/header.php';
                 <tbody>
                 <?php foreach ($participants as $emp): ?>
                     <?php $rc = $deptCfgMap[(string)$emp['department']] ?? null; ?>
+                    <?php $isRankDept = ((string)$emp['department'] === CS_PERF_RANK_DEPT); ?>
                     <tr>
                         <td><?php echo e($emp['name']); ?></td>
                         <td><span class="badge badge-info"><?php echo e($emp['department']); ?></span></td>
                         <td>
-                            <?php if ($rc): ?>
+                            <?php if ($isRankDept): ?>
+                                <span class="badge badge-success"><i class="fas fa-trophy"></i> 按排名定底薪（两店绩效平均，前三名 850/800/750）</span>
+                            <?php elseif ($rc): ?>
                                 <strong><?php echo number_format((float)$rc['base'], 2); ?></strong>
                                 <small class="text-muted">(<?php echo e($rc['scheme_name'] ?: '默认方案'); ?>)</small>
                             <?php else: ?>
@@ -273,7 +282,7 @@ include __DIR__ . '/../includes/header.php';
                     </tr>
                 <?php endforeach; ?>
                 <?php if (!$participants): ?>
-                    <tr><td colspan="4" class="text-center text-muted py-3">暂无参与员工。请先在「<a href="schemes.php">绩效方案/算法</a>」页为参与部门配置<strong>绩效基数</strong>与<strong>方案</strong>，该部门员工即自动出现在这里。</td></tr>
+                    <tr><td colspan="4" class="text-center text-muted py-3">暂无参与员工。普通部门请先在「<a href="schemes.php">绩效方案/算法</a>」页配置<strong>绩效基数</strong>与<strong>方案</strong>后自动参与；<strong>设计客服</strong>无需配置即按排名参与。</td></tr>
                 <?php endif; ?>
                 </tbody>
             </table>
@@ -298,7 +307,7 @@ include __DIR__ . '/../includes/header.php';
             </tbody>
         </table>
         <?php endif; ?>
-        <small class="text-muted d-block mt-2"><i class="fas fa-info-circle"></i> 员工按所在部门自动参与绩效（部门基数×方案）；被排除者不会出现在总览、也不计入薪资。导入的绩效表按「旺旺账号 → 姓名」自动匹配到对应员工名下。</small>
+        <small class="text-muted d-block mt-2"><i class="fas fa-info-circle"></i> 员工按所在部门自动参与绩效：普通部门为「基数×综合达成率」，<strong>设计客服</strong>为「两店绩效平均 → 部门内前三名定底薪 850/800/750」；被排除者不会出现在总览、也不计入薪资。导入的绩效表按「旺旺账号 → 姓名」自动匹配到对应员工名下。</small>
     </div>
 </div>
 
@@ -326,6 +335,7 @@ include __DIR__ . '/../includes/header.php';
                     $wangReply  = $perf ? (float)$perf['wangwang_reply'] : 0.0;
                     $avgResponse = $perf ? (float)$perf['reply_speed'] : 0.0;
                     $calc = $r['calc'];
+                    $calcRank = (($emp['department'] ?? '') === CS_PERF_RANK_DEPT && isset($calc['rank']) && $calc['rank'] !== null) ? (int)$calc['rank'] : null;
                     ?>
                     <tr>
                         <td><?php echo e($emp['name']); ?></td>
@@ -338,8 +348,9 @@ include __DIR__ . '/../includes/header.php';
                         <td>
                             <?php if ((float)$calc['amount'] > 0): ?>
                                 <a href="#" class="text-decoration-none" data-toggle="tooltip" title="<?php echo e($calc['formula']); ?>" onclick="return false;"><strong><?php echo number_format((float)$calc['amount'], 2); ?></strong> <i class="fas fa-info-circle text-muted"></i></a>
+                                <?php if ($calcRank !== null): ?><span class="badge badge-warning ml-1">第<?php echo $calcRank; ?>名</span><?php endif; ?>
                             <?php else: ?>
-                                <span class="text-muted" title="<?php echo e($calc['formula']); ?>">0</span>
+                                <span class="text-muted" title="<?php echo e($calc['formula']); ?>">0<?php echo $calcRank === null ? '' : '（第' . $calcRank . '名）'; ?></span>
                             <?php endif; ?>
                         </td>
                         <td><?php echo $perf ? e($perf['source_file'] ?: '已录入') : '<span class="text-muted">无数据</span>'; ?></td>

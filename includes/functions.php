@@ -1209,13 +1209,14 @@ function ensureCsPerfSchema()
         }
     } catch (\Throwable $e) {}
 
-    // 2. 客服绩效主表（每人每月一条，UNIQUE 覆盖式导入）
+    // 2. 客服绩效主表（每人每店每月一条，UNIQUE 覆盖式导入；店铺用于设计客服「多店合并÷2」排名）
     try {
         $pdo->query("SELECT 1 FROM `customer_service_performance` LIMIT 1");
     } catch (\Throwable $e) {
         $pdo->exec("CREATE TABLE IF NOT EXISTS `customer_service_performance` (
             `id` INT AUTO_INCREMENT PRIMARY KEY,
             `employee_id` INT NOT NULL COMMENT '员工ID',
+            `store` VARCHAR(60) NOT NULL DEFAULT '' COMMENT '店铺（上传时手动选择；空=未分店）',
             `year` SMALLINT NOT NULL,
             `month` TINYINT NOT NULL,
             `reply_speed` DECIMAL(8,1) NOT NULL DEFAULT 0 COMMENT '平均响应时长(秒)',
@@ -1227,7 +1228,7 @@ function ensureCsPerfSchema()
             `remark` VARCHAR(500) DEFAULT '' COMMENT '备注',
             `source_file` VARCHAR(255) DEFAULT '' COMMENT '最近来源文件',
             `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-            UNIQUE KEY `uk_emp_month` (`employee_id`, `year`, `month`),
+            UNIQUE KEY `uk_emp_store_month` (`employee_id`, `store`, `year`, `month`),
             INDEX `idx_ym` (`year`, `month`)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT '客服绩效采集数据'");
     }
@@ -1243,6 +1244,20 @@ function ensureCsPerfSchema()
         if (isset($perfCols[$col])) continue;
         try { $pdo->exec("ALTER TABLE `customer_service_performance` ADD COLUMN `$col` $def"); } catch (\Throwable $e) {}
     }
+    // 2.2 主表补齐「店铺」列并把唯一键改为(员工,店铺,年月)：一人可同时上传/匹配多个店铺，合并时按店铺分开存
+    if (!isset($perfCols['store'])) {
+        try { $pdo->exec("ALTER TABLE `customer_service_performance` ADD COLUMN `store` VARCHAR(60) NOT NULL DEFAULT '' COMMENT '店铺（上传时手动选择；空=未分店）' AFTER `employee_id`"); } catch (\Throwable $e) {}
+    }
+    try {
+        $hasNewKey = false;
+        foreach ($pdo->query("SHOW INDEX FROM `customer_service_performance`")->fetchAll() as $ix) {
+            if ($ix['Key_name'] === 'uk_emp_store_month') { $hasNewKey = true; break; }
+        }
+        if (!$hasNewKey) {
+            $pdo->exec("ALTER TABLE `customer_service_performance` DROP INDEX `uk_emp_month`"); // 旧键（已由上面新键替换语义）
+            $pdo->exec("ALTER TABLE `customer_service_performance` ADD UNIQUE KEY `uk_emp_store_month` (`employee_id`, `store`, `year`, `month`)");
+        }
+    } catch (\Throwable $e) {}
 
     // 3. 未匹配员工暂存表（等待在管理页补录归属员工）
     try {
@@ -1410,8 +1425,14 @@ function get_cs_perf_participants()
         ensureCsPerfSchema();
         $depts = [];
         foreach (get_cs_perf_dept_configs() as $dc) {
-            if ((float)$dc['base'] > 0 && (int)$dc['scheme_id'] > 0) $depts[] = (string)$dc['department'];
+            $isRankDept = ((string)$dc['department'] === CS_PERF_RANK_DEPT);
+            // 排名部门（设计客服）只要配置了方案即可参与（无需基数）；其余部门需基数>0 且 有效方案
+            if ($isRankDept ? ((int)$dc['scheme_id'] > 0) : ((float)$dc['base'] > 0 && (int)$dc['scheme_id'] > 0)) {
+                $depts[] = (string)$dc['department'];
+            }
         }
+        // 排名部门（设计客服）恒参与：即使尚未在部门配置里设置，也按「多店平均→前三名」排名
+        if (!in_array(CS_PERF_RANK_DEPT, $depts, true)) $depts[] = CS_PERF_RANK_DEPT;
         if (!$depts) return [];
         $in = implode(',', array_map(function ($d) { return db()->quote($d); }, $depts));
         return db()->query("SELECT e.* FROM employees e
@@ -1481,17 +1502,56 @@ function include_cs_perf_member($employeeId)
 }
 
 /**
- * 读取某员工某月客服绩效
+ * 读取某员工某月客服绩效（聚合全部店铺）。
+ * - 存在 store='' 的行（历史上的单店上传 / 本页「编辑补录」写入的人工综合值）时，直接以该行作为结果；
+ * - 仅上传多店（store 均非空）时合并：净销售额/进线求和，转化率/回复率按有值行平均，平均响应时长按进线加权平均。
  */
 function get_cs_performance($employeeId, $year, $month)
 {
+    $rows = get_cs_performance_stores((int)$employeeId, (int)$year, (int)$month);
+    if (!$rows) return null;
+    // 人工综合行优先：编辑/补录或未分店上传都落在 store=''
+    foreach ($rows as $r) {
+        if ((string)$r['store'] === '') return $r;
+    }
+    if (count($rows) === 1) return $rows[0];
+
+    $agg = $rows[0];
+    $incomingSum = 0; $convSum = 0; $convN = 0; $wangSum = 0; $wangN = 0; $respWeighted = 0.0; $replyCount = 0;
+    $salesSum = 0.0; $dealSum = 0; $dealN = 0; $source = '';
+    foreach ($rows as $r) {
+        $inc = (int)$r['incoming_count'];
+        $salesSum += (float)$r['net_sales'];
+        $incomingSum += $inc;
+        $conv = (float)$r['inquiry_conv']; if ($conv > 0) { $convSum += $conv; $convN++; }
+        $wang = (float)$r['wangwang_reply']; if ($wang > 0) { $wangSum += $wang; $wangN++; }
+        $respWeighted += (float)$r['reply_speed'] * $inc; $replyCount++;
+        if ($r['deal_count'] !== null && $r['deal_count'] !== '') { $dealSum += (int)$r['deal_count']; $dealN++; }
+        if ($source === '' && trim((string)$r['source_file']) !== '') $source = (string)$r['source_file'];
+    }
+    $agg['store']        = '';
+    $agg['net_sales']    = round($salesSum, 2);
+    $agg['incoming_count'] = $incomingSum;
+    $agg['inquiry_conv'] = $convN > 0 ? round($convSum / $convN, 2) : 0.0;
+    $agg['wangwang_reply'] = $wangN > 0 ? round($wangSum / $wangN, 2) : 0.0;
+    $agg['reply_speed']  = $incomingSum > 0 ? round($respWeighted / $incomingSum, 1) : round($respWeighted / $replyCount, 1);
+    $agg['deal_count']   = $dealN > 0 ? $dealSum : null;
+    $agg['source_file']  = $source;
+    return $agg;
+}
+
+/**
+ * 某员工某月按店铺分的绩效行（按店铺名排序）。用于设计客服「多店绩效分别计算后取平均」的排名。
+ * @return array
+ */
+function get_cs_performance_stores($employeeId, $year, $month)
+{
     try {
-        $stmt = db()->prepare("SELECT * FROM customer_service_performance WHERE employee_id=? AND year=? AND month=?");
+        $stmt = db()->prepare("SELECT * FROM customer_service_performance WHERE employee_id=? AND year=? AND month=? ORDER BY store");
         $stmt->execute([(int)$employeeId, (int)$year, (int)$month]);
-        $row = $stmt->fetch();
-        return $row ?: null;
+        return $stmt->fetchAll();
     } catch (\Throwable $e) {
-        return null;
+        return [];
     }
 }
 
@@ -1802,6 +1862,54 @@ function delete_cs_perf_dept_config($dept)
 
 /* ---------------- 绩效金额计算（共享算法） ---------------- */
 
+// 设计客服「按排名定底薪」：部门内按「多店绩效平均→部门内前三名」排序，只取前三名发底薪。
+// 第1名850元 / 第2名800元 / 第3名750元；其余为0（仅设计客服固定启用此机制）。
+define('CS_PERF_RANK_DEPT', '设计客服');
+define('CS_PERF_RANK_TIERS', [850, 800, 750]);
+
+/**
+ * 由绩效方案行构造四指标档位达成参数（权重+档位JSON+保底/封顶）。
+ * 绩效页、薪资结算、设计客服「多店分别计算」排名共用，保证口径一致。
+ */
+function cs_perf_scheme_params($scheme)
+{
+    return [
+        'w_net_sales' => (float)$scheme['w_net_sales'],       'tiers_net_sales' => cs_perf_tiers_parse($scheme['tiers_net_sales'] ?? ''),
+        'w_inquiry_conv' => (float)$scheme['w_inquiry_conv'], 'tiers_inquiry_conv' => cs_perf_tiers_parse($scheme['tiers_inquiry_conv'] ?? ''),
+        'w_wangwang_reply' => (float)$scheme['w_wangwang_reply'], 'tiers_wangwang_reply' => cs_perf_tiers_parse($scheme['tiers_wangwang_reply'] ?? ''),
+        'w_avg_response' => (float)$scheme['w_avg_response'], 'tiers_avg_response' => cs_perf_tiers_parse($scheme['tiers_avg_response'] ?? ''),
+        'floor_pct' => (float)$scheme['floor_pct'], 'cap_pct' => (float)$scheme['cap_pct'],
+    ];
+}
+
+/**
+ * 四指标档位达成 → 综合达成率（新算法）。$perf 为某店铺或汇总后的绩效行。
+ * @param array $params   cs_perf_scheme_params() 输出的参数
+ * @param array $perf     绩效行（含 net_sales/inquiry_conv/wangwang_reply/reply_speed）
+ * @return array ['ok'=>bool,'composite'=>float(0~1),'parts'=>数组]
+ */
+function cs_perf_composite_from($params, $perf)
+{
+    $netSales    = (float)($perf['net_sales'] ?? 0);      // 净销售额(元)
+    $inquiryConv = (float)($perf['inquiry_conv'] ?? 0);   // 询单最终下单转化率(%)
+    $wangReply   = (float)($perf['wangwang_reply'] ?? 0); // 旺旺回复率(%)
+    $avgResponse = (float)($perf['reply_speed'] ?? 0);    // 平均响应时长(秒)
+    $wSum = 0.0; $rateSum = 0.0; $parts = [];
+    $ratio = function ($w, $tiers, $val) use (&$wSum, &$rateSum, &$parts) {
+        $tier = cs_perf_tier_lookup($tiers, $val);
+        if ($tier === null) return;
+        $rate = (float)$tier['rate'] / 100;
+        $wSum += $w; $rateSum += $w * $rate;
+        $parts[] = sprintf('档[%s]%.1f%%×%.1f', cs_perf_fmt_range($tier), $rate * 100, $w);
+    };
+    if ($params['w_net_sales'] > 0 && !empty($params['tiers_net_sales'])) $ratio($params['w_net_sales'], $params['tiers_net_sales'], $netSales);
+    if ($params['w_inquiry_conv'] > 0 && !empty($params['tiers_inquiry_conv'])) $ratio($params['w_inquiry_conv'], $params['tiers_inquiry_conv'], $inquiryConv);
+    if ($params['w_wangwang_reply'] > 0 && !empty($params['tiers_wangwang_reply'])) $ratio($params['w_wangwang_reply'], $params['tiers_wangwang_reply'], $wangReply);
+    if ($params['w_avg_response'] > 0 && !empty($params['tiers_avg_response'])) $ratio($params['w_avg_response'], $params['tiers_avg_response'], $avgResponse);
+    if ($wSum <= 0) return ['ok' => false, 'composite' => 0.0, 'parts' => []];
+    return ['ok' => true, 'composite' => $rateSum / $wSum, 'parts' => $parts];
+}
+
 /**
  * 计算某员工某月客服绩效金额。绩效页展示与薪资结算共用此函数，保证结果一致。
  *
@@ -1836,20 +1944,17 @@ function cs_perf_calc($employeeId, $year, $month, $legacyCfg = null)
         $dept = (string)$st->fetchColumn();
     } catch (\Throwable $e) {}
 
+    // 设计客服专用：部门内按「多店绩效平均→前三名」定底薪（850/800/750，不再乘达成率）
+    if ($dept === CS_PERF_RANK_DEPT) {
+        return cs_perf_rank_result($employeeId, (int)$year, (int)$month);
+    }
+
     // 优先部门基数+方案
     $deptCfg = ($dept !== '') ? get_cs_perf_dept_config($dept) : null;
     if ($deptCfg && (float)$deptCfg['base'] > 0 && (int)$deptCfg['scheme_id'] > 0) {
         $base   = (float)$deptCfg['base'];
         $scheme = get_cs_perf_scheme((int)$deptCfg['scheme_id']);
-        if ($scheme) {
-            $params = [
-                'w_net_sales' => (float)$scheme['w_net_sales'],         'tiers_net_sales' => cs_perf_tiers_parse($scheme['tiers_net_sales'] ?? ''),
-                'w_inquiry_conv' => (float)$scheme['w_inquiry_conv'],  'tiers_inquiry_conv' => cs_perf_tiers_parse($scheme['tiers_inquiry_conv'] ?? ''),
-                'w_wangwang_reply' => (float)$scheme['w_wangwang_reply'], 'tiers_wangwang_reply' => cs_perf_tiers_parse($scheme['tiers_wangwang_reply'] ?? ''),
-                'w_avg_response' => (float)$scheme['w_avg_response'],  'tiers_avg_response' => cs_perf_tiers_parse($scheme['tiers_avg_response'] ?? ''),
-                'floor_pct' => (float)$scheme['floor_pct'], 'cap_pct' => (float)$scheme['cap_pct'],
-            ];
-        }
+        if ($scheme) $params = cs_perf_scheme_params($scheme);
     }
 
     // 回退：旧版「客服绩效底薪」模块参数（无绩效方案时沿用旧四因素算法，避免旧配置失效）
@@ -1882,12 +1987,12 @@ function cs_perf_calc($employeeId, $year, $month, $legacyCfg = null)
     if ($dealCount === null || $dealCount === '') $dealCount = get_employee_deal_count($employeeId, (int)$year, (int)$month);
     $orderTotal = get_employee_order_total($employeeId, (int)$year, (int)$month);
 
-    $parts  = [];
-    $wSum   = 0.0;
-    $rateSum = 0.0;
+    $parts = [];
+    $composite = 0.0;
 
     if ($legacy) {
         // ============ 旧版「客服绩效底薪」模块（回复/接待/转化率，无金额阶梯），仅作部门未配置时的回退 ============
+        $wSum = 0.0; $rateSum = 0.0;
         // 1. 回复速度（越低越快越好）
         if ($params['weight_reply'] > 0 && $params['target_reply_sec'] > 0 && $replySpeed > 0) {
             $rate = $params['target_reply_sec'] / $replySpeed;
@@ -1910,37 +2015,17 @@ function cs_perf_calc($employeeId, $year, $month, $legacyCfg = null)
         if ($wSum <= 0) {
             return ['amount' => 0.0, 'formula' => '方案未配置有效指标（需设置权重与目标）', 'base' => $base];
         }
+        $composite = $rateSum / $wSum;
     } else {
         // ============ 新：四指标（净销售额/询单转化率/旺旺回复率/平均响应时长）档位达成 ============
-        $netSales    = (float)($perf['net_sales'] ?? 0);        // 净销售额(元)
-        $inquiryConv = (float)($perf['inquiry_conv'] ?? 0);     // 询单最终下单转化率(%)
-        $wangReply   = (float)($perf['wangwang_reply'] ?? 0);   // 旺旺回复率(%)
-        $avgResponse = (float)$perf['reply_speed'];             // 平均响应时长(秒)
-
-        // 命中档位达成率：把（权重>0 且有档位区间 且 有实际值）的指标纳入加权
-        $ratio = function ($w, $tiers, $val) use (&$wSum, &$rateSum, &$parts) {
-            $tier = cs_perf_tier_lookup($tiers, $val);
-            if ($tier === null) return;
-            $rate = (float)$tier['rate'] / 100;
-            $wSum += $w; $rateSum += $w * $rate;
-            $parts[] = sprintf('档[%s]%.1f%%×%.1f', cs_perf_fmt_range($tier), $rate * 100, $w);
-        };
-
-        // 1. 净销售额
-        if ($params['w_net_sales'] > 0 && !empty($params['tiers_net_sales'])) $ratio($params['w_net_sales'], $params['tiers_net_sales'], $netSales);
-        // 2. 询单最终下单转化率
-        if ($params['w_inquiry_conv'] > 0 && !empty($params['tiers_inquiry_conv'])) $ratio($params['w_inquiry_conv'], $params['tiers_inquiry_conv'], $inquiryConv);
-        // 3. 旺旺回复率
-        if ($params['w_wangwang_reply'] > 0 && !empty($params['tiers_wangwang_reply'])) $ratio($params['w_wangwang_reply'], $params['tiers_wangwang_reply'], $wangReply);
-        // 4. 平均响应时长（越低越快越好：把最好档位下限设小）
-        if ($params['w_avg_response'] > 0 && !empty($params['tiers_avg_response'])) $ratio($params['w_avg_response'], $params['tiers_avg_response'], $avgResponse);
-
-        if ($wSum <= 0) {
+        $compo = cs_perf_composite_from($params, $perf);
+        if (!$compo['ok']) {
             return ['amount' => 0.0, 'formula' => '方案未配置有效指标（需设置权重与档位区间）', 'base' => $base];
         }
+        $parts     = $compo['parts'];
+        $composite = $compo['composite'];
     }
 
-    $composite = $rateSum / $wSum;
     $amount    = $base * $composite;
     $clamp = '';
     if ($params['floor_pct'] > 0) { $amount = max($amount, $base * $params['floor_pct'] / 100); $clamp .= ' 保底' . $params['floor_pct'] . '%'; }
@@ -1949,6 +2034,115 @@ function cs_perf_calc($employeeId, $year, $month, $legacyCfg = null)
     $formula = (implode(' + ', $parts) ?: '-')
         . sprintf(' → 综合%.1f%% × 基数%.2f = %.2f', $composite * 100, $base, $amount) . $clamp;
     return ['amount' => round($amount, 2), 'formula' => $formula, 'base' => $base];
+}
+
+/**
+ * 设计客服「按排名定底薪」：部门内员工按「多店绩效平均得分」排序，只取前三名发底薪
+ * （第1名850 / 第2名800 / 第3名750，其余0）。此机制仅设计客服固定启用。
+ *
+ * 得分 = 该员工当月各店铺分别用绩效方案算出的综合达成率，相加后除以店铺数；
+ * 只上传一店则用该店；没上传数据得0分，排最后。同分按员工ID升序（结果稳定可复现）。
+ * 方案：优先取「设计客服」部门配置的 scheme，未配置则用默认方案。
+ *
+ * @return array ['amount'=>float,'formula'=>string,'base'=>float,'rank'=>int|null,'score'=>float]
+ */
+function cs_perf_rank_result($employeeId, $year, $month)
+{
+    $employeeId = (int)$employeeId;
+    if (is_cs_perf_excluded($employeeId)) {
+        return ['amount' => 0.0, 'formula' => '已被排除出绩效名单', 'base' => 0.0, 'rank' => null, 'score' => 0.0];
+    }
+    // 员工部门必须为排名部门
+    $emp = null;
+    try {
+        $st = db()->prepare("SELECT id, name, department FROM employees WHERE id=?");
+        $st->execute([$employeeId]);
+        $emp = $st->fetch();
+    } catch (\Throwable $e) {}
+    $dept = $emp ? (string)$emp['department'] : '';
+    if ($dept !== CS_PERF_RANK_DEPT) {
+        return ['amount' => 0.0, 'formula' => '非排名部门', 'base' => 0.0, 'rank' => null, 'score' => 0.0];
+    }
+
+    ensureCsPerfSchema();
+
+    // 方案：优先「设计客服」部门配置，其次默认方案
+    $scheme = null;
+    $deptCfg = get_cs_perf_dept_config(CS_PERF_RANK_DEPT);
+    if ($deptCfg && (int)$deptCfg['scheme_id'] > 0) $scheme = get_cs_perf_scheme((int)$deptCfg['scheme_id']);
+    if (!$scheme) {
+        foreach (get_cs_perf_schemes() as $s) {
+            if ((int)$s['is_default'] === 1) { $scheme = $s; break; }
+        }
+    }
+    if (!$scheme) {
+        return ['amount' => 0.0, 'formula' => '设计客服未配置绩效方案，无法排名', 'base' => 0.0, 'rank' => null, 'score' => 0.0];
+    }
+    $params = cs_perf_scheme_params($scheme);
+
+    // 同部门参与员工（排除者不参与）
+    $members = [];
+    try {
+        $st = db()->prepare("SELECT e.id, e.name FROM employees e
+            WHERE e.department=? AND e.id NOT IN (SELECT m.employee_id FROM cs_perf_members m WHERE m.is_excluded=1)");
+        $st->execute([CS_PERF_RANK_DEPT]);
+        $members = $st->fetchAll();
+    } catch (\Throwable $e) {}
+    if (!$members) {
+        return ['amount' => 0.0, 'formula' => '设计客服暂无参与员工', 'base' => 0.0, 'rank' => null, 'score' => 0.0];
+    }
+
+    // 每人：多店分别算综合达成率，取平均作为排名得分
+    // 人工综合行（store=''，编辑/补录产生）优先：存在时只用该行得分，其余店铺上传行不再叠加，与 get_cs_performance 口径一致
+    $list = [];
+    foreach ($members as $m) {
+        $id = (int)$m['id'];
+        $rates = [];
+        $storeRows = get_cs_performance_stores($id, (int)$year, (int)$month);
+        $manualRow = null;
+        foreach ($storeRows as $row) {
+            if ((string)$row['store'] === '') { $manualRow = $row; break; }
+        }
+        if ($manualRow !== null) {
+            $compo = cs_perf_composite_from($params, $manualRow);
+            if ($compo['ok']) $rates[''] = $compo['composite'];
+        } else {
+            foreach ($storeRows as $row) {
+                $compo = cs_perf_composite_from($params, $row);
+                if ($compo['ok']) $rates[(string)$row['store']] = $compo['composite'];
+            }
+        }
+        $score = $rates ? array_sum($rates) / count($rates) : 0.0;
+        $list[] = ['id' => $id, 'name' => (string)$m['name'], 'score' => $score, 'rates' => $rates];
+    }
+    // 得分降序，同分按员工ID升序（usort 二次键确定，结果稳定）
+    usort($list, function ($a, $b) {
+        if ($a['score'] != $b['score']) return ($a['score'] < $b['score']) ? 1 : -1;
+        return $a['id'] <=> $b['id'];
+    });
+
+    $tiers = CS_PERF_RANK_TIERS;
+    $rank = null; $score = 0.0; $rates = [];
+    foreach ($list as $i => $item) {
+        if ($item['id'] === $employeeId) { $rank = $i + 1; $score = $item['score']; $rates = $item['rates']; break; }
+    }
+    if ($rank === null) {
+        return ['amount' => 0.0, 'formula' => '未在参与名单内', 'base' => 0.0, 'rank' => null, 'score' => 0.0];
+    }
+
+    $amount = ($rank <= count($tiers)) ? (float)$tiers[$rank - 1] : 0.0;
+    $storeDesc = [];
+    foreach ($rates as $store => $rate) {
+        $name = $store !== '' ? $store : '默认店铺';
+        $storeDesc[] = sprintf('%s %.1f%%', $name, $rate * 100);
+    }
+    $scoreTxt = sprintf('多店绩效 %s → 平均得分 %.2f%%', $storeDesc ? implode('  |  ', $storeDesc) : '无绩效数据', $score * 100);
+    if ($amount > 0) {
+        $formula = sprintf('%s → 第%d名 → 绩效底薪 %.2f元', $scoreTxt, $rank, $amount);
+    } else {
+        $formula = sprintf('%s → 第%d名（仅前三名发底薪850/800/750）→ 0.00元', $scoreTxt, $rank);
+    }
+    return ['amount' => round($amount, 2), 'formula' => $formula, 'base' => round($amount, 2), 'rank' => $rank, 'score' => round($score, 4)];
 }
 
 /**
@@ -2155,11 +2349,13 @@ function normalize_cs_wangwang($s)
  * @param string $source   来源标识（文件名/说明）
  * @param int    $defaultYear  文件无日期时使用的年份（0=必须从文件取）
  * @param int    $defaultMonth 文件无日期时使用的月份（0=必须从文件取）
+ * @param string $store    店铺名（上传时手动选择；设计客服需按店铺分别上传两家店，合并时按店铺分开存）
  * @return array ['matched'=>n,'pending'=>n,'errors'=>n,'detail'=>[每员工写入说明]]
  */
-function import_cs_perf_file($filePath, $source = '', $defaultYear = 0, $defaultMonth = 0)
+function import_cs_perf_file($filePath, $source = '', $defaultYear = 0, $defaultMonth = 0, $store = '')
 {
     if ($source === '') $source = basename($filePath);
+    $store = trim((string)$store);
 
     $ext = strtolower(pathinfo($source, PATHINFO_EXTENSION));
     $header = null;
@@ -2296,9 +2492,9 @@ function import_cs_perf_file($filePath, $source = '', $defaultYear = 0, $default
 
         if ($emp === null) {
             // 未匹配 → 暂存
-            $pk = ($wang !== '' ? 'w:' . $wangKey : 'n:' . $name) . "|$year-$month";
+            $pk = ($wang !== '' ? 'w:' . $wangKey : 'n:' . $name) . '|' . $store . "|$year-$month";
             if (!isset($pendingKey[$pk])) {
-                $pendingKey[$pk] = ['wangwang'=>$wang,'name'=>$name,'year'=>$year,'month'=>$month,'incoming'=>0,'total'=>0.0,'replyCnt'=>0,'avgSum'=>0.0,'avgN'=>0,'netSales'=>0.0,'convSum'=>0.0,'convN'=>0,'wangSum'=>0.0,'wangN'=>0];
+                $pendingKey[$pk] = ['wangwang'=>$wang,'name'=>$name,'store'=>$store,'year'=>$year,'month'=>$month,'incoming'=>0,'total'=>0.0,'replyCnt'=>0,'avgSum'=>0.0,'avgN'=>0,'netSales'=>0.0,'convSum'=>0.0,'convN'=>0,'wangSum'=>0.0,'wangN'=>0];
             }
             $pendingKey[$pk]['incoming'] += $incoming;
             $pendingKey[$pk]['total'] += $totalSec;
@@ -2310,9 +2506,9 @@ function import_cs_perf_file($filePath, $source = '', $defaultYear = 0, $default
             continue;
         }
 
-        $ek = (int)$emp['id'] . "|$year-$month";
+        $ek = (int)$emp['id'] . '|' . $store . "|$year-$month";
         if (!isset($monthAgg[$ek])) {
-            $monthAgg[$ek] = ['emp'=>$emp,'year'=>$year,'month'=>$month,'incoming'=>0,'total'=>0.0,'replyCnt'=>0,'avgSum'=>0.0,'avgN'=>0,'netSales'=>0.0,'convSum'=>0.0,'convN'=>0,'wangSum'=>0.0,'wangN'=>0];
+            $monthAgg[$ek] = ['emp'=>$emp,'store'=>$store,'year'=>$year,'month'=>$month,'incoming'=>0,'total'=>0.0,'replyCnt'=>0,'avgSum'=>0.0,'avgN'=>0,'netSales'=>0.0,'convSum'=>0.0,'convN'=>0,'wangSum'=>0.0,'wangN'=>0];
         }
         $monthAgg[$ek]['incoming'] += $incoming;
         $monthAgg[$ek]['total'] += $totalSec;
@@ -2325,10 +2521,10 @@ function import_cs_perf_file($filePath, $source = '', $defaultYear = 0, $default
 
     $detail = [];
 
-    // 已匹配 → 覆盖式写入主表（保留 remark / deal_count 手动值）
+    // 已匹配 → 覆盖式写入主表（保留 remark / deal_count 手动值）；按 (员工,店铺,年月) 唯一，多店铺各占一行
     $upsert = $pdo->prepare("INSERT INTO customer_service_performance
-        (employee_id, year, month, reply_speed, incoming_count, net_sales, inquiry_conv, wangwang_reply, source_file)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        (employee_id, store, year, month, reply_speed, incoming_count, net_sales, inquiry_conv, wangwang_reply, source_file)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON DUPLICATE KEY UPDATE
         reply_speed=VALUES(reply_speed), incoming_count=VALUES(incoming_count),
         net_sales=VALUES(net_sales), inquiry_conv=VALUES(inquiry_conv), wangwang_reply=VALUES(wangwang_reply),
@@ -2348,8 +2544,8 @@ function import_cs_perf_file($filePath, $source = '', $defaultYear = 0, $default
         $netSales   = round($agg['netSales'], 2);
         $inquiryConv = $agg['convN'] > 0 ? round($agg['convSum'] / $agg['convN'], 2) : 0.0;
         $wangReply   = $agg['wangN'] > 0 ? round($agg['wangSum'] / $agg['wangN'], 2) : 0.0;
-        $upsert->execute([(int)$agg['emp']['id'], $agg['year'], $agg['month'], $replySpeed, $incoming, $netSales, $inquiryConv, $wangReply, $source]);
-        $detail[] = sprintf('%s %04d-%02d 进线%d 回复%.1fs 销售额%.2f 询单转化%.2f%% 旺旺回复率%.2f%%', $agg['emp']['name'], $agg['year'], $agg['month'], $incoming, $replySpeed, $netSales, $inquiryConv, $wangReply);
+        $upsert->execute([(int)$agg['emp']['id'], $store, $agg['year'], $agg['month'], $replySpeed, $incoming, $netSales, $inquiryConv, $wangReply, $source]);
+        $detail[] = sprintf('%s[%s] %04d-%02d 进线%d 回复%.1fs 销售额%.2f 询单转化%.2f%% 旺旺回复率%.2f%%', $agg['emp']['name'], $store !== '' ? $store : '无店铺', $agg['year'], $agg['month'], $incoming, $replySpeed, $netSales, $inquiryConv, $wangReply);
     }
 
     // 未匹配 → 先清该 key 旧暂存再写入（避免重复上传叠加）
@@ -2363,10 +2559,10 @@ function import_cs_perf_file($filePath, $source = '', $defaultYear = 0, $default
         $netSales   = round($p['netSales'], 2);
         $inquiryConv = $p['convN'] > 0 ? round($p['convSum'] / $p['convN'], 2) : 0.0;
         $wangReply   = $p['wangN'] > 0 ? round($p['wangSum'] / $p['wangN'], 2) : 0.0;
-        $raw = json_encode(['wangwang'=>$p['wangwang'],'name'=>$p['name'],'year'=>$p['year'],'month'=>$p['month'],'incoming'=>$p['incoming'],'total_reply_seconds'=>$p['total'],'net_sales'=>$netSales,'inquiry_conv'=>$inquiryConv,'wangwang_reply'=>$wangReply], JSON_UNESCAPED_UNICODE);
+        $raw = json_encode(['wangwang'=>$p['wangwang'],'name'=>$p['name'],'store'=>$p['store'],'year'=>$p['year'],'month'=>$p['month'],'incoming'=>$p['incoming'],'total_reply_seconds'=>$p['total'],'net_sales'=>$netSales,'inquiry_conv'=>$inquiryConv,'wangwang_reply'=>$wangReply], JSON_UNESCAPED_UNICODE);
         $insPending->execute([$p['wangwang'], $p['name'], $p['year'], $p['month'], $p['incoming'], $p['total'], $netSales, $inquiryConv, $wangReply, $source, $raw]);
         $pendingCount++;
-        $detail[] = sprintf('未匹配暂存：%s %04d-%02d', $p['name'] !== '' ? $p['name'] : $p['wangwang'], $p['year'], $p['month']);
+        $detail[] = sprintf('未匹配暂存：%s[%s] %04d-%02d', $p['name'] !== '' ? $p['name'] : $p['wangwang'], $p['store'] !== '' ? $p['store'] : '无店铺', $p['year'], $p['month']);
     }
 
     // 写同步日志

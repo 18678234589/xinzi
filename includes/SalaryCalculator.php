@@ -1807,7 +1807,9 @@ class SalaryCalculator
         $dept  = (string)($c['employee']['department'] ?? '');
         if ($empId <= 0 || $dept === '') return null;
         $deptCfg = get_cs_perf_dept_config($dept);
-        if (!$deptCfg || (float)$deptCfg['base'] <= 0 || (int)$deptCfg['scheme_id'] <= 0) return null;
+        $isRankDept = ($dept === CS_PERF_RANK_DEPT);
+        // 排名部门（设计客服）：无需配置基数，按「多店绩效平均→前三名」定底薪；其余部门需 基数>0 且 有效方案
+        if (!$isRankDept && (!$deptCfg || (float)$deptCfg['base'] <= 0 || (int)$deptCfg['scheme_id'] <= 0)) return null;
         if (is_cs_perf_excluded($empId)) return null; // 被排除者不自动计入
         $year = 0; $month = 0;
         $parts = explode('-', (string)($c['month'] ?? ''));
