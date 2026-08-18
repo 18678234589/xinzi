@@ -2162,6 +2162,8 @@ function import_cs_perf_file($filePath, $source = '', $defaultYear = 0, $default
         if ($wangKey !== '' && isset($byWang[$wangKey])) $emp = $byWang[$wangKey];
         if ($emp === null && $name !== '' && isset($byName[$name])) $emp = $byName[$name];
         if ($emp === null && $name !== '' && isset($byWang[mb_strtolower(normalize_cs_wangwang($name))])) $emp = $byWang[mb_strtolower(normalize_cs_wangwang($name))];
+        // 兜底：部分导出表「客服」列直接填员工真实姓名（如 业绩分析里的 穆楠/张欣），按姓名命中
+        if ($emp === null && $wang !== '' && isset($byName[$wang])) $emp = $byName[$wang];
 
         if ($emp === null) {
             // 未匹配 → 暂存
