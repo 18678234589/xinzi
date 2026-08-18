@@ -442,7 +442,7 @@ function fillScheme(obj){
                 </tbody>
             </table>
         </div>
-        <small class="text-muted d-block mt-2"><i class="fas fa-info-circle"></i> 名单内员工会按所在部门自动套用上方基数与方案计算绩效金额；未配置部门的名单员工不会计入。</small>
+        <small class="text-muted d-block mt-2"><i class="fas fa-info-circle"></i> 员工按所在部门自动匹配上方「绩效基数+方案」参与绩效，无需逐个员工设置算法；如需某个别员工不参与，可在「客服绩效总览」页将其<strong>排除</strong>。</small>
     </div>
 </div>
 

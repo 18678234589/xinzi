@@ -1292,7 +1292,7 @@ function ensureCsPerfSchema()
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT '客服绩效同步日志'");
     }
 
-    // 5. 绩效人员名单：绩效底薪只统计名单内员工；页面可自定义增删
+    // 5. 绩效名单（旧表）：绩效参与改由「部门配置」自动生成，此表仅用于维护「被排除」的员工
     $membersExists = true;
     try {
         $pdo->query("SELECT 1 FROM `cs_perf_members` LIMIT 1");
@@ -1301,14 +1301,23 @@ function ensureCsPerfSchema()
         $pdo->exec("CREATE TABLE IF NOT EXISTS `cs_perf_members` (
             `id` INT AUTO_INCREMENT PRIMARY KEY,
             `employee_id` INT NOT NULL COMMENT '员工ID',
+            `is_excluded` TINYINT(1) NOT NULL DEFAULT 0 COMMENT '是否排除参与绩效(1=排除)',
             `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             UNIQUE KEY `uk_emp` (`employee_id`)
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT '客服绩效名单(仅此名单内员工参与绩效底薪)'");
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT '客服绩效排除名单(1=排除,不再参与部门绩效底薪)'");
     }
-    // 仅首次建表时自动纳入：网站客服/设计客服 部门 + 郭文娟、刘媛媛；之后全部手动增删，不会重新自动添加
+    // 5.1 旧表补齐「排除」标记列（幂等）：历史名单记录视为参与标记，仅 is_excluded=1 才是被排除
+    try {
+        $memberCols = [];
+        foreach ($pdo->query("SHOW COLUMNS FROM `cs_perf_members`")->fetchAll() as $c) $memberCols[$c['Field']] = true;
+        if (!isset($memberCols['is_excluded'])) {
+            $pdo->exec("ALTER TABLE `cs_perf_members` ADD COLUMN `is_excluded` TINYINT(1) NOT NULL DEFAULT 0 COMMENT '是否排除参与绩效(1=排除)'");
+        }
+    } catch (\Throwable $e) {}
+    // 仅首次建表时做一次兼容标记（旧的自动纳入名单概念已由部门配置取代）；之后全部手动增删
     if (!$membersExists) {
-        $pdo->exec("INSERT IGNORE INTO `cs_perf_members` (employee_id)
-            SELECT id FROM `employees`
+        $pdo->exec("INSERT IGNORE INTO `cs_perf_members` (employee_id, is_excluded)
+            SELECT id, 0 FROM `employees`
             WHERE department IN ('网站客服', '设计客服') OR name IN ('郭文娟', '刘媛媛')");
     }
 
@@ -1391,51 +1400,81 @@ function ensureCsPerfSchema()
 }
 
 /**
- * 绩效名单内的员工（仅这些人参与客服绩效底薪；页面可自定义增删）
+ * 绩效参与名单（按部门自动）：所在部门已配置绩效（基数>0 且 有效方案）且未被排除的员工。
+ * 不需要手动逐个添加；被排除员工在绩效页手动维护。
  * @return array
  */
-function get_cs_perf_members()
+function get_cs_perf_participants()
 {
     try {
-        return db()->query("SELECT e.* FROM employees e INNER JOIN cs_perf_members m ON m.employee_id = e.id ORDER BY e.department, e.id")->fetchAll();
+        ensureCsPerfSchema();
+        $depts = [];
+        foreach (get_cs_perf_dept_configs() as $dc) {
+            if ((float)$dc['base'] > 0 && (int)$dc['scheme_id'] > 0) $depts[] = (string)$dc['department'];
+        }
+        if (!$depts) return [];
+        $in = implode(',', array_map(function ($d) { return db()->quote($d); }, $depts));
+        return db()->query("SELECT e.* FROM employees e
+            WHERE e.department IN ($in) AND e.id NOT IN (SELECT m.employee_id FROM cs_perf_members m WHERE m.is_excluded=1)
+            ORDER BY e.department, e.id")->fetchAll();
     } catch (\Throwable $e) {
         return [];
     }
 }
 
 /**
- * 加入绩效名单（去重）
+ * 被排除出客服绩效的员工（页面可手动排除/恢复）
+ * @return array
  */
-function add_cs_perf_member($employeeId)
+function get_cs_perf_excluded()
 {
     try {
-        return (bool)db()->prepare("INSERT IGNORE INTO cs_perf_members (employee_id) VALUES (?)")->execute([(int)$employeeId]);
+        ensureCsPerfSchema();
+        return db()->query("SELECT e.* FROM employees e
+            INNER JOIN cs_perf_members m ON m.employee_id=e.id AND m.is_excluded=1
+            ORDER BY e.department, e.id")->fetchAll();
     } catch (\Throwable $e) {
-        return false;
+        return [];
     }
 }
 
 /**
- * 从绩效名单移除
+ * 是否已被排除（排除者不再参与部门绩效底薪）
  */
-function remove_cs_perf_member($employeeId)
+function is_cs_perf_excluded($employeeId)
 {
     try {
-        return (bool)db()->prepare("DELETE FROM cs_perf_members WHERE employee_id=?")->execute([(int)$employeeId]);
-    } catch (\Throwable $e) {
-        return false;
-    }
-}
-
-/**
- * 是否在绩效名单内（绩效底薪仅名单内员工参与）
- */
-function is_cs_perf_member($employeeId)
-{
-    try {
-        $st = db()->prepare("SELECT 1 FROM cs_perf_members WHERE employee_id=? LIMIT 1");
+        ensureCsPerfSchema();
+        $st = db()->prepare("SELECT 1 FROM cs_perf_members WHERE employee_id=? AND is_excluded=1 LIMIT 1");
         $st->execute([(int)$employeeId]);
         return (bool)$st->fetchColumn();
+    } catch (\Throwable $e) {
+        return false;
+    }
+}
+
+/**
+ * 排除某员工参与客服绩效（去重）
+ */
+function exclude_cs_perf_member($employeeId)
+{
+    try {
+        ensureCsPerfSchema();
+        return (bool)db()->prepare("INSERT INTO cs_perf_members (employee_id, is_excluded) VALUES (?,1)
+            ON DUPLICATE KEY UPDATE is_excluded=1")->execute([(int)$employeeId]);
+    } catch (\Throwable $e) {
+        return false;
+    }
+}
+
+/**
+ * 取消排除（恢复参与）
+ */
+function include_cs_perf_member($employeeId)
+{
+    try {
+        ensureCsPerfSchema();
+        return (bool)db()->prepare("UPDATE cs_perf_members SET is_excluded=0 WHERE employee_id=?")->execute([(int)$employeeId]);
     } catch (\Throwable $e) {
         return false;
     }

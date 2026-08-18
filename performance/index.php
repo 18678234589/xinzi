@@ -22,19 +22,19 @@ $upMsg = '';
 $upErr = '';
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = $_POST['action'] ?? '';
-    if ($action === 'member_add') {
+    if ($action === 'member_exclude') {
         $eid = (int)($_POST['employee_id'] ?? 0);
-        if ($eid > 0 && add_cs_perf_member($eid)) {
-            $upMsg = '已加入绩效名单，之后计入客服绩效';
+        if ($eid > 0 && exclude_cs_perf_member($eid)) {
+            $upMsg = '已排除该员工，之后不再计入客服绩效';
         } else {
-            $upErr = '加入失败，请重试';
+            $upErr = '排除失败，请重试';
         }
-    } elseif ($action === 'member_remove') {
+    } elseif ($action === 'member_include') {
         $eid = (int)($_POST['employee_id'] ?? 0);
-        if ($eid > 0 && remove_cs_perf_member($eid)) {
-            $upMsg = '已从绩效名单移除';
+        if ($eid > 0 && include_cs_perf_member($eid)) {
+            $upMsg = '已恢复该员工参与客服绩效';
         } else {
-            $upErr = '移除失败，请重试';
+            $upErr = '恢复失败，请重试';
         }
     } elseif ($action === 'import') {
         if (!empty($_FILES['file']['tmp_name']) && is_uploaded_file($_FILES['file']['tmp_name'])) {
@@ -60,20 +60,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-$allEmployees = get_employees();
-$roster       = get_cs_perf_members();
-$rosterIds = [];
-foreach ($roster as $r) $rosterIds[(int)$r['id']] = true;
-$addable = [];
-foreach ($allEmployees as $e) {
-    if (isset($rosterIds[(int)$e['id']])) continue;
-    $addable[] = $e;
-}
+// 参与名单按部门自动生成（部门已配置基数+方案 且 未被排除）；被排除者单独列出手动恢复
+$participants = get_cs_perf_participants();
+$excluded     = get_cs_perf_excluded();
 
 $rows = [];
 $deptCfgMap = [];
 foreach (get_cs_perf_dept_configs() as $dc) $deptCfgMap[(string)$dc['department']] = $dc;
-foreach ($roster as $emp) {
+foreach ($participants as $emp) {
     $perf = get_cs_performance((int)$emp['id'], $year, $month);
     $liveDeal = get_employee_deal_count((int)$emp['id'], $year, $month);
     $deal = $perf && $perf['deal_count'] !== null ? (int)$perf['deal_count'] : $liveDeal;
@@ -246,30 +240,17 @@ include __DIR__ . '/../includes/header.php';
     </div>
 </div>
 
-<!-- 绩效人员名单管理 -->
+<!-- 绩效参与名单（按部门自动） -->
 <div class="card mb-3">
-    <div class="card-header"><i class="fas fa-user-cog"></i> 绩效人员名单（绩效底薪只统计名单内员工，按需增删）</div>
+    <div class="card-header"><i class="fas fa-user-cog"></i> 绩效参与名单（按部门自动匹配：部门配置了基数+方案 → 部门下员工自动参与）</div>
     <div class="card-body">
-        <form method="post" class="form-inline mb-2">
-            <input type="hidden" name="action" value="member_add">
-            <select name="employee_id" class="form-control form-control-sm mr-1" style="width:240px" required>
-                <option value="">选择员工加入名单</option>
-                <?php foreach ($addable as $emp): ?>
-                    <option value="<?php echo (int)$emp['id']; ?>"><?php echo e($emp['name']); ?>（<?php echo e($emp['department']); ?>）</option>
-                <?php endforeach; ?>
-            </select>
-            <button class="btn btn-sm btn-primary"><i class="fas fa-plus"></i> 添加</button>
-            <?php if (!$addable): ?>
-                <span class="ml-2 text-muted small">所有员工都已在名单中</span>
-            <?php endif; ?>
-        </form>
         <div class="table-responsive">
             <table class="table table-sm table-bordered mb-0">
                 <thead class="thead-light">
-                    <tr><th>姓名</th><th>部门</th><th>绩效基数</th><th style="width:100px">操作</th></tr>
+                    <tr><th>姓名</th><th>部门</th><th>绩效基数+方案</th><th style="width:120px">操作</th></tr>
                 </thead>
                 <tbody>
-                <?php foreach ($roster as $emp): ?>
+                <?php foreach ($participants as $emp): ?>
                     <?php $rc = $deptCfgMap[(string)$emp['department']] ?? null; ?>
                     <tr>
                         <td><?php echo e($emp['name']); ?></td>
@@ -279,25 +260,45 @@ include __DIR__ . '/../includes/header.php';
                                 <strong><?php echo number_format((float)$rc['base'], 2); ?></strong>
                                 <small class="text-muted">(<?php echo e($rc['scheme_name'] ?: '默认方案'); ?>)</small>
                             <?php else: ?>
-                                <span class="text-danger small"><i class="fas fa-exclamation-circle"></i> 未配置，去<a href="schemes.php">设置</a></span>
+                                <span class="text-danger small"><i class="fas fa-exclamation-circle"></i> 部门未配置，去<a href="schemes.php">设置</a></span>
                             <?php endif; ?>
                         </td>
-                        <td style="width:100px">
-                            <form method="post" onsubmit="return confirm('移除后将不再统计该员工的客服绩效，确定？')">
-                                <input type="hidden" name="action" value="member_remove">
+                        <td>
+                            <form method="post" onsubmit="return confirm('排除后该员工将不再计入客服绩效，确定？')">
+                                <input type="hidden" name="action" value="member_exclude">
                                 <input type="hidden" name="employee_id" value="<?php echo (int)$emp['id']; ?>">
-                                <button class="btn btn-sm btn-outline-danger"><i class="fas fa-times"></i> 移除</button>
+                                <button class="btn btn-sm btn-outline-danger"><i class="fas fa-times"></i> 排除</button>
                             </form>
                         </td>
                     </tr>
                 <?php endforeach; ?>
-                <?php if (!$roster): ?>
-                    <tr><td colspan="4" class="text-center text-muted py-3">名单为空，请从上方选择员工加入</td></tr>
+                <?php if (!$participants): ?>
+                    <tr><td colspan="4" class="text-center text-muted py-3">暂无参与员工。请先在「<a href="schemes.php">绩效方案/算法</a>」页为参与部门配置<strong>绩效基数</strong>与<strong>方案</strong>，该部门员工即自动出现在这里。</td></tr>
                 <?php endif; ?>
                 </tbody>
             </table>
         </div>
-        <small class="text-muted d-block mt-2"><i class="fas fa-info-circle"></i> 只有名单内的员工参与绩效底薪；导入的绩效表会按「旺旺账号 → 姓名」自动匹配到对应员工名下。</small>
+        <?php if ($excluded): ?>
+        <h6 class="mt-3 mb-2"><i class="fas fa-ban text-danger"></i> 已排除员工（不再计入）</h6>
+        <table class="table table-sm table-bordered mb-0" style="max-width:560px">
+            <tbody>
+            <?php foreach ($excluded as $emp): ?>
+                <tr>
+                    <td><?php echo e($emp['name']); ?></td>
+                    <td><span class="badge badge-secondary"><?php echo e($emp['department']); ?></span></td>
+                    <td>
+                        <form method="post" class="mb-0">
+                            <input type="hidden" name="action" value="member_include">
+                            <input type="hidden" name="employee_id" value="<?php echo (int)$emp['id']; ?>">
+                            <button class="btn btn-sm btn-outline-success"><i class="fas fa-undo"></i> 恢复</button>
+                        </form>
+                    </td>
+                </tr>
+            <?php endforeach; ?>
+            </tbody>
+        </table>
+        <?php endif; ?>
+        <small class="text-muted d-block mt-2"><i class="fas fa-info-circle"></i> 员工按所在部门自动参与绩效（部门基数×方案）；被排除者不会出现在总览、也不计入薪资。导入的绩效表按「旺旺账号 → 姓名」自动匹配到对应员工名下。</small>
     </div>
 </div>
 
