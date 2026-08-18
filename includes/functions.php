@@ -1191,6 +1191,34 @@ function export_excel($headers, $rows, $filename)
 /* ==================== 客服绩效（cs_perf） ==================== */
 
 /**
+ * 客服绩效「请求内缓存池」。读函数把结果缓存于此，避免同一请求内重复远程查询；
+ * 任何写操作（排除/恢复、方案配置、部门配置、导入、编辑补录、删除上传）调用 cs_perf_cache_reset() 清空，
+ * 防止「POST 改库后同一请求继续渲染」读到旧值。
+ */
+function &cs_perf_cache($reset = false)
+{
+    static $store = null;
+    if ($store === null) $store = [];
+    if ($reset) $store = [];
+    return $store;
+}
+function cs_perf_cache_get($key)
+{
+    $store =& cs_perf_cache();
+    if (array_key_exists($key, $store)) return ['hit' => true, 'val' => $store[$key]];
+    return ['hit' => false, 'val' => null];
+}
+function cs_perf_cache_set($key, $val)
+{
+    $store =& cs_perf_cache();
+    $store[$key] = $val;
+}
+function cs_perf_cache_reset()
+{
+    cs_perf_cache(true);
+}
+
+/**
  * 确保客服绩效相关表与员工旺旺字段存在（运行时自动建表/补列）。
  * 客服绩效采集工具上传的数据与绩效底薪模块共用这些表。
  */
@@ -1423,6 +1451,8 @@ function ensureCsPerfSchema()
  */
 function get_cs_perf_participants()
 {
+    $c = cs_perf_cache_get('participants');
+    if ($c['hit']) return $c['val'];
     try {
         ensureCsPerfSchema();
         $depts = [];
@@ -1435,11 +1465,13 @@ function get_cs_perf_participants()
         }
         // 排名部门（设计客服）恒参与：即使尚未在部门配置里设置，也按「多店平均→前三名」排名
         if (!in_array(CS_PERF_RANK_DEPT, $depts, true)) $depts[] = CS_PERF_RANK_DEPT;
-        if (!$depts) return [];
+        if (!$depts) { cs_perf_cache_set('participants', []); return []; }
         $in = implode(',', array_map(function ($d) { return db()->quote($d); }, $depts));
-        return db()->query("SELECT e.* FROM employees e
+        $rows = db()->query("SELECT e.* FROM employees e
             WHERE e.department IN ($in) AND e.id NOT IN (SELECT m.employee_id FROM cs_perf_members m WHERE m.is_excluded=1)
             ORDER BY e.department, e.id")->fetchAll();
+        cs_perf_cache_set('participants', $rows);
+        return $rows;
     } catch (\Throwable $e) {
         return [];
     }
@@ -1466,11 +1498,16 @@ function get_cs_perf_excluded()
  */
 function is_cs_perf_excluded($employeeId)
 {
+    $key = 'is_excluded|' . (int)$employeeId;
+    $c = cs_perf_cache_get($key);
+    if ($c['hit']) return $c['val'];
     try {
         ensureCsPerfSchema();
         $st = db()->prepare("SELECT 1 FROM cs_perf_members WHERE employee_id=? AND is_excluded=1 LIMIT 1");
         $st->execute([(int)$employeeId]);
-        return (bool)$st->fetchColumn();
+        $val = (bool)$st->fetchColumn();
+        cs_perf_cache_set($key, $val);
+        return $val;
     } catch (\Throwable $e) {
         return false;
     }
@@ -1483,8 +1520,10 @@ function exclude_cs_perf_member($employeeId)
 {
     try {
         ensureCsPerfSchema();
-        return (bool)db()->prepare("INSERT INTO cs_perf_members (employee_id, is_excluded) VALUES (?,1)
+        $ok = (bool)db()->prepare("INSERT INTO cs_perf_members (employee_id, is_excluded) VALUES (?,1)
             ON DUPLICATE KEY UPDATE is_excluded=1")->execute([(int)$employeeId]);
+        if ($ok) cs_perf_cache_reset();
+        return $ok;
     } catch (\Throwable $e) {
         return false;
     }
@@ -1497,7 +1536,9 @@ function include_cs_perf_member($employeeId)
 {
     try {
         ensureCsPerfSchema();
-        return (bool)db()->prepare("UPDATE cs_perf_members SET is_excluded=0 WHERE employee_id=?")->execute([(int)$employeeId]);
+        $ok = (bool)db()->prepare("UPDATE cs_perf_members SET is_excluded=0 WHERE employee_id=?")->execute([(int)$employeeId]);
+        if ($ok) cs_perf_cache_reset();
+        return $ok;
     } catch (\Throwable $e) {
         return false;
     }
@@ -1550,10 +1591,15 @@ function get_cs_performance($employeeId, $year, $month)
  */
 function get_cs_performance_stores($employeeId, $year, $month)
 {
+    $key = 'stores|' . (int)$employeeId . '|' . (int)$year . '-' . (int)$month;
+    $c = cs_perf_cache_get($key);
+    if ($c['hit']) return $c['val'];
     try {
         $stmt = db()->prepare("SELECT * FROM customer_service_performance WHERE employee_id=? AND year=? AND month=? ORDER BY store");
         $stmt->execute([(int)$employeeId, (int)$year, (int)$month]);
-        return $stmt->fetchAll();
+        $rows = $stmt->fetchAll();
+        cs_perf_cache_set($key, $rows);
+        return $rows;
     } catch (\Throwable $e) {
         return [];
     }
@@ -1578,12 +1624,16 @@ function cs_perf_conv_derivation($inquiryConv, $orderCount, $incoming)
 }
 
 /**
- * 实时统计某客服员工当月成交订单数（与薪资结算的核验月/未核验规则一致）。
- * 成交 = 该员工名下当月、已核验、非异常、非软删除、金额>=0 且非退款的订单数。
- * @return int
+ * [内部] 某客服员工当月成交/接单的聚合：deal_count（成交单数）+ order_total（接单金额）。
+ * 口径：核验月、非异常、非删除、非退款、非部门拆分、非负金额（两份口径与旧实现逐行校验一致）。
+ * 单一 SQL 一次返回 COUNT+SUM，避免两份相同 WHERE 的远程库聚合分别各跑一遍。
+ * @return array ['deal_count'=>int, 'order_total'=>float]
  */
-function get_employee_deal_count($employeeId, $year, $month)
+function get_employee_order_aggregate($employeeId, $year, $month)
 {
+    $key = 'agg|' . (int)$employeeId . '|' . (int)$year . '-' . (int)$month;
+    $c = cs_perf_cache_get($key);
+    if ($c['hit']) return $c['val'];
     try {
         $monthStr = sprintf('%04d-%02d', (int)$year, (int)$month);
         $credit = "(JSON_UNQUOTE(JSON_EXTRACT(raw_data, '$.__verified_month__')) = ?"
@@ -1593,23 +1643,34 @@ function get_employee_deal_count($employeeId, $year, $month)
             . "   OR JSON_UNQUOTE(JSON_EXTRACT(raw_data, '$.__order_status__')) = ''"
             . "   OR JSON_UNQUOTE(JSON_EXTRACT(raw_data, '$.__order_status__')) <> '未核验')"
             . "  AND DATE_FORMAT(order_date, '%Y-%m') = ?))";
-        $stmt = db()->prepare("SELECT o.order_amount, o.raw_data FROM orders o"
+        // 退款/负金额/部门拆分均在 SQL 内过滤；聚合在库内完成，SELECT 只回传两个标量（不再搬运大段 raw_data，大幅降低远程库传输耗时）
+        $stmt = db()->prepare("SELECT COUNT(*) AS cnt, COALESCE(SUM(o.order_amount), 0) AS total FROM orders o"
             . " WHERE o.employee_id=? AND $credit AND COALESCE(o.is_abnormal,0)=0"
             . " AND COALESCE(o.is_deleted,0)=0"
-            . " AND (o.raw_data IS NULL OR o.raw_data NOT LIKE '%\"__from_dept__\"%')");
+            . " AND (o.raw_data IS NULL OR o.raw_data NOT LIKE '%\"__from_dept__\"%')"
+            . " AND o.order_amount >= 0"
+            . " AND (o.raw_data IS NULL OR JSON_UNQUOTE(JSON_EXTRACT(o.raw_data, '$.__is_refund__')) IS NULL"
+            . "   OR JSON_UNQUOTE(JSON_EXTRACT(o.raw_data, '$.__is_refund__')) <> '1')");
         $stmt->execute([(int)$employeeId, $monthStr, $monthStr]);
-        $rows = $stmt->fetchAll();
-        $count = 0;
-        foreach ($rows as $r) {
-            if ((float)$r['order_amount'] < 0) continue; // 退款(负数)不计
-            $rd = is_string($r['raw_data'] ?? '') ? json_decode($r['raw_data'], true) : ($r['raw_data'] ?? []);
-            if (is_array($rd) && isset($rd['__is_refund__']) && $rd['__is_refund__'] === '1') continue;
-            $count++;
-        }
-        return $count;
+        $row = $stmt->fetch();
+        $val = [
+            'deal_count'  => (int)$row['cnt'],
+            'order_total' => round((float)$row['total'], 2),
+        ];
+        cs_perf_cache_set($key, $val);
+        return $val;
     } catch (\Throwable $e) {
-        return 0;
+        return ['deal_count' => 0, 'order_total' => 0.0];
     }
+}
+
+/**
+ * 实时汇总某客服员工当月成交单数（口径同 get_employee_order_total：核验月、非异常、非退款、非部门拆分）。
+ * @return int
+ */
+function get_employee_deal_count($employeeId, $year, $month)
+{
+    return get_employee_order_aggregate($employeeId, $year, $month)['deal_count'];
 }
 
 /**
@@ -1618,31 +1679,7 @@ function get_employee_deal_count($employeeId, $year, $month)
  */
 function get_employee_order_total($employeeId, $year, $month)
 {
-    try {
-        $monthStr = sprintf('%04d-%02d', (int)$year, (int)$month);
-        $credit = "(JSON_UNQUOTE(JSON_EXTRACT(raw_data, '$.__verified_month__')) = ?"
-            . " OR ((raw_data IS NULL OR JSON_UNQUOTE(JSON_EXTRACT(raw_data, '$.__verified_month__')) IS NULL"
-            . "   OR JSON_UNQUOTE(JSON_EXTRACT(raw_data, '$.__verified_month__')) = '')"
-            . "  AND (raw_data IS NULL OR JSON_UNQUOTE(JSON_EXTRACT(raw_data, '$.__order_status__')) IS NULL"
-            . "   OR JSON_UNQUOTE(JSON_EXTRACT(raw_data, '$.__order_status__')) = ''"
-            . "   OR JSON_UNQUOTE(JSON_EXTRACT(raw_data, '$.__order_status__')) <> '未核验')"
-            . "  AND DATE_FORMAT(order_date, '%Y-%m') = ?))";
-        $stmt = db()->prepare("SELECT o.order_amount, o.raw_data FROM orders o"
-            . " WHERE o.employee_id=? AND $credit AND COALESCE(o.is_abnormal,0)=0"
-            . " AND COALESCE(o.is_deleted,0)=0"
-            . " AND (o.raw_data IS NULL OR o.raw_data NOT LIKE '%\"__from_dept__\"%')");
-        $stmt->execute([(int)$employeeId, $monthStr, $monthStr]);
-        $total = 0.0;
-        foreach ($stmt->fetchAll() as $r) {
-            if ((float)$r['order_amount'] < 0) continue; // 退款(负数)不计
-            $rd = is_string($r['raw_data'] ?? '') ? json_decode($r['raw_data'], true) : ($r['raw_data'] ?? []);
-            if (is_array($rd) && isset($rd['__is_refund__']) && $rd['__is_refund__'] === '1') continue;
-            $total += (float)$r['order_amount'];
-        }
-        return round($total, 2);
-    } catch (\Throwable $e) {
-        return 0.0;
-    }
+    return get_employee_order_aggregate($employeeId, $year, $month)['order_total'];
 }
 
 /* ---------------- 绩效方案（算法） ---------------- */
@@ -1653,8 +1690,12 @@ function get_employee_order_total($employeeId, $year, $month)
  */
 function get_cs_perf_schemes()
 {
+    $c = cs_perf_cache_get('schemes');
+    if ($c['hit']) return $c['val'];
     try {
-        return db()->query("SELECT * FROM cs_perf_schemes ORDER BY is_default DESC, id ASC")->fetchAll();
+        $rows = db()->query("SELECT * FROM cs_perf_schemes ORDER BY is_default DESC, id ASC")->fetchAll();
+        cs_perf_cache_set('schemes', $rows);
+        return $rows;
     } catch (\Throwable $e) {
         return [];
     }
@@ -1665,11 +1706,16 @@ function get_cs_perf_schemes()
  */
 function get_cs_perf_scheme($id)
 {
+    $key = 'scheme|' . (int)$id;
+    $c = cs_perf_cache_get($key);
+    if ($c['hit']) return $c['val'];
     try {
         $st = db()->prepare("SELECT * FROM cs_perf_schemes WHERE id=?");
         $st->execute([(int)$id]);
         $row = $st->fetch();
-        return $row ?: null;
+        $val = $row ?: null;
+        cs_perf_cache_set($key, $val);
+        return $val;
     } catch (\Throwable $e) {
         return null;
     }
@@ -1787,10 +1833,14 @@ function save_cs_perf_scheme($id, $p)
         if ($isDefault) $pdo->exec("UPDATE cs_perf_schemes SET is_default=0");
         if ($id > 0) {
             $st = $pdo->prepare("UPDATE cs_perf_schemes SET name=?, w_net_sales=?, t_net_sales=?, w_inquiry_conv=?, t_inquiry_conv=?, w_wangwang_reply=?, t_wangwang_reply=?, w_avg_response=?, t_avg_response=?, tiers_net_sales=?, tiers_inquiry_conv=?, tiers_wangwang_reply=?, tiers_avg_response=?, floor_pct=?, cap_pct=?, is_default=? WHERE id=?");
-            return (bool)$st->execute(array_merge([$name], $fields, [$id])); // 注意 UPDATE 需补上 name 值，否则参数比占位符少一个报错
+            $ok = (bool)$st->execute(array_merge([$name], $fields, [$id])); // 注意 UPDATE 需补上 name 值，否则参数比占位符少一个报错
+            if ($ok) cs_perf_cache_reset();
+            return $ok;
         }
         $st = $pdo->prepare("INSERT INTO cs_perf_schemes (name, w_net_sales, t_net_sales, w_inquiry_conv, t_inquiry_conv, w_wangwang_reply, t_wangwang_reply, w_avg_response, t_avg_response, tiers_net_sales, tiers_inquiry_conv, tiers_wangwang_reply, tiers_avg_response, floor_pct, cap_pct, is_default) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)");
-        return (bool)$st->execute(array_merge([$name], $fields));
+        $ok = (bool)$st->execute(array_merge([$name], $fields));
+        if ($ok) cs_perf_cache_reset();
+        return $ok;
     } catch (\Throwable $e) {
         return false;
     }
@@ -1814,6 +1864,7 @@ function delete_cs_perf_scheme($id)
                 $pdo->exec("UPDATE cs_perf_dept_config SET scheme_id=$defId WHERE scheme_id=$id");
             }
         }
+        cs_perf_cache_reset();
         return true;
     } catch (\Throwable $e) {
         return false;
@@ -1827,9 +1878,13 @@ function delete_cs_perf_scheme($id)
  */
 function get_cs_perf_dept_configs()
 {
+    $c = cs_perf_cache_get('dept_configs');
+    if ($c['hit']) return $c['val'];
     try {
-        return db()->query("SELECT c.*, s.name scheme_name FROM cs_perf_dept_config c"
+        $rows = db()->query("SELECT c.*, s.name scheme_name FROM cs_perf_dept_config c"
             . " LEFT JOIN cs_perf_schemes s ON s.id=c.scheme_id ORDER BY c.department")->fetchAll();
+        cs_perf_cache_set('dept_configs', $rows);
+        return $rows;
     } catch (\Throwable $e) {
         return [];
     }
@@ -1840,12 +1895,17 @@ function get_cs_perf_dept_configs()
  */
 function get_cs_perf_dept_config($dept)
 {
+    $key = 'dept_config|' . (string)$dept;
+    $c = cs_perf_cache_get($key);
+    if ($c['hit']) return $c['val'];
     try {
         $st = db()->prepare("SELECT c.*, s.name scheme_name FROM cs_perf_dept_config c"
             . " LEFT JOIN cs_perf_schemes s ON s.id=c.scheme_id WHERE c.department=?");
         $st->execute([(string)$dept]);
         $row = $st->fetch();
-        return $row ?: null;
+        $val = $row ?: null;
+        cs_perf_cache_set($key, $val);
+        return $val;
     } catch (\Throwable $e) {
         return null;
     }
@@ -1864,7 +1924,9 @@ function save_cs_perf_dept_config($dept, $schemeId, $base, $oldDept = '')
         if ($oldDept !== $dept) $pdo->prepare("DELETE FROM cs_perf_dept_config WHERE department=?")->execute([$oldDept]);
         $st = $pdo->prepare("INSERT INTO cs_perf_dept_config (department, scheme_id, base) VALUES (?,?,?)"
             . " ON DUPLICATE KEY UPDATE scheme_id=VALUES(scheme_id), base=VALUES(base)");
-        return (bool)$st->execute([$dept, (int)$schemeId, (float)$base]);
+        $ok = (bool)$st->execute([$dept, (int)$schemeId, (float)$base]);
+        if ($ok) cs_perf_cache_reset();
+        return $ok;
     } catch (\Throwable $e) {
         return false;
     }
@@ -1876,7 +1938,9 @@ function save_cs_perf_dept_config($dept, $schemeId, $base, $oldDept = '')
 function delete_cs_perf_dept_config($dept)
 {
     try {
-        return (bool)db()->prepare("DELETE FROM cs_perf_dept_config WHERE department=?")->execute([(string)$dept]);
+        $ok = (bool)db()->prepare("DELETE FROM cs_perf_dept_config WHERE department=?")->execute([(string)$dept]);
+        if ($ok) cs_perf_cache_reset();
+        return $ok;
     } catch (\Throwable $e) {
         return false;
     }
@@ -2086,20 +2150,58 @@ function cs_perf_rank_result($employeeId, $year, $month)
         return ['amount' => 0.0, 'formula' => '非排名部门', 'base' => 0.0, 'rank' => null, 'score' => 0.0];
     }
 
+    // 排名结果（整条排序名单）按 年月 缓存：同一页对多名设计客服重复计算的是同一份名单
+    $list = cs_perf_rank_list((int)$year, (int)$month);
+
+    $tiers = CS_PERF_RANK_TIERS;
+    $rank = null; $score = 0.0; $rates = [];
+    foreach ($list as $i => $item) {
+        if ($item['id'] === $employeeId) { $rank = $i + 1; $score = $item['score']; $rates = $item['rates']; break; }
+    }
+    if ($rank === null) {
+        return ['amount' => 0.0, 'formula' => '未在参与名单内', 'base' => 0.0, 'rank' => null, 'score' => 0.0];
+    }
+
+    $amount = ($rank <= count($tiers)) ? (float)$tiers[$rank - 1] : 0.0;
+    $storeDesc = [];
+    foreach ($rates as $store => $rate) {
+        $name = $store !== '' ? $store : '默认店铺';
+        $storeDesc[] = sprintf('%s %.1f%%', $name, $rate * 100);
+    }
+    $scoreTxt = sprintf('多店绩效 %s → 平均得分 %.2f%%', $storeDesc ? implode('  |  ', $storeDesc) : '无绩效数据', $score * 100);
+    if ($amount > 0) {
+        $formula = sprintf('%s → 第%d名 → 绩效底薪 %.2f元', $scoreTxt, $rank, $amount);
+    } else {
+        $formula = sprintf('%s → 第%d名（仅前三名发底薪850/800/750）→ 0.00元', $scoreTxt, $rank);
+    }
+    return ['amount' => round($amount, 2), 'formula' => $formula, 'base' => round($amount, 2), 'rank' => $rank, 'score' => round($score, 4)];
+}
+
+/**
+ * [内部] 设计客服月度排名名单（按得分降序，同分按员工ID升序）。（供 cs_perf_rank_result 共享，按年月缓存）
+ * @return array 每项 ['id','name','score','rates']
+ */
+function cs_perf_rank_list($year, $month)
+{
+    $key = 'rank_list|' . (int)$year . '-' . (int)$month;
+    $c = cs_perf_cache_get($key);
+    if ($c['hit']) return $c['val'];
+
     ensureCsPerfSchema();
 
     // 方案：优先「设计客服」部门配置，其次默认方案
     $scheme = null;
-    $deptCfg = get_cs_perf_dept_config(CS_PERF_RANK_DEPT);
-    if ($deptCfg && (int)$deptCfg['scheme_id'] > 0) $scheme = get_cs_perf_scheme((int)$deptCfg['scheme_id']);
-    if (!$scheme) {
-        foreach (get_cs_perf_schemes() as $s) {
-            if ((int)$s['is_default'] === 1) { $scheme = $s; break; }
+    try {
+        $deptCfg = get_cs_perf_dept_config(CS_PERF_RANK_DEPT);
+        if ($deptCfg && (int)$deptCfg['scheme_id'] > 0) $scheme = get_cs_perf_scheme((int)$deptCfg['scheme_id']);
+        if (!$scheme) {
+            foreach (get_cs_perf_schemes() as $s) {
+                if ((int)$s['is_default'] === 1) { $scheme = $s; break; }
+            }
         }
-    }
-    if (!$scheme) {
-        return ['amount' => 0.0, 'formula' => '设计客服未配置绩效方案，无法排名', 'base' => 0.0, 'rank' => null, 'score' => 0.0];
-    }
+    } catch (\Throwable $e) {}
+    if (!$scheme) { cs_perf_cache_set($key, []); return []; }
+
     $params = cs_perf_scheme_params($scheme);
 
     // 同部门参与员工（排除者不参与）
@@ -2110,9 +2212,7 @@ function cs_perf_rank_result($employeeId, $year, $month)
         $st->execute([CS_PERF_RANK_DEPT]);
         $members = $st->fetchAll();
     } catch (\Throwable $e) {}
-    if (!$members) {
-        return ['amount' => 0.0, 'formula' => '设计客服暂无参与员工', 'base' => 0.0, 'rank' => null, 'score' => 0.0];
-    }
+    if (!$members) { cs_perf_cache_set($key, []); return []; }
 
     // 每人：多店分别算综合达成率，取平均作为排名得分
     // 人工综合行（store=''，编辑/补录产生）优先：存在时只用该行得分，其余店铺上传行不再叠加，与 get_cs_performance 口径一致
@@ -2142,29 +2242,8 @@ function cs_perf_rank_result($employeeId, $year, $month)
         if ($a['score'] != $b['score']) return ($a['score'] < $b['score']) ? 1 : -1;
         return $a['id'] <=> $b['id'];
     });
-
-    $tiers = CS_PERF_RANK_TIERS;
-    $rank = null; $score = 0.0; $rates = [];
-    foreach ($list as $i => $item) {
-        if ($item['id'] === $employeeId) { $rank = $i + 1; $score = $item['score']; $rates = $item['rates']; break; }
-    }
-    if ($rank === null) {
-        return ['amount' => 0.0, 'formula' => '未在参与名单内', 'base' => 0.0, 'rank' => null, 'score' => 0.0];
-    }
-
-    $amount = ($rank <= count($tiers)) ? (float)$tiers[$rank - 1] : 0.0;
-    $storeDesc = [];
-    foreach ($rates as $store => $rate) {
-        $name = $store !== '' ? $store : '默认店铺';
-        $storeDesc[] = sprintf('%s %.1f%%', $name, $rate * 100);
-    }
-    $scoreTxt = sprintf('多店绩效 %s → 平均得分 %.2f%%', $storeDesc ? implode('  |  ', $storeDesc) : '无绩效数据', $score * 100);
-    if ($amount > 0) {
-        $formula = sprintf('%s → 第%d名 → 绩效底薪 %.2f元', $scoreTxt, $rank, $amount);
-    } else {
-        $formula = sprintf('%s → 第%d名（仅前三名发底薪850/800/750）→ 0.00元', $scoreTxt, $rank);
-    }
-    return ['amount' => round($amount, 2), 'formula' => $formula, 'base' => round($amount, 2), 'rank' => $rank, 'score' => round($score, 4)];
+    cs_perf_cache_set($key, $list);
+    return $list;
 }
 
 /**
@@ -2604,6 +2683,7 @@ function import_cs_perf_file($filePath, $source = '', $defaultYear = 0, $default
     $stmt = $pdo->prepare("INSERT INTO cs_perf_sync_log (source_file, matched, pending, errors, detail) VALUES (?,?,?,?,?)");
     $stmt->execute([$source, count($monthAgg), $pendingCount, $errors, json_encode($detail, JSON_UNESCAPED_UNICODE)]);
 
+    cs_perf_cache_reset(); // 导入改写了绩效表，清请求内缓存（同一请求内其后渲染需读到新数据）
     return ['matched'=>count($monthAgg), 'pending'=>$pendingCount, 'errors'=>$errors, 'detail'=>$detail];
 }
 

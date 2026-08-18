@@ -55,6 +55,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $minId = (int)db()->query("SELECT MIN(id) FROM cs_perf_schemes")->fetchColumn();
                 if ($minId > 0) db()->exec("UPDATE cs_perf_schemes SET is_default=1 WHERE id=$minId");
             }
+            cs_perf_cache_reset();
         } else {
             $err = '方案名不能为空，保存失败';
         }

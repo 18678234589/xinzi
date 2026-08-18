@@ -44,6 +44,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 net_sales=VALUES(net_sales), inquiry_conv=VALUES(inquiry_conv), wangwang_reply=VALUES(wangwang_reply),
                 order_count=VALUES(order_count)");
             $stmt->execute([$employeeId, $y, $m, $replySpeed, $incoming, $dealVal, $remark, $netSales, $inquiryConv, $wangReply, $orderCount]);
+            cs_perf_cache_reset();
             $msg = '已保存员工绩效';
         } else {
             $err = '参数错误';
@@ -77,6 +78,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $up->execute([$employeeId, (int)$p['year'], (int)$p['month'], $replySpeed, $incoming, $remark, 'pending:' . basename((string)$p['source_file']),
                     (float)$p['net_sales'], $pInquiryConv, (float)$p['wangwang_reply'], $pOrderCount]);
                 db()->prepare("DELETE FROM cs_perf_pending WHERE id=?")->execute([$pendingId]);
+                cs_perf_cache_reset();
                 $msg = '已把待匹配数据归属到员工并写入';
             } else {
                 $err = '待匹配记录不存在或未选择员工';
@@ -86,6 +88,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     } elseif ($action === 'delete_pending') {
         db()->prepare("DELETE FROM cs_perf_pending WHERE id=?")->execute([(int)($_POST['pending_id'] ?? 0)]);
+        cs_perf_cache_reset();
         $msg = '已删除该待匹配记录';
     }
 }
