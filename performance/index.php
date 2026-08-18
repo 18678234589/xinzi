@@ -100,6 +100,19 @@ try {
     $logs = db()->query("SELECT * FROM cs_perf_sync_log ORDER BY id DESC LIMIT 20")->fetchAll();
 } catch (\Throwable $e) {}
 
+// 按来源文件合并（同一文件重复上传只显示最新一次，标注上传次数）
+$logFiles = []; // source_file => ['latest'=>row, 'count'=>n]
+foreach ($logs as $l) {
+    $k = (string)($l['source_file'] ?? '');
+    if ($k === '') $k = '(未知来源)';
+    if (!isset($logFiles[$k])) {
+        $logFiles[$k] = ['latest' => $l, 'count' => 1];
+    } else {
+        $logFiles[$k]['count']++;
+        if ((int)$l['id'] > (int)$logFiles[$k]['latest']['id']) $logFiles[$k]['latest'] = $l;
+    }
+}
+
 // 查看某次上传的导入明细（模态框用，按 source_file 汇总已匹配/未匹配/错误）
 if (($_GET['action'] ?? '') === 'upload_view' && ($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'GET') {
     header('Content-Type: application/json; charset=utf-8');
@@ -372,7 +385,7 @@ include __DIR__ . '/../includes/header.php';
 <?php if ($logs): ?>
 <!-- 同步日志：已上传的绩效表（可查看/删除） -->
 <div class="card">
-    <div class="card-header"><i class="fas fa-history"></i> 已上传的绩效表（最近导入记录，共 <?php echo count($logs); ?> 次）</div>
+    <div class="card-header"><i class="fas fa-history"></i> 已上传的绩效表（最近导入记录，共 <?php echo count($logFiles); ?> 个文件）</div>
     <div class="card-body p-0">
         <div class="table-responsive">
             <table class="table table-sm table-hover mb-0">
@@ -380,17 +393,22 @@ include __DIR__ . '/../includes/header.php';
                     <tr><th>时间</th><th>来源文件</th><th>匹配</th><th>未匹配</th><th>错误</th><th style="width:150px">操作</th></tr>
                 </thead>
                 <tbody>
-                <?php foreach ($logs as $l): ?>
-                    <?php $fname = preg_replace('/^admin:/', '', (string)($l['source_file'] ?? '')); ?>
+                <?php foreach ($logFiles as $k => $lf): ?>
+                    <?php $l = $lf['latest']; $fname = preg_replace('/^admin:/', '', (string)$k); ?>
                     <tr>
                         <td><?php echo e($l['created_at']); ?></td>
-                        <td><?php echo e($fname !== '' ? $fname : ($l['source_file'] ?? '')); ?></td>
+                        <td>
+                            <?php echo e($fname !== '' ? $fname : $k); ?>
+                            <?php if ($lf['count'] > 1): ?>
+                                <span class="badge badge-warning" title="同一文件被上传了 <?php echo (int)$lf['count']; ?> 次">上传了 <?php echo (int)$lf['count']; ?> 次</span>
+                            <?php endif; ?>
+                        </td>
                         <td><?php echo (int)$l['matched']; ?></td>
                         <td><?php echo (int)$l['pending']; ?></td>
                         <td><?php echo (int)$l['errors']; ?></td>
                         <td class="text-nowrap">
                             <button type="button" class="btn btn-sm btn-outline-info view-upload-btn"
-                                    data-source="<?php echo e($l['source_file']); ?>" data-name="<?php echo e($fname !== '' ? $fname : ($l['source_file'] ?? '')); ?>">
+                                    data-source="<?php echo e($l['source_file']); ?>" data-name="<?php echo e($fname !== '' ? $fname : $k); ?>">
                                 <i class="fas fa-eye"></i> 查看
                             </button>
                             <form method="post" class="d-inline" onsubmit="return confirm('确定删除该次上传的所有数据？\n将移除本次导入的匹配数据与待匹配记录，员工该月绩效将变为无数据。');">
