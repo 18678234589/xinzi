@@ -2,6 +2,7 @@
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/SalaryCalculator.php';
 require_login();
+ensureCsPerfSchema(); // 保证 employees.wangwang 等客服绩效相关字段/表存在
 
 $page_title = '员工管理';
 $success = '';
@@ -15,6 +16,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $id              = (int)($_POST['id'] ?? 0);
         $name            = trim($_POST['name'] ?? '');
         $department      = trim($_POST['department'] ?? '');
+        $wangwang        = trim($_POST['wangwang'] ?? '');
         $base_salary     = (float)($_POST['base_salary'] ?? 0);
         $commission_rate = (float)($_POST['commission_rate'] ?? 0);
         $password        = trim($_POST['password'] ?? '');
@@ -25,8 +27,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             try {
                 if ($action === 'create') {
                     if ($password === '') $password = '123456'; // 默认密码
-                    $stmt = db()->prepare("INSERT INTO employees (name, department, base_salary, commission_rate, password) VALUES (?, ?, ?, ?, MD5(?))");
-                    $stmt->execute([$name, $department, $base_salary, $commission_rate, $password]);
+                    $stmt = db()->prepare("INSERT INTO employees (name, department, wangwang, base_salary, commission_rate, password) VALUES (?, ?, ?, ?, ?, MD5(?))");
+                    $stmt->execute([$name, $department, $wangwang, $base_salary, $commission_rate, $password]);
                     $newId = (int)db()->lastInsertId();
                     // 自动补录之前因员工不存在而暂存的考勤记录
                     $backfilled = backfill_pending_attendance($newId, $name);
@@ -34,11 +36,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     if ($backfilled > 0) $success .= "，已自动补录 {$backfilled} 条考勤记录";
                 } else {
                     if ($password !== '') {
-                        $stmt = db()->prepare("UPDATE employees SET name=?, department=?, base_salary=?, commission_rate=?, password=MD5(?) WHERE id=?");
-                        $stmt->execute([$name, $department, $base_salary, $commission_rate, $password, $id]);
+                        $stmt = db()->prepare("UPDATE employees SET name=?, department=?, wangwang=?, base_salary=?, commission_rate=?, password=MD5(?) WHERE id=?");
+                        $stmt->execute([$name, $department, $wangwang, $base_salary, $commission_rate, $password, $id]);
                     } else {
-                        $stmt = db()->prepare("UPDATE employees SET name=?, department=?, base_salary=?, commission_rate=? WHERE id=?");
-                        $stmt->execute([$name, $department, $base_salary, $commission_rate, $id]);
+                        $stmt = db()->prepare("UPDATE employees SET name=?, department=?, wangwang=?, base_salary=?, commission_rate=? WHERE id=?");
+                        $stmt->execute([$name, $department, $wangwang, $base_salary, $commission_rate, $id]);
                     }
                     // 改名后尝试补录新姓名对应的暂存考勤
                     backfill_pending_attendance($id, $name);
@@ -132,7 +134,7 @@ include __DIR__ . '/../includes/header.php';
             <table class="table table-hover table-bordered">
                 <thead class="thead-light">
                     <tr>
-                        <th>ID</th><th>姓名</th><th>部门</th><th>操作</th>
+                        <th>ID</th><th>姓名</th><th>部门</th><th>旺旺账号</th><th>操作</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -141,6 +143,7 @@ include __DIR__ . '/../includes/header.php';
                         <td><?php echo $emp['id']; ?></td>
                         <td><?php echo e($emp['name']); ?></td>
                         <td><span class="badge badge-info"><?php echo e($emp['department']); ?></span></td>
+                        <td><?php echo e($emp['wangwang'] ?? ''); ?></td>
                         <td>
                             <a href="<?php echo BASE_URL; ?>/orders/index.php?employee_id=<?php echo $emp['id']; ?>" class="btn btn-sm btn-outline-success" title="为该员工上传订单">
                                 <i class="fas fa-file-upload"></i> 上传订单
@@ -159,7 +162,7 @@ include __DIR__ . '/../includes/header.php';
                         </td>
                     </tr>
                 <?php endforeach; else: ?>
-                    <tr><td colspan="4" class="text-center text-muted py-4">暂无员工数据</td></tr>
+                    <tr><td colspan="5" class="text-center text-muted py-4">暂无员工数据</td></tr>
                 <?php endif; ?>
                 </tbody>
             </table>
@@ -197,6 +200,11 @@ include __DIR__ . '/../includes/header.php';
                         <input type="text" name="password" class="form-control" placeholder="新增时留空默认123456，编辑时留空不修改">
                         <small class="text-muted">密码使用MD5加密存储</small>
                     </div>
+                    <div class="form-group">
+                        <label>旺旺账号</label>
+                        <input type="text" name="wangwang" class="form-control" placeholder="客服旺旺账号，用于客服绩效数据匹配">
+                        <small class="text-muted">客服绩效导入时按此账号/姓名自动匹配到员工，一人多账号用逗号/空格分隔</small>
+                    </div>
                     <input type="hidden" name="base_salary" value="0">
                     <input type="hidden" name="commission_rate" value="0">
                 </div>
@@ -223,6 +231,7 @@ function editEmp(emp) {
     $('#empForm input[name="id"]').val(emp.id);
     $('#empForm input[name="name"]').val(emp.name);
     $('#empForm input[name="department"]').val(emp.department);
+    $('#empForm input[name="wangwang"]').val(emp.wangwang || '');
     $('#empForm input[name="password"]').val('');
     $('#modalTitle').text('编辑员工 - ' + emp.name);
     $('#empModal').modal('show');
