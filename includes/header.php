@@ -3,6 +3,12 @@ if (!defined('BASE_PATH')) {
     define('BASE_PATH', dirname(__DIR__));
 }
 $current_admin = current_admin();
+$project_staff = null;
+if (!$current_admin && isset($_SESSION['project_user_id'])) {
+    $staffStmt = db()->prepare('SELECT username FROM project_users WHERE id=? AND is_active=1');
+    $staffStmt->execute([(int)$_SESSION['project_user_id']]);
+    $project_staff = $staffStmt->fetch();
+}
 
 // 计算当前脚本相对站点根的路径，用于侧边栏高亮判断
 $_script = $_SERVER['SCRIPT_NAME'] ?? '';
@@ -14,7 +20,8 @@ $_rel = ltrim($_rel, '/'); // 如 index.php / employees/index.php / salaries/set
 
 $is_home        = ($_rel === 'index.php');
 $is_departments = (strpos($_rel, 'departments/') === 0);
-$is_shops       = (strpos($_rel, 'shops/') === 0);
+$is_etmll       = ($_rel === 'shops/etmll_sync.php');
+$is_shops       = (strpos($_rel, 'shops/') === 0) && !$is_etmll;
 $is_employees   = (strpos($_rel, 'employees/') === 0);
 $is_orders      = (strpos($_rel, 'orders/') === 0);
 $is_abnormal    = (strpos($_rel, 'abnormal/') === 0);
@@ -23,16 +30,18 @@ $is_performance = (strpos($_rel, 'performance/') === 0);
 $is_settle      = ($_rel === 'salaries/settle.php');
 $is_query       = ($_rel === 'salaries/query.php');
 $is_insurance   = (strpos($_rel, 'insurance/') === 0);
+$is_project     = (strpos($_rel, 'project/') === 0);
 ?>
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title><?php echo e($page_title ?? '财务薪资结算系统'); ?> - 财务薪资结算系统</title>
+    <title><?php echo e($page_title ?? '项目合作结算中心'); ?> - 项目合作结算中心</title>
     <link href="<?php echo BASE_URL; ?>/assets/lib/bootstrap/css/bootstrap.min.css" rel="stylesheet">
     <link href="<?php echo BASE_URL; ?>/assets/lib/font-awesome/css/all.min.css" rel="stylesheet">
     <link href="<?php echo BASE_URL; ?>/assets/css/style.css" rel="stylesheet">
+    <?php if ($is_project): ?><link href="<?php echo BASE_URL; ?>/assets/css/project-intake.css" rel="stylesheet"><?php endif; ?>
     <style>
         body { background: #f0f2f5; }
         .navbar-brand { font-weight: 700; }
@@ -79,7 +88,7 @@ $is_insurance   = (strpos($_rel, 'insurance/') === 0);
 </head>
 <body>
 <nav class="navbar navbar-expand-lg navbar-dark bg-dark fixed-top">
-    <a class="navbar-brand" href="<?php echo BASE_URL; ?>/index.php"><i class="fas fa-coins"></i> 财务薪资结算系统</a>
+    <a class="navbar-brand" href="<?php echo BASE_URL; ?><?php echo $project_staff ? '/project/index.php' : '/index.php'; ?>"><i class="fas fa-coins"></i> 项目合作结算中心</a>
     <button class="navbar-toggler d-lg-none border-0" type="button" id="sidebarToggle"
             style="position:fixed;top:10px;left:10px;z-index:1100;background:#343a40;color:#fff;">
         <i class="fas fa-bars"></i>
@@ -87,7 +96,7 @@ $is_insurance   = (strpos($_rel, 'insurance/') === 0);
     <div class="ml-auto d-flex align-items-center">
         <span class="text-light mr-3">
             <i class="fas fa-user-circle"></i>
-            <?php echo e($current_admin['username'] ?? ''); ?>
+            <?php echo e($current_admin['username'] ?? ($project_staff['username'] ?? '')); ?>
         </span>
         <a href="<?php echo BASE_URL; ?>/logout.php" class="btn btn-outline-light btn-sm"><i class="fas fa-sign-out-alt"></i> 退出</a>
     </div>
@@ -95,18 +104,30 @@ $is_insurance   = (strpos($_rel, 'insurance/') === 0);
 
 <div class="sidebar-backdrop" id="sidebarBackdrop"></div>
 
-<div class="sidebar">
+<div class="sidebar<?php echo $is_project ? ' sidebar-project' : ''; ?>">
+    <?php if ($is_project): ?><div class="sidebar-project-brand"><span class="sidebar-project-mark"><i class="fas fa-seedling"></i></span><span><strong>项目合作结算</strong><small>把每一份付出，算得清楚</small></span></div><?php endif; ?>
+    <?php if ($project_staff): ?>
+    <?php if ($is_project): ?><div class="sidebar-project-label">我的工作台</div><?php endif; ?>
+    <a href="<?php echo BASE_URL; ?>/project/index.php" class="<?php echo $is_project && !in_array($_rel, ['project/payroll.php','project/settings.php'], true) ? 'active' : ''; ?>"><i class="fas fa-folder-open"></i> 我的项目订单</a>
+    <a href="<?php echo BASE_URL; ?>/project/payroll.php" class="<?php echo $_rel === 'project/payroll.php' ? 'active' : ''; ?>"><i class="fas fa-wallet"></i> 我的项目报酬</a>
+    <?php else: ?>
     <a href="<?php echo BASE_URL; ?>/index.php" class="<?php echo $is_home ? 'active' : ''; ?>"><i class="fas fa-tachometer-alt"></i> 系统首页</a>
     <a href="<?php echo BASE_URL; ?>/departments/index.php" class="<?php echo $is_departments ? 'active' : ''; ?>"><i class="fas fa-sitemap"></i> 部门管理</a>
     <a href="<?php echo BASE_URL; ?>/shops/index.php" class="<?php echo $is_shops ? 'active' : ''; ?>"><i class="fas fa-store"></i> 店铺管理</a>
-    <a href="<?php echo BASE_URL; ?>/employees/index.php" class="<?php echo $is_employees ? 'active' : ''; ?>"><i class="fas fa-users"></i> 员工管理</a>
+    <a href="<?php echo BASE_URL; ?>/shops/etmll_sync.php" class="<?php echo $is_etmll ? 'active' : ''; ?>"><i class="fas fa-sync-alt"></i> ETMLL订单同步</a>
+    <a href="<?php echo BASE_URL; ?>/employees/index.php" class="<?php echo $is_employees ? 'active' : ''; ?>"><i class="fas fa-users"></i> 合作人员管理</a>
     <a href="<?php echo BASE_URL; ?>/orders/index.php" class="<?php echo $is_orders ? 'active' : ''; ?>"><i class="fas fa-file-upload"></i> 订单上传</a>
     <a href="<?php echo BASE_URL; ?>/abnormal/index.php" class="<?php echo $is_abnormal ? 'active' : ''; ?>"><i class="fas fa-exclamation-triangle"></i> 异常订单</a>
     <a href="<?php echo BASE_URL; ?>/attendance/index.php" class="<?php echo $is_attendance ? 'active' : ''; ?>"><i class="fas fa-calendar-check"></i> 考勤表</a>
     <a href="<?php echo BASE_URL; ?>/performance/index.php" class="<?php echo $is_performance ? 'active' : ''; ?>"><i class="fas fa-headset"></i> 客服绩效</a>
     <a href="<?php echo BASE_URL; ?>/insurance/index.php" class="<?php echo $is_insurance ? 'active' : ''; ?>"><i class="fas fa-shield-alt"></i> 保险管理</a>
-    <a href="<?php echo BASE_URL; ?>/salaries/settle.php" class="<?php echo $is_settle ? 'active' : ''; ?>"><i class="fas fa-calculator"></i> 薪资结算</a>
-    <a href="<?php echo BASE_URL; ?>/salaries/query.php" class="<?php echo $is_query ? 'active' : ''; ?>"><i class="fas fa-search-dollar"></i> 薪资查询</a>
+    <a href="<?php echo BASE_URL; ?>/salaries/settle.php" class="<?php echo $is_settle ? 'active' : ''; ?>"><i class="fas fa-calculator"></i> 原系统报酬结算</a>
+    <a href="<?php echo BASE_URL; ?>/salaries/query.php" class="<?php echo $is_query ? 'active' : ''; ?>"><i class="fas fa-search-dollar"></i> 原系统结算查询</a>
+    <?php if ($is_project): ?><div class="sidebar-project-label">项目合作</div><?php endif; ?>
+    <a href="<?php echo BASE_URL; ?>/project/index.php" class="<?php echo $is_project && !in_array($_rel, ['project/payroll.php','project/settings.php'], true) ? 'active' : ''; ?>"><i class="fas fa-folder-open"></i> 项目订单结算</a>
+    <a href="<?php echo BASE_URL; ?>/project/payroll.php" class="<?php echo $_rel === 'project/payroll.php' ? 'active' : ''; ?>"><i class="fas fa-wallet"></i> 项目报酬结算中心</a>
+    <a href="<?php echo BASE_URL; ?>/project/settings.php#cost-center" class="<?php echo $_rel === 'project/settings.php' ? 'active' : ''; ?>"><i class="fas fa-layer-group"></i> 成本中心</a>
+    <?php endif; ?>
 </div>
 
 <div class="main-content">

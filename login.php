@@ -20,12 +20,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         if ($admin && $admin['password'] === md5($password)) {
             unset($_SESSION['captcha']); // 验证通过后清除验证码
+            unset($_SESSION['project_user_id']);
             $_SESSION['admin_id']       = $admin['id'];
             $_SESSION['admin_username'] = $admin['username'];
             session_regenerate_id(true);
             header('Location: ' . BASE_URL . '/index.php');
             exit;
         } else {
+            // 项目结算合作人员账户与旧管理员账户隔离；合作人员只能进入项目模块。
+            try {
+                $staffQuery = db()->prepare('SELECT id,password_hash FROM project_users WHERE username=? AND is_active=1 LIMIT 1');
+                $staffQuery->execute([$username]);
+                $staff = $staffQuery->fetch();
+                if ($staff && password_verify($password, $staff['password_hash'])) {
+                    unset($_SESSION['captcha']);
+                    unset($_SESSION['admin_id'], $_SESSION['admin_username']);
+                    $_SESSION['project_user_id'] = (int)$staff['id'];
+                    session_regenerate_id(true);
+                    header('Location: ' . BASE_URL . '/project/index.php');
+                    exit;
+                }
+            } catch (PDOException $ignored) {
+                // 项目迁移尚未执行时，保持现有管理员登录流程。
+            }
             $error = '用户名或密码错误';
         }
     }
@@ -36,7 +53,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>登录 - 财务薪资结算系统</title>
+    <title>登录 - 项目合作结算中心</title>
     <link href="<?php echo BASE_URL; ?>/assets/lib/bootstrap/css/bootstrap.min.css" rel="stylesheet">
     <link href="<?php echo BASE_URL; ?>/assets/lib/font-awesome/css/all.min.css" rel="stylesheet">
     <style>
@@ -56,7 +73,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         <div class="card-body">
             <div class="text-center mb-4">
                 <i class="fas fa-coins login-logo"></i>
-                <h4 class="mt-3 font-weight-bold">财务薪资结算系统</h4>
+                <h4 class="mt-3 font-weight-bold">项目合作结算中心</h4>
                 <p class="text-muted">双重验证登录 <span class="badge badge-success badge-2fa">2FA</span></p>
             </div>
             <?php if ($error): ?>
@@ -88,7 +105,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 <button type="submit" class="btn btn-primary btn-block btn-lg"><i class="fas fa-sign-in-alt"></i> 登 录</button>
             </form>
             <div class="text-center mt-3 text-muted small">
-                默认账号: admin / admin123 &nbsp;|&nbsp; 验证码点击可刷新
+                管理员或项目合作人员均可使用分配的账户登录；验证码点击可刷新
             </div>
         </div>
     </div>

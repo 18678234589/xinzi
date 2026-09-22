@@ -1,0 +1,147 @@
+<?php
+if (PHP_SAPI !== 'cli') { http_response_code(403); exit; }
+require_once __DIR__ . '/../includes/ProjectIntake.php';
+require_once __DIR__ . '/../includes/ProjectBusiness.php';
+require_once __DIR__ . '/../classes/SimpleXLSX.php';
+
+$templateRows = SimpleXLSX::parse(__DIR__ . '/../订单模板/AI网站定制填写模板.xlsx');
+if (count($templateRows[0] ?? []) !== 14 || ($templateRows[0][10] ?? '') !== '域名使用（写是/否）') {
+    fwrite(STDERR, "原始 AI 网站定制 XLSX 模板未能正确解析\n");
+    exit(1);
+}
+
+$pdo = db();
+$pdo->beginTransaction();
+try {
+    $adminId = (int)$pdo->query('SELECT id FROM admins ORDER BY id LIMIT 1')->fetchColumn();
+    $employeeId = (int)$pdo->query('SELECT id FROM employees ORDER BY id LIMIT 1')->fetchColumn();
+    if (!$adminId || !$employeeId) throw new RuntimeException('测试需要已有财务管理员及合作人员');
+    $no = 'INTAKE-' . bin2hex(random_bytes(6));
+    $pdo->prepare("INSERT INTO project_cost_templates (category,name,specification,unit,cost_kind,price,requires_proof,auto_approve) VALUES ('domain','.com域名','1年','年','annual',75,0,1),('server','基础VPS','2核4G/1年','年','annual',480,0,1)")->execute();
+    $domainId = (int)$pdo->query("SELECT id FROM project_cost_templates WHERE name='.com域名' ORDER BY id DESC LIMIT 1")->fetchColumn();
+    $domain = ps_intake_template($domainId, 'domain');
+    $server = ps_intake_templates('server');
+    $suggested = ps_intake_domain_suggestion('客户域名 example.com', [$domain]);
+    if (!$suggested || (int)$suggested['id'] !== $domainId) throw new RuntimeException('Excel .com 域名未正确匹配一年模板');
+    if (ps_intake_domain_suggestion('只写：是', [$domain]) !== null) throw new RuntimeException('仅写是不能自动推断 .com');
+    $pdo->prepare("INSERT INTO project_orders (order_no,order_date,project_type,contract_amount) VALUES (?,CURDATE(),'AI网站定制',6800)")->execute([$no]);
+    $orderId = (int)$pdo->lastInsertId();
+    ps_intake_participants($orderId, ['technical' => [$employeeId => ['id' => $employeeId, 'role' => '前端']], 'customer_service' => []]);
+    $actor = ['type' => 'admin', 'id' => $adminId, 'employee_id' => null, 'role' => 'finance'];
+    ps_intake_save_resources($orderId, 'manual', null, $domain, $server[count($server) - 1], 120);
+    ps_intake_add_template_cost($orderId, $domain, $actor, '测试手动域名');
+    ps_intake_add_template_cost($orderId, $server[count($server) - 1], $actor, '测试服务器');
+    try {
+        ps_approve_order($orderId, $actor, '2098-05');
+        throw new RuntimeException('报备 SSL 未补成本也允许生成项目分成');
+    } catch (RuntimeException $expected) {
+        if (strpos($expected->getMessage(), 'SSL 报备成本') === false) throw $expected;
+    }
+    $q = $pdo->prepare('SELECT category,unit_price,amount,review_status,template_version FROM project_costs WHERE order_id=? ORDER BY id');
+    $q->execute([$orderId]);
+    $costs = $q->fetchAll();
+    if (count($costs) !== 2 || (float)$costs[0]['amount'] !== 75.0 || (float)$costs[1]['amount'] !== 480.0 || $costs[0]['review_status'] !== 'approved') throw new RuntimeException('标准成本没有按模板价格自动入账');
+    $participantCount = $pdo->prepare('SELECT COUNT(*) FROM project_participants WHERE order_id=? AND employee_id=?');
+    $participantCount->execute([$orderId, $employeeId]);
+    if ((int)$participantCount->fetchColumn() !== 1) throw new RuntimeException('手动录入参与人没有正确绑定');
+    $_SESSION['admin_id'] = $adminId;
+    $_SERVER['REQUEST_METHOD'] = 'GET';
+    $_SERVER['SCRIPT_NAME'] = '/project/index.php';
+    ob_start(); include __DIR__ . '/../project/index.php'; $manualHtml = ob_get_clean();
+    if (strpos($manualHtml, '手动录入订单') === false || strpos($manualHtml, '无需域名') === false || strpos($manualHtml, '拖拽上传 Excel') === false) throw new RuntimeException('订单录入页未正常渲染');
+    $employeeNameQuery = $pdo->prepare('SELECT name FROM employees WHERE id=?');
+    $employeeNameQuery->execute([$employeeId]);
+    $employeeName = $employeeNameQuery->fetchColumn();
+    $shopName = (string)$pdo->query('SELECT name FROM shops ORDER BY sort,id LIMIT 1')->fetchColumn();
+    if ($shopName === '') throw new RuntimeException('测试需要已有店铺');
+    $csv = tmpfile();
+    fputcsv($csv, ['日期','店铺','业务','付款昵称','订单编号','售价','状态(填已完成/未完成)','备注（写客户电话或者微信）','客服','前端（技术）','域名使用（写是/否）','SSL证书使用（写真实成本）','后端','填一下域名或者空间']);
+    $importNo = $no . '-CSV';
+    fputcsv($csv, [date('Y-m-d'),$shopName,'AI网站定制','测试客户',$importNo,'6800','已完成','','',$employeeName,'是','0','无','客户域名 example.com']);
+    $unresolvedNo = $no . '-UNRESOLVED';
+    fputcsv($csv, [date('Y-m-d'),$shopName,'AI网站定制','测试客户',$unresolvedNo,'6800','已完成','','',$employeeName,'是','0','无','只写使用域名']);
+    fflush($csv);
+    $csvPath = stream_get_meta_data($csv)['uri'];
+    $_SERVER['SCRIPT_NAME'] = '/project/import.php';
+    $_SERVER['REQUEST_METHOD'] = 'POST';
+    $_POST = ['csrf' => ps_csrf_token(), 'action' => 'preview'];
+    $_FILES = ['file' => ['name' => 'test.csv', 'tmp_name' => $csvPath, 'error' => UPLOAD_ERR_OK, 'size' => filesize($csvPath)]];
+    ob_start(); include __DIR__ . '/../project/import.php'; $importHtml = ob_get_clean();
+    if (strpos($importHtml, '拖拽 Excel 到这里') === false || strpos($importHtml, $importNo) === false) throw new RuntimeException('Excel 拖拽上传预览页未正常渲染');
+    $previewRow = $_SESSION['project_import_preview'][0] ?? null;
+    if (!$previewRow || (int)$previewRow['domain_template_id'] !== $domainId || $previewRow['status'] !== '可导入') throw new RuntimeException('Excel 域名提示未自动匹配标准成本');
+    $unresolvedRow = $_SESSION['project_import_preview'][1] ?? null;
+    if (!$unresolvedRow || $unresolvedRow['status'] !== '需选择域名模板' || (int)$unresolvedRow['domain_template_id'] !== 0) throw new RuntimeException('仅写使用域名的订单不应自动扣 .com 成本');
+    $_POST = ['csrf' => ps_csrf_token(), 'action' => 'commit', 'domain_choice' => [2 => (string)$domainId]];
+    $_FILES = [];
+    ob_start(); include __DIR__ . '/../project/import.php'; $committedHtml = ob_get_clean();
+    if (strpos($committedHtml, '已导入 1 个订单') === false) throw new RuntimeException('Excel 核对后提交失败');
+    $importQuery = $pdo->prepare('SELECT id,receipt_amount FROM project_orders WHERE order_no=?');
+    $importQuery->execute([$importNo]);
+    $importOrder = $importQuery->fetch();
+    if (!$importOrder || (float)$importOrder['receipt_amount'] !== 0.0) throw new RuntimeException('Excel 售价不应自动确认为实收');
+    $importCost = $pdo->prepare("SELECT amount FROM project_costs WHERE order_id=? AND category='domain'");
+    $importCost->execute([$importOrder['id']]);
+    if ((float)$importCost->fetchColumn() !== 75.0) throw new RuntimeException('Excel 域名成本未自动写入模板价');
+    $unresolvedQuery = $pdo->prepare('SELECT COUNT(*) FROM project_orders WHERE order_no=?');
+    $unresolvedQuery->execute([$unresolvedNo]);
+    if ((int)$unresolvedQuery->fetchColumn() !== 0) throw new RuntimeException('未选域名模板的 Excel 行被错误导入');
+    $resourceQuery = $pdo->prepare('SELECT domain_mode,domain_template_id,ssl_expected_amount FROM project_order_resources WHERE order_id=?');
+    $resourceQuery->execute([$importOrder['id']]);
+    $resource = $resourceQuery->fetch();
+    if (!$resource || $resource['domain_mode'] !== 'template' || (int)$resource['domain_template_id'] !== $domainId || $resource['ssl_expected_amount'] !== null) throw new RuntimeException('Excel 资源选择快照未正确保存');
+    if (ps_business_fallback('设计客服') !== '设计' || ps_business_fallback('定制前端') !== 'AI网站定制') throw new RuntimeException('部门默认业务匹配错误');
+    $designCsv = tmpfile();
+    $designHeaders = ps_business_import_headers('设计');
+    if (in_array('域名使用（写是/否）', $designHeaders, true) || !in_array('设计内容', $designHeaders, true)) throw new RuntimeException('设计业务模板字段错误');
+    fputcsv($designCsv, $designHeaders);
+    $designNo = $no . '-DESIGN';
+    $designData = array_fill_keys($designHeaders, '');
+    $designData['日期'] = date('Y-m-d');
+    $designData['店铺'] = $shopName;
+    $designData['业务'] = '设计';
+    $designData['订单编号'] = $designNo;
+    $designData['售价'] = '350';
+    $designData['状态(填已完成/未完成)'] = '已完成';
+    $designData['客服'] = $employeeName;
+    $designData['设计内容'] = '品牌海报';
+    $designData['交付文件 / 规格'] = 'PNG';
+    fputcsv($designCsv, array_values($designData));
+    fflush($designCsv);
+    $designPath = stream_get_meta_data($designCsv)['uri'];
+    $_POST = ['csrf' => ps_csrf_token(), 'action' => 'preview', 'business' => '设计'];
+    $_FILES = ['file' => ['name' => 'design.csv', 'tmp_name' => $designPath, 'error' => UPLOAD_ERR_OK, 'size' => filesize($designPath)]];
+    ob_start(); include __DIR__ . '/../project/import.php'; ob_end_clean();
+    $designPreview = $_SESSION['project_import_preview'][0] ?? null;
+    if (!$designPreview || $designPreview['project_type'] !== '设计' || $designPreview['details']['design_item'] !== '品牌海报' || $designPreview['domain_mode'] !== 'none') throw new RuntimeException('设计业务专属导入预览错误');
+    $_POST = ['csrf' => ps_csrf_token(), 'action' => 'commit', 'business' => '设计'];
+    $_FILES = [];
+    ob_start(); include __DIR__ . '/../project/import.php'; ob_end_clean();
+    $designQuery = $pdo->prepare('SELECT o.id,d.details_json FROM project_orders o JOIN project_order_details d ON d.order_id=o.id WHERE o.order_no=?');
+    $designQuery->execute([$designNo]);
+    $designOrder = $designQuery->fetch();
+    if (!$designOrder || json_decode($designOrder['details_json'], true)['design_item'] !== '品牌海报') throw new RuntimeException('设计业务专属信息未保存');
+    $resourceQuery->execute([$designOrder['id']]);
+    if ($resourceQuery->fetch()) throw new RuntimeException('设计业务错误创建了域名资源记录');
+    $otherEmployeeId = (int)$pdo->query('SELECT id FROM employees WHERE id<>' . $employeeId . ' ORDER BY id LIMIT 1')->fetchColumn();
+    if (!$otherEmployeeId) throw new RuntimeException('权限测试需要第二名合作人员');
+    $pdo->prepare("INSERT INTO project_users (employee_id,username,password_hash,role) VALUES (?,?,?,'technical')")
+        ->execute([$otherEmployeeId, 'intake-test-' . bin2hex(random_bytes(5)), password_hash('test-password-123', PASSWORD_DEFAULT)]);
+    unset($_SESSION['admin_id']);
+    $_SESSION['project_user_id'] = (int)$pdo->lastInsertId();
+    $pdo->prepare('INSERT INTO project_user_businesses (user_id,business_name,is_default) VALUES (?,\'AI网站定制\',1)')->execute([$_SESSION['project_user_id']]);
+    $_POST = ['csrf' => ps_csrf_token(), 'action' => 'preview', 'business' => 'AI网站定制'];
+    $_FILES = ['file' => ['name' => 'test.csv', 'tmp_name' => $csvPath, 'error' => UPLOAD_ERR_OK, 'size' => filesize($csvPath)]];
+    ob_start(); include __DIR__ . '/../project/import.php'; ob_end_clean();
+    $staffPreview = $_SESSION['project_import_preview'][0] ?? null;
+    if (!$staffPreview || !empty($staffPreview['base_valid']) || strpos($staffPreview['error'], '未写本人') === false) throw new RuntimeException('技术错误地可导入他人订单');
+    unset($_SESSION['project_user_id'], $_SESSION['project_import_preview'], $_SESSION['project_import_actor'], $_SESSION['project_import_business']);
+    fclose($csv);
+    fclose($designCsv);
+    $pdo->rollBack();
+    echo "手动录入、标准域名成本及拖拽导入页面验证通过；测试数据已回滚\n";
+} catch (Throwable $e) {
+    if ($pdo->inTransaction()) $pdo->rollBack();
+    fwrite(STDERR, $e->getMessage() . "\n");
+    exit(1);
+}

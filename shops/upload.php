@@ -2,6 +2,7 @@
 require_once __DIR__ . '/../includes/auth.php';
 require_login();
 require_once __DIR__ . '/../includes/SalaryCalculator.php';
+require_once __DIR__ . '/../includes/ProjectOrderSource.php';
 require_once __DIR__ . '/../classes/SimpleXLSX.php';
 
 $page_title = '店铺订单上传';
@@ -29,7 +30,7 @@ function extract_order_status($raw)
     }
     foreach ($raw as $k => $v) {
         if (strlen($k) > 4 && substr($k, 0, 2) === '__' && substr($k, -2) === '__') continue;
-        if (mb_strpos($k, '订单状态') !== false) {
+        if (mb_strpos($k, '订单状态') !== false || mb_strpos($k, '交易状态') !== false) {
             $v = trim((string)$v);
             if ($v !== '') return $v;
         }
@@ -197,7 +198,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         if ($idxCost  === null && (mb_strpos($k, '成本') !== false)) $idxCost  = $idx;
                         if ($idxOrderNo === null && (mb_strpos($k, '检索号') !== false || mb_strpos($k, '订单编号') !== false)) $idxOrderNo = $idx;
                         if ($idxTradeTime === null && (mb_strpos($k, '交易时间') !== false || mb_strpos($k, '时间') !== false)) $idxTradeTime = $idx;
-                        if ($idxOrderStatus === null && (mb_strpos($k, '订单状态') !== false)) $idxOrderStatus = $idx;
+                        if ($idxOrderStatus === null && (mb_strpos($k, '订单状态') !== false || mb_strpos($k, '交易状态') !== false)) $idxOrderStatus = $idx;
                     }
 
                     // 校验：要么有订单金额列，要么有价格和成本列
@@ -297,6 +298,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         }
 
                         $stmt->execute([0, $amount, $parsedDate, $shop['name'], $orderNo, json_encode($rawMap, JSON_UNESCAPED_UNICODE), $isAbn, $abnReason]);
+                        if ($orderNo !== '' && !$isRefund) {
+                            ps_sync_project_from_shop_order((int)db()->lastInsertId(), $orderNo, $shop['name'], $rawMap, $originalPrice);
+                        }
                         $isAbn ? $skipped++ : $inserted++;
                     }
                     db()->commit();
@@ -527,6 +531,8 @@ include __DIR__ . '/../includes/header.php';
                                         $raw = $o['raw_data'] ? json_decode($o['raw_data'], true) : [];
                                         $isAbn = (int)$o['is_abnormal'] === 1;
                                         $isRefund = (float)$o['order_amount'] < 0;
+                                        $refundAmt = is_array($raw) ? round((float)($raw['退款金额'] ?? 0), 2) : 0;
+                                        $isPartial = !$isRefund && $refundAmt > 0;
                                         $orderStatus = extract_order_status($raw);
                                     ?>
                                         <tr>
@@ -547,6 +553,7 @@ include __DIR__ . '/../includes/header.php';
                                                 <?php else: ?>
                                                     <span class="text-success font-weight-bold">¥<?php echo money($o['order_amount']); ?></span>
                                                 <?php endif; endif; ?>
+                                                <?php if ($isPartial): ?><small class="text-muted">(部分退款 ¥<?php echo money($refundAmt); ?>)</small><?php endif; ?>
                                             </td>
                                             <td><small><?php echo e(substr($raw['__trade_time__'] ?? $o['order_date'], 0, 10)); ?></small></td>
                                             <td><small><?php echo e($orderStatus ?: '--'); ?></small></td>
@@ -555,6 +562,8 @@ include __DIR__ . '/../includes/header.php';
                                                     <span class="badge badge-warning" title="<?php echo e($o['abnormal_reason']); ?>">异常</span>
                                                 <?php elseif ($isRefund): ?>
                                                     <span class="badge badge-info">退款</span>
+                                                <?php elseif ($isPartial): ?>
+                                                    <span class="badge badge-info" title="已退款 ¥<?php echo money($refundAmt); ?>">部分退款</span>
                                                 <?php else: ?>
                                                     <span class="badge badge-success">正常</span>
                                                 <?php endif; ?>
@@ -696,6 +705,8 @@ include __DIR__ . '/../includes/header.php';
                                                         $raw = $o['raw_data'] ? json_decode($o['raw_data'], true) : [];
                                                         $isAbn = (int)$o['is_abnormal'] === 1;
                                                         $isRefund = (float)$o['order_amount'] < 0;
+                                                        $refundAmt = is_array($raw) ? round((float)($raw['退款金额'] ?? 0), 2) : 0;
+                                                        $isPartial = !$isRefund && $refundAmt > 0;
                                                         $orderStatus = extract_order_status($raw);
                                                     ?>
                                                         <tr>
@@ -716,6 +727,7 @@ include __DIR__ . '/../includes/header.php';
                                                                 <?php else: ?>
                                                                     <span class="text-success font-weight-bold">¥<?php echo money($o['order_amount']); ?></span>
                                                                 <?php endif; endif; ?>
+                                                                <?php if ($isPartial): ?><small class="text-muted">(部分退款 ¥<?php echo money($refundAmt); ?>)</small><?php endif; ?>
                                                             </td>
                                                             <td><small><?php echo e(substr($raw['__trade_time__'] ?? $o['order_date'], 0, 10)); ?></small></td>
                                                             <td><small><?php echo e($orderStatus ?: '--'); ?></small></td>
@@ -724,6 +736,8 @@ include __DIR__ . '/../includes/header.php';
                                                                     <span class="badge badge-warning" title="<?php echo e($o['abnormal_reason']); ?>">异常</span>
                                                                 <?php elseif ($isRefund): ?>
                                                                     <span class="badge badge-info">退款</span>
+                                                                <?php elseif ($isPartial): ?>
+                                                                    <span class="badge badge-info" title="已退款 ¥<?php echo money($refundAmt); ?>">部分退款</span>
                                                                 <?php else: ?>
                                                                     <span class="badge badge-success">正常</span>
                                                                 <?php endif; ?>

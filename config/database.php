@@ -1,12 +1,15 @@
 <?php
 /**
  * 数据库配置
+ * 支持环境变量覆盖，便于本地开发（如通过SSH隧道连接远程库）：
+ *   DB_HOST / DB_PORT / DB_NAME / DB_USER / DB_PASS
+ * 未设置时使用线上默认值，部署行为不变
  */
-define('DB_HOST', '58.58.98.150');
-define('DB_PORT', '3306');
-define('DB_NAME', 'xinzi');
-define('DB_USER', 'xinzi');
-define('DB_PASS', 'xinzi@123');
+define('DB_HOST', getenv('DB_HOST') ?: '192.168.1.254');
+define('DB_PORT', getenv('DB_PORT') ?: '3306');
+define('DB_NAME', getenv('DB_NAME') ?: 'xinzi');
+define('DB_USER', getenv('DB_USER') ?: 'xinzi');
+define('DB_PASS', getenv('DB_PASS') ?: 'xinzi@123');
 
 /**
  * 获取PDO数据库连接

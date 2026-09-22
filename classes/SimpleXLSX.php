@@ -1,7 +1,7 @@
 <?php
 /**
  * 简易XLSX解析器（无需Composer依赖）
- * 利用 ZipArchive + SimpleXML 解析 .xlsx 文件
+ * 利用 ZipArchive（缺失时使用受限的内置 ZIP 读取器）+ SimpleXML 解析 .xlsx 文件
  *
  * 支持多工作表：
  *   SimpleXLSX::parse($filePath)            解析第一个工作表（向后兼容）
@@ -25,10 +25,7 @@ class SimpleXLSX
     public static function parse($filePath, $sheetIndex = 0)
     {
         $instance = new self();
-        if (!class_exists('ZipArchive')) {
-            throw new Exception('服务器未安装ZipArchive扩展，无法解析xlsx文件');
-        }
-        $instance->zip = new ZipArchive();
+        $instance->zip = class_exists('ZipArchive') ? new ZipArchive() : new SimpleXLSXZipReader();
         if ($instance->zip->open($filePath) !== true) {
             throw new Exception('无法打开xlsx文件');
         }
@@ -45,10 +42,7 @@ class SimpleXLSX
     public static function sheetNames($filePath)
     {
         $instance = new self();
-        if (!class_exists('ZipArchive')) {
-            throw new Exception('服务器未安装ZipArchive扩展，无法解析xlsx文件');
-        }
-        $instance->zip = new ZipArchive();
+        $instance->zip = class_exists('ZipArchive') ? new ZipArchive() : new SimpleXLSXZipReader();
         if ($instance->zip->open($filePath) !== true) {
             throw new Exception('无法打开xlsx文件');
         }
@@ -66,10 +60,7 @@ class SimpleXLSX
     public static function parseAll($filePath)
     {
         $instance = new self();
-        if (!class_exists('ZipArchive')) {
-            throw new Exception('服务器未安装ZipArchive扩展，无法解析xlsx文件');
-        }
-        $instance->zip = new ZipArchive();
+        $instance->zip = class_exists('ZipArchive') ? new ZipArchive() : new SimpleXLSXZipReader();
         if ($instance->zip->open($filePath) !== true) {
             throw new Exception('无法打开xlsx文件');
         }
@@ -268,4 +259,74 @@ class SimpleXLSX
         }
         return $col - 1;
     }
+}
+
+/**
+ * 只读取 XLSX 所需的 ZIP 条目。无 ZipArchive 的 PHP 环境也能解析模板。
+ * 不解压到磁盘；限制压缩包和单个 XML 的大小，避免导入恶意 ZIP 炸弹。
+ */
+class SimpleXLSXZipReader
+{
+    private $data = '';
+    private $entries = [];
+
+    public function open($filePath)
+    {
+        $size = @filesize($filePath);
+        if ($size === false || $size < 22 || $size > 32 * 1024 * 1024) return false;
+        $data = @file_get_contents($filePath);
+        if ($data === false || strlen($data) !== $size) return false;
+        $eocd = strrpos($data, "PK\x05\x06");
+        if ($eocd === false || $eocd + 22 > $size) return false;
+        $directorySize = $this->u32($data, $eocd + 12);
+        $directoryOffset = $this->u32($data, $eocd + 16);
+        if ($directoryOffset === 0xffffffff || $directorySize === 0xffffffff || $directoryOffset + $directorySize > $eocd) return false;
+        $entries = [];
+        $pos = $directoryOffset;
+        $end = $directoryOffset + $directorySize;
+        while ($pos < $end) {
+            if ($pos + 46 > $end || substr($data, $pos, 4) !== "PK\x01\x02") return false;
+            $nameLength = $this->u16($data, $pos + 28);
+            $extraLength = $this->u16($data, $pos + 30);
+            $commentLength = $this->u16($data, $pos + 32);
+            $next = $pos + 46 + $nameLength + $extraLength + $commentLength;
+            if ($next > $end) return false;
+            $name = substr($data, $pos + 46, $nameLength);
+            $entries[$name] = [
+                'flags' => $this->u16($data, $pos + 8),
+                'method' => $this->u16($data, $pos + 10),
+                'compressed' => $this->u32($data, $pos + 20),
+                'uncompressed' => $this->u32($data, $pos + 24),
+                'offset' => $this->u32($data, $pos + 42),
+            ];
+            $pos = $next;
+        }
+        if ($pos !== $end) return false;
+        $this->data = $data;
+        $this->entries = $entries;
+        return true;
+    }
+
+    public function getFromName($name)
+    {
+        if (!isset($this->entries[$name])) return false;
+        $entry = $this->entries[$name];
+        if (($entry['flags'] & 1) || !in_array($entry['method'], [0, 8], true) || $entry['uncompressed'] > 32 * 1024 * 1024) return false;
+        $offset = $entry['offset'];
+        if ($offset + 30 > strlen($this->data) || substr($this->data, $offset, 4) !== "PK\x03\x04") return false;
+        $start = $offset + 30 + $this->u16($this->data, $offset + 26) + $this->u16($this->data, $offset + 28);
+        if ($start + $entry['compressed'] > strlen($this->data)) return false;
+        $compressed = substr($this->data, $start, $entry['compressed']);
+        $value = $entry['method'] === 0 ? $compressed : @gzinflate($compressed, 32 * 1024 * 1024);
+        return $value !== false && strlen($value) === $entry['uncompressed'] ? $value : false;
+    }
+
+    public function close()
+    {
+        $this->data = '';
+        $this->entries = [];
+    }
+
+    private function u16($data, $offset) { return unpack('v', substr($data, $offset, 2))[1]; }
+    private function u32($data, $offset) { return unpack('V', substr($data, $offset, 4))[1]; }
 }
