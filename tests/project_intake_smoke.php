@@ -19,6 +19,8 @@ if (is_file($templateFile)) {
 $pdo = db();
 $pdo->beginTransaction();
 try {
+    // 只用本测试自建的成本模板，避免库里已有的 .com 模板让自动匹配变成“不唯一”。
+    $pdo->exec('UPDATE project_cost_templates SET is_active=0');
     $adminId = (int)$pdo->query('SELECT id FROM admins ORDER BY id LIMIT 1')->fetchColumn();
     $employeeId = (int)$pdo->query('SELECT id FROM employees ORDER BY id LIMIT 1')->fetchColumn();
     if (!$adminId || !$employeeId) throw new RuntimeException('测试需要已有财务管理员及合作人员');

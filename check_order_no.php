@@ -1,5 +1,7 @@
 <?php
-require_once __DIR__ . '/config/database.php';
+// 维护脚本：仅管理员可执行（会读取订单号并修改表结构）。
+require_once __DIR__ . '/includes/auth.php';
+require_login();
 
 // 检查 order_no 字段当前长度
 $cols = db()->query("SHOW COLUMNS FROM `orders` LIKE 'order_no'")->fetchAll();

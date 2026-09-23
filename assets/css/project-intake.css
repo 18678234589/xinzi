@@ -50,3 +50,42 @@
 .project-preview-table td:nth-child(4) { min-width: 260px; }
 .project-preview-table td:nth-child(5) { min-width: 195px; }
 @media (max-width: 900px) { .project-hero { flex-direction: column; align-items: flex-start; padding: 25px; } .project-form-footer { flex-direction: column; align-items: stretch; } .project-form-footer .btn { width: 100%; } }
+/* 订单号即时查询、自动带出字段、列表汇总与待办 */
+.project-lookup { margin: -4px 0 18px; padding: 11px 15px; border-radius: 11px; border: 1px solid #e3e8e1; background: #f8faf6; color: #5b6b63; font-size: .88rem; line-height: 1.55; }
+.project-lookup.is-found { border-color: #cfe5cf; background: #eff8ec; color: #2f6447; }
+.project-lookup.is-existing { border-color: #cfdcef; background: #eef4fb; color: #2f4f75; }
+.project-lookup.is-warning { border-color: #f0dfbf; background: #fdf7ea; color: #7a5a1f; }
+.project-lookup a { color: inherit; text-decoration: underline; }
+.project-autofilled { background-color: #f3faef !important; border-color: #9fcdab !important; transition: background-color .6s ease-out; }
+.project-cost-strip-sep { width: 1px; align-self: stretch; background: #d3e4d4; }
+.project-cost-strip b { font-weight: 600; }
+.project-totals { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 1px; background: #e4ebe2; border: 1px solid #e4ebe2; border-radius: 14px; overflow: hidden; }
+.project-totals > div { background: #fff; padding: 13px 17px; }
+.project-totals small { display: block; color: #7c8982; font-size: .76rem; margin-bottom: 2px; }
+.project-totals strong { font-size: 1.18rem; color: #28463b; font-variant-numeric: tabular-nums; }
+.project-totals .is-alert strong { color: #b5651d; }
+.project-order-table td { vertical-align: middle; }
+.project-order-table .text-right { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.project-calc-note { font-size: .78rem; color: #6d7d75; font-variant-numeric: tabular-nums; }
+.project-shop-alert { border-left: 4px solid #d9822b; }
+@media (max-width: 900px) { .project-cost-strip-sep { display: none; } }
+.project-todo-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 10px 14px; border-radius: 11px; background: #fbf8f1; border: 1px solid #efe4cc; color: #6b5a33; font-size: .88rem; }
+.project-todo-bar .badge { font-size: .8rem; font-weight: 500; padding: .38em .6em; }
+.project-preset { display: flex; justify-content: space-between; align-items: center; gap: 18px; padding: 14px 16px; border: 1px dashed #bcd8c1; border-radius: 13px; background: #f7fbf4; }
+.project-preset strong { color: #2d5b45; }
+@media (max-width: 900px) { .project-preset { flex-direction: column; align-items: stretch; } }
+.project-ai-box { padding: 14px 16px; border-radius: 16px; background: linear-gradient(120deg, rgba(238, 246, 234, .9), rgba(246, 240, 228, .9)); border: 1px solid rgba(47, 106, 82, .14); }
+.project-ai-box strong { color: #2d5b45; }
+.project-bulk-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.project-check-row { display: flex; flex-wrap: wrap; gap: 6px 0; padding: 8px 10px; border: 1px solid rgba(47, 106, 82, .14); border-radius: 12px; background: rgba(255, 255, 255, .7); font-size: .88rem; }
+.project-unit-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 8px; }
+.project-unit-grid label span { display: block; margin-bottom: 2px; }
+.project-monthly-form [hidden] { display: none !important; }
+.project-rule-table td { vertical-align: middle; }
+.project-slip-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
+.project-slip-grid > div { padding: 12px 14px; border-radius: 14px; background: rgba(255, 255, 255, .6); border: 1px solid rgba(47, 106, 82, .1); }
+.project-slip-grid small { display: block; color: #7a877f; font-size: .76rem; }
+.project-slip-grid strong { font-size: 1.15rem; font-variant-numeric: tabular-nums; color: #26352f; }
+.project-slip-grid .is-total { background: #2f6a52; border-color: #2f6a52; }
+.project-slip-grid .is-total small { color: #d6ebdd; }
+.project-slip-grid .is-total strong { color: #fff; font-size: 1.3rem; }

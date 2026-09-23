@@ -5,10 +5,12 @@ if (!defined('BASE_PATH')) {
 $current_admin = current_admin();
 $project_staff = null;
 if (!$current_admin && isset($_SESSION['project_user_id'])) {
-    $staffStmt = db()->prepare('SELECT username FROM project_users WHERE id=? AND is_active=1');
+    $staffStmt = db()->prepare('SELECT u.username,u.role,e.name FROM project_users u JOIN employees e ON e.id=u.employee_id WHERE u.id=? AND u.is_active=1');
     $staffStmt->execute([(int)$_SESSION['project_user_id']]);
     $project_staff = $staffStmt->fetch();
 }
+$display_name = $current_admin['username'] ?? ($project_staff['name'] ?? ($project_staff['username'] ?? ''));
+$display_role = $current_admin ? '财务 / 管理员' : (($project_staff['role'] ?? '') === 'technical' ? '技术' : '客服');
 
 // 计算当前脚本相对站点根的路径，用于侧边栏高亮判断
 $_script = $_SERVER['SCRIPT_NAME'] ?? '';
@@ -31,6 +33,18 @@ $is_settle      = ($_rel === 'salaries/settle.php');
 $is_query       = ($_rel === 'salaries/query.php');
 $is_insurance   = (strpos($_rel, 'insurance/') === 0);
 $is_project     = (strpos($_rel, 'project/') === 0);
+$is_project_orders = $is_project && !in_array($_rel, ['project/payroll.php', 'project/settings.php', 'project/system.php', 'project/rules.php', 'project/profile.php'], true);
+// 合并栏目：同类页面在侧栏只占一个入口，进入后顶部页签切换。
+$nav_groups = [
+    'shop' => [['/shops/index.php', 'fa-store', '店铺管理', $is_shops], ['/shops/etmll_sync.php', 'fa-sync-alt', 'ETMLL 订单同步', $is_etmll], ['/orders/index.php', 'fa-file-upload', '订单上传', $is_orders], ['/abnormal/index.php', 'fa-exclamation-triangle', '异常订单', $is_abnormal]],
+    'people' => [['/employees/index.php', 'fa-users', '合作人员', $is_employees], ['/departments/index.php', 'fa-sitemap', '部门', $is_departments], ['/attendance/index.php', 'fa-calendar-check', '考勤表', $is_attendance], ['/performance/index.php', 'fa-headset', '客服绩效', $is_performance], ['/insurance/index.php', 'fa-shield-alt', '保险', $is_insurance]],
+    'legacy' => [['/salaries/settle.php', 'fa-calculator', '报酬结算', $is_settle], ['/salaries/query.php', 'fa-search-dollar', '结算查询', $is_query]],
+];
+$group_active = null;
+foreach ($nav_groups as $group_key => $items) foreach ($items as $item) if ($item[3]) $group_active = $group_key;
+$nav = function ($href, $icon, $label, $active) {
+    return '<a href="' . BASE_URL . $href . '" class="' . ($active ? 'active' : '') . '"' . ($active ? ' aria-current="page"' : '') . '><i class="fas ' . $icon . '"></i> ' . $label . '</a>';
+};
 ?>
 <!DOCTYPE html>
 <html lang="zh-CN">
@@ -41,96 +55,46 @@ $is_project     = (strpos($_rel, 'project/') === 0);
     <link href="<?php echo BASE_URL; ?>/assets/lib/bootstrap/css/bootstrap.min.css" rel="stylesheet">
     <link href="<?php echo BASE_URL; ?>/assets/lib/font-awesome/css/all.min.css" rel="stylesheet">
     <link href="<?php echo BASE_URL; ?>/assets/css/style.css" rel="stylesheet">
-    <?php if ($is_project): ?><link href="<?php echo BASE_URL; ?>/assets/css/project-intake.css" rel="stylesheet"><?php endif; ?>
-    <style>
-        body { background: #f0f2f5; }
-        .navbar-brand { font-weight: 700; }
-        .sidebar {
-            position: fixed; top: 56px; left: 0; bottom: 0;
-            width: 220px; background: #343a40; padding-top: 20px;
-            z-index: 100; overflow-y: auto;
-        }
-        .sidebar a {
-            display: block; color: #adb5bd; padding: 12px 20px;
-            text-decoration: none; transition: all .2s;
-            border-left: 3px solid transparent;
-        }
-        .sidebar a:hover { color: #fff; background: rgba(255,255,255,.08); }
-        .sidebar a.active { color: #fff; background: rgba(255,255,255,.12); border-left-color: #28a745; }
-        .sidebar a i { width: 20px; text-align: center; margin-right: 8px; }
-        .main-content { margin-left: 220px; padding: 20px; margin-top: 56px; }
-        .card { box-shadow: 0 1px 3px rgba(0,0,0,.08); border: none; }
-        .stat-card { border-left: 4px solid; }
-        .stat-card.green { border-left-color: #28a745; }
-        .stat-card.blue { border-left-color: #17a2b8; }
-        .stat-card.orange { border-left-color: #fd7e14; }
-        .stat-card.purple { border-left-color: #6f42c1; }
-
-        /* ===== 响应式：侧栏抽屉 ===== */
-        .sidebar-backdrop {
-            position: fixed; top: 0; left: 0; right: 0; bottom: 0;
-            background: rgba(0,0,0,.5); z-index: 99; display: none;
-        }
-        .sidebar-backdrop.show { display: block; }
-        @media (max-width: 991.98px) {
-            .sidebar {
-                transform: translateX(-100%);
-                transition: transform .3s ease;
-                z-index: 1000;
-            }
-            .sidebar.open { transform: translateX(0); }
-            .main-content { margin-left: 0 !important; }
-        }
-        @media (min-width: 992px) {
-            #sidebarToggle { display: none; }
-        }
-    </style>
+    <link href="<?php echo BASE_URL; ?>/assets/css/project-intake.css" rel="stylesheet">
+    <link href="<?php echo BASE_URL; ?>/assets/css/theme.css" rel="stylesheet">
 </head>
-<body>
-<nav class="navbar navbar-expand-lg navbar-dark bg-dark fixed-top">
-    <a class="navbar-brand" href="<?php echo BASE_URL; ?><?php echo $project_staff ? '/project/index.php' : '/index.php'; ?>"><i class="fas fa-coins"></i> 项目合作结算中心</a>
-    <button class="navbar-toggler d-lg-none border-0" type="button" id="sidebarToggle"
-            style="position:fixed;top:10px;left:10px;z-index:1100;background:#343a40;color:#fff;">
-        <i class="fas fa-bars"></i>
-    </button>
+<body class="app-warm">
+<nav class="navbar navbar-expand-lg navbar-light fixed-top app-topbar">
+    <button class="app-menu-btn d-lg-none" type="button" id="sidebarToggle" aria-label="打开菜单"><i class="fas fa-bars"></i></button>
+    <a class="navbar-brand" href="<?php echo BASE_URL; ?><?php echo $project_staff ? '/project/index.php' : '/index.php'; ?>"><span class="app-brand-mark"><i class="fas fa-seedling"></i></span> 项目合作结算中心</a>
     <div class="ml-auto d-flex align-items-center">
-        <span class="text-light mr-3">
-            <i class="fas fa-user-circle"></i>
-            <?php echo e($current_admin['username'] ?? ($project_staff['username'] ?? '')); ?>
-        </span>
-        <a href="<?php echo BASE_URL; ?>/logout.php" class="btn btn-outline-light btn-sm"><i class="fas fa-sign-out-alt"></i> 退出</a>
+        <span class="app-user mr-3"><span class="app-user-avatar" aria-hidden="true"><?php echo e(mb_substr($display_name, 0, 1)); ?></span><span class="d-none d-sm-inline"><strong><?php echo e($display_name); ?></strong><small><?php echo e($display_role); ?></small></span></span>
+        <a href="<?php echo BASE_URL; ?>/logout.php" class="btn btn-sm app-logout"><i class="fas fa-sign-out-alt"></i> 退出</a>
     </div>
 </nav>
 
 <div class="sidebar-backdrop" id="sidebarBackdrop"></div>
 
-<div class="sidebar<?php echo $is_project ? ' sidebar-project' : ''; ?>">
-    <?php if ($is_project): ?><div class="sidebar-project-brand"><span class="sidebar-project-mark"><i class="fas fa-seedling"></i></span><span><strong>项目合作结算</strong><small>把每一份付出，算得清楚</small></span></div><?php endif; ?>
+<div class="sidebar sidebar-project">
+    <div class="sidebar-project-brand"><span class="sidebar-project-mark"><i class="fas fa-seedling"></i></span><span><strong>项目合作结算</strong><small>把每一份付出，算得清楚</small></span></div>
     <?php if ($project_staff): ?>
-    <?php if ($is_project): ?><div class="sidebar-project-label">我的工作台</div><?php endif; ?>
-    <a href="<?php echo BASE_URL; ?>/project/index.php" class="<?php echo $is_project && !in_array($_rel, ['project/payroll.php','project/settings.php'], true) ? 'active' : ''; ?>"><i class="fas fa-folder-open"></i> 我的项目订单</a>
-    <a href="<?php echo BASE_URL; ?>/project/payroll.php" class="<?php echo $_rel === 'project/payroll.php' ? 'active' : ''; ?>"><i class="fas fa-wallet"></i> 我的项目报酬</a>
+    <div class="sidebar-project-label">我的工作台</div>
+    <?php echo $nav('/project/index.php', 'fa-folder-open', '我的项目订单', $is_project_orders); ?>
+    <?php echo $nav('/project/payroll.php', 'fa-wallet', '我的项目报酬', $_rel === 'project/payroll.php'); ?>
+    <?php echo $nav('/project/profile.php', 'fa-user-cog', '我的账号', $_rel === 'project/profile.php'); ?>
+    <div class="sidebar-project-tip"><i class="fas fa-lock"></i> 这里只显示你参与的订单和你自己的报酬。</div>
     <?php else: ?>
-    <a href="<?php echo BASE_URL; ?>/index.php" class="<?php echo $is_home ? 'active' : ''; ?>"><i class="fas fa-tachometer-alt"></i> 系统首页</a>
-    <a href="<?php echo BASE_URL; ?>/departments/index.php" class="<?php echo $is_departments ? 'active' : ''; ?>"><i class="fas fa-sitemap"></i> 部门管理</a>
-    <a href="<?php echo BASE_URL; ?>/shops/index.php" class="<?php echo $is_shops ? 'active' : ''; ?>"><i class="fas fa-store"></i> 店铺管理</a>
-    <a href="<?php echo BASE_URL; ?>/shops/etmll_sync.php" class="<?php echo $is_etmll ? 'active' : ''; ?>"><i class="fas fa-sync-alt"></i> ETMLL订单同步</a>
-    <a href="<?php echo BASE_URL; ?>/employees/index.php" class="<?php echo $is_employees ? 'active' : ''; ?>"><i class="fas fa-users"></i> 合作人员管理</a>
-    <a href="<?php echo BASE_URL; ?>/orders/index.php" class="<?php echo $is_orders ? 'active' : ''; ?>"><i class="fas fa-file-upload"></i> 订单上传</a>
-    <a href="<?php echo BASE_URL; ?>/abnormal/index.php" class="<?php echo $is_abnormal ? 'active' : ''; ?>"><i class="fas fa-exclamation-triangle"></i> 异常订单</a>
-    <a href="<?php echo BASE_URL; ?>/attendance/index.php" class="<?php echo $is_attendance ? 'active' : ''; ?>"><i class="fas fa-calendar-check"></i> 考勤表</a>
-    <a href="<?php echo BASE_URL; ?>/performance/index.php" class="<?php echo $is_performance ? 'active' : ''; ?>"><i class="fas fa-headset"></i> 客服绩效</a>
-    <a href="<?php echo BASE_URL; ?>/insurance/index.php" class="<?php echo $is_insurance ? 'active' : ''; ?>"><i class="fas fa-shield-alt"></i> 保险管理</a>
-    <a href="<?php echo BASE_URL; ?>/salaries/settle.php" class="<?php echo $is_settle ? 'active' : ''; ?>"><i class="fas fa-calculator"></i> 原系统报酬结算</a>
-    <a href="<?php echo BASE_URL; ?>/salaries/query.php" class="<?php echo $is_query ? 'active' : ''; ?>"><i class="fas fa-search-dollar"></i> 原系统结算查询</a>
-    <?php if ($is_project): ?><div class="sidebar-project-label">项目合作</div><?php endif; ?>
-    <a href="<?php echo BASE_URL; ?>/project/index.php" class="<?php echo $is_project && !in_array($_rel, ['project/payroll.php','project/settings.php'], true) ? 'active' : ''; ?>"><i class="fas fa-folder-open"></i> 项目订单结算</a>
-    <a href="<?php echo BASE_URL; ?>/project/payroll.php" class="<?php echo $_rel === 'project/payroll.php' ? 'active' : ''; ?>"><i class="fas fa-wallet"></i> 项目报酬结算中心</a>
-    <a href="<?php echo BASE_URL; ?>/project/settings.php#cost-center" class="<?php echo $_rel === 'project/settings.php' ? 'active' : ''; ?>"><i class="fas fa-layer-group"></i> 成本中心</a>
+    <?php echo $nav('/index.php', 'fa-home', '工作台首页', $is_home); ?>
+    <div class="sidebar-project-label">日常办公</div>
+    <?php echo $nav('/project/index.php', 'fa-folder-open', '项目订单', $is_project_orders); ?>
+    <?php echo $nav('/project/payroll.php', 'fa-wallet', '项目报酬结算', $_rel === 'project/payroll.php'); ?>
+    <?php echo $nav('/shops/index.php', 'fa-store', '店铺与订单', $group_active === 'shop'); ?>
+    <?php echo $nav('/employees/index.php', 'fa-users', '人员与考勤', $group_active === 'people'); ?>
+    <div class="sidebar-project-label">财务与配置</div>
+    <?php echo $nav('/project/rules.php', 'fa-percent', '规则中心', $_rel === 'project/rules.php'); ?>
+    <?php echo $nav('/project/settings.php#cost-center', 'fa-layer-group', '成本中心与账户', $_rel === 'project/settings.php'); ?>
+    <?php echo $nav('/salaries/settle.php', 'fa-calculator', '原系统结算', $group_active === 'legacy'); ?>
+    <?php echo $nav('/project/system.php', 'fa-sliders-h', '系统设置', $_rel === 'project/system.php'); ?>
     <?php endif; ?>
 </div>
 
 <div class="main-content">
+<?php if (!$project_staff && $group_active): ?><nav class="app-tabs mb-3" aria-label="同类页面"><?php foreach ($nav_groups[$group_active] as $item): ?><a href="<?php echo BASE_URL . $item[0]; ?>" class="<?php echo $item[3] ? 'active' : ''; ?>"<?php echo $item[3] ? ' aria-current="page"' : ''; ?>><i class="fas <?php echo $item[1]; ?>"></i> <?php echo $item[2]; ?></a><?php endforeach; ?></nav><?php endif; ?>
 <script>
 (function(){
     var btn = document.getElementById('sidebarToggle');

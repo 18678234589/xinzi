@@ -29,15 +29,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } else {
             // 项目结算合作人员账户与旧管理员账户隔离；合作人员只能进入项目模块。
             try {
-                $staffQuery = db()->prepare('SELECT id,password_hash FROM project_users WHERE username=? AND is_active=1 LIMIT 1');
-                $staffQuery->execute([$username]);
+                // 合作人员可用登录名（姓名拼音）或已绑定的手机号登录。
+                $staffQuery = db()->prepare('SELECT id,password_hash,phone FROM project_users WHERE (username=? OR phone=?) AND is_active=1 LIMIT 1');
+                $staffQuery->execute([$username, $username]);
                 $staff = $staffQuery->fetch();
                 if ($staff && password_verify($password, $staff['password_hash'])) {
                     unset($_SESSION['captcha']);
                     unset($_SESSION['admin_id'], $_SESSION['admin_username']);
                     $_SESSION['project_user_id'] = (int)$staff['id'];
                     session_regenerate_id(true);
-                    header('Location: ' . BASE_URL . '/project/index.php');
+                    header('Location: ' . BASE_URL . ($staff['phone'] ? '/project/index.php' : '/project/profile.php?first=1'));
                     exit;
                 }
             } catch (PDOException $ignored) {
@@ -56,19 +57,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     <title>登录 - 项目合作结算中心</title>
     <link href="<?php echo BASE_URL; ?>/assets/lib/bootstrap/css/bootstrap.min.css" rel="stylesheet">
     <link href="<?php echo BASE_URL; ?>/assets/lib/font-awesome/css/all.min.css" rel="stylesheet">
+    <link href="<?php echo BASE_URL; ?>/assets/css/theme.css" rel="stylesheet">
     <style>
-        body {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            min-height: 100vh; display: flex; align-items: center; justify-content: center;
-        }
-        .login-card { width: 100%; max-width: 400px; margin: 0 1rem; border-radius: 12px; box-shadow: 0 20px 60px rgba(0,0,0,.3); }
-        .login-card .card-body { padding: 40px; }
-        .login-logo { font-size: 48px; color: #667eea; }
-        .captcha-img { height: 38px; cursor: pointer; border-radius: 0 .25rem .25rem 0; }
+        body.app-warm { min-height: 100vh; display: flex; align-items: center; justify-content: center; }
+        .login-card { width: 100%; max-width: 400px; margin: 0 1rem; animation: mac-rise .5s cubic-bezier(.22,1,.36,1) both; }
+        .app-warm .login-card { border-radius: 18px; background: rgba(255,255,255,.66); box-shadow: 0 0 0 .5px rgba(31,45,39,.1), 0 30px 70px -20px rgba(31,60,48,.35), 0 1px 0 rgba(255,255,255,.9) inset; }
+        .login-card .card-body { padding: 36px 36px 30px; }
+        .login-logo { display: inline-grid; place-items: center; width: 64px; height: 64px; border-radius: 16px; font-size: 28px; color: #fff; background: linear-gradient(145deg,#4c9a78,#2f6a52 55%,#245443); box-shadow: 0 1px 0 rgba(255,255,255,.45) inset, 0 10px 24px -6px rgba(47,106,82,.55); }
+        .captcha-img { height: 38px; cursor: pointer; border-radius: 0 8px 8px 0; }
         .badge-2fa { font-size: .7em; vertical-align: middle; }
     </style>
 </head>
-<body>
+<body class="app-warm">
     <div class="card login-card">
         <div class="card-body">
             <div class="text-center mb-4">
@@ -84,7 +84,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     <label class="small text-muted mb-1"><i class="fas fa-shield-alt text-primary"></i> 第一重：账号密码</label>
                     <div class="input-group">
                         <div class="input-group-prepend"><span class="input-group-text"><i class="fas fa-user"></i></span></div>
-                        <input type="text" name="username" class="form-control" placeholder="用户名" value="<?php echo e($_POST['username'] ?? ''); ?>" autofocus>
+                        <input type="text" name="username" class="form-control" placeholder="用户名 / 手机号" value="<?php echo e($_POST['username'] ?? ''); ?>" autofocus>
                     </div>
                 </div>
                 <div class="form-group">

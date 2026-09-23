@@ -59,7 +59,7 @@ try {
     check_project_value($websiteSummary['service_fee'], 300, 'website template service fee');
     check_project_value($websiteSummary['profit'], 7825, 'website template contribution profit');
     check_project_value($websiteSummary['groups']['technical']['pool'], 1017.25, 'website template technical pool 13%');
-    check_project_value($websiteSummary['groups']['customer_service']['pool'], 626, 'website template customer-service pool 8%');
+    check_project_value($websiteSummary['groups']['customer_service']['pool'], 638, 'website template customer-service pool: two CS each (10000-1875-1.5%)x4% per 网站核算 主次');
     $customOrder = $websiteOrder;
     $customOrder['project_type'] = '网站定制';
     $customSummary = ps_summary($customOrder, [], [['commission_group' => 'technical', 'group_weight' => 1]]);

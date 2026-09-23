@@ -133,3 +133,38 @@ function ps_sync_existing_shop_order($projectOrderId, $orderNo, $shop)
     $match = reset($matches);
     return ps_sync_project_from_shop_order((int)$match['id'], $orderNo, $match['shop'], $match['parsed_raw'], $match['parsed_raw']['__original_price__']);
 }
+
+/**
+ * 按完整订单号查询店铺流水（手动上传或 ETMLL 同步），供录入时自动带出店铺、付款昵称、售价与交易状态。
+ * 返回每个店铺一条（正向成交优先），并标出该订单号是否出现退款/交易关闭。
+ */
+function ps_shop_order_lookup($orderNo)
+{
+    $orderNo = trim((string)$orderNo);
+    if ($orderNo === '') return [];
+    $q = db()->prepare("SELECT id,shop,order_amount,order_date,raw_data FROM orders WHERE order_no=? AND employee_id=0 AND order_scope='department' AND COALESCE(is_deleted,0)=0 ORDER BY id DESC LIMIT 20");
+    $q->execute([$orderNo]);
+    $byShop = [];
+    foreach ($q->fetchAll() as $row) {
+        $raw = json_decode((string)$row['raw_data'], true);
+        if (!is_array($raw)) $raw = [];
+        $refund = !empty($raw['__is_refund__']) || (float)$row['order_amount'] < 0;
+        $status = trim((string)($raw['__order_status__'] ?? ''));
+        $shop = (string)$row['shop'];
+        $entry = $byShop[$shop] ?? ['shop' => $shop, 'nickname' => '', 'price' => null, 'status' => '', 'date' => $row['order_date'], 'refund' => false, 'refund_amount' => 0.0, 'source' => ''];
+        if ($refund) {
+            $entry['refund'] = true;
+            $entry['refund_amount'] += abs((float)$row['order_amount']);
+            if ($entry['status'] === '') $entry['status'] = $status;
+        } elseif ($entry['price'] === null) {
+            $entry['price'] = isset($raw['__original_price__']) && is_numeric($raw['__original_price__']) ? round((float)$raw['__original_price__'], 2) : round((float)$row['order_amount'], 2);
+            $entry['nickname'] = ps_source_nickname($raw);
+            $entry['status'] = $status;
+            $entry['date'] = $row['order_date'];
+        }
+        if (!empty($raw['退款金额']) && is_numeric($raw['退款金额'])) { $entry['refund'] = true; $entry['refund_amount'] = max($entry['refund_amount'], (float)$raw['退款金额']); }
+        $entry['source'] = ($raw['数据来源'] ?? '') === 'ETMLL自动同步' ? 'ETMLL' : '店铺上传';
+        $byShop[$shop] = $entry;
+    }
+    return array_values($byShop);
+}

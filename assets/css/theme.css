@@ -1,0 +1,474 @@
+/* 全站统一主题：温暖的森林绿 + 米白底，所有页面（原系统与项目合作）共用 */
+:root {
+    --app-bg: #f5f6f0;
+    --app-surface: #ffffff;
+    --app-ink: #26352f;
+    --app-muted: #7a877f;
+    --app-line: #e7ebe3;
+    --app-green: #2f6a52;
+    --app-green-dark: #234b3d;
+    --app-green-soft: #eef6ea;
+    --app-amber: #d9a45f;
+    --app-radius: 14px;
+    --app-shadow: 0 6px 22px rgba(45, 73, 58, .07);
+}
+
+/* ---------- 基础 ---------- */
+body.app-warm {
+    background: var(--app-bg);
+    color: var(--app-ink);
+    font-family: -apple-system, "PingFang SC", "Microsoft YaHei", "Hiragino Sans GB", "Segoe UI", sans-serif;
+    font-size: .94rem;
+    -webkit-font-smoothing: antialiased;
+}
+.app-warm .main-content a:not(.btn):not(.badge):not(.dropdown-item):not(.nav-link) { color: var(--app-green); }
+.app-warm .main-content a:not(.btn):not(.badge):not(.dropdown-item):not(.nav-link):hover { color: var(--app-green-dark); }
+.app-warm .text-success { color: #2e7d57 !important; }
+
+/* ---------- 顶栏 ---------- */
+.app-topbar { height: 60px; padding: 0 22px; background: linear-gradient(100deg, #213f35 0%, #2a5445 60%, #2f5f4c 100%); box-shadow: 0 2px 14px rgba(20, 45, 35, .18); }
+.app-topbar .navbar-brand { display: flex; align-items: center; gap: 10px; font-weight: 700; letter-spacing: .03em; color: #f4f8ef; }
+.app-brand-mark { display: grid; place-items: center; width: 32px; height: 32px; border-radius: 10px; background: #e4efda; color: #3e6b4e; font-size: .95rem; }
+.app-user { display: flex; align-items: center; gap: 10px; color: #e6f0e8; }
+.app-user strong, .app-user small { display: block; line-height: 1.2; }
+.app-user small { color: #a9c7b4; font-size: .72rem; }
+.app-user-avatar { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 50%; background: var(--app-amber); color: #fff; font-weight: 700; }
+.app-logout { color: #e6f0e8; border: 1px solid rgba(230, 240, 232, .35); border-radius: 9px; }
+.app-logout:hover { color: #fff; background: rgba(255, 255, 255, .1); }
+.app-menu-btn { border: 0; background: rgba(255, 255, 255, .1); color: #fff; width: 38px; height: 38px; border-radius: 10px; margin-right: 10px; }
+
+/* ---------- 侧栏与主区域（原 header 内联样式） ---------- */
+.sidebar { position: fixed; top: 60px; left: 0; bottom: 0; width: 228px; padding: 18px 0 30px; z-index: 100; overflow-y: auto; }
+.sidebar a { display: block; text-decoration: none; transition: background .2s, color .2s; }
+.sidebar a i { width: 20px; text-align: center; margin-right: 8px; }
+.sidebar-project-tip { margin: 18px 16px 0; padding: 11px 13px; border-radius: 11px; background: rgba(255, 255, 255, .08); color: #b9d3c2; font-size: .78rem; line-height: 1.5; }
+.sidebar-project-tip i { margin-right: 4px; color: #e2be86; }
+.main-content { margin-left: 228px; padding: 24px 26px 40px; margin-top: 60px; min-height: calc(100vh - 60px); }
+.sidebar-backdrop { position: fixed; inset: 0; background: rgba(20, 35, 28, .45); z-index: 99; display: none; }
+.sidebar-backdrop.show { display: block; }
+@media (max-width: 991.98px) {
+    .sidebar { transform: translateX(-100%); transition: transform .28s ease-out; z-index: 1000; }
+    .sidebar.open { transform: translateX(0); }
+    .main-content { margin-left: 0 !important; padding: 18px 14px 32px; }
+    .app-topbar { padding: 0 12px; }
+}
+
+/* ---------- 卡片、表格、表单、按钮（原系统页面同步升级） ---------- */
+.app-warm .card { border: 1px solid var(--app-line); border-radius: var(--app-radius); box-shadow: var(--app-shadow); overflow: hidden; }
+.app-warm .card-header { background: #fbfcf8; border-bottom: 1px solid var(--app-line); font-weight: 600; color: #2f5446; padding: .85rem 1.15rem; }
+.app-warm .card-header.bg-white { background: #fbfcf8 !important; }
+.app-warm .card-header h5 { font-size: 1rem; font-weight: 700; }
+.app-warm .table { color: var(--app-ink); }
+.app-warm .table thead th { background: #f6f8f2; color: #5b6b63; font-weight: 600; font-size: .82rem; border-bottom: 1px solid var(--app-line); border-top: 0; }
+.app-warm .table td { border-top-color: #eef1ea; }
+.app-warm .table-hover tbody tr:hover { background: #f7faf4; }
+.app-warm .form-control, .app-warm .custom-select { border-radius: 10px; border-color: #dfe5dc; }
+.app-warm .form-control:focus, .app-warm .custom-select:focus { border-color: #8fbfa0; box-shadow: 0 0 0 .2rem rgba(63, 138, 98, .15); }
+.app-warm label { color: #4a5a52; font-weight: 500; }
+.app-warm .btn { border-radius: 10px; font-weight: 500; }
+.app-warm .btn-primary, .app-warm .btn-success { background: var(--app-green); border-color: var(--app-green); }
+.app-warm .btn-primary:hover, .app-warm .btn-success:hover { background: var(--app-green-dark); border-color: var(--app-green-dark); }
+.app-warm .btn-outline-primary, .app-warm .btn-outline-success { color: var(--app-green); border-color: #9cc7ac; }
+.app-warm .btn-outline-primary:hover, .app-warm .btn-outline-success:hover { color: #fff; background: var(--app-green); border-color: var(--app-green); }
+.app-warm .alert { border-radius: 12px; border-width: 1px; }
+.app-warm .alert-success { background: var(--app-green-soft); border-color: #cfe5cf; color: #2f6447; }
+.app-warm .badge { border-radius: 7px; font-weight: 500; }
+.app-warm .badge-info { background: #e2efe6; color: #2f6447; }
+.app-warm .modal-content { border-radius: 16px; border: 0; }
+.app-warm h4 { font-weight: 700; color: #264a3d; }
+
+/* 旧页面的统计卡片 */
+.app-warm .stat-card { border-left: 0; position: relative; }
+.app-warm .stat-card::before { content: ""; position: absolute; left: 0; top: 16px; bottom: 16px; width: 4px; border-radius: 0 4px 4px 0; background: var(--app-green); }
+.app-warm .stat-card.blue::before { background: #5b9aa9; }
+.app-warm .stat-card.orange::before { background: var(--app-amber); }
+.app-warm .stat-card.purple::before { background: #8b7bb8; }
+
+/* ---------- 首页工作台 ---------- */
+.dash-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 14px; }
+.dash-tile { display: flex; align-items: center; gap: 14px; padding: 18px 18px; background: var(--app-surface); border: 1px solid var(--app-line); border-radius: var(--app-radius); box-shadow: var(--app-shadow); }
+.dash-tile-icon { display: grid; place-items: center; flex: 0 0 46px; height: 46px; border-radius: 13px; background: var(--app-green-soft); color: var(--app-green); font-size: 1.15rem; }
+.dash-tile-icon.amber { background: #fbf1e2; color: #b77a2c; }
+.dash-tile-icon.sky { background: #e8f2f4; color: #3f7d8c; }
+.dash-tile-icon.plum { background: #f0edf7; color: #6d5ba3; }
+.dash-tile small { display: block; color: var(--app-muted); font-size: .8rem; }
+.dash-tile strong { font-size: 1.45rem; color: #263d34; font-variant-numeric: tabular-nums; }
+.dash-actions { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; }
+.dash-action { display: flex; align-items: center; gap: 12px; padding: 14px 16px; border-radius: 13px; border: 1px solid var(--app-line); background: #fff; color: var(--app-ink) !important; text-decoration: none !important; transition: border-color .2s, transform .2s ease-out, box-shadow .2s; }
+.dash-action:hover { border-color: #a9cfb4; transform: translateY(-2px); box-shadow: 0 8px 20px rgba(45, 73, 58, .09); }
+.dash-action i { color: var(--app-green); font-size: 1.1rem; width: 22px; text-align: center; }
+.dash-action small { display: block; color: var(--app-muted); font-size: .76rem; }
+.dash-todo { display: flex; flex-wrap: wrap; gap: 10px; }
+.dash-todo a { display: inline-flex; align-items: center; gap: 8px; padding: 9px 14px; border-radius: 999px; background: #fbf5ea; border: 1px solid #f0e2c8; color: #7a5a22 !important; text-decoration: none !important; font-size: .88rem; }
+.dash-todo a strong { font-variant-numeric: tabular-nums; }
+.dash-todo a.is-clear { background: var(--app-green-soft); border-color: #d6e8d5; color: #2f6447 !important; }
+.dash-rank { width: 26px; height: 26px; display: inline-grid; place-items: center; border-radius: 50%; background: #f1f3ee; color: #6a776f; font-size: .8rem; font-weight: 700; }
+.dash-rank.top { background: #fbf1e2; color: #b77a2c; }
+
+/* ================= 玻璃拟态（iOS 风格）=================
+ * 柔和的渐变底 + 半透明磨砂面板；正文区域保持 ≥ 4.5:1 对比度。
+ * 不支持 backdrop-filter 的浏览器回退为近乎不透明的白色面板。 */
+:root {
+    --glass-bg: rgba(255, 255, 255, .66);
+    --glass-bg-strong: rgba(255, 255, 255, .82);
+    --glass-border: rgba(255, 255, 255, .7);
+    --glass-edge: rgba(47, 106, 82, .10);
+    --glass-blur: saturate(170%) blur(20px);
+    --glass-shadow: 0 10px 30px rgba(38, 70, 55, .08), 0 1px 0 rgba(255, 255, 255, .8) inset;
+    --ios-radius: 20px;
+}
+body.app-warm {
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Helvetica Neue", "Microsoft YaHei", sans-serif;
+    background-color: #eef2ea;
+    background-image:
+        radial-gradient(900px 600px at 8% -10%, rgba(164, 211, 176, .55), transparent 60%),
+        radial-gradient(800px 560px at 100% 0%, rgba(245, 214, 170, .45), transparent 58%),
+        radial-gradient(900px 700px at 60% 110%, rgba(176, 210, 222, .45), transparent 60%);
+    background-attachment: fixed;
+}
+
+/* 顶栏：深绿磨砂玻璃 */
+.app-topbar {
+    background: rgba(30, 62, 50, .72);
+    -webkit-backdrop-filter: var(--glass-blur);
+    backdrop-filter: var(--glass-blur);
+    border-bottom: 1px solid rgba(255, 255, 255, .12);
+    box-shadow: 0 4px 24px rgba(20, 45, 35, .12);
+}
+.app-logout { border-radius: 999px; padding: .28rem .85rem; }
+
+/* 侧栏：深色透明玻璃 */
+.sidebar.sidebar-project {
+    background: rgba(33, 66, 54, .78);
+    -webkit-backdrop-filter: var(--glass-blur);
+    backdrop-filter: var(--glass-blur);
+    border-right: 1px solid rgba(255, 255, 255, .1);
+    box-shadow: 8px 0 30px rgba(29, 66, 50, .08);
+}
+.sidebar-project a { border-radius: 12px; }
+.sidebar-project a.active { background: rgba(255, 255, 255, .16); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .18); }
+
+/* 卡片与面板 */
+.app-warm .card,
+.app-warm .project-intake-page .card,
+.dash-tile, .dash-action, .project-totals, .project-preset {
+    background: var(--glass-bg);
+    -webkit-backdrop-filter: var(--glass-blur);
+    backdrop-filter: var(--glass-blur);
+    border: 1px solid var(--glass-border);
+    border-radius: var(--ios-radius);
+    box-shadow: var(--glass-shadow);
+}
+.app-warm .card-header, .app-warm .card-header.bg-white { background: rgba(255, 255, 255, .45) !important; border-bottom: 1px solid var(--glass-edge); }
+.app-warm .table thead th { background: rgba(246, 249, 242, .75); }
+.app-warm .table-responsive { background: rgba(255, 255, 255, .55); }
+.project-totals { gap: 0; background: var(--glass-bg); }
+.project-totals > div { background: transparent; border-right: 1px solid var(--glass-edge); }
+.project-totals > div:last-child { border-right: 0; }
+.dash-action:hover { background: var(--glass-bg-strong); }
+
+/* 顶部横幅：渐变 + 玻璃高光 */
+.project-hero {
+    position: relative; overflow: hidden; border-radius: 24px;
+    background: linear-gradient(125deg, rgba(36, 86, 70, .92) 0%, rgba(52, 108, 89, .9) 55%, rgba(122, 164, 136, .88) 100%);
+    box-shadow: 0 18px 40px rgba(31, 75, 61, .18);
+}
+.project-hero::after { content: ""; position: absolute; right: -80px; top: -120px; width: 360px; height: 360px; border-radius: 50%; background: radial-gradient(circle, rgba(255, 255, 255, .22), transparent 65%); pointer-events: none; }
+.project-hero > * { position: relative; z-index: 1; }
+.project-hero-actions .btn { border-radius: 999px; -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); }
+.project-hero-actions .btn-outline-light { background: rgba(255, 255, 255, .12); border-color: rgba(255, 255, 255, .45); }
+
+/* iOS 控件：胶囊按钮、柔和输入框 */
+.app-warm .btn { border-radius: 999px; padding-left: 1rem; padding-right: 1rem; }
+.app-warm .btn-sm { padding-left: .75rem; padding-right: .75rem; }
+.app-warm .btn-block { border-radius: 14px; }
+.app-warm .form-control, .app-warm .custom-select { border-radius: 12px; background-color: rgba(255, 255, 255, .78); border-color: rgba(47, 106, 82, .16); }
+.app-warm .form-control:focus { background-color: #fff; }
+.app-warm .input-group-text { border-radius: 12px 0 0 12px; background: rgba(238, 246, 234, .9); border-color: rgba(47, 106, 82, .16); }
+.app-warm .input-group > .form-control:not(:first-child) { border-radius: 0 12px 12px 0; }
+.app-warm .badge { border-radius: 999px; padding: .35em .65em; }
+.app-warm .alert { border-radius: 16px; -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px); }
+.project-cost-strip, .project-lookup, .project-quick-entry, .project-todo-bar { border-radius: 16px; }
+.app-user-avatar { box-shadow: 0 0 0 2px rgba(255, 255, 255, .35); }
+
+/* 不支持磨砂或用户要求减少透明度时，用实色保证可读性 */
+@supports not ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
+    .app-warm .card, .dash-tile, .dash-action, .project-totals, .project-preset { background: rgba(255, 255, 255, .96); }
+    .app-topbar, .sidebar.sidebar-project { background: #274b3e; }
+}
+@media (prefers-reduced-transparency: reduce) {
+    .app-warm .card, .dash-tile, .dash-action, .project-totals, .project-preset { background: #fff; -webkit-backdrop-filter: none; backdrop-filter: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+    .dash-action { transition: none; }
+    .dash-action:hover { transform: none; }
+}
+
+/* 深色玻璃区域内的链接不继承正文绿色，保证对比度 */
+.app-warm .sidebar-project a { color: #d9e9de; }
+.app-warm .sidebar-project a:hover, .app-warm .sidebar-project a.active { color: #fff; }
+.app-warm .sidebar-project a i { color: #b8d9b6; }
+.app-warm .sidebar-project a.active i { color: #f1d6a8; }
+.app-warm .app-topbar .navbar-brand, .app-warm .app-topbar .navbar-brand:hover { color: #f4f8ef; }
+.app-warm .app-logout, .app-warm .app-logout:hover { color: #f1f6f2; }
+.app-warm .project-hero a.btn-light { color: #264a3d; }
+.app-warm .project-hero a.btn-outline-light { color: #fff; }
+.app-warm .btn-info { background: #3f8a8c; border-color: #3f8a8c; }
+.app-warm .btn-info:hover { background: #33716f; border-color: #33716f; }
+.app-warm .btn-secondary { background: #7d8a83; border-color: #7d8a83; }
+
+/* 合并栏目后的页签（玻璃胶囊） */
+.app-tabs { display: flex; flex-wrap: wrap; gap: 6px; padding: 6px; border-radius: 999px; width: fit-content; max-width: 100%; background: var(--glass-bg); -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur); border: 1px solid var(--glass-border); box-shadow: var(--glass-shadow); }
+.app-warm .app-tabs a { display: inline-flex; align-items: center; gap: 6px; padding: 7px 15px; border-radius: 999px; color: #4a5a52; text-decoration: none; font-size: .9rem; transition: background .2s, color .2s; }
+.app-warm .app-tabs a:hover { background: rgba(47, 106, 82, .08); color: #264a3d; }
+.app-warm .app-tabs a.active { background: #2f6a52; color: #fff; box-shadow: 0 4px 12px rgba(47, 106, 82, .25); }
+.app-tabs i { font-size: .85rem; opacity: .85; }
+@media (max-width: 575.98px) { .app-tabs { border-radius: 16px; } }
+.app-warm .main-content .app-tabs a { color: #4a5a52 !important; }
+.app-warm .main-content .app-tabs a:hover { color: #264a3d !important; }
+.app-warm .main-content .app-tabs a.active, .app-warm .main-content .app-tabs a.active:hover { color: #fff !important; }
+
+/* ================= macOS 风格精修（Sonoma 玻璃 · 温暖森林绿） =================
+ * 浅色磨砂工具栏 + Finder 式来源列表侧栏；0.5px 发丝描边、分层柔影、细网格底纹。
+ * 放在文件末尾，覆盖上面的 iOS 深色玻璃层；不改 HTML 结构。 */
+:root {
+    --mac-accent: #2f6a52;
+    --mac-accent-2: #3f8a6c;
+    --mac-ink: #1f2d27;
+    --mac-ink-2: #56645d;
+    --mac-hair: rgba(31, 45, 39, .09);
+    --mac-hair-strong: rgba(31, 45, 39, .14);
+    --mac-glass: rgba(255, 255, 255, .62);
+    --mac-glass-hi: rgba(255, 255, 255, .8);
+    --mac-vibrancy: saturate(180%) blur(28px);
+    --mac-radius: 14px;
+    --mac-shadow: 0 0 0 .5px rgba(31, 45, 39, .08), 0 1px 2px rgba(31, 45, 39, .05), 0 8px 24px -6px rgba(31, 60, 48, .12);
+    --mac-shadow-lift: 0 0 0 .5px rgba(31, 45, 39, .1), 0 2px 4px rgba(31, 45, 39, .06), 0 18px 40px -10px rgba(31, 60, 48, .22);
+    --mac-ease: cubic-bezier(.22, 1, .36, 1);
+}
+body.app-warm {
+    color: var(--mac-ink);
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "HarmonyOS Sans SC", "Microsoft YaHei UI", "Microsoft YaHei", sans-serif;
+    background-color: #f1f0ea;
+    background-image:
+        radial-gradient(1100px 700px at -5% -15%, rgba(150, 205, 168, .55), transparent 60%),
+        radial-gradient(900px 620px at 105% -5%, rgba(248, 208, 158, .5), transparent 58%),
+        radial-gradient(1000px 760px at 55% 115%, rgba(168, 204, 222, .5), transparent 60%),
+        radial-gradient(700px 500px at 40% 40%, rgba(255, 250, 240, .6), transparent 70%);
+    background-attachment: fixed;
+}
+/* 科技感细网格底纹（极淡，向下渐隐） */
+body.app-warm::before {
+    content: ""; position: fixed; inset: 0; z-index: -1; pointer-events: none;
+    background-image: linear-gradient(rgba(47, 106, 82, .045) 1px, transparent 1px), linear-gradient(90deg, rgba(47, 106, 82, .045) 1px, transparent 1px);
+    background-size: 28px 28px;
+    -webkit-mask-image: radial-gradient(1200px 800px at 70% 0%, #000 20%, transparent 75%);
+    mask-image: radial-gradient(1200px 800px at 70% 0%, #000 20%, transparent 75%);
+}
+::selection { background: rgba(63, 138, 108, .22); }
+
+/* ---------- 工具栏：浅色磨砂（统一标题栏） ---------- */
+.app-warm .app-topbar {
+    height: 56px;
+    background: rgba(250, 250, 246, .7);
+    -webkit-backdrop-filter: var(--mac-vibrancy);
+    backdrop-filter: var(--mac-vibrancy);
+    border-bottom: .5px solid var(--mac-hair-strong);
+    box-shadow: 0 1px 0 rgba(255, 255, 255, .7) inset, 0 6px 20px -12px rgba(31, 60, 48, .25);
+}
+.app-warm .app-topbar .navbar-brand, .app-warm .app-topbar .navbar-brand:hover { color: var(--mac-ink); font-weight: 650; letter-spacing: .01em; font-size: 1.02rem; }
+.app-warm .app-brand-mark {
+    width: 30px; height: 30px; border-radius: 8px; color: #fff;
+    background: linear-gradient(145deg, #4c9a78 0%, #2f6a52 55%, #245443 100%);
+    box-shadow: 0 1px 0 rgba(255, 255, 255, .45) inset, 0 3px 8px rgba(47, 106, 82, .35);
+}
+.app-warm .app-user { color: var(--mac-ink); }
+.app-warm .app-user small { color: var(--mac-ink-2); }
+.app-warm .app-user-avatar {
+    width: 32px; height: 32px; font-size: .88rem;
+    background: linear-gradient(145deg, #f2c27f, #d8914a);
+    box-shadow: 0 0 0 2px rgba(255, 255, 255, .9), 0 2px 6px rgba(160, 100, 40, .3);
+}
+.app-warm .app-logout, .app-warm .app-logout:hover { color: var(--mac-ink); }
+.app-warm .app-logout { background: rgba(255, 255, 255, .6); border: 0; box-shadow: 0 0 0 .5px var(--mac-hair-strong), 0 1px 1px rgba(31, 45, 39, .06); font-size: .82rem; }
+.app-warm .app-logout:hover { background: #fff; }
+.app-warm .app-menu-btn { background: rgba(31, 45, 39, .06); color: var(--mac-ink); border-radius: 9px; width: 36px; height: 36px; }
+
+/* ---------- 侧栏：Finder 式来源列表 ---------- */
+.app-warm .sidebar { top: 56px; }
+.app-warm .main-content { margin-top: 56px; min-height: calc(100vh - 56px); }
+.app-warm .sidebar.sidebar-project {
+    background: rgba(246, 245, 239, .62);
+    -webkit-backdrop-filter: var(--mac-vibrancy);
+    backdrop-filter: var(--mac-vibrancy);
+    border-right: .5px solid var(--mac-hair-strong);
+    box-shadow: none;
+    padding-top: 12px;
+}
+.app-warm .sidebar-project-brand { color: var(--mac-ink); padding: 8px 18px 14px; }
+.app-warm .sidebar-project-brand small { color: var(--mac-ink-2); }
+.app-warm .sidebar-project-mark { background: linear-gradient(145deg, #e8f3e2, #cfe6cf); color: #2f6a52; border-radius: 9px; flex-basis: 32px; height: 32px; box-shadow: 0 0 0 .5px rgba(47, 106, 82, .2); }
+.app-warm .sidebar-project-label { color: #7f8a85; font-size: .7rem; letter-spacing: .06em; padding: 14px 20px 4px; }
+.app-warm .sidebar-project a {
+    margin: 1px 10px; padding: 7px 11px; border: 0; border-radius: 8px;
+    color: #2b3a33; font-size: .9rem; box-shadow: none;
+    transition: background .18s var(--mac-ease), color .18s var(--mac-ease);
+}
+.app-warm .sidebar-project a i { color: var(--mac-accent-2); }
+.app-warm .sidebar-project a:hover { color: var(--mac-ink); background: rgba(31, 45, 39, .06); }
+.app-warm .sidebar-project a.active, .app-warm .sidebar-project a.active:hover {
+    color: #fff; background: linear-gradient(180deg, #3f8a6c, #2f6a52);
+    box-shadow: 0 1px 0 rgba(255, 255, 255, .25) inset, 0 4px 12px -4px rgba(47, 106, 82, .55);
+}
+.app-warm .sidebar-project a.active i { color: #fff; }
+.app-warm .sidebar-project-tip { background: rgba(224, 169, 95, .12); color: #6d5226; border: .5px solid rgba(224, 169, 95, .35); border-radius: 10px; }
+.app-warm .sidebar-project-tip i { color: #c48633; }
+.app-warm .sidebar-backdrop { background: rgba(31, 45, 39, .25); -webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px); }
+
+/* ---------- 窗口式卡片 ---------- */
+.app-warm .card,
+.app-warm .project-intake-page .card,
+.dash-tile, .dash-action, .project-totals, .project-preset {
+    background: var(--mac-glass);
+    -webkit-backdrop-filter: var(--mac-vibrancy);
+    backdrop-filter: var(--mac-vibrancy);
+    border: 0;
+    border-radius: var(--mac-radius);
+    box-shadow: var(--mac-shadow), 0 1px 0 rgba(255, 255, 255, .85) inset;
+}
+.app-warm .card-header, .app-warm .card-header.bg-white {
+    background: linear-gradient(180deg, rgba(255, 255, 255, .7), rgba(255, 255, 255, .4)) !important;
+    border-bottom: .5px solid var(--mac-hair-strong);
+    color: var(--mac-ink); font-weight: 600; font-size: .92rem; padding: .7rem 1.1rem;
+}
+.app-warm .card-footer { background: rgba(255, 255, 255, .35); border-top: .5px solid var(--mac-hair); }
+.app-warm h4, .app-warm h5 { color: var(--mac-ink); }
+.app-warm h4 { font-weight: 700; }
+
+/* 表格：列表视图 */
+.app-warm .table-responsive { background: transparent; }
+.app-warm .table { color: var(--mac-ink); }
+.app-warm .table thead th {
+    background: rgba(250, 250, 246, .7); color: #5f6c66; font-size: .76rem; font-weight: 600;
+    letter-spacing: .02em; border-bottom: .5px solid var(--mac-hair-strong); white-space: nowrap;
+}
+.app-warm .table td { border-top: .5px solid var(--mac-hair); vertical-align: middle; font-variant-numeric: tabular-nums; }
+.app-warm .table-striped tbody tr:nth-of-type(odd) { background: rgba(47, 106, 82, .025); }
+.app-warm .table-hover tbody tr { transition: background .15s; }
+.app-warm .table-hover tbody tr:hover { background: rgba(63, 138, 108, .07); }
+
+/* ---------- 控件：按钮 / 输入框 ---------- */
+.app-warm .btn { border-radius: 8px; padding: .38rem .9rem; font-weight: 550; letter-spacing: .01em; transition: background .18s var(--mac-ease), box-shadow .18s var(--mac-ease), transform .12s; }
+.app-warm .btn-sm { border-radius: 7px; padding: .22rem .65rem; font-size: .8rem; }
+.app-warm .btn-lg { border-radius: 11px; }
+.app-warm .btn-block { border-radius: 10px; }
+.app-warm .btn:active { transform: scale(.98); }
+.app-warm .btn-primary, .app-warm .btn-success {
+    background: linear-gradient(180deg, #43916f, #2f6a52); border: 0; color: #fff;
+    box-shadow: 0 1px 0 rgba(255, 255, 255, .25) inset, 0 0 0 .5px rgba(28, 70, 52, .6), 0 2px 6px -1px rgba(47, 106, 82, .45);
+}
+.app-warm .btn-primary:hover, .app-warm .btn-success:hover { background: linear-gradient(180deg, #3b8565, #285c47); color: #fff; }
+.app-warm .btn-outline-primary, .app-warm .btn-outline-success, .app-warm .btn-outline-secondary, .app-warm .main-content .btn-light, .app-warm .btn-outline-dark, .app-warm .btn-outline-info {
+    background: rgba(255, 255, 255, .78); border: 0; color: var(--mac-ink);
+    box-shadow: 0 0 0 .5px var(--mac-hair-strong), 0 1px 2px rgba(31, 45, 39, .08);
+}
+.app-warm .btn-outline-primary, .app-warm .btn-outline-success { color: var(--mac-accent); }
+.app-warm .btn-outline-primary:hover, .app-warm .btn-outline-success:hover, .app-warm .btn-outline-secondary:hover, .app-warm .main-content .btn-light:hover, .app-warm .btn-outline-dark:hover, .app-warm .btn-outline-info:hover { background: #fff; color: var(--mac-ink); }
+.app-warm .btn-outline-danger { background: rgba(255, 255, 255, .78); border: 0; box-shadow: 0 0 0 .5px rgba(200, 60, 50, .35), 0 1px 2px rgba(31, 45, 39, .08); }
+.app-warm .btn-danger { background: linear-gradient(180deg, #e0685c, #c9483d); border: 0; box-shadow: 0 0 0 .5px rgba(150, 40, 30, .5), 0 2px 6px -1px rgba(200, 70, 60, .4); }
+.app-warm .btn-warning { background: linear-gradient(180deg, #f2c27f, #e0a95f); border: 0; color: #4a3413; }
+.app-warm .btn:focus, .app-warm .btn.focus { outline: 0; box-shadow: 0 0 0 3px rgba(63, 138, 108, .3); }
+
+.app-warm .form-control, .app-warm .custom-select {
+    border-radius: 8px; background-color: rgba(255, 255, 255, .85);
+    border: 0; box-shadow: 0 0 0 .5px var(--mac-hair-strong), 0 1px 1px rgba(31, 45, 39, .05) inset;
+    transition: box-shadow .18s var(--mac-ease), background-color .18s;
+}
+.app-warm .form-control.is-invalid { box-shadow: 0 0 0 1px #dc3545; }
+.app-warm .form-control:focus, .app-warm .custom-select:focus { background-color: #fff; box-shadow: 0 0 0 .5px rgba(47, 106, 82, .5), 0 0 0 3.5px rgba(63, 138, 108, .25); }
+.app-warm .input-group-text { border-radius: 8px 0 0 8px; background: rgba(240, 244, 236, .9); border: 0; box-shadow: 0 0 0 .5px var(--mac-hair-strong); color: var(--mac-ink-2); }
+.app-warm .input-group > .form-control:not(:first-child) { border-radius: 0 8px 8px 0; }
+.app-warm .custom-control-input:checked ~ .custom-control-label::before { background: var(--mac-accent); border-color: var(--mac-accent); }
+.app-warm label { color: #3d4b44; font-weight: 550; }
+
+/* 徽章、提示、弹窗、菜单 */
+.app-warm .badge { border-radius: 6px; padding: .3em .55em; font-weight: 600; letter-spacing: .01em; }
+.app-warm .alert { border: 0; border-radius: 12px; box-shadow: 0 0 0 .5px var(--mac-hair), 0 4px 14px -6px rgba(31, 60, 48, .15); -webkit-backdrop-filter: var(--mac-vibrancy); backdrop-filter: var(--mac-vibrancy); }
+.app-warm .alert-success { background: rgba(232, 245, 233, .85); color: #245c3f; }
+.app-warm .alert-warning { background: rgba(253, 243, 224, .88); color: #6d4a12; }
+.app-warm .alert-danger { background: rgba(253, 234, 232, .88); color: #8a2c22; }
+.app-warm .alert-info { background: rgba(230, 242, 246, .88); color: #245566; }
+.app-warm .alert-secondary, .app-warm .alert-light { background: rgba(255, 255, 255, .75); }
+.app-warm .modal-content { border-radius: 14px; background: rgba(252, 252, 249, .9); -webkit-backdrop-filter: var(--mac-vibrancy); backdrop-filter: var(--mac-vibrancy); box-shadow: var(--mac-shadow-lift); }
+.app-warm .dropdown-menu { border: 0; border-radius: 10px; padding: 5px; background: rgba(252, 252, 249, .88); -webkit-backdrop-filter: var(--mac-vibrancy); backdrop-filter: var(--mac-vibrancy); box-shadow: var(--mac-shadow-lift); }
+.app-warm .dropdown-item { border-radius: 6px; padding: .35rem .75rem; }
+.app-warm .dropdown-item:hover, .app-warm .dropdown-item:focus { background: var(--mac-accent-2); color: #fff; }
+.app-warm .pagination .page-link { border: 0; margin: 0 2px; border-radius: 7px; color: var(--mac-accent); background: rgba(255, 255, 255, .7); box-shadow: 0 0 0 .5px var(--mac-hair); }
+.app-warm .pagination .page-item.active .page-link { background: var(--mac-accent); color: #fff; }
+.app-warm .progress { border-radius: 99px; background: rgba(31, 45, 39, .08); }
+.app-warm .progress-bar { background: linear-gradient(90deg, #4c9a78, #2f6a52); }
+
+/* 横幅：森林绿 + 暖色光晕 */
+.app-warm .project-hero {
+    border-radius: 18px;
+    background:
+        radial-gradient(600px 300px at 90% -20%, rgba(248, 208, 158, .45), transparent 60%),
+        linear-gradient(125deg, #24503f 0%, #2f6a52 50%, #4d8f70 100%);
+    box-shadow: 0 0 0 .5px rgba(20, 50, 38, .4), 0 20px 44px -16px rgba(31, 75, 61, .45), 0 1px 0 rgba(255, 255, 255, .2) inset;
+}
+.app-warm .project-hero-actions .btn { border-radius: 9px; }
+.app-warm .project-hero-actions .btn-light { background: rgba(255, 255, 255, .92); box-shadow: 0 2px 8px rgba(0, 0, 0, .12); }
+
+/* 工作台磁贴 */
+.app-warm .dash-tile { transition: transform .25s var(--mac-ease), box-shadow .25s var(--mac-ease); }
+.app-warm .dash-tile:hover { transform: translateY(-2px); box-shadow: var(--mac-shadow-lift); }
+.app-warm .dash-tile-icon { border-radius: 11px; box-shadow: 0 0 0 .5px rgba(31, 45, 39, .06) inset; }
+.app-warm .dash-tile strong { color: var(--mac-ink); letter-spacing: -.01em; }
+.app-warm .dash-action { border-radius: 12px; transition: transform .25s var(--mac-ease), box-shadow .25s var(--mac-ease), background .2s; }
+.app-warm .dash-action:hover { transform: translateY(-2px); box-shadow: var(--mac-shadow-lift); background: var(--mac-glass-hi); }
+.app-warm .dash-todo a { border-radius: 8px; border: 0; box-shadow: 0 0 0 .5px rgba(224, 169, 95, .5); }
+.app-warm .dash-todo a.is-clear { box-shadow: 0 0 0 .5px rgba(47, 106, 82, .3); }
+
+/* 页签：分段控件 */
+.app-warm .app-tabs { border-radius: 10px; padding: 3px; gap: 2px; background: rgba(31, 45, 39, .06); border: 0; box-shadow: 0 1px 1px rgba(31, 45, 39, .05) inset; -webkit-backdrop-filter: none; backdrop-filter: none; }
+.app-warm .main-content .app-tabs a { border-radius: 7px; padding: 5px 14px; font-size: .86rem; color: #3d4b44 !important; }
+.app-warm .main-content .app-tabs a:hover { background: rgba(255, 255, 255, .5); }
+.app-warm .main-content .app-tabs a.active, .app-warm .main-content .app-tabs a.active:hover { background: #fff; color: var(--mac-ink) !important; font-weight: 600; box-shadow: 0 0 0 .5px var(--mac-hair-strong), 0 2px 6px -1px rgba(31, 45, 39, .15); }
+.app-warm .main-content .app-tabs a.active i { color: var(--mac-accent); opacity: 1; }
+
+/* 项目模块的输入条与汇总条 */
+.app-warm .project-cost-strip, .app-warm .project-lookup, .app-warm .project-quick-entry, .app-warm .project-todo-bar { border-radius: 12px; }
+.app-warm .project-totals > div { border-right: .5px solid var(--mac-hair); }
+.app-warm .project-totals strong { font-variant-numeric: tabular-nums; letter-spacing: -.01em; }
+
+/* 进场：内容区轻微上浮淡入 */
+@keyframes mac-rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+.app-warm .main-content > .card, .app-warm .main-content > .dash-grid, .app-warm .main-content > .project-hero { animation: mac-rise .45s var(--mac-ease) both; }
+
+/* 细滚动条 */
+.app-warm ::-webkit-scrollbar { width: 10px; height: 10px; }
+.app-warm ::-webkit-scrollbar-thumb { background: rgba(31, 45, 39, .18); border-radius: 99px; border: 3px solid transparent; background-clip: padding-box; }
+.app-warm ::-webkit-scrollbar-thumb:hover { background-color: rgba(31, 45, 39, .32); }
+.app-warm ::-webkit-scrollbar-track { background: transparent; }
+
+/* 回退与无障碍 */
+@supports not ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
+    .app-warm .app-topbar { background: #f7f6f1; }
+    .app-warm .sidebar.sidebar-project { background: #f2f1ec; }
+    .app-warm .card, .dash-tile, .dash-action, .project-totals, .project-preset, .app-warm .modal-content, .app-warm .dropdown-menu { background: rgba(255, 255, 255, .97); }
+}
+@media (prefers-reduced-transparency: reduce) {
+    .app-warm .app-topbar, .app-warm .sidebar.sidebar-project, .app-warm .card, .dash-tile, .dash-action, .project-totals, .project-preset { -webkit-backdrop-filter: none; backdrop-filter: none; }
+    .app-warm .app-topbar { background: #f7f6f1; }
+    .app-warm .sidebar.sidebar-project { background: #f2f1ec; }
+    .app-warm .card, .dash-tile, .dash-action, .project-totals, .project-preset { background: #fff; }
+}
+@media (prefers-reduced-motion: reduce) {
+    .app-warm .main-content > * { animation: none !important; }
+    .app-warm .dash-tile:hover, .app-warm .dash-action:hover, .app-warm .btn:active { transform: none; }
+}
+@media (max-width: 991.98px) {
+    .app-warm .sidebar.sidebar-project { background: rgba(248, 247, 242, .94); box-shadow: 12px 0 40px -10px rgba(31, 45, 39, .3); }
+}
+.app-warm .table-bordered, .app-warm .table-bordered td, .app-warm .table-bordered th { border-color: var(--mac-hair); border-width: .5px; }
+.app-warm .text-primary { color: var(--mac-accent) !important; }

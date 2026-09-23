@@ -35,7 +35,8 @@ function is_logged_in()
 function require_login()
 {
     if (!is_logged_in()) {
-        header('Location: ' . BASE_URL . '/login.php');
+        // 技术/客服账户只能进入“我的项目订单”，访问后台页面时带回自己的工作台，不显示公司营业数据。
+        header('Location: ' . BASE_URL . (isset($_SESSION['project_user_id']) ? '/project/index.php' : '/login.php'));
         exit;
     }
 }
