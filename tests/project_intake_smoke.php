@@ -5,6 +5,7 @@ require_once __DIR__ . '/../includes/ProjectBusiness.php';
 require_once __DIR__ . '/../classes/SimpleXLSX.php';
 
 $templateFile = __DIR__ . '/../订单模板/AI网站定制填写模板.xlsx';
+if (!is_file($templateFile)) $templateFile = __DIR__ . '/../订单模板与成本及算法/AI网站定制填写模板.xlsx';
 if (is_file($templateFile)) {
     $templateRows = SimpleXLSX::parse($templateFile);
     if (count($templateRows[0] ?? []) !== 14 || ($templateRows[0][10] ?? '') !== '域名使用（写是/否）') {
