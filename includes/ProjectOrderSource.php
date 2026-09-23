@@ -7,6 +7,69 @@ function ps_source_record($orderId, $priceSource, $nickname, $tradeStatus)
     $q->execute([(int)$orderId, $nickname, $tradeStatus, $priceSource, $nickname !== '' ? 'manual' : 'missing', $tradeStatus !== '' ? 'manual' : 'missing']);
 }
 
+function ps_customer_intake_conflicts($existing, $input)
+{
+    $conflicts = [];
+    $shop = trim((string)($input['shop'] ?? ''));
+    $price = trim((string)($input['contract_amount'] ?? ''));
+    $nickname = trim((string)($input['payment_nickname'] ?? ''));
+    if ($shop !== '' && (string)($existing['shop'] ?? '') !== '' && $shop !== (string)$existing['shop']) $conflicts[] = '店铺';
+    $priceSource = $existing['price_source'] ?? ((float)($existing['contract_amount'] ?? 0) > 0 ? 'manual' : 'missing');
+    if ($price !== '' && $priceSource !== 'missing' && (int)round((float)$price * 100) !== (int)round((float)$existing['contract_amount'] * 100)) $conflicts[] = '售价';
+    if ($nickname !== '' && (string)($existing['payment_nickname'] ?? '') !== '' && $nickname !== (string)$existing['payment_nickname']) $conflicts[] = '付款昵称';
+    return $conflicts;
+}
+
+/** 客服仅补空字段；已经由人工或店铺订单确定的数据须由财务核对更正。调用方负责事务。 */
+function ps_save_customer_intake($orderId, $input, $actor, $allowNoop = false)
+{
+    if (!in_array($actor['role'], ['customer_service', 'finance'], true)) throw new RuntimeException('只有客服或财务可补充买家资料');
+    $finance = $actor['role'] === 'finance';
+    $q = db()->prepare('SELECT customer_name,shop,contract_amount FROM project_orders WHERE id=? FOR UPDATE');
+    $q->execute([(int)$orderId]);
+    $order = $q->fetch();
+    if (!$order) throw new RuntimeException('订单不存在');
+    $q = db()->prepare('SELECT * FROM project_order_sources WHERE order_id=? FOR UPDATE');
+    $q->execute([(int)$orderId]);
+    $source = $q->fetch();
+    if (!$source) {
+        db()->prepare("INSERT INTO project_order_sources (order_id,price_source) VALUES (?,?)")
+            ->execute([(int)$orderId, (float)$order['contract_amount'] > 0 ? 'manual' : 'missing']);
+        $q->execute([(int)$orderId]);
+        $source = $q->fetch();
+    }
+    $customer = trim((string)($input['customer_name'] ?? ''));
+    $shop = trim((string)($input['shop'] ?? ''));
+    $nickname = trim((string)($input['payment_nickname'] ?? ''));
+    $status = trim((string)($input['trade_status'] ?? ''));
+    $price = trim((string)($input['contract_amount'] ?? ''));
+    if (mb_strlen($customer) > 200 || mb_strlen($shop) > 150 || mb_strlen($nickname) > 200 || mb_strlen($status) > 100) throw new RuntimeException('买家资料过长');
+    if ($price !== '' && (!preg_match('/^(?:0|[1-9]\d*)(?:\.\d{1,2})?$/', $price) || (float)$price > 999999999999.99)) throw new RuntimeException('售价须为非负数，最多两位小数');
+    if ($shop !== '') {
+        $valid = db()->prepare('SELECT 1 FROM shops WHERE name=? LIMIT 1');
+        $valid->execute([$shop]);
+        if (!$valid->fetchColumn()) throw new RuntimeException('请选择店铺列表中的店铺');
+    }
+    $changed = [];
+    $newCustomer = $order['customer_name'];
+    $newShop = $order['shop'];
+    $newPrice = $order['contract_amount'];
+    if ($customer !== '' && ($finance || $newCustomer === '')) { $newCustomer = $customer; $changed[] = 'customer_name'; }
+    if ($shop !== '' && ($finance || $newShop === '')) { $newShop = $shop; $changed[] = 'shop'; }
+    if ($price !== '' && ($finance || $source['price_source'] === 'missing')) { $newPrice = round((float)$price, 2); $source['price_source'] = 'manual'; $changed[] = 'contract_amount'; }
+    if ($nickname !== '' && ($finance || $source['nickname_source'] === 'missing')) { $source['payment_nickname'] = $nickname; $source['nickname_source'] = 'manual'; $changed[] = 'payment_nickname'; }
+    if ($status !== '' && ($finance || $source['status_source'] === 'missing')) { $source['trade_status'] = $status; $source['status_source'] = 'manual'; $changed[] = 'trade_status'; }
+    if (!$changed) {
+        if ($allowNoop) return [];
+        throw new RuntimeException('没有可补充的空字段；已有内容请联系财务核对');
+    }
+    db()->prepare('UPDATE project_orders SET customer_name=?,shop=?,contract_amount=?,row_version=row_version+1 WHERE id=?')
+        ->execute([$newCustomer, $newShop, $newPrice, (int)$orderId]);
+    db()->prepare('UPDATE project_order_sources SET payment_nickname=?,trade_status=?,price_source=?,nickname_source=?,status_source=? WHERE order_id=?')
+        ->execute([$source['payment_nickname'], $source['trade_status'], $source['price_source'], $source['nickname_source'], $source['status_source'], (int)$orderId]);
+    return $changed;
+}
+
 function ps_source_nickname($raw)
 {
     foreach (['付款昵称','买家付款昵称','买家昵称','买家会员名','买家用户名','买家','会员名','客户昵称'] as $needle) {

@@ -89,6 +89,8 @@ function ps_participants($orderId)
 
 function ps_rule($group, $projectType, $orderDate)
 {
+    // 历史“网站定制”与 AI 网站定制共用同一套版本化技术/客服分成规则。
+    if ($projectType === '网站定制') $projectType = 'AI网站定制';
     $q = db()->prepare("SELECT * FROM project_commission_rules WHERE commission_group=? AND project_type IN (?, '*') AND effective_from<=? AND is_active=1 ORDER BY (project_type=?) DESC, effective_from DESC, id DESC LIMIT 1");
     $q->execute([$group, $projectType, $orderDate, $projectType]);
     return $q->fetch() ?: null;
@@ -103,6 +105,10 @@ function ps_summary($order, $costs, $participants)
         if ($cost['review_status'] === 'approved') $approvedCost += (float)$cost['amount'];
         if ($cost['review_status'] === 'pending') $pendingCost += (float)$cost['amount'];
     }
+    // 网站模板核算表的 3% 店铺服务费以售价为基数，属于逐单直接成本。
+    // 不用于 AI/网站定制；其技术分成仍完全沿用 AI 定制规则。
+    $serviceFee = $order['project_type'] === '网站模板' ? round((float)$order['contract_amount'] * 0.03, 2) : 0.0;
+    $approvedCost += $serviceFee;
     $groups = [];
     foreach (['technical', 'customer_service'] as $group) {
         $people = array_values(array_filter($participants, function ($p) use ($group) { return $p['commission_group'] === $group; }));
@@ -113,7 +119,7 @@ function ps_summary($order, $costs, $participants)
             'pool' => $rate === null ? null : round(max($income - $approvedCost, 0) * $rate, 2),
             'estimated_pool' => $rate === null ? null : round(max($income - $approvedCost - $pendingCost, 0) * $rate, 2)];
     }
-    return ['income' => $income, 'approved_cost' => round($approvedCost, 2), 'pending_cost' => round($pendingCost, 2),
+    return ['income' => $income, 'approved_cost' => round($approvedCost, 2), 'service_fee' => $serviceFee, 'pending_cost' => round($pendingCost, 2),
         'profit' => round($income - $approvedCost, 2), 'estimated_profit' => round($income - $approvedCost - $pendingCost, 2), 'groups' => $groups];
 }
 
@@ -187,7 +193,7 @@ function ps_approve_order($orderId, $actor, $payrollMonth)
         $resourceQuery = $pdo->prepare('SELECT domain_mode,ssl_expected_amount FROM project_order_resources WHERE order_id=?');
         $resourceQuery->execute([$orderId]);
         $resource = $resourceQuery->fetch();
-        if (in_array($order['project_type'], ['AI网站定制','小程序开发'], true) && (!$resource || $resource['domain_mode'] === 'pending')) throw new RuntimeException('资源使用尚未由技术确认，不能生成项目分成');
+        if (in_array($order['project_type'], ['AI网站定制','网站定制','网站模板','小程序开发'], true) && (!$resource || $resource['domain_mode'] === 'pending')) throw new RuntimeException('资源使用尚未由技术确认，不能生成项目分成');
         $sslExpected = (float)($resource['ssl_expected_amount'] ?? 0);
         if ($sslExpected > 0) {
             $sslApprovedCents = 0;
@@ -196,6 +202,7 @@ function ps_approve_order($orderId, $actor, $payrollMonth)
         }
         if ($order['delivery_status'] !== 'finished') throw new RuntimeException('项目尚未完成');
         if ($sum['income'] <= 0) throw new RuntimeException('没有可结算的实收收入');
+        if ($order['project_type'] === '网站模板' && (float)$order['contract_amount'] <= 0) throw new RuntimeException('网站模板订单须先核对售价，才能计算 3% 店铺服务费');
         $cashPending = $pdo->prepare("SELECT COUNT(*) FROM project_cash_movements WHERE order_id=? AND review_status='pending'");
         $cashPending->execute([$orderId]);
         if ((int)$cashPending->fetchColumn() > 0) throw new RuntimeException('还有待审核的收款或退款');

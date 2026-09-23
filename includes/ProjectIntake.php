@@ -38,6 +38,22 @@ function ps_intake_save_resources($orderId, $sourceType, $sourceLine, $domainTem
     $q->execute([(int)$orderId, $sourceType, $sourceLine, $domainMode ?? ($domainTemplate ? 'template' : 'none'), $domainTemplate['id'] ?? null, $serverTemplate['id'] ?? null, $sslAmount !== null && (float)$sslAmount > 0 ? round((float)$sslAmount, 2) : null]);
 }
 
+/** 客服先建档后的技术确认：两类模板成本在同一事务中各入账一次。 */
+function ps_intake_confirm_resources($orderId, $mode, $domainTemplateId, $serverTemplateId, $actor)
+{
+    if (!in_array($mode, ['none','template'], true)) throw new RuntimeException('请选择域名使用方式');
+    $domain = $mode === 'template' ? ps_intake_template((int)$domainTemplateId, 'domain') : null;
+    $server = (int)$serverTemplateId > 0 ? ps_intake_template((int)$serverTemplateId, 'server') : null;
+    $pending = db()->prepare('SELECT domain_mode FROM project_order_resources WHERE order_id=? FOR UPDATE');
+    $pending->execute([(int)$orderId]);
+    if ($pending->fetchColumn() !== 'pending') throw new RuntimeException('资源已确认，请勿重复添加成本');
+    db()->prepare('UPDATE project_order_resources SET domain_mode=?,domain_template_id=?,server_template_id=? WHERE order_id=?')
+        ->execute([$mode, $domain['id'] ?? null, $server['id'] ?? null, (int)$orderId]);
+    if ($domain) ps_intake_add_template_cost($orderId, $domain, $actor, '技术确认：域名');
+    if ($server) ps_intake_add_template_cost($orderId, $server, $actor, '技术确认：服务器');
+    return ['domain_template_id' => $domain['id'] ?? null, 'server_template_id' => $server['id'] ?? null];
+}
+
 function ps_intake_participants($orderId, $groups)
 {
     $insert = db()->prepare('INSERT INTO project_participants (order_id,employee_id,commission_group,role_name,group_weight) VALUES (?,?,?,?,?)');

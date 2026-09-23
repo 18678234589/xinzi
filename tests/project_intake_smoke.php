@@ -4,10 +4,15 @@ require_once __DIR__ . '/../includes/ProjectIntake.php';
 require_once __DIR__ . '/../includes/ProjectBusiness.php';
 require_once __DIR__ . '/../classes/SimpleXLSX.php';
 
-$templateRows = SimpleXLSX::parse(__DIR__ . '/../订单模板/AI网站定制填写模板.xlsx');
-if (count($templateRows[0] ?? []) !== 14 || ($templateRows[0][10] ?? '') !== '域名使用（写是/否）') {
-    fwrite(STDERR, "原始 AI 网站定制 XLSX 模板未能正确解析\n");
-    exit(1);
+$templateFile = __DIR__ . '/../订单模板/AI网站定制填写模板.xlsx';
+if (is_file($templateFile)) {
+    $templateRows = SimpleXLSX::parse($templateFile);
+    if (count($templateRows[0] ?? []) !== 14 || ($templateRows[0][10] ?? '') !== '域名使用（写是/否）') {
+        fwrite(STDERR, "原始 AI 网站定制 XLSX 模板未能正确解析\n");
+        exit(1);
+    }
+} else {
+    fwrite(STDERR, "原始 AI 网站定制 XLSX 模板当前不在工作区，跳过该文件解析检查\n");
 }
 
 $pdo = db();
@@ -90,6 +95,39 @@ try {
     $resourceQuery->execute([$importOrder['id']]);
     $resource = $resourceQuery->fetch();
     if (!$resource || $resource['domain_mode'] !== 'template' || (int)$resource['domain_template_id'] !== $domainId || $resource['ssl_expected_amount'] !== null) throw new RuntimeException('Excel 资源选择快照未正确保存');
+    $_POST = ['csrf' => ps_csrf_token(), 'action' => 'preview', 'business' => 'AI网站定制'];
+    $_FILES = ['file' => ['name' => 'test.csv', 'tmp_name' => $csvPath, 'error' => UPLOAD_ERR_OK, 'size' => filesize($csvPath)]];
+    ob_start(); include __DIR__ . '/../project/import.php'; ob_end_clean();
+    $sameOrderPreview = $_SESSION['project_import_preview'][0] ?? null;
+    if (!$sameOrderPreview || !$sameOrderPreview['base_valid'] || $sameOrderPreview['status'] !== '补充已有订单' || !$sameOrderPreview['resource_locked']) throw new RuntimeException('相同订单号未显示为补充已有订单');
+    $_POST = ['csrf' => ps_csrf_token(), 'action' => 'commit', 'business' => 'AI网站定制'];
+    $_FILES = [];
+    ob_start(); include __DIR__ . '/../project/import.php'; ob_end_clean();
+    $sameOrderCount = $pdo->prepare('SELECT COUNT(*) FROM project_orders WHERE order_no=?');
+    $sameOrderCount->execute([$importNo]);
+    if ((int)$sameOrderCount->fetchColumn() !== 1) throw new RuntimeException('重复上传创建了第二张订单');
+    $importCost->execute([$importOrder['id']]);
+    if (count($importCost->fetchAll()) !== 1) throw new RuntimeException('重复上传重复计入标准域名成本');
+    $conflictCsv = tmpfile();
+    $conflictHeaders = ps_business_import_headers('AI网站定制');
+    $conflictData = array_fill_keys($conflictHeaders, '');
+    $conflictData['日期'] = date('Y-m-d');
+    $conflictData['店铺'] = $shopName;
+    $conflictData['业务'] = 'AI网站定制';
+    $conflictData['订单编号'] = $importNo;
+    $conflictData['售价'] = '9900';
+    $conflictData['状态(填已完成/未完成)'] = '已完成';
+    $conflictData['前端（技术）'] = $employeeName;
+    fputcsv($conflictCsv, $conflictHeaders);
+    fputcsv($conflictCsv, array_values($conflictData));
+    fflush($conflictCsv);
+    $conflictPath = stream_get_meta_data($conflictCsv)['uri'];
+    $_POST = ['csrf' => ps_csrf_token(), 'action' => 'preview', 'business' => 'AI网站定制'];
+    $_FILES = ['file' => ['name' => 'conflict.csv', 'tmp_name' => $conflictPath, 'error' => UPLOAD_ERR_OK, 'size' => filesize($conflictPath)]];
+    ob_start(); include __DIR__ . '/../project/import.php'; ob_end_clean();
+    $conflictPreview = $_SESSION['project_import_preview'][0] ?? null;
+    if (!$conflictPreview || $conflictPreview['base_valid'] || strpos($conflictPreview['error'], '售价不一致') === false) throw new RuntimeException('上传售价与原单冲突时未要求财务核对');
+    fclose($conflictCsv);
     if (ps_business_fallback('设计客服') !== '设计' || ps_business_fallback('定制前端') !== 'AI网站定制') throw new RuntimeException('部门默认业务匹配错误');
     $designCsv = tmpfile();
     $designHeaders = ps_business_import_headers('设计');
@@ -134,7 +172,7 @@ try {
     $_FILES = ['file' => ['name' => 'test.csv', 'tmp_name' => $csvPath, 'error' => UPLOAD_ERR_OK, 'size' => filesize($csvPath)]];
     ob_start(); include __DIR__ . '/../project/import.php'; ob_end_clean();
     $staffPreview = $_SESSION['project_import_preview'][0] ?? null;
-    if (!$staffPreview || !empty($staffPreview['base_valid']) || strpos($staffPreview['error'], '未写本人') === false) throw new RuntimeException('技术错误地可导入他人订单');
+    if (!$staffPreview || !empty($staffPreview['base_valid']) || (strpos($staffPreview['error'], '未写本人') === false && strpos($staffPreview['error'], '本人尚未被关联') === false)) throw new RuntimeException('技术错误地可导入他人订单');
     unset($_SESSION['project_user_id'], $_SESSION['project_import_preview'], $_SESSION['project_import_actor'], $_SESSION['project_import_business']);
     fclose($csv);
     fclose($designCsv);

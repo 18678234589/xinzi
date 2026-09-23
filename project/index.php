@@ -14,6 +14,9 @@ $employees = db()->query('SELECT id,name,department FROM employees ORDER BY depa
 $employeesById = [];
 foreach ($employees as $employee) $employeesById[(int)$employee['id']] = $employee;
 $activeTechnicalIds = array_map('intval', db()->query("SELECT employee_id FROM project_users WHERE role='technical' AND is_active=1")->fetchAll(PDO::FETCH_COLUMN));
+$activeCustomerServiceIds = array_map('intval', db()->query("SELECT employee_id FROM project_users WHERE role='customer_service' AND is_active=1")->fetchAll(PDO::FETCH_COLUMN));
+$technicalChoices = $actor['role'] === 'finance' ? $employees : array_values(array_filter($employees, function ($emp) use ($activeTechnicalIds) { return in_array((int)$emp['id'], $activeTechnicalIds, true); }));
+$customerServiceChoices = $actor['role'] === 'finance' ? $employees : array_values(array_filter($employees, function ($emp) use ($activeCustomerServiceIds) { return in_array((int)$emp['id'], $activeCustomerServiceIds, true); }));
 $domainTemplates = ps_intake_templates('domain');
 $serverTemplates = ps_intake_templates('server');
 
@@ -28,9 +31,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $projectType = (string)($_POST['project_type'] ?? '');
         $business = ps_require_business($actor, $projectType);
         $peopleLabels = ps_business_people_labels($projectType);
-        $domainMode = $business['resources'] ? (string)($_POST['domain_mode'] ?? '') : 'none';
+        $domainMode = $business['resources'] ? ($actor['role'] === 'customer_service' ? 'pending' : (string)($_POST['domain_mode'] ?? 'pending')) : 'none';
         $domainTemplate = $domainMode === 'template' ? ps_intake_template((int)($_POST['domain_template_id'] ?? 0), 'domain') : null;
-        $serverTemplate = $business['resources'] && (int)($_POST['server_template_id'] ?? 0) > 0 ? ps_intake_template((int)$_POST['server_template_id'], 'server') : null;
+        $serverTemplate = $business['resources'] && $actor['role'] !== 'customer_service' && (int)($_POST['server_template_id'] ?? 0) > 0 ? ps_intake_template((int)$_POST['server_template_id'], 'server') : null;
         if (!in_array($domainMode, ['pending', 'none', 'template'], true)) throw new RuntimeException('请选择待补充、无需域名或具体域名成本模板');
         if ($no === '' || strlen($no) > 100) throw new RuntimeException('请填写有效订单号');
         $existing = db()->prepare('SELECT id FROM project_orders WHERE order_no=?');
@@ -47,12 +50,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $parsedDate = DateTimeImmutable::createFromFormat('!Y-m-d', $date);
         if (!$parsedDate || $parsedDate->format('Y-m-d') !== $date) throw new RuntimeException('请选择有效日期');
         if (($contract !== '' && !preg_match('/^\d+(?:\.\d{1,2})?$/', $contract)) || !preg_match('/^\d+(?:\.\d{1,2})?$/', $receipt) || (float)$contract > 999999999999.99 || (float)$receipt > 999999999999.99) throw new RuntimeException('金额须为非负数，最多两位小数');
-        $sslCost = $business['resources'] ? trim((string)($_POST['ssl_cost'] ?? '')) : '';
+        $sslCost = $business['resources'] && $actor['role'] !== 'customer_service' ? trim((string)($_POST['ssl_cost'] ?? '')) : '';
         if ($sslCost !== '' && (!preg_match('/^\d+(?:\.\d{1,2})?$/', $sslCost) || (float)$sslCost > 999999999999.99)) throw new RuntimeException('SSL 实际成本最多两位小数');
         $customer = trim((string)($_POST['customer_name'] ?? ''));
         $shop = trim((string)($_POST['shop'] ?? ''));
         if ($shop !== '' && !in_array($shop, $shops, true)) throw new RuntimeException('请选择店铺列表中的店铺');
-        $details = ps_business_details($projectType, $_POST['details'] ?? []);
+        $details = ps_business_details($projectType, $actor['role'] === 'customer_service' && $projectType === '网站模板' ? [] : ($_POST['details'] ?? []));
         if (mb_strlen($customer) > 200 || mb_strlen($shop) > 150 || mb_strlen($projectType) > 100) throw new RuntimeException('客户、店铺或业务类型过长');
         $paymentNickname = trim((string)($_POST['payment_nickname'] ?? ''));
         $tradeStatus = trim((string)($_POST['trade_status'] ?? ''));
@@ -74,9 +77,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if (!isset($groups[$selfGroup][$selfId])) $groups[$selfGroup][$selfId] = ['id' => $selfId, 'role' => $selfGroup === 'technical' ? '技术' : '客服'];
         }
         if (!$groups['technical'] && !$groups['customer_service']) throw new RuntimeException('请至少选择一位客服或技术参与人');
-        if ($actor['role'] === 'customer_service' && $projectType === 'AI网站定制') {
-            if (!$groups['technical']) throw new RuntimeException('请指定接收此单的网站定制技术，保存后会进入对方的项目订单');
-            foreach ($groups['technical'] as $person) if (!in_array((int)$person['id'], $activeTechnicalIds, true)) throw new RuntimeException('指定的技术尚无有效登录账号，无法自动传递；请联系财务开通账号');
+        if ($actor['role'] === 'customer_service' && ps_is_website_order($projectType)) {
+            if (!$groups['technical']) throw new RuntimeException('请指定接收此单的技术，保存后会进入对方的项目订单');
+            foreach ($groups['technical'] as $person) if (!ps_active_employee_for_business($person['id'], 'technical', $projectType)) throw new RuntimeException('指定的技术未开通当前业务的有效账号，请联系财务配置');
+        }
+        if ($actor['role'] === 'technical' && ps_is_website_order($projectType)) {
+            foreach ($groups['customer_service'] as $person) if (!ps_active_employee_for_business($person['id'], 'customer_service', $projectType)) throw new RuntimeException('指定的客服未开通当前业务的有效账号，请联系财务配置');
         }
         $noteParts = [];
         if ($paymentNickname !== '') $noteParts[] = '付款昵称：' . $paymentNickname;
@@ -119,7 +125,7 @@ $page_title = $actor['role'] === 'finance' ? '项目订单结算' : '我的项�
 include __DIR__ . '/../includes/header.php';
 ?>
 <div class="project-intake-page">
-<div class="project-hero mb-3"><div><div class="project-eyebrow">项目合作结算中心 · 订单入口</div><h2><?php echo e($page_title); ?></h2><p>按业务切换录入模板，或拖入对应 Excel 核对。标准资源从成本中心带入，实收由财务确认。</p></div><div class="project-hero-actions"><?php if ($allowedBusinesses): ?><button class="btn btn-light" type="button" id="manualOrderToggle" aria-controls="manual-order" aria-expanded="<?php echo $error ? 'true' : 'false'; ?>"><i class="fas fa-pen mr-1"></i> <span><?php echo $error ? '收起手动录入' : '手动录入订单'; ?></span></button><a class="btn btn-outline-light" href="<?php echo BASE_URL; ?>/project/import.php?business=<?php echo rawurlencode($selectedBusiness); ?>"><i class="fas fa-file-excel mr-1"></i> 拖拽上传 Excel</a><?php endif; ?><?php if ($actor['role'] === 'finance'): ?><a class="btn btn-outline-light" href="<?php echo BASE_URL; ?>/project/settings.php#cost-center">成本中心</a><?php endif; ?></div></div>
+<div class="project-hero mb-3"><div><div class="project-eyebrow">项目合作结算中心 · 订单入口</div><h2><?php echo e($page_title); ?></h2><p><?php echo $actor['role'] === 'customer_service' ? '客服按网站模板或网站定制建单并指定技术；技术在同一订单号补资源和成本。' : ($actor['role'] === 'technical' ? '打开本人参与的订单补技术资料与成本；先建单时可在结算单关联客服。' : '客服与技术共用一张订单结算单。按业务切换模板，标准资源从成本中心带入。'); ?> 实收由财务确认。</p></div><div class="project-hero-actions"><?php if ($allowedBusinesses): ?><button class="btn btn-light" type="button" id="manualOrderToggle" aria-controls="manual-order" aria-expanded="<?php echo $error ? 'true' : 'false'; ?>"><i class="fas fa-pen mr-1"></i> <span><?php echo $error ? '收起手动录入' : '手动录入订单'; ?></span></button><a class="btn btn-outline-light" href="<?php echo BASE_URL; ?>/project/import.php?business=<?php echo rawurlencode($selectedBusiness); ?>"><i class="fas fa-file-excel mr-1"></i> 拖拽上传 Excel</a><?php endif; ?><?php if ($actor['role'] === 'finance'): ?><a class="btn btn-outline-light" href="<?php echo BASE_URL; ?>/project/settings.php#cost-center">成本中心</a><?php endif; ?></div></div>
 <?php if ($error): ?><div class="alert alert-danger"><?php echo e($error); ?></div><?php endif; ?>
 <?php if (!$allowedBusinesses): ?><div class="alert alert-warning">当前账户尚未匹配业务类型，请联系财务在项目结算配置中分配。</div><?php endif; ?>
 <?php if ($allowedBusinesses): ?>
@@ -133,11 +139,11 @@ include __DIR__ . '/../includes/header.php';
     <div class="form-row"><div class="form-group col-md-3"><label>项目交付状态</label><select class="form-control" name="delivery_status"><option value="unfinished">未完成</option><option value="finished" <?php echo ($_POST['delivery_status'] ?? '') === 'finished' ? 'selected' : ''; ?>>已完成</option></select><small class="text-muted">与店铺交易状态不同</small></div></div>
     <div class="form-row"><div class="form-group col-md-<?php echo $actor['role'] === 'finance' ? '9' : '12'; ?>"><label>备注 / 客户电话或微信</label><input class="form-control" name="contact_note" maxlength="500" value="<?php echo e($_POST['contact_note'] ?? ''); ?>" placeholder="仅参与本订单的合作人员和财务可见"></div><?php if ($actor['role'] === 'finance'): ?><div class="form-group col-md-3"><label>已确认实收</label><input class="form-control" type="number" step="0.01" min="0" name="receipt_amount" value="<?php echo e($_POST['receipt_amount'] ?? '0'); ?>" required></div><?php endif; ?></div>
     <div class="project-divider"></div><div class="project-mini-title">参与人员 <small>本人会自动加入对应组；多人合作先均分，财务可在结算单调整权重</small></div>
-    <div class="form-row"><div class="form-group col-md-4"><label>客服</label><select class="form-control" name="customer_service_id"><option value="0">待指定</option><?php foreach ($employees as $emp): ?><option value="<?php echo (int)$emp['id']; ?>" <?php echo (int)($_POST['customer_service_id'] ?? ($actor['role'] === 'customer_service' ? $actor['employee_id'] : 0)) === (int)$emp['id'] ? 'selected' : ''; ?>><?php echo e($emp['name'] . ' · ' . $emp['department']); ?></option><?php endforeach; ?></select></div><div class="form-group col-md-4"><label id="intakeFrontendLabel"><?php echo e(ps_business_people_labels($selectedBusiness)['frontend']); ?></label><select class="form-control" name="frontend_id"><option value="0">待指定</option><?php foreach ($employees as $emp): ?><option value="<?php echo (int)$emp['id']; ?>" <?php echo (int)($_POST['frontend_id'] ?? ($actor['role'] === 'technical' ? $actor['employee_id'] : 0)) === (int)$emp['id'] ? 'selected' : ''; ?>><?php echo e($emp['name'] . ' · ' . $emp['department']); ?></option><?php endforeach; ?></select></div><div class="form-group col-md-4"><label id="intakeBackendLabel"><?php echo e(ps_business_people_labels($selectedBusiness)['backend']); ?></label><select class="form-control" name="backend_id"><option value="0">无 / 待指定</option><?php foreach ($employees as $emp): ?><option value="<?php echo (int)$emp['id']; ?>" <?php echo (int)($_POST['backend_id'] ?? 0) === (int)$emp['id'] ? 'selected' : ''; ?>><?php echo e($emp['name'] . ' · ' . $emp['department']); ?></option><?php endforeach; ?></select></div></div>
-    <?php foreach ($allowedBusinesses as $businessName): $specificFields = $businessCatalog[$businessName]['fields']; if (!$specificFields) continue; ?>
+    <div class="form-row"><div class="form-group col-md-4"><label id="intakeCustomerServiceLabel"><?php echo ps_is_website_order($selectedBusiness) ? '网站客服' : '客服'; ?></label><select class="form-control" name="customer_service_id"><option value="0">待关联，可在结算单补</option><?php foreach ($customerServiceChoices as $emp): ?><option value="<?php echo (int)$emp['id']; ?>" <?php echo (int)($_POST['customer_service_id'] ?? ($actor['role'] === 'customer_service' ? $actor['employee_id'] : 0)) === (int)$emp['id'] ? 'selected' : ''; ?>><?php echo e($emp['name'] . ' · ' . $emp['department']); ?></option><?php endforeach; ?></select></div><div class="form-group col-md-4"><label id="intakeFrontendLabel"><?php echo e(ps_business_people_labels($selectedBusiness)['frontend']); ?></label><select class="form-control" name="frontend_id"><option value="0">待指定</option><?php foreach ($technicalChoices as $emp): ?><option value="<?php echo (int)$emp['id']; ?>" <?php echo (int)($_POST['frontend_id'] ?? ($actor['role'] === 'technical' ? $actor['employee_id'] : 0)) === (int)$emp['id'] ? 'selected' : ''; ?>><?php echo e($emp['name'] . ' · ' . $emp['department']); ?></option><?php endforeach; ?></select></div><div class="form-group col-md-4"><label id="intakeBackendLabel"><?php echo e(ps_business_people_labels($selectedBusiness)['backend']); ?></label><select class="form-control" name="backend_id"><option value="0">无 / 待指定</option><?php foreach ($technicalChoices as $emp): ?><option value="<?php echo (int)$emp['id']; ?>" <?php echo (int)($_POST['backend_id'] ?? 0) === (int)$emp['id'] ? 'selected' : ''; ?>><?php echo e($emp['name'] . ' · ' . $emp['department']); ?></option><?php endforeach; ?></select></div></div>
+    <?php foreach ($allowedBusinesses as $businessName): $specificFields = $businessCatalog[$businessName]['fields']; if (!$specificFields || ($actor['role'] === 'customer_service' && $businessName === '网站模板')) continue; ?>
     <div class="project-business-fields" data-business="<?php echo e($businessName); ?>"><div class="project-divider"></div><div class="project-mini-title"><?php echo e($businessName); ?>专属信息</div><div class="form-row"><?php foreach ($specificFields as $fieldKey => $fieldLabel): ?><div class="form-group col-md-6"><label><?php echo e($fieldLabel); ?></label><input class="form-control" name="details[<?php echo e($fieldKey); ?>]" maxlength="300" value="<?php echo e($_POST['details'][$fieldKey] ?? ''); ?>" placeholder="填写<?php echo e($fieldLabel); ?>"></div><?php endforeach; ?></div></div>
     <?php endforeach; ?>
-    <div id="intakeResourceFields"><div class="project-divider"></div><div class="project-mini-title">资源与成本 <small>可以先留空，技术确认后再计成本；无需域名不产生域名成本</small></div>
+    <div id="intakeResourceFields"><div class="project-divider"></div><div class="project-mini-title">技术提交 · 资源与成本 <small>可以先留空，技术确认后再计成本；无需域名不产生域名成本</small></div>
     <div class="form-row"><div class="form-group col-md-4"><label>域名使用</label><select class="form-control" id="intakeDomainMode" name="domain_mode"><option value="pending" <?php echo ($_POST['domain_mode'] ?? 'pending') === 'pending' ? 'selected' : ''; ?>>待技术确认</option><option value="none" <?php echo ($_POST['domain_mode'] ?? '') === 'none' ? 'selected' : ''; ?>>无需域名</option><option value="template" <?php echo ($_POST['domain_mode'] ?? '') === 'template' ? 'selected' : ''; ?>>使用标准域名</option></select></div><div class="form-group col-md-4" id="intakeDomainTemplateWrap"><label>域名规格与周期</label><select class="form-control" id="intakeDomainTemplate" name="domain_template_id"><option value="">请选择标准模板</option><?php foreach ($domainTemplates as $t): ?><option value="<?php echo (int)$t['id']; ?>" data-price="<?php echo e($t['price']); ?>" <?php echo (int)($_POST['domain_template_id'] ?? 0) === (int)$t['id'] ? 'selected' : ''; ?>><?php echo e(trim($t['name'] . ' ' . $t['specification']) . ' · ¥' . money($t['price']) . '/' . $t['unit']); ?></option><?php endforeach; ?></select><?php if (!$domainTemplates): ?><small class="text-warning">尚无可用域名成本模板，请财务先配置价格。</small><?php endif; ?></div><div class="form-group col-md-4"><label>服务器 / 空间（如使用）</label><select class="form-control" id="intakeServerTemplate" name="server_template_id"><option value="0">本单不选标准服务器</option><?php foreach ($serverTemplates as $t): ?><option value="<?php echo (int)$t['id']; ?>" data-price="<?php echo e($t['price']); ?>" <?php echo (int)($_POST['server_template_id'] ?? 0) === (int)$t['id'] ? 'selected' : ''; ?>><?php echo e(trim($t['name'] . ' ' . $t['specification']) . ' · ¥' . money($t['price']) . '/' . $t['unit']); ?></option><?php endforeach; ?></select></div></div>
     <div class="form-row"><div class="form-group col-md-8"><label>域名或空间说明</label><input class="form-control" name="resource_note" maxlength="500" value="<?php echo e($_POST['resource_note'] ?? ''); ?>" placeholder="如客户域名 example.com、服务器账户或续费提醒"></div><div class="form-group col-md-4"><label>SSL 证书真实成本（如有）</label><input class="form-control" type="number" step="0.01" min="0" name="ssl_cost" value="<?php echo e($_POST['ssl_cost'] ?? ''); ?>" placeholder="非标准成本，创建后补凭证"></div></div>
     <div class="project-cost-strip"><span><i class="fas fa-receipt mr-1"></i> 自动带入标准成本</span><strong id="intakeCostTotal">¥0.00</strong><small id="intakeCostHint">请先选择域名使用方式</small></div></div>
@@ -169,6 +175,7 @@ include __DIR__ . '/../includes/header.php';
   });
   var business = document.getElementById('intakeBusiness');
   var resourceFields = document.getElementById('intakeResourceFields');
+  var canEditResources = <?php echo $actor['role'] === 'customer_service' ? 'false' : 'true'; ?>;
   var resourceBusinesses = <?php echo json_encode(array_values(array_keys(array_filter($businessCatalog, function ($item) { return $item['resources']; }))), JSON_UNESCAPED_UNICODE); ?>;
   var peopleLabels = <?php echo json_encode(array_reduce(array_keys($businessCatalog), function ($result, $name) { $result[$name] = ps_business_people_labels($name); return $result; }, []), JSON_UNESCAPED_UNICODE); ?>;
   var mode = document.getElementById('intakeDomainMode');
@@ -181,9 +188,10 @@ include __DIR__ . '/../includes/header.php';
     var resources = resourceBusinesses.indexOf(business.value) !== -1;
     document.getElementById('intakeFrontendLabel').textContent = peopleLabels[business.value].frontend;
     document.getElementById('intakeBackendLabel').textContent = peopleLabels[business.value].backend;
+    document.getElementById('intakeCustomerServiceLabel').textContent = business.value === '网站模板' || business.value === 'AI网站定制' ? '网站客服' : '客服';
     document.getElementById('intakeFooterHint').textContent = '合作人员提交的售价仅作订单申报，实收仍由财务审核。' + (resources ? ' SSL 非标准成本须补凭证后审核。' : ' 如有特殊成本，可在结算单中补录凭证。');
-    resourceFields.hidden = !resources;
-    resourceFields.querySelectorAll('input,select').forEach(function (input) { input.disabled = !resources; });
+    resourceFields.hidden = !resources || !canEditResources;
+    resourceFields.querySelectorAll('input,select').forEach(function (input) { input.disabled = !resources || !canEditResources; });
     document.querySelectorAll('.project-business-fields').forEach(function (section) {
       var active = section.dataset.business === business.value;
       section.hidden = !active;
@@ -191,8 +199,8 @@ include __DIR__ . '/../includes/header.php';
     });
     var usesDomain = resources && mode.value === 'template';
     domainWrap.hidden = !usesDomain;
-    mode.required = resources;
-    domain.required = usesDomain;
+    mode.required = resources && canEditResources;
+    domain.required = usesDomain && canEditResources;
     var cost = (usesDomain ? price(domain) : 0) + price(server);
     document.getElementById('intakeCostTotal').textContent = '¥' + cost.toFixed(2);
     document.getElementById('intakeCostHint').textContent = mode.value === 'pending' ? '域名待技术确认，暂不计成本' : (usesDomain && !domain.value ? '选择域名规格后显示标准价' : '最终以保存时成本模板单价为准');

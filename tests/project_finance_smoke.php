@@ -12,6 +12,12 @@ function check_project_value($actual, $expected, $label)
 $pdo = db();
 $pdo->beginTransaction();
 try {
+    $websiteMigration = file_get_contents(__DIR__ . '/../migrations/20260923_website_commission_rules.sql');
+    foreach (preg_split('/;\s*(?:\r?\n|$)/', $websiteMigration) as $statement) if (trim($statement) !== '') $pdo->exec($statement);
+    $defaultCount = (int)$pdo->query("SELECT COUNT(*) FROM project_commission_rules WHERE (commission_group='technical' AND project_type='网站模板') OR (commission_group='customer_service' AND project_type IN ('网站模板','AI网站定制'))")->fetchColumn();
+    foreach (preg_split('/;\s*(?:\r?\n|$)/', $websiteMigration) as $statement) if (trim($statement) !== '') $pdo->exec($statement);
+    $repeatCount = (int)$pdo->query("SELECT COUNT(*) FROM project_commission_rules WHERE (commission_group='technical' AND project_type='网站模板') OR (commission_group='customer_service' AND project_type IN ('网站模板','AI网站定制'))")->fetchColumn();
+    if ($repeatCount !== $defaultCount) throw new RuntimeException('网站默认规则迁移重复执行后产生了重复规则');
     $no = 'SMOKE-' . bin2hex(random_bytes(8));
     $pdo->prepare("INSERT INTO project_orders (order_no,project_type,contract_amount,order_date,delivery_status) VALUES (?,?,6800,CURDATE(),'finished')")
         ->execute([$no, $no]);
@@ -46,6 +52,19 @@ try {
     check_project_value($summary['estimated_profit'], 5285, 'pending-cost estimate');
     check_project_value($summary['groups']['technical']['pool'], 658.20, 'technical pool');
     check_project_value($summary['groups']['customer_service']['pool'], 274.25, 'customer-service pool');
+    $pdo->prepare("INSERT INTO project_commission_rules (commission_group,project_type,rate,effective_from) VALUES ('technical','网站模板',0.13,'2098-01-01'),('customer_service','网站模板',0.08,'2098-01-01'),('technical','AI网站定制',0.12,'2098-01-01')")->execute();
+    $websiteOrder = ['project_type' => '网站模板', 'contract_amount' => 10000, 'receipt_amount' => 10000, 'refund_amount' => 0, 'order_date' => '2099-01-01'];
+    $websitePeople = [['commission_group' => 'technical', 'group_weight' => 1], ['commission_group' => 'customer_service', 'group_weight' => 0.5], ['commission_group' => 'customer_service', 'group_weight' => 0.5]];
+    $websiteSummary = ps_summary($websiteOrder, [['amount' => 1875, 'review_status' => 'approved']], $websitePeople);
+    check_project_value($websiteSummary['service_fee'], 300, 'website template service fee');
+    check_project_value($websiteSummary['profit'], 7825, 'website template contribution profit');
+    check_project_value($websiteSummary['groups']['technical']['pool'], 1017.25, 'website template technical pool 13%');
+    check_project_value($websiteSummary['groups']['customer_service']['pool'], 626, 'website template customer-service pool 8%');
+    $customOrder = $websiteOrder;
+    $customOrder['project_type'] = '网站定制';
+    $customSummary = ps_summary($customOrder, [], [['commission_group' => 'technical', 'group_weight' => 1]]);
+    check_project_value($customSummary['service_fee'], 0, 'website custom should not inherit template fee');
+    check_project_value($customSummary['groups']['technical']['pool'], 1200, 'website custom uses AI technical rate');
     check_project_value(ps_settlement_preview(6000, 274.25), 6274.25, 'customer-service additive settlement');
     check_project_value(ps_settlement_preview(6000, 603.35, 100, true), 6503.35, 'technical old commission replaced');
     if (ps_settlement_preview(6000, 603.35, 0, false) !== null) throw new RuntimeException('待核对的技术分成不能显示预计应结算金额');
