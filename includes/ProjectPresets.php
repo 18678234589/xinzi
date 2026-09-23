@@ -34,7 +34,7 @@ function ps_preset_cost_templates()
     $program('建站兔展示推广版', ['1年 空间+域名' => [180,230], '1年 空间' => [100,150]]);
     $program('米拓银牌代理模板', ['1年 空间+域名' => [499,549]]);
     $program('DEDE', ['无空间域名（仅商投）' => [0,50]]);
-    $program('PHP', ['1年 空间+域名' => [80,170], '1年 空间（不加商投）' => [0,90]]);
+    $program('PHP', ['1年 空间+域名' => [80,100], '1年 空间（不加商投）' => [0,90]]);
     $program('纯利润', ['无成本（加购/补差价）' => [0,0]]);
     foreach (['https加密功能/SSL证书软件' => 160, '短信包' => 80, '邮件群发' => 80, '物流功能（接口）' => 400, '安卓APP上架' => 300, '苹果APP上架' => 600, 'JSP商城加手机端口' => 400] as $name => $price) {
         $rows[] = ['category' => 'plugin', 'business_scope' => '网站模板', 'name' => $name, 'specification' => '1年', 'unit' => '项', 'cost_kind' => 'annual', 'price' => $price, 'supplier_price' => $price];

@@ -55,7 +55,7 @@ include __DIR__ . '/includes/header.php';
 <div class="dash-grid mb-3">
     <div class="dash-tile"><span class="dash-tile-icon sky"><i class="fas fa-users"></i></span><div><small>合作人员</small><strong><?php echo $emp_count; ?></strong></div></div>
     <div class="dash-tile"><span class="dash-tile-icon amber"><i class="fas fa-receipt"></i></span><div><small>店铺订单总数</small><strong><?php echo number_format($order_count); ?></strong></div></div>
-    <div class="dash-tile"><span class="dash-tile-icon"><i class="fas fa-yen-sign"></i></span><div><small>店铺订单总金额</small><strong>¥<?php echo money($order_total); ?></strong></div></div>
+    <div class="dash-tile"><span class="dash-tile-icon"><i class="fas fa-yen-sign"></i></span><div><small>店铺订单总金额</small><strong title="¥<?php echo money($order_total); ?>">¥<?php echo $order_total >= 100000 ? number_format($order_total / 10000, 2) . '<span class="dash-unit">万</span>' : money($order_total); ?></strong></div></div>
     <div class="dash-tile"><span class="dash-tile-icon plum"><i class="fas fa-folder-open"></i></span><div><small>本月项目订单</small><strong><?php echo $project_todo ? (int)$project_todo['month_orders'] : '—'; ?></strong></div></div>
 </div>
 

@@ -472,3 +472,15 @@ body.app-warm::before {
 }
 .app-warm .table-bordered, .app-warm .table-bordered td, .app-warm .table-bordered th { border-color: var(--mac-hair); border-width: .5px; }
 .app-warm .text-primary { color: var(--mac-accent) !important; }
+/* 工作台磁贴：金额随磁贴宽度自动缩放，不再撑出方块 */
+.app-warm .dash-tile { container-type: inline-size; min-width: 0; }
+.app-warm .dash-tile > div { min-width: 0; flex: 1 1 auto; }
+.app-warm .dash-tile strong { display: block; font-size: 1.3rem; line-height: 1.25; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+@supports (font-size: 1cqi) { .app-warm .dash-tile strong { font-size: clamp(.95rem, 9.5cqi, 1.45rem); } }
+.app-warm .dash-grid { grid-template-columns: repeat(auto-fit, minmax(168px, 1fr)); }
+.app-warm .dash-tile { padding: 16px; gap: 12px; }
+.app-warm .dash-tile-icon { flex-basis: 42px; height: 42px; }
+.app-warm .dash-actions { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
+@media (max-width: 575.98px) { .app-warm .dash-grid, .app-warm .dash-actions { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.app-warm .dash-tile strong { text-overflow: clip; }
+.dash-unit { font-size: .62em; font-weight: 600; margin-left: 2px; color: var(--mac-ink-2); }

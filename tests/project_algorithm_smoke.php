@@ -40,7 +40,7 @@ try {
     check_algorithm($match('5年JSP展示中级版'), 950, '5年JSP展示中级版成本');
     check_algorithm($match('4年JSP展示中级版'), 860, '4年JSP展示中级版成本');
     check_algorithm($match('JSP展示高级版'), 530, 'JSP展示高级版默认 1 年空间+域名');
-    check_algorithm($match('PHP'), 170, 'PHP 空间+域名');
+    check_algorithm($match('PHP'), 100, 'PHP 空间+域名（phpweb 成本按 100）');
     check_algorithm($match('优站'), 230, '优站 1 年空间+域名');
     if ($match('不存在的程序') !== null) throw new RuntimeException('未知程序不应自动匹配');
 
