@@ -16,7 +16,8 @@ function ps_business_catalog()
         '小程序开发' => ['departments' => ['小程序技术','小程序','标书小程序'], 'resources' => false, 'requires_technical' => true, 'service_fee_rate' => 0.03, 'order_kinds' => ['新订单','定制','续费','技术服务'], 'kind_required' => true, 'fields' => ['miniapp_name' => '小程序名称', 'make_requirement' => '制作要求', 'customer_wechat' => '客户微信']],
         '小额引流' => ['departments' => [], 'resources' => false, 'requires_technical' => false, 'service_fee_rate' => 0, 'order_kinds' => [], 'fields' => ['refund_diff' => '客户退差价金额', 'service_item' => '业务说明']],
         '小程序客服' => ['departments' => ['小程序客服'], 'resources' => false, 'fields' => ['miniapp_name' => '小程序名称', 'service_item' => '服务事项'], 'legacy' => true],
-        '设计' => ['departments' => ['设计客服','美工部'], 'resources' => false, 'order_kinds' => [], 'fields' => ['design_item' => '设计内容', 'deliverable' => '交付文件 / 规格']],
+        // 设计客服：PPT (售价 − 5.5% − 设计师 40%) × 5%；图片 (售价 − 3.1%) × 5% + 0.5 元/单（同一客户当月只计一单，其余记“图片同客户”）。
+        '设计' => ['departments' => ['设计客服','美工部','设计'], 'resources' => false, 'requires_technical' => false, 'service_fee_rate' => 0.031, 'order_kinds' => ['图片', '图片同客户', 'PPT'], 'kind_required' => true, 'free_shop' => true, 'fields' => ['designer_code' => '设计师', 'design_item' => '设计内容']],
         // 代写：店铺软文代写（代写客服接单，微信代写编辑“对接建群”作为协作执行）；成本 = 写手实际稿费，服务费 5.7%。
         '软文代写' => ['departments' => ['代写客服', '代写.客服', '代写.主管'], 'resources' => false, 'requires_technical' => false, 'service_fee_rate' => 0.057, 'order_kinds' => ['新订单', '合并单', '退款冲减'], 'import_cost' => true, 'free_shop' => true, 'fields' => ['writer_code' => '写手编号', 'writing_volume' => '字数']],
         // 期刊：店铺付款扣 5.7%，微信付款扣 0.35%；代付版面费单不计单量提成。
@@ -173,6 +174,13 @@ function ps_business_import_columns($business)
         $columns['unit_marker'] = ['提成'];
         $columns['pay_mode'] = ['模式'];
     }
+    // 设计部总表：“序号”列写的是客服，“设计师佣金”列出现即 PPT 表，按“旺旺”识别同一客户
+    if ($business === '设计') {
+        $columns['customer_service'][] = '序号';
+        $columns['payment_nickname'] = array_merge($columns['payment_nickname'], ['旺旺', '客户旺旺或者微信名称']);
+        $columns['order_no'] = array_merge($columns['order_no'], ['编码或者订单号']);
+        $columns['ppt_marker'] = ['设计师佣金'];
+    }
     if (!empty($definition['program'])) $columns['program_name'] = ['程序名称', '程序套餐'];
     if ($definition['resources']) {
         $columns['domain_used'] = ['域名使用（写是/否）', '域名使用'];
@@ -214,7 +222,9 @@ function ps_import_delivery_status($text)
 {
     $text = trim((string)$text);
     if ($text === '') return 'unfinished';
-    if (in_array($text, ['已完成','完成','已发货','已交','到账','已到账','交易成功','售后返'], true)) return 'finished';
+    if (in_array($text, ['已完成','完成','已发货','已交','到账','已到账','交易成功','售后返','发货'], true)) return 'finished';
+    // 设计总表常见“到账5”“发货15”（状态后跟补差金额）
+    if (preg_match('/^(到账|已到账|发货|已发货)\d+(?:\.\d+)?$/u', $text)) return 'finished';
     foreach (['未完成','未发货','暂不发货','进行中','欠尾款','未到账','交易关闭'] as $open) if (mb_strpos($text, $open) !== false) return 'unfinished';
     return null;
 }

@@ -46,10 +46,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if ($ext === 'xlsx') $raw = SimpleXLSX::parse($_FILES['file']['tmp_name']);
             else {
                 $raw = []; $handle = fopen($_FILES['file']['tmp_name'], 'rb');
-                while (($line = fgetcsv($handle)) !== false && count($raw) <= 501) $raw[] = array_map(function ($v) { return mb_convert_encoding($v, 'UTF-8', 'UTF-8,GBK,GB2312'); }, $line);
+                while (($line = fgetcsv($handle)) !== false && count($raw) <= 1501) $raw[] = array_map(function ($v) { return mb_convert_encoding($v, 'UTF-8', 'UTF-8,GBK,GB2312'); }, $line);
                 fclose($handle);
             }
-            if (count($raw) < 2 || count($raw) > 502) throw new RuntimeException('文件须包含表头与数据，且一次最多 500 行');
+            if (count($raw) < 2 || count($raw) > 1502) throw new RuntimeException("文件须包含表头与数据，且一次最多 1500 行");
             $head = array_map(function ($v) { return trim((string)$v); }, array_shift($raw));
             $head[0] = preg_replace('/^\xEF\xBB\xBF/', '', $head[0] ?? '');
             // 表头按别名匹配：原 AI 定制模板、部门现有表（付款账号 / 接单日期 / 到账情况 / 程序名称…）都可直接上传。
@@ -90,6 +90,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         $record['status'] = '补充已有订单';
                     }
                     $record['order_date'] = ps_import_date($lookup($row, 'order_date'));
+                    // 部门原表偶有把时间写进日期列（如 18.05、“17. 00”）：按今天建单并提示核对
+                    if (!$record['order_date'] && !empty($businessDefinition['free_shop']) && $lookup($row, 'order_date') !== '' && ($lookup($row, 'order_no') !== '' && $lookup($row, 'contract_amount') !== '')) { $record['order_date'] = date('Y-m-d'); $record['warning'] = '日期“' . $lookup($row, 'order_date') . '”无法识别，已按今天建单，请核对'; }
                     $record['contract_amount'] = str_replace([',','¥','￥',' '], '', $lookup($row, 'contract_amount'));
                     if (preg_match('/^\d+\.\d{3,}$/', $record['contract_amount'])) $record['contract_amount'] = number_format((float)$record['contract_amount'], 2, '.', '');
                     $status = $lookup($row, 'status');
@@ -120,6 +122,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         elseif (mb_strpos($shopText, '微信') !== false && in_array('微信付款', $orderKinds, true)) $kindText = '微信付款';
                         elseif (in_array('店铺付款', $orderKinds, true)) $kindText = '店铺付款';
                         elseif (in_array('店铺订单', $orderKinds, true)) $kindText = '店铺订单';
+                    }
+                    // 设计：有“设计师佣金”列的是 PPT 总表，否则是图片总表；同一客服同一客户当月第二单起记“图片同客户”（不计单量）。
+                    if ($kindText === '' && $selectedBusiness === '设计') {
+                        $kindText = isset($columnMap['ppt_marker']) ? 'PPT' : '图片';
+                        $designDate = ps_import_date($lookup($row, 'order_date'));
+                        $customerKey = preg_replace('/[\s\x{3000}\x{00A0}]+/u', '', mb_strtolower($lookup($row, 'payment_nickname')));
+                        if ($kindText === '图片' && $customerKey !== '' && $designDate) {
+                            $monthKey = substr($designDate, 0, 7) . '|' . $lookup($row, 'customer_service') . '|' . $customerKey;
+                            $designRepeat = $designRepeat ?? db()->prepare("SELECT 1 FROM project_orders o JOIN project_participants p ON p.order_id=o.id AND p.commission_group='customer_service' JOIN employees e ON e.id=p.employee_id WHERE o.project_type='设计' AND o.order_kind='图片' AND DATE_FORMAT(o.order_date,'%Y-%m')=? AND e.name=? AND REPLACE(LOWER(o.customer_name),' ','')=? LIMIT 1");
+                            $designRepeat->execute([substr($designDate, 0, 7), $lookup($row, 'customer_service'), $customerKey]);
+                            if (isset($designSeen[$monthKey]) || $designRepeat->fetchColumn()) $kindText = '图片同客户';
+                            $designSeen[$monthKey] = true;
+                        }
                     }
                     if ($kindText === '' && !empty($businessDefinition['kind_required'])) throw new RuntimeException('缺少订单类型（新订单 / 定制 / 续费），可在“订单类型”列或“备注”列填写');
                     $record['order_kind'] = $kindText;
@@ -352,7 +367,7 @@ include __DIR__ . '/../includes/header.php';
 <?php if ($error): ?><div class="alert alert-danger"><?php echo e($error); ?></div><?php endif; ?>
 <?php if ($imported): ?><div class="alert alert-success">已导入 <?php echo $imported; ?> 个订单<?php echo $skipped ? '；另有 ' . $skipped . ' 行未通过核对，未写入' : ''; ?>。<?php echo $businessDefinition['resources'] ? '已选择的标准域名/服务器成本按模板价生成；' : ''; ?>实收仍须财务确认。</div><?php endif; ?>
 <?php if (!$selectedBusiness): ?><div class="alert alert-warning">当前账户尚未分配业务，请联系财务配置。</div><?php else: ?>
-<div class="card project-form-card mb-3"><div class="card-body"><div class="project-section-title"><span class="project-step">01</span><div><h5>上传订单表</h5><p>支持 .xlsx / .csv，最多 500 行、5 MB。技术和客服只能导入写有本人参与的订单；网站客服新单须指定接单技术。</p></div></div>
+<div class="card project-form-card mb-3"><div class="card-body"><div class="project-section-title"><span class="project-step">01</span><div><h5>上传订单表</h5><p>支持 .xlsx / .csv，最多 1500 行、5 MB。技术和客服只能导入写有本人参与的订单；网站客服新单须指定接单技术。</p></div></div>
 <form method="get" class="form-inline mb-3"><label class="mr-2" for="importBusiness">业务模板</label><select id="importBusiness" name="business" class="form-control mr-2" onchange="this.form.submit()"><?php foreach ($allowedBusinesses as $businessName): ?><option value="<?php echo e($businessName); ?>" <?php echo $selectedBusiness === $businessName ? 'selected' : ''; ?>><?php echo e($businessName); ?></option><?php endforeach; ?></select><a class="btn btn-outline-success" href="?business=<?php echo rawurlencode($selectedBusiness); ?>&download=1">下载此业务 CSV 表头</a></form>
 <form method="post" enctype="multipart/form-data" id="projectUploadForm"><input type="hidden" name="csrf" value="<?php echo e(ps_csrf_token()); ?>"><input type="hidden" name="action" value="preview"><input type="hidden" name="business" value="<?php echo e($selectedBusiness); ?>"><label for="projectImportFile" id="projectDropZone" class="project-drop-zone"><i class="fas fa-cloud-upload-alt"></i><strong>拖拽 Excel 到这里，或点击选择文件</strong><span id="projectFileName">尚未选择文件</span><input type="file" id="projectImportFile" name="file" accept=".xlsx,.csv" required></label><button class="btn btn-success btn-lg mt-3" type="submit">上传并核对每一行</button></form></div></div>
 <?php endif; ?>
