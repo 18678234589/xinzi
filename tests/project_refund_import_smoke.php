@@ -1,6 +1,7 @@
 <?php
 if (PHP_SAPI !== 'cli') { http_response_code(403); exit; }
 require_once __DIR__ . '/../includes/ProjectRefundImport.php';
+require_once __DIR__ . '/../includes/ProjectOrderSource.php';
 
 function refund_check($condition, $message)
 {
@@ -14,6 +15,8 @@ $map = ps_refund_header_map(['退款日期', '成交时间', '付款账号（旺
 refund_check($map['order_no'] === 3 && $map['amount'] === 4 && $map['business'] === 5 && $map['method'] === 6, '退款部原表表头未识别');
 $cashbackMap = ps_refund_header_map(['返现日期', '店铺', '订单编号', '付款昵称', '返现方式', '支付宝', '手机号', '返现金额', '客服', '是否完成', '返款后实际金额', '客服记录']);
 refund_check($cashbackMap['refund_date'] === 0 && $cashbackMap['order_no'] === 2 && $cashbackMap['method'] === 4 && $cashbackMap['amount'] === 7 && $cashbackMap['reason'] === 11, '网站返现原表表头未识别');
+refund_check(ps_refund_method('微信退款') === '微信' && ps_refund_method('银行转账') === '银行卡' && ps_refund_method('售中退款') === '店铺', '退款渠道识别错误');
+refund_check(ps_refund_header_map(['原支付流水号','退款日期','退款金额'])['source_reference'] === 0, '无店铺单号的支付流水表头未识别');
 
 $pdo = db(); $pdo->beginTransaction();
 try {
@@ -26,14 +29,14 @@ try {
     if (is_file($cashbackPath)) {
         [$cashbackRows] = ps_refund_parse_file(['id' => 0, 'stored_name' => 'cashback.xlsx', 'content' => file_get_contents($cashbackPath)], $finance);
         refund_check(count($cashbackRows) === 7, '网站返现原表应识别七笔明细并跳过合计行');
-        refund_check(count(array_filter($cashbackRows, function ($r) { return $r['error'] === ''; })) === 6, '网站返现原表应仅排除非支付宝行');
+        refund_check(count(array_filter($cashbackRows, function ($r) { return $r['error'] === ''; })) === 7, '网站返现原表其他渠道不应被禁止登记');
         refund_check(count(array_filter($cashbackRows, function ($r) { return $r['warning'] !== ''; })) >= 1, '个人微信或垫付备注应进入财务待核');
     }
     $refundPath = __DIR__ . '/../订单模板与成本及算法/综合售后部/2026年8月退款部退款表.xlsx';
     if (is_file($refundPath)) {
         [$refundRows] = ps_refund_parse_file(['id' => 0, 'stored_name' => 'refund.xlsx', 'content' => file_get_contents($refundPath)], $finance);
         refund_check(count($refundRows) === 67, '大体积退款部原表未正确识别明细');
-        refund_check(count(array_filter($refundRows, function ($r) { return $r['error'] === ''; })) === 4, '退款部混合业务应只保留网站支付宝四笔待核');
+        refund_check(count(array_filter($refundRows, function ($r) { return $r['error'] === ''; })) > 4, '退款部混合业务或其他渠道不应整批禁止登记');
     }
     $no = 'REFUND-TEST-' . bin2hex(random_bytes(6));
     $pdo->prepare("INSERT INTO project_orders (order_no,project_type,contract_amount,order_date,delivery_status) VALUES (?,'网站模板',500,CURDATE(),'finished')")->execute([$no]);
@@ -70,6 +73,37 @@ try {
     refund_check(ps_refund_commit_rows([$noRef], ['0'], $finance, '2099-12') === 1, '财务应能先留档无流水号退款');
     $q = $pdo->prepare('SELECT review_status FROM project_refund_import_rows WHERE fingerprint=?'); $q->execute([$noRef['fingerprint']]);
     refund_check($q->fetchColumn() === 'pending', '无流水号不能自动通过财务审核');
+    // 非网站业务与微信付款：只填原支付流水即可关联原订单，仍先登记待审。
+    $wxNo = 'WX-REFUND-' . bin2hex(random_bytes(5)); $wxPayment = 'WX-PAY-' . bin2hex(random_bytes(5)); $wxRefund = 'WX-RETURN-' . bin2hex(random_bytes(5));
+    $pdo->prepare("INSERT INTO project_orders (order_no,project_type,contract_amount,order_date,delivery_status) VALUES (?,'小程序开发',500,CURDATE(),'finished')")->execute([$wxNo]);
+    $wxOrderId = (int)$pdo->lastInsertId();
+    ps_source_record($wxOrderId, 'manual', '', '', $wxPayment);
+    $pdo->prepare("INSERT INTO project_participants (order_id,employee_id,commission_group,role_name,group_weight) VALUES (?,?,'customer_service','客服',1)")->execute([$wxOrderId, $employeeId]);
+    $pdo->prepare("INSERT INTO project_cash_movements (order_id,movement_type,amount,review_status,submitted_by_type,submitted_by_id) VALUES (?,'receipt',500,'approved','system',0)")->execute([$wxOrderId]);
+    ps_recalculate_cash($wxOrderId);
+    $wxInput = ['source_reference' => $wxPayment, 'refund_date' => '2026-09-03', 'amount' => '80', 'reference' => $wxRefund, 'method' => '微信', 'business' => '小程序开发'];
+    $wxPreview = ps_refund_preview_row($wxInput, ps_refund_fingerprint($wxInput), $finance);
+    refund_check($wxPreview['error'] === '' && $wxPreview['order_id'] === $wxOrderId && $wxPreview['order_no'] === $wxNo, '微信原支付流水未自动关联小程序订单');
+    refund_check(ps_refund_commit_rows([$wxPreview], ['0'], $finance, '2099-12') === 1, '非网站微信退款登记失败');
+    $q = $pdo->prepare('SELECT id,review_status FROM project_refund_import_rows WHERE fingerprint=?'); $q->execute([$wxPreview['fingerprint']]); $wxSaved = $q->fetch();
+    refund_check($wxSaved && $wxSaved['review_status'] === 'pending', '财务登记不应未经核实直接扣款');
+    ps_refund_review((int)$wxSaved['id'], 'approved', $finance, '2099-12', false, '', $wxPayment, '微信', $wxRefund);
+    $q = $pdo->prepare('SELECT refund_amount FROM project_orders WHERE id=?'); $q->execute([$wxOrderId]);
+    refund_check((float)$q->fetchColumn() === 80.0, '微信退款未冲减原订单实收');
+    $otherBusiness = ps_refund_preview_row(['order_no' => 'UNMATCHED-' . $wxNo, 'refund_date' => '2026-09-04', 'amount' => '30', 'method' => '', 'business' => '期刊发表'], hash('sha256', 'other-business|' . $wxNo), $finance);
+    refund_check($otherBusiness['error'] === '' && $otherBusiness['status'] === '待财务匹配订单', '原表非网站业务不应禁用登记');
+    $latePayment = 'LATE-PAY-' . bin2hex(random_bytes(5));
+    $lateInput = ['source_reference' => $latePayment, 'refund_date' => '2026-09-05', 'amount' => '25', 'method' => '银行卡'];
+    $latePreview = ps_refund_preview_row($lateInput, ps_refund_fingerprint($lateInput), $finance);
+    refund_check($latePreview['error'] === '' && $latePreview['order_id'] === 0, '订单未同步时应能先登记待核');
+    ps_refund_commit_rows([$latePreview], ['0'], $finance, '2099-12');
+    $lateNo = 'LATE-ORDER-' . bin2hex(random_bytes(5));
+    $pdo->prepare("INSERT INTO project_orders (order_no,project_type,order_date) VALUES (?,'网站模板',CURDATE())")->execute([$lateNo]);
+    $lateOrderId = (int)$pdo->lastInsertId();
+    ps_source_record($lateOrderId, 'missing', '', '', $latePayment);
+    refund_check(ps_refund_reconcile_pending($finance, 1) === 1, '后同步原订单未自动补关联');
+    $q = $pdo->prepare('SELECT order_id FROM project_refund_import_rows WHERE fingerprint=?'); $q->execute([$latePreview['fingerprint']]);
+    refund_check((int)$q->fetchColumn() === $lateOrderId, '待审退款未指向后同步订单');
     $kindNo = 'KIND-TEST-' . bin2hex(random_bytes(6));
     $pdo->prepare("INSERT INTO project_orders (order_no,project_type,order_kind,contract_amount,order_date,delivery_status) VALUES (?,'小程序开发','新订单',888,CURDATE(),'finished')")->execute([$kindNo]);
     $kindOrderId = (int)$pdo->lastInsertId();
@@ -79,13 +113,17 @@ try {
     refund_check($q->fetchColumn() === '定制', '财务未能一键纠正订单类型');
     refund_check(ps_import_kind_preference($employeeId, '小程序开发', 'test-layout') === '定制', '财务纠正没有成为以后同类上传的默认类型');
     $_SESSION['admin_id'] = $adminId;
+    $_SESSION['ps_refund_owner'] = 'admin:' . $adminId;
+    $_SESSION['ps_refund_preview'] = [$otherBusiness];
+    $_SESSION['ps_refund_file'] = 0;
     $_SERVER['REQUEST_METHOD'] = 'GET';
     $_SERVER['SCRIPT_NAME'] = '/project/refunds.php';
     ob_start(); include __DIR__ . '/../project/refunds.php'; $refundHtml = ob_get_clean();
-    refund_check(strpos($refundHtml, '上传已有退款表') !== false && strpos($refundHtml, '核对或修正原订单号') !== false, '财务退款上传与审核页面未正常渲染');
-    unset($_SESSION['admin_id']);
+    refund_check(strpos($refundHtml, '上传已有退款表') !== false && strpos($refundHtml, '原支付流水号') !== false && strpos($refundHtml, '项目退款与返现') !== false, '财务退款上传与审核页面未正常渲染');
+    refund_check(strpos($refundHtml, 'name="rows[]" value="0" checked') !== false && strpos($refundHtml, '登记所选退款') !== false, '非网站或未匹配退款不应禁用勾选与登记按钮');
+    unset($_SESSION['admin_id'], $_SESSION['ps_refund_owner'], $_SESSION['ps_refund_preview'], $_SESSION['ps_refund_file']);
     $pdo->rollBack();
-    echo "网站退款/返现原表、大体积工作簿、待审与防重、财务分类纠正均通过；测试数据已回滚\n";
+    echo "多渠道退款/返现原表、支付流水自动关联、待审与防重、财务分类纠正均通过；测试数据已回滚\n";
 } catch (Throwable $e) {
     if ($pdo->inTransaction()) $pdo->rollBack();
     throw $e;

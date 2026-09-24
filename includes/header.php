@@ -77,7 +77,7 @@ $nav = function ($href, $icon, $label, $active) {
     <?php echo $nav('/project/index.php', 'fa-folder-open', '我的项目订单', $is_project_orders); ?>
     <?php echo $nav('/project/payroll.php', 'fa-wallet', '我的项目报酬', $_rel === 'project/payroll.php'); ?>
     <?php echo $nav('/project/files.php', 'fa-file-excel', '我上传的表格', $_rel === 'project/files.php'); ?>
-    <?php echo $nav('/project/refunds.php', 'fa-undo-alt', '支付宝退款提交', $_rel === 'project/refunds.php'); ?>
+    <?php echo $nav('/project/refunds.php', 'fa-undo-alt', '退款与返现', $_rel === 'project/refunds.php'); ?>
     <?php echo $nav('/project/profile.php', 'fa-user-cog', '我的账号', $_rel === 'project/profile.php'); ?>
     <div class="sidebar-project-tip"><i class="fas fa-lock"></i> 这里只显示你参与的订单和你自己的报酬。</div>
     <?php else: ?>
@@ -86,7 +86,7 @@ $nav = function ($href, $icon, $label, $active) {
     <?php echo $nav('/project/index.php', 'fa-folder-open', '项目订单', $is_project_orders); ?>
     <?php echo $nav('/project/payroll.php', 'fa-wallet', '项目报酬结算', $_rel === 'project/payroll.php'); ?>
     <?php echo $nav('/project/files.php', 'fa-file-excel', '原始表格', $_rel === 'project/files.php'); ?>
-    <?php echo $nav('/project/refunds.php', 'fa-undo-alt', '网站支付宝退款', $_rel === 'project/refunds.php'); ?>
+    <?php echo $nav('/project/refunds.php', 'fa-undo-alt', '退款与返现', $_rel === 'project/refunds.php'); ?>
     <?php echo $nav('/shops/index.php', 'fa-store', '店铺与订单', $group_active === 'shop'); ?>
     <?php echo $nav('/employees/index.php', 'fa-users', '人员与考勤', $group_active === 'people'); ?>
     <div class="sidebar-project-label">财务与配置</div>

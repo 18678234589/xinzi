@@ -11,7 +11,8 @@ foreach ([
     '20260924_attendance_precision.sql', '20260924_writing_rules.sql',
     '20260924_import_files.sql', '20260924_legacy_xls.sql', '20260924_ai_solutions.sql',
     '20260924_ai_application.sql', '20260924_import_kind_preferences.sql',
-    '20260924_website_refund_import.sql',
+    '20260924_website_refund_import.sql', '20260924_import_business_preferences.sql',
+    '20260924_payment_reference.sql', '20260924_refund_linkage.sql',
 ] as $migration) {
     $sql = file_get_contents(__DIR__ . '/' . $migration);
     if ($sql === false) { fwrite(STDERR, "无法读取迁移文件：$migration\n"); exit(1); }
