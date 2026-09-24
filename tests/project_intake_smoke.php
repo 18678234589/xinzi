@@ -56,7 +56,7 @@ try {
     $_SERVER['REQUEST_METHOD'] = 'GET';
     $_SERVER['SCRIPT_NAME'] = '/project/index.php';
     ob_start(); include __DIR__ . '/../project/index.php'; $manualHtml = ob_get_clean();
-    if (strpos($manualHtml, '手动录入订单') === false || strpos($manualHtml, '无需域名') === false || strpos($manualHtml, '拖拽上传 Excel') === false) throw new RuntimeException('订单录入页未正常渲染');
+    if (strpos($manualHtml, '在线录入订单') === false || strpos($manualHtml, '微信交易流水号') === false || strpos($manualHtml, '无需域名') === false || strpos($manualHtml, '批量导入 Excel') === false) throw new RuntimeException('订单录入页未正常渲染');
     $employeeNameQuery = $pdo->prepare('SELECT name FROM employees WHERE id=?');
     $employeeNameQuery->execute([$employeeId]);
     $employeeName = $employeeNameQuery->fetchColumn();
@@ -152,6 +152,9 @@ try {
     if (count($repairPreview) !== 3 || empty($repairPreview[0]['base_valid']) || !empty($repairPreview[1]['base_valid']) || !empty($repairPreview[2]['base_valid'])) throw new RuntimeException('缺日期/缺订单号行没有正确区分合格行');
     if (strpos($repairHtml, '应用补填并重新核对') === false || strpos($repairHtml, '先导入 1 行合格订单') === false) throw new RuntimeException('预览页没有提供补填与先导入入口');
     $repairFileId = (int)($_SESSION['project_import_file'] ?? 0);
+    $businessDetection = ps_import_business_detect(ps_import_file_get($repairFileId, $actor), ['AI网站定制', '小程序开发'], 'AI网站定制');
+    if ($businessDetection['business'] !== '小程序开发' || $businessDetection['reason'] !== '表格业务列') throw new RuntimeException('双业务账号未按表格业务列自动归类');
+    if (ps_order_kind_from_role('小程序开发', '定制技术15') !== '定制') throw new RuntimeException('人员默认岗位未自动映射订单类型');
     $_POST = ['csrf' => ps_csrf_token(), 'action' => 'commit', 'business' => '小程序开发'];
     $_FILES = [];
     ob_start(); include __DIR__ . '/../project/import.php'; $partialHtml = ob_get_clean();
@@ -170,6 +173,48 @@ try {
     $fileStats = $fileCount->fetch();
     if ((int)$fileStats['imported_count'] !== 3 || (int)$fileStats['skipped_count'] !== 0) throw new RuntimeException('分两次导入时原始表格统计未累计');
     fclose($repairCsv);
+    // 微信付款可只给交易流水号。重复上传定位同一结算单，第二次由客服补充参与人。
+    $wxReference = 'WX-TEST-' . bin2hex(random_bytes(7));
+    $wxNo = ps_payment_reference_order_no('小程序开发', $wxReference);
+    $wxHeaders = ps_business_import_headers('小程序开发');
+    $wxHeaders = array_values(array_diff($wxHeaders, ['订单编号']));
+    $wxCsv = tmpfile(); fputcsv($wxCsv, $wxHeaders);
+    $wxData = array_fill_keys($wxHeaders, '');
+    $wxData['日期'] = '2026-09-18'; $wxData['店铺'] = $shopName; $wxData['业务'] = '小程序开发';
+    $wxData['微信交易流水号'] = $wxReference; $wxData['售价'] = '800'; $wxData['付款昵称'] = '微信测试买家';
+    $wxData['制作技术'] = $employeeName; $wxData['订单类型'] = '定制';
+    fputcsv($wxCsv, array_values($wxData)); fflush($wxCsv);
+    $wxPath = stream_get_meta_data($wxCsv)['uri'];
+    for ($attempt = 0; $attempt < 2; $attempt++) {
+        $_POST = ['csrf' => ps_csrf_token(), 'action' => 'preview', 'business' => '小程序开发'];
+        $_FILES = ['file' => ['name' => '微信付款.csv', 'tmp_name' => $wxPath, 'error' => UPLOAD_ERR_OK, 'size' => filesize($wxPath)]];
+        ob_start(); include __DIR__ . '/../project/import.php'; ob_end_clean();
+        $wxPreview = $_SESSION['project_import_preview'][0] ?? null;
+        if (!$wxPreview || empty($wxPreview['base_valid']) || $wxPreview['order_no'] !== $wxNo) throw new RuntimeException('无店铺单号的微信流水号未生成稳定内部单号');
+        $_POST = ['csrf' => ps_csrf_token(), 'action' => 'commit', 'business' => '小程序开发']; $_FILES = [];
+        ob_start(); include __DIR__ . '/../project/import.php'; ob_end_clean();
+    }
+    $wxOrders = $pdo->prepare('SELECT COUNT(*) FROM project_orders WHERE order_no=?'); $wxOrders->execute([$wxNo]);
+    if ((int)$wxOrders->fetchColumn() !== 1) throw new RuntimeException('重复微信付款上传创建了重复订单');
+    $wxSource = $pdo->prepare('SELECT s.payment_reference FROM project_order_sources s JOIN project_orders o ON o.id=s.order_id WHERE o.order_no=?'); $wxSource->execute([$wxNo]);
+    if ($wxSource->fetchColumn() !== $wxReference) throw new RuntimeException('微信流水号未在结算单保留原文');
+    $csNameQuery = $pdo->prepare('SELECT name FROM employees WHERE name<>? GROUP BY name HAVING COUNT(*)=1 ORDER BY name LIMIT 1');
+    $csNameQuery->execute([$employeeName]); $csName = (string)$csNameQuery->fetchColumn();
+    if ($csName === '') throw new RuntimeException('补充参与人测试需要第二名不重名的合作人员');
+    $wxSupplement = $wxData; $wxSupplement['制作技术'] = ''; $wxSupplement['客服'] = $csName;
+    $supplementCsv = tmpfile(); fputcsv($supplementCsv, $wxHeaders); fputcsv($supplementCsv, array_values($wxSupplement)); fflush($supplementCsv);
+    $supplementPath = stream_get_meta_data($supplementCsv)['uri'];
+    $_POST = ['csrf' => ps_csrf_token(), 'action' => 'preview', 'business' => '小程序开发'];
+    $_FILES = ['file' => ['name' => '微信付款补充.csv', 'tmp_name' => $supplementPath, 'error' => UPLOAD_ERR_OK, 'size' => filesize($supplementPath)]];
+    ob_start(); include __DIR__ . '/../project/import.php'; ob_end_clean();
+    if (empty($_SESSION['project_import_preview'][0]['base_valid'])) throw new RuntimeException('同号订单补充客服未通过预览');
+    $_POST = ['csrf' => ps_csrf_token(), 'action' => 'commit', 'business' => '小程序开发']; $_FILES = [];
+    ob_start(); include __DIR__ . '/../project/import.php'; ob_end_clean();
+    $wxGroups = $pdo->prepare('SELECT commission_group,COUNT(*) c FROM project_participants p JOIN project_orders o ON o.id=p.order_id WHERE o.order_no=? GROUP BY commission_group');
+    $wxGroups->execute([$wxNo]); $wxGroupCounts = $wxGroups->fetchAll(PDO::FETCH_KEY_PAIR);
+    if ((int)($wxGroupCounts['technical'] ?? 0) !== 1 || (int)($wxGroupCounts['customer_service'] ?? 0) !== 1) throw new RuntimeException('二次上传未在同一订单补充客服参与人');
+    fclose($wxCsv);
+    fclose($supplementCsv);
     if (ps_business_fallback('设计客服') !== '设计' || ps_business_fallback('定制前端') !== 'AI网站定制') throw new RuntimeException('部门默认业务匹配错误');
     $designCsv = tmpfile();
     $designHeaders = ps_business_import_headers('设计');

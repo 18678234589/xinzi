@@ -77,6 +77,13 @@ function ps_business_order_kinds($business)
     return ps_business_catalog()[ps_business_normalize($business)]['order_kinds'] ?? [];
 }
 
+/** 默认岗位名唯一包含某订单类型时自动带入，如“定制技术15”→“定制”。 */
+function ps_order_kind_from_role($business, $roleName)
+{
+    $matches = array_values(array_filter(ps_business_order_kinds($business), function ($kind) use ($roleName) { return $kind !== '' && mb_strpos((string)$roleName, $kind) !== false; }));
+    return count($matches) === 1 ? $matches[0] : '';
+}
+
 function ps_actor_businesses($actor)
 {
     $catalog = ps_business_catalog();
@@ -164,6 +171,7 @@ function ps_business_import_columns($business)
         'shop' => ['店铺', '店铺名称', '店铺编码'],
         'business' => ['业务'],
         'payment_nickname' => ['付款昵称', '付款账号', '付款人', '买家昵称', '旺旺', '付款账号（旺旺）', '旺旺号', '客户旺旺', '买家旺旺'],
+        'payment_reference' => ['微信交易流水号', '微信支付订单号', '支付订单号', '微信交易单号', '微信支付单号', '转账单号', '付款流水号', '支付流水号'],
         'order_no' => ['订单编号', '订单号', '订单', '淘宝订单号'],
         'contract_amount' => ['售价', '金额', '订单金额', '总价（需支付至我司的价格）', '总价', '收入', '返款金额', '返现'],
         'status' => ['状态(填已完成/未完成)', '状态', '到账情况', '订单情况', '是否完成', '收发货状态', '订单状态'],
@@ -211,6 +219,7 @@ function ps_business_import_headers($business)
 {
     $columns = ps_business_import_columns($business);
     $order = ['order_date','shop','business','payment_nickname','order_no','contract_amount','status','contact_note','customer_service','frontend','domain_used','ssl_used','backend','resource_note','order_kind','program_name'];
+    if ($business !== 'AI网站定制') $order[] = 'payment_reference'; // 原 AI 定制 14 列模板不变，额外列仍可识别。
     $headers = [];
     foreach ($order as $key) if (isset($columns[$key])) $headers[] = $columns[$key][0];
     foreach ($columns as $key => $aliases) if (strpos($key, 'detail:') === 0) $headers[] = $aliases[0];
@@ -227,7 +236,7 @@ function ps_business_import_map($business, $head, $requirePeople = true)
             if ($index !== false && !in_array($index, $map, true)) { $map[$key] = $index; break; }
         }
     }
-    if (!isset($map['order_no'])) throw new RuntimeException('缺少“订单编号”列；请下载当前业务模板或在表头加“订单编号”');
+    if (!isset($map['order_no']) && !isset($map['payment_reference'])) throw new RuntimeException('缺少“订单编号”或“微信交易流水号”列；请补其中之一');
     // 合作人员上传自己的订单时本人自动加入，表格可以没有人员列；财务上传须有人员列
     if ($requirePeople && !isset($map['customer_service']) && !isset($map['frontend']) && !isset($map['backend'])) throw new RuntimeException('缺少客服或技术列，无法确定参与人');
     return $map;

@@ -9,6 +9,11 @@ $allowedBusinesses = ps_actor_businesses($actor);
 // 只有固定报酬、不录订单的合作人员（如售后退款部）：直接进入“我的项目报酬”
 if ($actor['role'] !== 'finance' && !$allowedBusinesses && $_SERVER['REQUEST_METHOD'] !== 'POST') { header('Location: ' . BASE_URL . '/project/payroll.php'); exit; }
 $selectedBusiness = ps_business_choice($actor, (string)($_POST['project_type'] ?? $_GET['business'] ?? ''));
+$roleDefaultKinds = [];
+if ($actor['role'] !== 'finance') foreach ($allowedBusinesses as $businessName) {
+    $roleHint = ps_employee_default_role((int)$actor['employee_id'], $businessName, $actor['role']);
+    $roleDefaultKinds[$businessName] = ps_order_kind_from_role($businessName, $roleHint ?? '');
+}
 $shops = db()->query('SELECT name FROM shops ORDER BY sort,id')->fetchAll(PDO::FETCH_COLUMN);
 $month = (string)($_GET['month'] ?? date('Y-m'));
 if (!preg_match('/^\d{4}-(0[1-9]|1[0-2])$/', $month)) $month = date('Y-m');
@@ -85,15 +90,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (!in_array($actor['role'], ['finance', 'customer_service', 'technical'], true)) { http_response_code(403); exit('无权限'); }
     try {
         $no = trim((string)($_POST['order_no'] ?? ''));
-        $date = trim((string)($_POST['order_date'] ?? '')) ?: date('Y-m-d');
+        $date = trim((string)($_POST['order_date'] ?? ''));
+        $paymentReference = trim((string)($_POST['payment_reference'] ?? ''));
         $contract = trim((string)($_POST['contract_amount'] ?? ''));
         $receipt = $actor['role'] === 'finance' ? (string)($_POST['receipt_amount'] ?? '') : '0';
         if ($receipt === '') $receipt = '0';
         $projectType = (string)($_POST['project_type'] ?? '');
         $business = ps_require_business($actor, $projectType);
+        if ($no === '' && $paymentReference !== '') $no = ps_payment_reference_order_no($projectType, $paymentReference);
         $peopleLabels = ps_business_people_labels($projectType);
         $orderKind = ps_order_kind_valid($projectType, $_POST['order_kind'] ?? '');
         if ($orderKind === '' && !empty($business['default_kind'])) $orderKind = $business['default_kind'];
+        if ($orderKind === '' && !empty($roleDefaultKinds[$projectType])) $orderKind = $roleDefaultKinds[$projectType];
         $isOffset = $orderKind === '退款冲减';
         // 代写 / 期刊 / 微信代写 / 网站续费 / 网站修改：录单时直接填写稿费或成本（¥500 以内自动通过，超过由财务审核）
         $directCost = !empty($business['import_cost']) ? trim((string)($_POST['direct_cost'] ?? '')) : '';
@@ -107,7 +115,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $domainTemplate = $domainMode === 'template' ? ps_intake_template((int)($_POST['domain_template_id'] ?? 0), 'domain') : null;
         $serverTemplate = $canChooseResources && (int)($_POST['server_template_id'] ?? 0) > 0 ? ps_intake_template((int)$_POST['server_template_id'], 'server') : null;
         if (!in_array($domainMode, ['pending', 'none', 'template'], true)) throw new RuntimeException('请选择待补充、无需域名或具体域名成本模板');
-        if ($no === '' || strlen($no) > 100) throw new RuntimeException('请填写有效订单号');
+        if ($no === '' || strlen($no) > 100) throw new RuntimeException('请填写店铺订单号，或填写微信交易流水号/支付订单号');
         $existing = db()->prepare('SELECT id FROM project_orders WHERE order_no=?');
         $existing->execute([$no]);
         $existingId = (int)$existing->fetchColumn();
@@ -119,8 +127,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
             header('Location: ' . BASE_URL . '/project/order.php?id=' . $existingId); exit;
         }
+        if ($date === '' && substr($no, 0, 3) !== 'WX-') {
+            $shopHint = trim((string)($_POST['shop'] ?? ''));
+            $matches = array_values(array_filter(ps_shop_order_lookup($no), function ($match) use ($shopHint) { return $match['price'] !== null && ($shopHint === '' || $match['shop'] === $shopHint); }));
+            if (count($matches) === 1) $date = (string)$matches[0]['date'];
+        }
         $parsedDate = DateTimeImmutable::createFromFormat('!Y-m-d', $date);
-        if (!$parsedDate || $parsedDate->format('Y-m-d') !== $date) throw new RuntimeException('请选择有效日期');
+        if (!$parsedDate || $parsedDate->format('Y-m-d') !== $date) throw new RuntimeException('请填写订单日期；已有同号店铺流水时可留空自动带入');
         if (($contract !== '' && !preg_match($isOffset ? '/^-?\d+(?:\.\d{1,2})?$/' : '/^\d+(?:\.\d{1,2})?$/', $contract)) || !preg_match('/^\d+(?:\.\d{1,2})?$/', $receipt) || (float)$contract > 999999999999.99 || (float)$receipt > 999999999999.99) throw new RuntimeException('金额须为非负数，最多两位小数');
         $sslCost = $canChooseResources ? trim((string)($_POST['ssl_cost'] ?? '')) : '';
         if ($sslCost !== '' && (!preg_match('/^\d+(?:\.\d{1,2})?$/', $sslCost) || (float)$sslCost > 999999999999.99)) throw new RuntimeException('SSL 实际成本最多两位小数');
@@ -133,7 +146,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $tradeStatus = trim((string)($_POST['trade_status'] ?? ''));
         $contactNote = trim((string)($_POST['contact_note'] ?? ''));
         $resourceNote = trim((string)($_POST['resource_note'] ?? ''));
-        if (mb_strlen($paymentNickname) > 200 || mb_strlen($tradeStatus) > 100 || mb_strlen($contactNote) > 500 || mb_strlen($resourceNote) > 500) throw new RuntimeException('备注内容过长');
+        if (mb_strlen($paymentNickname) > 200 || mb_strlen($paymentReference) > 200 || mb_strlen($tradeStatus) > 100 || mb_strlen($contactNote) > 500 || mb_strlen($resourceNote) > 500) throw new RuntimeException('备注或支付流水号过长');
         // 外包给下游（如华梦）：成本按成本中心的外包模板计入，不需要指定本公司技术。
         $outsourceTemplate = (int)($_POST['outsource_template_id'] ?? 0) > 0 ? ps_intake_template((int)$_POST['outsource_template_id'], 'outsourcing') : null;
         if ($outsourceTemplate && $outsourceTemplate['business_scope'] !== '' && $outsourceTemplate['business_scope'] !== $projectType) throw new RuntimeException('所选外包成本不适用于' . $projectType);
@@ -184,7 +197,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $q = db()->prepare('INSERT INTO project_orders (order_no,customer_name,project_type,order_kind,shop,contract_amount,receipt_amount,order_date,delivery_status,note,created_by_admin) VALUES (?,?,?,?,?,?,0,?,?,?,?)');
         $q->execute([$no, $customer, $projectType, $orderKind, $shop, $contract === '' ? 0 : round((float)$contract, 2), $date, ($_POST['delivery_status'] ?? '') === 'finished' ? 'finished' : 'unfinished', implode('；', $noteParts), $actor['role'] === 'finance' ? $actor['id'] : null]);
         $id = (int)db()->lastInsertId();
-        ps_source_record($id, $contract === '' ? 'missing' : 'manual', $paymentNickname, $tradeStatus);
+        ps_source_record($id, $contract === '' ? 'missing' : 'manual', $paymentNickname, $tradeStatus, $paymentReference);
         ps_save_business_details($id, $projectType, $details);
         if ($actor['role'] === 'finance' && (float)$receipt > 0) {
             db()->prepare("INSERT INTO project_cash_movements (order_id,movement_type,amount,note,review_status,submitted_by_type,submitted_by_id,reviewed_by_admin,reviewed_at) VALUES (?,'receipt',?,'新建订单初始实收','approved','admin',?,?,NOW())")
@@ -264,14 +277,14 @@ include __DIR__ . '/../includes/header.php';
 $resourceHint = function ($t) { return trim($t['name'] . ' ' . $t['specification']) . ' · ¥' . money($t['price']); };
 ?>
 <div class="project-intake-page">
-<div class="project-hero mb-3"><div><div class="project-eyebrow">项目合作结算中心 · 订单入口</div><h2><?php if ($actor['role'] === 'finance'): echo e($page_title); else: $hour = (int)date('G'); echo ($hour < 11 ? '早上好' : ($hour < 14 ? '中午好' : ($hour < 18 ? '下午好' : '晚上好'))) . '，' . e($display_name); endif; ?></h2><p><?php echo $actor['role'] === 'customer_service' ? '客服录入买家与成交信息并指定技术；技术在同一订单号补资源和成本，双方看到的是同一张结算单。' : ($actor['role'] === 'technical' ? '打开本人参与的订单补技术资料与成本；先建单时可在结算单关联客服。' : '客服与技术共用一张订单结算单。输入订单号即可从店铺 / ETMLL 流水带出买家与售价，标准成本从成本中心带入。'); ?> 实收由财务确认。</p></div><div class="project-hero-actions"><?php if ($allowedBusinesses): ?><button class="btn btn-light" type="button" id="manualOrderToggle" aria-controls="manual-order" aria-expanded="<?php echo $openEntry ? 'true' : 'false'; ?>"><i class="fas fa-pen mr-1"></i> <span><?php echo $openEntry ? '收起手动录入' : '手动录入订单'; ?></span></button><a class="btn btn-outline-light" href="<?php echo BASE_URL; ?>/project/import.php?business=<?php echo rawurlencode($selectedBusiness); ?>"><i class="fas fa-file-excel mr-1"></i> 拖拽上传 Excel</a><?php endif; ?><?php if ($actor['role'] === 'finance'): ?><a class="btn btn-outline-light" href="<?php echo BASE_URL; ?>/project/settings.php#cost-center">成本中心</a><?php endif; ?></div></div>
+<div class="project-hero mb-3"><div><div class="project-eyebrow">项目合作结算中心 · 订单入口</div><h2><?php if ($actor['role'] === 'finance'): echo e($page_title); else: $hour = (int)date('G'); echo ($hour < 11 ? '早上好' : ($hour < 14 ? '中午好' : ($hour < 18 ? '下午好' : '晚上好'))) . '，' . e($display_name); endif; ?></h2><p><?php echo $actor['role'] === 'customer_service' ? '客服录入买家与成交信息并指定技术；技术在同一订单号补资源和成本，双方看到的是同一张结算单。' : ($actor['role'] === 'technical' ? '打开本人参与的订单补技术资料与成本；先建单时可在结算单关联客服。' : '客服与技术共用一张订单结算单。输入订单号即可从店铺 / ETMLL 流水带出买家与售价，标准成本从成本中心带入。'); ?> 实收由财务确认。</p></div><div class="project-hero-actions"><?php if ($allowedBusinesses): ?><button class="btn btn-light" type="button" id="manualOrderToggle" aria-controls="manual-order" aria-expanded="<?php echo $openEntry ? 'true' : 'false'; ?>"><i class="fas fa-pen mr-1"></i> <span><?php echo $openEntry ? '收起在线录单' : '在线录入订单'; ?></span></button><a class="btn btn-outline-light" href="<?php echo BASE_URL; ?>/project/import.php?business=<?php echo rawurlencode($selectedBusiness); ?>"><i class="fas fa-file-excel mr-1"></i> 批量导入 Excel</a><?php endif; ?><?php if ($actor['role'] === 'finance'): ?><a class="btn btn-outline-light" href="<?php echo BASE_URL; ?>/project/settings.php#cost-center">成本中心</a><?php endif; ?></div></div>
 <?php if ($error): ?><div class="alert alert-danger"><?php echo e($error); ?></div><?php endif; ?>
 <?php if ($createdOrder): ?><div class="alert alert-success d-flex justify-content-between align-items-center flex-wrap"><span><i class="fas fa-check-circle mr-1"></i> 订单 <strong><?php echo e($createdOrder['order_no']); ?></strong> 已保存，可以继续录入下一单。</span><a class="btn btn-sm btn-outline-success" href="<?php echo BASE_URL; ?>/project/order.php?id=<?php echo (int)$createdOrder['id']; ?>">打开刚保存的结算单</a></div><?php endif; ?>
 <?php if ($bulkResult): ?><div class="alert alert-<?php echo $bulkResult['failed'] ? 'warning' : 'success'; ?>"><strong>批量<?php echo e($bulkResult['action']); ?>：</strong>成功 <?php echo (int)$bulkResult['done']; ?> 单<?php if ($bulkResult['failed']): ?>，<?php echo count($bulkResult['failed']); ?> 单未处理：<ul class="mb-0 mt-1 small"><?php foreach (array_slice($bulkResult['failed'], 0, 30) as $failure): ?><li><?php echo e($failure); ?></li><?php endforeach; ?></ul><?php endif; ?></div><?php endif; ?>
 <?php if (!$allowedBusinesses): ?><div class="alert alert-warning">当前账户尚未匹配业务类型，请联系财务在项目结算配置中分配。</div><?php endif; ?>
 <?php if ($allowedBusinesses): ?>
 <div id="manual-order" class="card project-form-card mb-4<?php echo $openEntry ? '' : ' d-none'; ?>"><div class="card-body">
-  <div class="project-section-title"><span class="project-step">01</span><div><h5>手动录入订单</h5><p>先填订单号即可建档。系统会立即在店铺订单 / ETMLL 同步流水里查找同号订单，自动带出店铺、付款昵称、售价和交易状态；已建档的订单号会直接提示打开原结算单。</p></div></div>
+  <div class="project-section-title"><span class="project-step">01</span><div><h5>在线录入订单</h5><p>有店铺订单号就填订单号；微信付款没有店铺单号，就填交易流水号或支付订单号。系统会关联同一结算单；其他资料和成本可以在结算单继续补充。</p></div></div>
   <form method="post" id="projectManualForm" autocomplete="off">
     <input type="hidden" name="csrf" value="<?php echo e(ps_csrf_token()); ?>">
     <?php if (ps_ai_ready()): ?>
@@ -282,15 +295,16 @@ $resourceHint = function ($t) { return trim($t['name'] . ' ' . $t['specification
     </div>
     <?php endif; ?>
     <div class="form-row">
-      <div class="form-group col-md-4"><label for="intakeOrderNo">订单编号 *</label><input class="form-control form-control-lg" id="intakeOrderNo" name="order_no" maxlength="100" value="<?php echo e($_POST['order_no'] ?? ''); ?>" placeholder="粘贴店铺订单号" required autofocus></div>
+      <div class="form-group col-md-4"><label for="intakeOrderNo">店铺订单号（有则填）</label><input class="form-control form-control-lg" id="intakeOrderNo" name="order_no" maxlength="100" value="<?php echo e($_POST['order_no'] ?? ''); ?>" placeholder="淘宝/店铺订单号" autofocus></div>
       <div class="form-group col-md-3"><label for="intakeBusiness">业务类型 *</label><select class="form-control form-control-lg" id="intakeBusiness" name="project_type" required><?php foreach ($allowedBusinesses as $businessName): ?><option value="<?php echo e($businessName); ?>" <?php echo $selectedBusiness === $businessName ? 'selected' : ''; ?>><?php echo e($businessName); ?></option><?php endforeach; ?></select></div>
       <div class="form-group col-md-2" id="intakeKindWrap"><label for="intakeKind">订单类型</label><select class="form-control form-control-lg" id="intakeKind" name="order_kind"><option value="">—</option></select></div>
-      <div class="form-group col-md-3"><label for="intakeDate">日期</label><input class="form-control form-control-lg" id="intakeDate" type="date" name="order_date" value="<?php echo e($_POST['order_date'] ?? date('Y-m-d')); ?>"></div>
+      <div class="form-group col-md-3"><label for="intakeDate">订单日期</label><input class="form-control form-control-lg" id="intakeDate" type="date" name="order_date" value="<?php echo e($_POST['order_date'] ?? ''); ?>"><small class="text-muted">店铺订单号已同步时可自动带入；微信付款请填写支付日期</small></div>
     </div>
     <div id="intakeLookup" class="project-lookup" hidden aria-live="polite"></div>
     <div class="form-row">
       <div class="form-group col-md-3"><label for="intakeShop">店铺（可后补）</label><input class="form-control" id="intakeShop" name="shop" list="intakeShopList" maxlength="150" value="<?php echo e($_POST['shop'] ?? ''); ?>" placeholder="可不填，待上传匹配" autocomplete="off"><datalist id="intakeShopList"><?php foreach ($shops as $shopName): ?><option value="<?php echo e($shopName); ?>"><?php endforeach; ?></datalist></div>
       <div class="form-group col-md-3"><label for="intakeNickname">付款昵称（可后补）</label><input class="form-control" id="intakeNickname" name="payment_nickname" maxlength="200" value="<?php echo e($_POST['payment_nickname'] ?? ''); ?>"></div>
+      <div class="form-group col-md-3"><label for="intakePaymentReference">微信交易流水号 / 支付订单号</label><input class="form-control" id="intakePaymentReference" name="payment_reference" maxlength="200" value="<?php echo e($_POST['payment_reference'] ?? ''); ?>" placeholder="无店铺订单号时填这里"><small class="text-muted">用于生成可追溯的内部订单编号</small></div>
       <div class="form-group col-md-3"><label for="intakePrice">售价（可后补）</label><div class="input-group"><div class="input-group-prepend"><span class="input-group-text">¥</span></div><input class="form-control" id="intakePrice" type="number" step="0.01" min="0" name="contract_amount" value="<?php echo e($_POST['contract_amount'] ?? ''); ?>" placeholder="待订单上传补全"></div></div>
       <div class="form-group col-md-3" id="intakeDirectCostWrap" hidden><label for="intakeDirectCost" id="intakeDirectCostLabel">成本</label><div class="input-group"><div class="input-group-prepend"><span class="input-group-text">¥</span></div><input class="form-control" id="intakeDirectCost" type="number" step="0.01" name="direct_cost" value="<?php echo e($_POST['direct_cost'] ?? ''); ?>" placeholder="如写手稿费"></div><small class="text-muted">¥500 以内自动通过，超过由财务审核</small></div>
       <div class="form-group col-md-3"><label for="intakeTrade">店铺交易状态（可后补）</label><input class="form-control" id="intakeTrade" name="trade_status" maxlength="100" value="<?php echo e($_POST['trade_status'] ?? ''); ?>" placeholder="如交易成功"></div>
@@ -371,7 +385,7 @@ $resourceHint = function ($t) { return trim($t['name'] . ' ' . $t['specification
     var opening = panel.classList.contains('d-none');
     panel.classList.toggle('d-none', !opening);
     toggle.setAttribute('aria-expanded', opening ? 'true' : 'false');
-    toggle.querySelector('span').textContent = opening ? '收起手动录入' : '手动录入订单';
+    toggle.querySelector('span').textContent = opening ? '收起在线录单' : '在线录入订单';
     if (opening) { panel.scrollIntoView({behavior:'smooth',block:'start'}); document.getElementById('intakeOrderNo').focus(); }
   });
   var business = document.getElementById('intakeBusiness');
@@ -379,6 +393,7 @@ $resourceHint = function ($t) { return trim($t['name'] . ' ' . $t['specification
   if (!business) return;
   var canEditResources = <?php echo $actor['role'] === 'customer_service' ? 'false' : 'true'; ?>;
   var catalog = <?php echo json_encode(array_map(function ($d) { return ['resources' => !empty($d['resources']), 'program' => !empty($d['program']), 'kinds' => $d['order_kinds'] ?? [], 'fee' => (float)($d['service_fee_rate'] ?? 0), 'defaultKind' => $d['default_kind'] ?? '', 'costLabel' => !empty($d['import_cost']) ? ($d['cost_label'] ?? '成本') : '']; }, $businessCatalog), JSON_UNESCAPED_UNICODE); ?>;
+  var roleDefaultKinds = <?php echo json_encode($roleDefaultKinds, JSON_UNESCAPED_UNICODE); ?>;
   var peopleLabels = <?php echo json_encode(array_reduce(array_keys($businessCatalog), function ($result, $name) { $result[$name] = ps_business_people_labels($name); return $result; }, []), JSON_UNESCAPED_UNICODE); ?>;
   var selectedKind = <?php echo json_encode((string)($_POST['order_kind'] ?? ''), JSON_UNESCAPED_UNICODE); ?>;
   var mode = document.getElementById('intakeDomainMode');
@@ -393,7 +408,7 @@ $resourceHint = function ($t) { return trim($t['name'] . ' ' . $t['specification
   function refreshKinds() {
     var kinds = catalog[business.value].kinds;
     kind.innerHTML = '<option value="">' + (kinds.length ? '请选择' : '—') + '</option>';
-    var want = selectedKind || catalog[business.value].defaultKind;
+    var want = selectedKind || roleDefaultKinds[business.value] || catalog[business.value].defaultKind;
     kinds.forEach(function (k) { var o = document.createElement('option'); o.value = k; o.textContent = k; if (k === want) o.selected = true; kind.appendChild(o); });
     document.getElementById('intakeKindWrap').hidden = !kinds.length;
   }
@@ -518,7 +533,7 @@ $resourceHint = function ($t) { return trim($t['name'] . ' ' . $t['specification
       n += fill(document.getElementById('intakeOrderNo'), f.order_no);
       n += fill(document.getElementById('intakeKind'), f.order_kind);
       var date = document.getElementById('intakeDate');
-      if (f.order_date && date.value === '<?php echo date('Y-m-d'); ?>' && f.order_date !== date.value) { date.value = f.order_date; date.classList.add('project-autofilled'); n++; }
+      if (f.order_date && !date.value) { date.value = f.order_date; date.classList.add('project-autofilled'); n++; }
       n += fill(document.getElementById('intakeShop'), f.shop);
       n += fill(document.getElementById('intakeNickname'), f.payment_nickname);
       n += fill(document.getElementById('intakePrice'), f.contract_amount);

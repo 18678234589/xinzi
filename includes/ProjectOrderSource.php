@@ -1,10 +1,18 @@
 <?php
 require_once __DIR__ . '/ProjectSettlement.php';
 
-function ps_source_record($orderId, $priceSource, $nickname, $tradeStatus)
+function ps_source_record($orderId, $priceSource, $nickname, $tradeStatus, $paymentReference = '')
 {
-    $q = db()->prepare('INSERT INTO project_order_sources (order_id,payment_nickname,trade_status,price_source,nickname_source,status_source) VALUES (?,?,?,?,?,?)');
-    $q->execute([(int)$orderId, $nickname, $tradeStatus, $priceSource, $nickname !== '' ? 'manual' : 'missing', $tradeStatus !== '' ? 'manual' : 'missing']);
+    $q = db()->prepare('INSERT INTO project_order_sources (order_id,payment_nickname,payment_reference,trade_status,price_source,nickname_source,status_source) VALUES (?,?,?,?,?,?,?)');
+    $q->execute([(int)$orderId, $nickname, $paymentReference, $tradeStatus, $priceSource, $nickname !== '' ? 'manual' : 'missing', $tradeStatus !== '' ? 'manual' : 'missing']);
+}
+
+/** 支付凭据只生成内部关联号，不冒充淘宝订单编号。跨人上传同一业务与流水号会定位同一结算单。 */
+function ps_payment_reference_order_no($business, $reference)
+{
+    $reference = trim((string)$reference);
+    if ($reference === '' || mb_strlen($reference) > 200) throw new RuntimeException('微信交易流水号或支付订单号须为 1～200 字');
+    return 'WX-' . strtoupper(substr(hash('sha256', ps_business_normalize($business) . '|' . mb_strtolower($reference)), 0, 24));
 }
 
 function ps_customer_intake_conflicts($existing, $input)
@@ -13,18 +21,20 @@ function ps_customer_intake_conflicts($existing, $input)
     $shop = trim((string)($input['shop'] ?? ''));
     $price = trim((string)($input['contract_amount'] ?? ''));
     $nickname = trim((string)($input['payment_nickname'] ?? ''));
+    $paymentReference = trim((string)($input['payment_reference'] ?? ''));
     if ($shop !== '' && (string)($existing['shop'] ?? '') !== '' && $shop !== (string)$existing['shop']) $conflicts[] = '店铺';
     $priceSource = $existing['price_source'] ?? ((float)($existing['contract_amount'] ?? 0) > 0 ? 'manual' : 'missing');
     if ($price !== '' && $priceSource !== 'missing' && (int)round((float)$price * 100) !== (int)round((float)$existing['contract_amount'] * 100)) $conflicts[] = '售价';
     if ($nickname !== '' && (string)($existing['payment_nickname'] ?? '') !== '' && $nickname !== (string)$existing['payment_nickname']) $conflicts[] = '付款昵称';
+    if ($paymentReference !== '' && (string)($existing['payment_reference'] ?? '') !== '' && $paymentReference !== (string)$existing['payment_reference']) $conflicts[] = '支付流水号';
     return $conflicts;
 }
 
 /** 客服仅补空字段；已经由人工或店铺订单确定的数据须由财务核对更正。调用方负责事务。 */
-function ps_save_customer_intake($orderId, $input, $actor, $allowNoop = false)
+function ps_save_customer_intake($orderId, $input, $actor, $allowNoop = false, $fillOnly = false)
 {
     if (!in_array($actor['role'], ['customer_service', 'finance'], true)) throw new RuntimeException('只有客服或财务可补充买家资料');
-    $finance = $actor['role'] === 'finance';
+    $finance = $actor['role'] === 'finance' && !$fillOnly;
     $q = db()->prepare('SELECT customer_name,shop,contract_amount FROM project_orders WHERE id=? FOR UPDATE');
     $q->execute([(int)$orderId]);
     $order = $q->fetch();
@@ -41,9 +51,10 @@ function ps_save_customer_intake($orderId, $input, $actor, $allowNoop = false)
     $customer = trim((string)($input['customer_name'] ?? ''));
     $shop = trim((string)($input['shop'] ?? ''));
     $nickname = trim((string)($input['payment_nickname'] ?? ''));
+    $paymentReference = trim((string)($input['payment_reference'] ?? ''));
     $status = trim((string)($input['trade_status'] ?? ''));
     $price = trim((string)($input['contract_amount'] ?? ''));
-    if (mb_strlen($customer) > 200 || mb_strlen($shop) > 150 || mb_strlen($nickname) > 200 || mb_strlen($status) > 100) throw new RuntimeException('买家资料过长');
+    if (mb_strlen($customer) > 200 || mb_strlen($shop) > 150 || mb_strlen($nickname) > 200 || mb_strlen($paymentReference) > 200 || mb_strlen($status) > 100) throw new RuntimeException('买家资料或支付流水号过长');
     if ($price !== '' && (!preg_match('/^(?:0|[1-9]\d*)(?:\.\d{1,2})?$/', $price) || (float)$price > 999999999999.99)) throw new RuntimeException('售价须为非负数，最多两位小数');
     if ($shop !== '') {
         $valid = db()->prepare('SELECT 1 FROM shops WHERE name=? LIMIT 1');
@@ -58,6 +69,7 @@ function ps_save_customer_intake($orderId, $input, $actor, $allowNoop = false)
     if ($shop !== '' && ($finance || $newShop === '')) { $newShop = $shop; $changed[] = 'shop'; }
     if ($price !== '' && ($finance || $source['price_source'] === 'missing')) { $newPrice = round((float)$price, 2); $source['price_source'] = 'manual'; $changed[] = 'contract_amount'; }
     if ($nickname !== '' && ($finance || $source['nickname_source'] === 'missing')) { $source['payment_nickname'] = $nickname; $source['nickname_source'] = 'manual'; $changed[] = 'payment_nickname'; }
+    if ($paymentReference !== '' && ($finance || $source['payment_reference'] === '')) { $source['payment_reference'] = $paymentReference; $changed[] = 'payment_reference'; }
     if ($status !== '' && ($finance || $source['status_source'] === 'missing')) { $source['trade_status'] = $status; $source['status_source'] = 'manual'; $changed[] = 'trade_status'; }
     if (!$changed) {
         if ($allowNoop) return [];
@@ -65,8 +77,8 @@ function ps_save_customer_intake($orderId, $input, $actor, $allowNoop = false)
     }
     db()->prepare('UPDATE project_orders SET customer_name=?,shop=?,contract_amount=?,row_version=row_version+1 WHERE id=?')
         ->execute([$newCustomer, $newShop, $newPrice, (int)$orderId]);
-    db()->prepare('UPDATE project_order_sources SET payment_nickname=?,trade_status=?,price_source=?,nickname_source=?,status_source=? WHERE order_id=?')
-        ->execute([$source['payment_nickname'], $source['trade_status'], $source['price_source'], $source['nickname_source'], $source['status_source'], (int)$orderId]);
+    db()->prepare('UPDATE project_order_sources SET payment_nickname=?,payment_reference=?,trade_status=?,price_source=?,nickname_source=?,status_source=? WHERE order_id=?')
+        ->execute([$source['payment_nickname'], $source['payment_reference'], $source['trade_status'], $source['price_source'], $source['nickname_source'], $source['status_source'], (int)$orderId]);
     return $changed;
 }
 
