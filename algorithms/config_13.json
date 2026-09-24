@@ -1,0 +1,44 @@
+{
+    "modules": [
+        {
+            "name": "全勤奖金",
+            "type": "attendance_full",
+            "enabled": true,
+            "config": {
+                "full_amount": 200,
+                "deduct_mode": "none",
+                "work_hours": 176,
+                "absent_hours": 0
+            }
+        },
+        {
+            "name": "底薪（自定义）",
+            "type": "base_salary",
+            "enabled": true,
+            "config": {
+                "base_amount": 800
+            }
+        },
+        {
+            "name": "商标资料提成",
+            "type": "per_order",
+            "enabled": true,
+            "config": {
+                "count_column": "商标个数",
+                "count_distinct": "求和",
+                "per_amount": 2.2,
+                "per_reward": 0
+            }
+        },
+        {
+            "name": "缺勤扣款",
+            "type": "attendance_deduct",
+            "enabled": true,
+            "config": {
+                "absent_days": 0,
+                "deduct_per_day": 100
+            }
+        }
+    ],
+    "updated_at": "2026-07-11 11:10:01"
+}

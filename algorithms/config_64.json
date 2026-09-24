@@ -1,14 +1,15 @@
 {
     "modules": [
         {
-            "name": "底薪3800",
+            "name": "底薪3300",
             "type": "base_salary",
             "enabled": true,
             "config": {
-                "base_amount": 3800
+                "_name": "底薪3300",
+                "base_amount": 3300
             }
         }
     ],
     "dept_share": 1,
-    "updated_at": "2026-07-15 11:50:33"
+    "updated_at": "2026-07-22 16:44:53"
 }

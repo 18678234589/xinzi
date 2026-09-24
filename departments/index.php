@@ -37,13 +37,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     } elseif ($action === 'delete') {
         $id = (int)($_POST['id'] ?? 0);
-        // 检查是否有员工属于该部门
+        // 检查是否有合作人员属于该部门
         $dept = get_department($id);
         if ($dept) {
             $cnt = db()->prepare("SELECT COUNT(*) FROM employees WHERE department = ?");
             $cnt->execute([$dept['name']]);
             if ((int)$cnt->fetchColumn() > 0) {
-                $error = '该部门下仍有员工，无法删除（请先转移或删除相关员工）';
+                $error = '该部门下仍有合作人员，无法删除（请先转移或删除相关合作人员）';
             } else {
                 try {
                     $stmt = db()->prepare("DELETE FROM departments WHERE id = ?");
@@ -71,7 +71,7 @@ try {
         `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4";
     db()->exec($sql);
-    // 从现有员工数据提取部门初始化
+    // 从现有合作人员数据提取部门初始化
     $emps = get_employees();
     foreach ($emps as $emp) {
         if ($emp['department']) {
@@ -105,7 +105,7 @@ include __DIR__ . '/../includes/header.php';
         <div class="table-responsive">
             <table class="table table-hover table-bordered">
                 <thead class="thead-light">
-                    <tr><th style="width:80px">ID</th><th>部门名称</th><th style="width:100px">排序</th><th style="width:120px">员工数</th><th style="width:200px">操作</th></tr>
+                    <tr><th style="width:80px">ID</th><th>部门名称</th><th style="width:100px">排序</th><th style="width:120px">合作人员数</th><th style="width:200px">操作</th></tr>
                 </thead>
                 <tbody>
                 <?php if ($departments): foreach ($departments as $d): ?>

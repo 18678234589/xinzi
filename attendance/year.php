@@ -34,7 +34,7 @@ include __DIR__ . '/../includes/header.php';
             <i class="fas fa-calendar-alt text-primary"></i> <?php echo $year; ?> 年考勤
         </h4>
     </div>
-    <span class="text-muted small">共 <?php echo $empCount; ?> 名员工</span>
+    <span class="text-muted small">共 <?php echo $empCount; ?> 名合作人员</span>
 </div>
 
 <div class="alert alert-info py-2">
@@ -65,7 +65,7 @@ include __DIR__ . '/../includes/header.php';
                     <div class="row text-center small mt-3">
                         <div class="col-6 border-right">
                             <div class="font-weight-bold <?php echo $hasData ? 'text-info' : 'text-muted'; ?>"><?php echo $empN; ?></div>
-                            <div class="text-muted">已录员工</div>
+                            <div class="text-muted">已录合作人员</div>
                         </div>
                         <div class="col-6">
                             <div class="font-weight-bold <?php echo $absent > 0 ? 'text-warning' : 'text-muted'; ?>"><?php echo number_format($absent, 1); ?>h</div>

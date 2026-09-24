@@ -215,6 +215,21 @@ function ps_summary($order, $costs, $participants)
     // 业务默认店铺服务费按售价计（网站模板/环境配置/小程序 3%），AI 定制默认不扣；分成规则可按组或岗位覆盖。
     $businessFeeRate = ps_business_service_fee_rate($order['project_type']);
     $serviceFee = round($contract * $businessFeeRate, 2);
+    $trademarkCount = 1;
+    if ($order['project_type'] === '商标') {
+        static $orderDetailStmt = null;
+        if ($orderDetailStmt === null) {
+            $orderDetailStmt = db()->prepare('SELECT details_json FROM project_order_details WHERE order_id=?');
+        }
+        $orderDetailStmt->execute([(int)$order['id']]);
+        $detailsRaw = $orderDetailStmt->fetchColumn();
+        if ($detailsRaw) {
+            $detailsJson = json_decode($detailsRaw, true);
+            if (isset($detailsJson['trademark_count']) && is_numeric($detailsJson['trademark_count']) && (float)$detailsJson['trademark_count'] > 0) {
+                $trademarkCount = (float)$detailsJson['trademark_count'];
+            }
+        }
+    }
     $groups = [];
     foreach (['technical', 'customer_service'] as $group) {
         $people = array_values(array_filter($participants, function ($p) use ($group) { return $p['commission_group'] === $group; }));
@@ -228,6 +243,16 @@ function ps_summary($order, $costs, $participants)
             [$costEst, $noteEst] = $personCost($group, $person['role_name'] ?? '', true);
             $people[$i]['calc'] = $rule ? ps_calc_person($rule, $income, $costNow, $contract, $person['group_weight'], $businessFeeRate, $noteNow) : null;
             $people[$i]['estimated_calc'] = $rule ? ps_calc_person($rule, $income, $costEst, $contract, $person['group_weight'], $businessFeeRate, $noteEst) : null;
+            if ($order['project_type'] === '商标' && $group === 'technical' && $trademarkCount > 1) {
+                if ($people[$i]['calc'] && $people[$i]['calc']['subsidy'] > 0) {
+                    $people[$i]['calc']['subsidy'] = round($people[$i]['calc']['subsidy'] * $trademarkCount, 2);
+                    $people[$i]['calc']['note'] .= '（商标' . $trademarkCount . '件）';
+                }
+                if ($people[$i]['estimated_calc'] && $people[$i]['estimated_calc']['subsidy'] > 0) {
+                    $people[$i]['estimated_calc']['subsidy'] = round($people[$i]['estimated_calc']['subsidy'] * $trademarkCount, 2);
+                    $people[$i]['estimated_calc']['note'] .= '（商标' . $trademarkCount . '件）';
+                }
+            }
             if (!$rule) { $missing = true; continue; }
             $pool += $people[$i]['calc']['share'];
             $estimatedPool += $people[$i]['estimated_calc']['share'];
@@ -239,6 +264,16 @@ function ps_summary($order, $costs, $participants)
             [$costEst, $noteEst] = $personCost($group, '', true);
             $calc = $defaultRule ? ps_calc_person($defaultRule, $income, $costNow, $contract, 1, $businessFeeRate, $noteNow) : null;
             $estimated = $defaultRule ? ps_calc_person($defaultRule, $income, $costEst, $contract, 1, $businessFeeRate, $noteEst) : null;
+            if ($order['project_type'] === '商标' && $group === 'technical' && $trademarkCount > 1) {
+                if ($calc && $calc['subsidy'] > 0) {
+                    $calc['subsidy'] = round($calc['subsidy'] * $trademarkCount, 2);
+                    $calc['note'] .= '（商标' . $trademarkCount . '件）';
+                }
+                if ($estimated && $estimated['subsidy'] > 0) {
+                    $estimated['subsidy'] = round($estimated['subsidy'] * $trademarkCount, 2);
+                    $estimated['note'] .= '（商标' . $trademarkCount . '件）';
+                }
+            }
             $pool = $calc ? $calc['share'] : null;
             $estimatedPool = $estimated ? $estimated['share'] : null;
         }

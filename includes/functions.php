@@ -2331,9 +2331,9 @@ function cs_perf_rank_result($employeeId, $year, $month)
     }
     $scoreTxt = sprintf('多店绩效 %s → 平均得分 %.2f%%', $storeDesc ? implode('  |  ', $storeDesc) : '无绩效数据', $score * 100);
     if ($amount > 0) {
-        $formula = sprintf('%s → 第%d名 → 绩效底薪 %.2f元', $scoreTxt, $rank, $amount);
+         $formula = sprintf('%s → 第%d名 → 绩效固定服务费 %.2f元', $scoreTxt, $rank, $amount);
     } else {
-        $formula = sprintf('%s → 第%d名（仅前三名发底薪850/800/750）→ 0.00元', $scoreTxt, $rank);
+         $formula = sprintf('%s → 第%d名（仅前三名结算固定服务费850/800/750）→ 0.00元', $scoreTxt, $rank);
     }
     return ['amount' => round($amount, 2), 'formula' => $formula, 'base' => round($amount, 2), 'rank' => $rank, 'score' => round($score, 4)];
 }

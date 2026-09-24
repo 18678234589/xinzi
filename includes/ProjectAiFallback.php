@@ -12,6 +12,25 @@ function ps_ai_signature($parts)
     return sha1(implode("\x1f", $normalized));
 }
 
+/** 本次预览用到的方案；只有订单真正提交后才在系统日志中标为“已应用”。 */
+function ps_ai_touch($category, $business, $signature)
+{
+    $GLOBALS['ps_ai_touched'][$category . '|' . $business . '|' . $signature] = [$category, $business, $signature];
+}
+
+function ps_ai_touched()
+{
+    return array_values($GLOBALS['ps_ai_touched'] ?? []);
+}
+
+function ps_ai_mark_applied(array $solutions)
+{
+    try {
+        $q = db()->prepare("UPDATE project_ai_solutions SET applied_count=applied_count+1,last_applied_at=NOW() WHERE category=? AND business_name=? AND signature=? AND status='active' AND source<>'error'");
+        foreach ($solutions as $parts) if (is_array($parts) && count($parts) === 3) $q->execute($parts);
+    } catch (PDOException $e) { /* 日志故障不能回滚已完成的订单导入 */ }
+}
+
 /** 查找已存档的方案（启用的）；命中时累计使用次数。 */
 function ps_ai_solution_find($category, $business, $signature)
 {
@@ -21,8 +40,11 @@ function ps_ai_solution_find($category, $business, $signature)
         $row = $q->fetch();
     } catch (PDOException $e) { return null; } // 表未迁移时不影响导入
     if (!$row) return null;
-    db()->prepare('UPDATE project_ai_solutions SET uses=uses+1,last_used_at=NOW() WHERE id=?')->execute([(int)$row['id']]);
     $solution = json_decode($row['solution_json'], true);
+    if (is_array($solution)) {
+        db()->prepare('UPDATE project_ai_solutions SET uses=uses+1,last_used_at=NOW() WHERE id=?')->execute([(int)$row['id']]);
+        ps_ai_touch($category, $business, $signature);
+    }
     return is_array($solution) ? $solution : null;
 }
 
@@ -31,6 +53,7 @@ function ps_ai_solution_save($category, $business, $signature, $problem, $soluti
     try {
         db()->prepare('INSERT INTO project_ai_solutions (category,business_name,signature,problem,solution_json,explanation,source,created_by_type,created_by_id) VALUES (?,?,?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE problem=VALUES(problem),solution_json=VALUES(solution_json),explanation=VALUES(explanation),source=VALUES(source),status=\'active\',created_at=NOW()')
             ->execute([$category, (string)$business, $signature, mb_substr((string)$problem, 0, 5000), json_encode($solution, JSON_UNESCAPED_UNICODE), mb_substr((string)$explanation, 0, 1000), $source, $actor['type'] ?? '', (int)($actor['id'] ?? 0)]);
+        if ($source === 'ai') ps_ai_touch($category, $business, $signature);
     } catch (PDOException $e) { /* 日志失败不影响导入 */ }
 }
 

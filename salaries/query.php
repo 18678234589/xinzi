@@ -3,7 +3,7 @@ require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/functions.php';
 require_login();
 
-$page_title = '薪资查询';
+$page_title = '原系统项目报酬查询';
 
 // ========== 删除处理 ==========
 $delMsg = '';
@@ -12,7 +12,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'delet
     if ($delId > 0) {
         $stmt = db()->prepare("DELETE FROM salaries WHERE id = ?");
         $stmt->execute([$delId]);
-        $delMsg = $stmt->rowCount() ? '已删除该薪资记录' : '未找到对应记录';
+        $delMsg = $stmt->rowCount() ? '已删除该项目报酬记录' : '未找到对应记录';
     }
 }
 
@@ -41,7 +41,7 @@ $employees   = get_employees();
 
 // 导出处理
 if (isset($_GET['export'])) {
-    $headers = ['月份', '姓名', '部门', '订单总额', '提成金额', '实发工资', '全勤奖', '结算时间'];
+    $headers = ['月份', '姓名', '部门', '订单总额', '原系统绩效等净额', '应结算金额', '全勤奖', '结算时间'];
     $rows = [];
     foreach ($salaries as $s) {
         $rows[] = [
@@ -55,7 +55,7 @@ if (isset($_GET['export'])) {
             $s['created_at'],
         ];
     }
-    $filename = '薪资报表_' . date('YmdHis') . '.xls';
+    $filename = '项目报酬报表_' . date('YmdHis') . '.xls';
     export_excel($headers, $rows, $filename);
 }
 
@@ -69,7 +69,7 @@ include __DIR__ . '/../includes/header.php';
 ?>
 
 <div class="d-flex justify-content-between align-items-center mb-3">
-    <h4 class="font-weight-bold mb-0"><i class="fas fa-search-dollar"></i> 薪资查询</h4>
+    <h4 class="font-weight-bold mb-0"><i class="fas fa-search-dollar"></i> 项目报酬查询</h4>
     <?php if ($salaries): ?>
     <a href="?<?php echo http_build_query(array_merge($_GET, ['export' => '1'])); ?>" class="btn btn-success">
         <i class="fas fa-file-export"></i> 导出Excel报表
@@ -95,9 +95,9 @@ include __DIR__ . '/../includes/header.php';
                 </select>
             </div>
             <div class="form-group mr-2 mb-1">
-                <label class="mr-1">员工:</label>
+                <label class="mr-1">合作人员:</label>
                 <select name="employee_id" class="form-control form-control-sm" id="filterEmp">
-                    <option value="">全部员工</option>
+                    <option value="">全部合作人员</option>
                     <?php foreach ($employees as $emp): ?>
                         <option value="<?php echo $emp['id']; ?>" data-dept="<?php echo e($emp['department']); ?>" <?php echo $filter_emp == $emp['id'] ? 'selected' : ''; ?>><?php echo e($emp['name']); ?></option>
                     <?php endforeach; ?>
@@ -132,7 +132,7 @@ include __DIR__ . '/../includes/header.php';
     <div class="col-md-4">
         <div class="card stat-card orange">
             <div class="card-body">
-                <div class="text-muted small">提成金额合计</div>
+                <div class="text-muted small">原系统绩效等净额合计</div>
                 <div class="h4 mb-0 text-warning">¥<?php echo money($grand_commission); ?></div>
             </div>
         </div>
@@ -140,7 +140,7 @@ include __DIR__ . '/../includes/header.php';
     <div class="col-md-4">
         <div class="card stat-card green">
             <div class="card-body">
-                <div class="text-muted small">实发工资合计</div>
+                <div class="text-muted small">应结算金额合计</div>
                 <div class="h4 mb-0 text-success">¥<?php echo money($grand_net_pay); ?></div>
             </div>
         </div>
@@ -148,14 +148,14 @@ include __DIR__ . '/../includes/header.php';
 </div>
 <?php endif; ?>
 
-<!-- 薪资列表 -->
+<!-- 项目报酬列表 -->
 <div class="card">
     <div class="card-body">
         <div class="table-responsive">
             <table class="table table-hover table-bordered">
                 <thead class="thead-light">
                     <tr>
-                        <th>月份</th><th>姓名</th><th>部门</th><th>订单总额</th><th>提成金额</th><th>实发工资</th><th>全勤奖</th><th>结算时间</th><th>操作</th>
+                        <th>月份</th><th>姓名</th><th>部门</th><th>订单总额</th><th>原系统绩效等净额</th><th>应结算金额</th><th>全勤奖</th><th>结算时间</th><th>操作</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -170,7 +170,7 @@ include __DIR__ . '/../includes/header.php';
                         <td class="text-success">+¥<?php echo money($s['full_attendance_bonus'] ?? 0); ?></td>
                         <td><small class="text-muted"><?php echo $s['created_at']; ?></small></td>
                         <td>
-                            <form method="post" class="d-inline" onsubmit="return confirm('确定删除 <?php echo e($s['name']); ?> 的 <?php echo e($s['month']); ?> 薪资记录？此操作不可恢复！')">
+                            <form method="post" class="d-inline" onsubmit="return confirm('确定删除 <?php echo e($s['name']); ?> 的 <?php echo e($s['month']); ?> 项目报酬记录？此操作不可恢复！')">
                                 <input type="hidden" name="action" value="delete">
                                 <input type="hidden" name="id" value="<?php echo $s['id']; ?>">
                                 <button type="submit" class="btn btn-sm btn-outline-danger py-0 px-1" title="删除">
@@ -181,7 +181,7 @@ include __DIR__ . '/../includes/header.php';
                     </tr>
                 <?php endforeach; else: ?>
                     <tr><td colspan="9" class="text-center text-muted py-5">
-                        <i class="fas fa-inbox fa-3x mb-2 d-block"></i>暂无薪资记录，请先进行薪资结算
+                        <i class="fas fa-inbox fa-3x mb-2 d-block"></i>暂无项目报酬记录，请先进行项目结算
                     </td></tr>
                 <?php endif; ?>
                 </tbody>
@@ -208,7 +208,7 @@ function updateEmpFilter() {
     var dept = $('#filterDept').val();
     $('#filterEmp option').each(function() {
         var $opt = $(this);
-        if (!$opt.val()) return; // 跳过"全部员工"
+        if (!$opt.val()) return; // 跳过"全部合作人员"
         if (!dept || $opt.data('dept') === dept) {
             $opt.show();
         } else {

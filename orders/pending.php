@@ -20,7 +20,7 @@ $per_page     = 100;
 $departments = get_departments();
 $employees   = get_employees();
 
-// ========== 构建查询：跨月、全员工汇总所有「未核验」订单 ==========
+// ========== 构建查询：跨月、全合作人员汇总所有「未核验」订单 ==========
 // 未核验：raw_data.__order_status__ = '未核验'；排除店铺上传行与已删除行
 $where  = " WHERE NOT (o.order_scope = 'department' AND o.shop <> '') AND COALESCE(o.is_deleted, 0) = 0 ";
 $where .= " AND JSON_UNQUOTE(JSON_EXTRACT(o.raw_data, '$.__order_status__')) = '未核验' ";
@@ -30,7 +30,7 @@ if ($filter_month) {
     $params[] = $filter_month;
 }
 if ($filter_dept) {
-    // 部门订单（employee_id=0）通过 __dept__ 匹配；个人订单按员工所属部门匹配
+    // 部门订单（employee_id=0）通过 __dept__ 匹配；个人订单按合作人员所属部门匹配
     $where .= " AND (e.department = ? OR (o.employee_id = 0 AND JSON_UNQUOTE(JSON_EXTRACT(o.raw_data, '$.__dept__')) = ?)) ";
     $params[] = $filter_dept;
     $params[] = $filter_dept;
@@ -92,7 +92,7 @@ include __DIR__ . '/../includes/header.php';
 
 <div class="d-flex justify-content-between align-items-center mb-3">
     <h4 class="font-weight-bold mb-0"><i class="fas fa-hourglass-half text-warning"></i> 待核验订单
-        <small class="text-muted" style="font-size:.75em">跨月 · 全员汇总（未核验不计薪，核验通过按核验当月计入薪资）</small>
+        <small class="text-muted" style="font-size:.75em">跨月 · 全员汇总（未核验不计薪，核验通过按核验当月计入项目报酬）</small>
     </h4>
     <a href="<?php echo BASE_URL; ?>/orders/index.php" class="btn btn-outline-secondary btn-sm">
         <i class="fas fa-arrow-left"></i> 返回订单管理
@@ -162,7 +162,7 @@ include __DIR__ . '/../includes/header.php';
                 <?php endforeach; ?>
             </select>
             <select name="employee_id" class="form-control form-control-sm mr-2 mb-1">
-                <option value="">全部员工</option>
+                <option value="">全部合作人员</option>
                 <?php foreach ($employees as $emp): ?>
                     <option value="<?php echo (int)$emp['id']; ?>" <?php echo $filter_emp === (int)$emp['id'] ? 'selected' : ''; ?>><?php echo e($emp['name']); ?><?php echo $emp['department'] ? '（' . e($emp['department']) . '）' : ''; ?></option>
                 <?php endforeach; ?>
@@ -183,7 +183,7 @@ include __DIR__ . '/../includes/header.php';
             <h5 class="mb-0"><i class="fas fa-list text-warning"></i> 待核验订单
                 <small class="text-muted" style="font-size:.8em">共 <?php echo $total_count; ?> 条 / ¥<?php echo money($total_amount); ?></small>
             </h5>
-            <div class="text-muted small">勾选订单后，在下方选择核验标准与计入薪资月份，点击「核验选中」</div>
+            <div class="text-muted small">勾选订单后，在下方选择核验标准与计入项目报酬月份，点击「核验选中」</div>
         </div>
     </div>
     <div class="card-body p-0">
@@ -240,7 +240,7 @@ include __DIR__ . '/../includes/header.php';
                     <option value="success">核验标准：交易成功</option>
                     <option value="shipped">核验标准：已发货</option>
                 </select>
-                <label class="small text-muted mr-2 mb-1">计入薪资月份：</label>
+                <label class="small text-muted mr-2 mb-1">计入项目报酬月份：</label>
                 <input type="month" id="creditMonth" class="form-control form-control-sm mr-3 mb-1" style="width:auto" value="<?php echo e(date('Y-m')); ?>">
                 <button type="button" class="btn btn-sm btn-success mr-2 mb-1" onclick="doVerifyPending()"><i class="fas fa-check-double"></i> 核验选中</button>
                 <button type="button" class="btn btn-sm btn-outline-secondary mb-1" onclick="clearSelection()">取消选择</button>
@@ -291,9 +291,9 @@ function doVerifyPending() {
     if (!ids.length) { alert('请先勾选订单'); return; }
     var verifyType = document.getElementById('verifyType').value;
     var creditMonth = document.getElementById('creditMonth').value;
-    if (!creditMonth) { alert('请选择计入薪资月份'); return; }
+    if (!creditMonth) { alert('请选择计入项目报酬月份'); return; }
     var label = verifyType === 'shipped' ? '已发货' : '交易成功';
-    if (!confirm('将以「' + label + '」为标准核验选中的 ' + ids.length + ' 条订单，不符合的将标记为异常。核验通过后计入薪资月份：' + creditMonth + '（核验当月）。确定继续？')) return;
+    if (!confirm('将以「' + label + '」为标准核验选中的 ' + ids.length + ' 条订单，不符合的将标记为异常。核验通过后计入项目报酬月份：' + creditMonth + '（核验当月）。确定继续？')) return;
     var btn = document.querySelector('#batchBar button.btn-success');
     var btns = document.querySelectorAll('#batchBar button');
     btns.forEach(function(b){ b.disabled = true; });

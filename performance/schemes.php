@@ -95,7 +95,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 $schemes = get_cs_perf_schemes();
 $deptCfg = get_cs_perf_dept_configs();
 
-// 供前端加载已知员工的部门下拉（在“添加部门”时可选已有部门）
+// 供前端加载已知合作人员的部门下拉（在“添加部门”时可选已有部门）
 $deptOptions = [];
 try {
     $deptRows = db()->query("SELECT DISTINCT department FROM employees WHERE department<>'' ORDER BY department")->fetchAll();
@@ -444,8 +444,8 @@ function fillScheme(obj){
             </table>
         </div>
         <small class="text-muted d-block mt-2">
-            <i class="fas fa-info-circle"></i> 员工按所在部门自动匹配上方「绩效基数+方案」参与绩效，无需逐个员工设置算法；如需某个别员工不参与，可在「客服绩效总览」页将其<strong>排除</strong>。
-            <strong>设计客服</strong>为固定排名机制：两店绩效分别用所选方案算达成率并取平均，部门内前三名定底薪 850/800/750 元（第四名起为 0），无需设置基数。
+            <i class="fas fa-info-circle"></i> 合作人员按所在部门自动匹配上方「绩效基数+方案」参与绩效，无需逐个合作人员设置算法；如需某个别合作人员不参与，可在「客服绩效总览」页将其<strong>排除</strong>。
+            <strong>设计客服</strong>为固定排名机制：两店绩效分别用所选方案算达成率并取平均，部门内前三名定固定服务费 850/800/750 元（第四名起为 0），无需设置基数。
         </small>
     </div>
 </div>

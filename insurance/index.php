@@ -38,7 +38,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-// 统计有多少员工已结算的薪资记录中扣除了保险
+// 统计有多少合作人员已结算的项目报酬记录中扣除了保险
 $insStats = ['total' => 0, 'total_deduct' => 0];
 try {
     $stmt = db()->query("SELECT COUNT(*) as cnt, COALESCE(SUM(insurance_amount),0) as total FROM salaries WHERE insurance_amount > 0");
@@ -51,7 +51,7 @@ try {
     // insurance_amount 列可能还不存在，忽略
 }
 
-// 获取员工总数
+// 获取合作人员总数
 $empCount = 0;
 try {
     $empCount = (int)db()->query("SELECT COUNT(*) FROM employees")->fetchColumn();
@@ -86,7 +86,7 @@ include __DIR__ . '/../includes/header.php';
                             <div class="input-group-prepend"><span class="input-group-text">¥</span></div>
                             <input type="number" name="amount" class="form-control form-control-lg" step="0.01" min="0" value="<?php echo e($currentAmount); ?>" required>
                         </div>
-                        <small class="text-muted">全员统一金额，每月薪资结算时默认扣除。每年基数变化时，直接在这里修改即可。</small>
+                        <small class="text-muted">全员统一金额，每月项目结算时默认扣除。每年基数变化时，直接在这里修改即可。</small>
                     </div>
                     <button type="submit" class="btn btn-primary btn-lg btn-block"><i class="fas fa-save"></i> 保存</button>
                 </form>
@@ -105,8 +105,8 @@ include __DIR__ . '/../includes/header.php';
             <div class="card-header bg-white"><h5 class="mb-0"><i class="fas fa-info-circle text-info"></i> 使用说明</h5></div>
             <div class="card-body">
                 <ul class="mb-0">
-                    <li>设置金额后，在<b>薪资结算</b>页面会默认勾选"扣除保险"，自动从实发工资中扣除该金额。</li>
-                    <li>遇到<b>不需要扣保险的员工</b>，在结算页面手动取消勾选即可。</li>
+                    <li>设置金额后，在<b>项目结算</b>页面会默认勾选"扣除保险"，自动从应结算金额中扣除该金额。</li>
+                    <li>遇到<b>不需要扣保险的合作人员</b>，在结算页面手动取消勾选即可。</li>
                     <li>每年保险基数变化时，只需在此页面修改金额，所有后续结算自动使用新金额。</li>
                     <li>已结算的历史记录不受影响，保持原扣除金额。</li>
                 </ul>
@@ -119,7 +119,7 @@ include __DIR__ . '/../includes/header.php';
                     <div class="card-body text-center">
                         <i class="fas fa-users fa-2x text-muted mb-2"></i>
                         <div class="h4 mb-0"><?php echo $empCount; ?></div>
-                        <small class="text-muted">员工总数</small>
+                        <small class="text-muted">合作人员总数</small>
                     </div>
                 </div>
             </div>
@@ -146,8 +146,8 @@ include __DIR__ . '/../includes/header.php';
         <div class="card mt-3">
             <div class="card-header bg-white"><h6 class="mb-0"><i class="fas fa-paper-plane text-success"></i> 快捷入口</h6></div>
             <div class="card-body">
-                <a href="<?php echo BASE_URL; ?>/salaries/settle.php" class="btn btn-outline-success"><i class="fas fa-calculator"></i> 前往薪资结算</a>
-                <a href="<?php echo BASE_URL; ?>/salaries/query.php" class="btn btn-outline-info"><i class="fas fa-search-dollar"></i> 查看薪资记录</a>
+                <a href="<?php echo BASE_URL; ?>/salaries/settle.php" class="btn btn-outline-success"><i class="fas fa-calculator"></i> 前往项目结算</a>
+                <a href="<?php echo BASE_URL; ?>/salaries/query.php" class="btn btn-outline-info"><i class="fas fa-search-dollar"></i> 查看项目报酬记录</a>
             </div>
         </div>
     </div>

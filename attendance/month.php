@@ -27,7 +27,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $actualDays = (float)($_POST['actual_days'] ?? $fullDays);
         $rm = trim($_POST['remark'] ?? '');
         if ($empId <= 0) {
-            $error = '请选择员工';
+            $error = '请选择合作人员';
         } else {
             try {
                 // 满勤天数 × 8 = 应出勤小时；(满勤-实际出勤) × 8 = 请假小时
@@ -122,7 +122,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                     $headerRow = null;
                                     foreach ($sRows as $sr) {
                                         $rowText = implode(' ', array_filter($sr, function($v){ return trim($v) !== ''; }));
-                                        if (mb_strpos($rowText, '姓名') !== false || mb_strpos($rowText, '员工') !== false) {
+                                        if (mb_strpos($rowText, '姓名') !== false || mb_strpos($rowText, '员工') !== false || mb_strpos($rowText, '合作人员') !== false) {
                                             $headerRow = $sr;
                                             break;
                                         }
@@ -167,7 +167,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $headerRowIdx = 0;
                     foreach ($rows as $ri => $row) {
                         $rowText = implode(' ', array_filter($row, function($v){ return trim($v) !== ''; }));
-                        if (mb_strpos($rowText, '姓名') !== false || mb_strpos($rowText, '员工') !== false) {
+                        if (mb_strpos($rowText, '姓名') !== false || mb_strpos($rowText, '员工') !== false || mb_strpos($rowText, '合作人员') !== false) {
                             $headerRowIdx = $ri;
                             break;
                         }
@@ -207,7 +207,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $idxName = $idxWork = $idxAbsent = $idxRemark = null;
                     $idxFullDays = $idxActualDays = null;
                     foreach ($colMap as $k => $idx) {
-                        if ($idxName === null && (mb_strpos($k, '姓名') !== false || mb_strpos($k, '员工') !== false || mb_strpos($k, '名字') !== false || stripos($k, 'name') !== false)) $idxName = $idx;
+                        if ($idxName === null && (mb_strpos($k, '姓名') !== false || mb_strpos($k, '员工') !== false || mb_strpos($k, '合作人员') !== false || mb_strpos($k, '名字') !== false || stripos($k, 'name') !== false)) $idxName = $idx;
                         // 满勤天数（新格式）—— 支持"满勤天数/满勤/应出勤天数/应出勤/全勤天数/全勤"等多种表头
                         if ($idxFullDays === null && (mb_strpos($k, '满勤天数') !== false || mb_strpos($k, '满勤') !== false || mb_strpos($k, '应出勤天数') !== false || mb_strpos($k, '应出勤') !== false || mb_strpos($k, '全勤天数') !== false || mb_strpos($k, '全勤') !== false)) $idxFullDays = $idx;
                         // 实际出勤天数（新格式）
@@ -249,7 +249,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             $workDayCount = $dayColCount - count($holidayCols); // 应出勤天数 = 总天数 - 节假日
                         }
 
-                        // 预载员工名单（按名查ID）
+                        // 预载合作人员名单（按名查ID）
                         $empList = get_employees();
                         $empByName = [];
                         foreach ($empList as $e) $empByName[trim($e['name'])] = (int)$e['id'];
@@ -313,7 +313,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                             $empId = $empByName[$empName] ?? 0;
                             if ($empId <= 0) {
-                                // 员工尚未添加：暂存到待匹配表，员工添加后自动补录
+                                // 合作人员尚未添加：暂存到待匹配表，合作人员添加后自动补录
                                 $notFound[] = $empName;
                                 $skipped++;
                                 $insPending->execute([$empName, $year, $month, $wh, $ah, $rm]);
@@ -324,8 +324,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         }
                         db()->commit();
                         $msg = "导入完成：成功 {$inserted} 条";
-                        if ($skipped > 0) $msg .= "，暂存待匹配 {$skipped} 条（员工添加后自动补录）";
-                        if (!empty($notFound)) $msg .= "，未匹配员工：" . implode('、', array_slice($notFound, 0, 5)) . (count($notFound) > 5 ? ' 等' : '');
+                        if ($skipped > 0) $msg .= "，暂存待匹配 {$skipped} 条（合作人员添加后自动补录）";
+                        if (!empty($notFound)) $msg .= "，未匹配合作人员：" . implode('、', array_slice($notFound, 0, 5)) . (count($notFound) > 5 ? ' 等' : '');
                         // 附加识别信息便于排查
                         $mode = $autoDayMode ? '自动统计(每日打卡列)' : '天数列直读';
                         $msg .= "【模式:{$mode}；姓名列:{$idxName}；满勤列:" . ($idxFullDays ?? '无') . "；实际出勤列:" . ($idxActualDays ?? '无') . "；数据行:" . count($dataRows) . "】";
@@ -354,7 +354,7 @@ $totalAbsent = array_sum(array_column($records, 'absent_hours'));
 $fullCount = 0;
 foreach ($records as $r) if ((float)$r['absent_hours'] == 0) $fullCount++;
 
-// 待匹配考勤（上传时员工尚未添加的行，员工添加后自动补录）
+// 待匹配考勤（上传时合作人员尚未添加的行，合作人员添加后自动补录）
 $pendingRows = [];
 try {
     $ps = db()->prepare("SELECT * FROM attendance_pending WHERE year=? AND month=? ORDER BY employee_name");
@@ -378,14 +378,14 @@ include __DIR__ . '/../includes/header.php';
         <span class="badge badge-info ml-2">已录 <?php echo $total; ?> 人</span>
         <span class="badge badge-success ml-1">满勤 <?php echo $fullCount; ?> 人</span>
         <?php if ($totalAbsent > 0): ?><span class="badge badge-warning ml-1">请假 <?php echo number_format($totalAbsent, 2); ?>h</span><?php endif; ?>
-        <?php if ($pendingCount > 0): ?><span class="badge badge-secondary ml-1" title="上传考勤时这些员工尚未添加，已暂存；添加员工后自动补录">待匹配 <?php echo $pendingCount; ?> 人</span><?php endif; ?>
+        <?php if ($pendingCount > 0): ?><span class="badge badge-secondary ml-1" title="上传考勤时这些合作人员尚未添加，已暂存；添加合作人员后自动补录">待匹配 <?php echo $pendingCount; ?> 人</span><?php endif; ?>
     </div>
 </div>
 
 <?php if ($pendingCount > 0): ?>
 <div class="alert alert-info py-2">
     <a class="d-flex justify-content-between align-items-center text-decoration-none text-info" data-toggle="collapse" href="#pendingCollapse" role="button" aria-expanded="false" aria-controls="pendingCollapse">
-        <span><i class="fas fa-info-circle"></i> <strong><?php echo $pendingCount; ?> 人</strong>的考勤已暂存（上传时员工尚未添加）。在<a href="<?php echo BASE_URL; ?>/employees/index.php" onclick="event.stopPropagation();">员工管理</a>中添加对应姓名的员工后，考勤会自动补录。</span>
+        <span><i class="fas fa-info-circle"></i> <strong><?php echo $pendingCount; ?> 人</strong>的考勤已暂存（上传时合作人员尚未添加）。在<a href="<?php echo BASE_URL; ?>/employees/index.php" onclick="event.stopPropagation();">合作人员管理</a>中添加对应姓名的合作人员后，考勤会自动补录。</span>
         <i class="fas fa-chevron-down ml-2"></i>
     </a>
     <div class="collapse" id="pendingCollapse">
@@ -442,10 +442,10 @@ include __DIR__ . '/../includes/header.php';
                 <hr>
                 <div class="text-muted small">
                     <b><i class="fas fa-info-circle text-info"></i> 文件格式要求：</b><br>
-                    表头需包含：<code>姓名/员工</code> + <code>满勤天数</code> + <code>实际出勤天数</code>，可选 <code>备注</code><br>
+                    表头需包含：<code>姓名/合作人员</code> + <code>满勤天数</code> + <code>实际出勤天数</code>，可选 <code>备注</code><br>
                     系统按"满勤天数 × 8小时"计算应出勤，按"(满勤天数 - 实际出勤天数) × 8小时"计算请假<br>
                     也兼容旧格式：<code>应出勤(小时)</code> / <code>请假(小时)</code><br>
-                    员工姓名必须与系统员工名一致，否则该行跳过
+                    合作人员姓名必须与系统合作人员名一致，否则该行跳过
                 </div>
             </div>
         </div>
@@ -459,9 +459,9 @@ include __DIR__ . '/../includes/header.php';
                     <input type="hidden" name="year" value="<?php echo $year; ?>">
                     <input type="hidden" name="month" value="<?php echo $month; ?>">
                     <div class="form-group">
-                        <label>员工 <span class="required">*</span></label>
+                        <label>合作人员 <span class="required">*</span></label>
                         <select name="employee_id" class="form-control" required>
-                            <option value="">-- 选择员工 --</option>
+                            <option value="">-- 选择合作人员 --</option>
                             <?php foreach ($employees as $emp): ?>
                                 <option value="<?php echo $emp['id']; ?>"><?php echo e($emp['name']); ?>（<?php echo e($emp['department']); ?>）</option>
                             <?php endforeach; ?>
@@ -517,7 +517,7 @@ include __DIR__ . '/../includes/header.php';
                             <thead class="thead-light">
                                 <tr>
                                     <th style="width:36px"><input type="checkbox" id="chkAll" onclick="document.querySelectorAll('.row-chk').forEach(c=>c.checked=this.checked)"></th>
-                                    <th>员工</th>
+                                    <th>合作人员</th>
                                     <th>部门</th>
                                     <th class="text-right">满勤天数</th>
                                     <th class="text-right">实际出勤</th>

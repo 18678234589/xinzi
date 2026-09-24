@@ -26,7 +26,7 @@ if (($_GET['export'] ?? '') === '1') {
     header('Content-Disposition: attachment; filename="' . $filename . '"');
     echo "\xEF\xBB\xBF";
     $out = fopen('php://output', 'w');
-    fputcsv($out, ['店铺', '订单号', '差异类型', '归属员工', '员工上传售价', '店铺订单售价', '差异金额', '员工上传日期', '店铺订单日期', '员工订单ID', '店铺订单ID']);
+    fputcsv($out, ['店铺', '订单号', '差异类型', '归属合作人员', '合作人员上传售价', '店铺订单售价', '差异金额', '合作人员上传日期', '店铺订单日期', '合作人员订单ID', '店铺订单ID']);
     foreach ($rows as $r) {
         fputcsv($out, [
             $r['shop_name'],
@@ -102,7 +102,7 @@ include __DIR__ . '/../includes/header.php';
             <div class="card-body py-2">
                 <div class="text-muted small">店铺缺失</div>
                 <div class="font-weight-bold text-danger h5 mb-0"><?php echo $cntMissing; ?> 条</div>
-                <small class="text-muted">员工上传了但店铺订单表查不到</small>
+                <small class="text-muted">合作人员上传了但店铺订单表查不到</small>
             </div>
         </div>
     </div>
@@ -130,7 +130,7 @@ include __DIR__ . '/../includes/header.php';
         <div class="card-body text-center text-success py-5">
             <i class="fas fa-check-circle fa-3x mb-2 d-block"></i>
             <b>该店铺无异常订单</b>
-            <p class="text-muted">所有员工上传订单与店铺订单都能匹配上</p>
+            <p class="text-muted">所有合作人员上传订单与店铺订单都能匹配上</p>
         </div>
     </div>
 <?php else: ?>
@@ -158,11 +158,11 @@ include __DIR__ . '/../includes/header.php';
                         <th>店铺</th>
                         <th>订单号</th>
                         <th>差异类型</th>
-                        <th>归属员工</th>
-                        <th class="text-right">员工上传售价</th>
+                        <th>归属合作人员</th>
+                        <th class="text-right">合作人员上传售价</th>
                         <th class="text-right">店铺订单售价</th>
                         <th class="text-right">差异金额</th>
-                        <th>员工上传日期</th>
+                        <th>合作人员上传日期</th>
                         <th>店铺订单日期</th>
                     </tr>
                 </thead>

@@ -1,7 +1,15 @@
 {
     "modules": [
         {
-            "name": "成本比例提成",
+            "name": "底薪",
+            "type": "base_salary",
+            "enabled": true,
+            "config": {
+                "base_amount": 800
+            }
+        },
+        {
+            "name": "标书提成",
             "type": "profit_commission",
             "enabled": true,
             "config": {
@@ -10,25 +18,30 @@
             }
         },
         {
-            "name": "引流订单",
-            "type": "referral_order",
+            "name": "小程序提成",
+            "type": "miniprogram_commission",
             "enabled": true,
             "config": {
-                "subsidy": 5,
+                "commission_rate": 0.05,
+                "service_fee_rate": 0.03,
+                "filter_column": "订单类型",
+                "filter_value": "新订单",
+                "customer_subsidy": 20
+            }
+        },
+        {
+            "name": "引流订单",
+            "type": "referral_order",
+            "enabled": false,
+            "config": {
+                "subsidy": 3,
                 "count_column": "",
                 "count_keyword": "",
                 "count_keyword_match": "all",
                 "count_mode": "keyword"
             }
-        },
-        {
-            "name": "底薪（自定义）",
-            "type": "base_salary",
-            "enabled": true,
-            "config": {
-                "base_amount": 800
-            }
         }
     ],
-    "updated_at": "2026-07-17 16:07:56"
+    "dept_share": 1,
+    "updated_at": "2026-07-20 08:34:23"
 }

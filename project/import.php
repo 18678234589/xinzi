@@ -44,7 +44,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             // 原始表格先保存（财务可在“原始表格”页查看 / 下载）；重新选择工作表时直接读已保存的文件，不必重新上传。
             if ($action === 'preview') {
                 if (empty($_FILES['file']['tmp_name']) || $_FILES['file']['error'] !== UPLOAD_ERR_OK || $_FILES['file']['size'] > 5 * 1024 * 1024) throw new RuntimeException('请选择不超过 5MB 的 XLSX 或 CSV 文件');
-                $fileId = ps_import_file_store($_FILES['file'], $selectedBusiness, $actor);
+                $fileId = ps_import_file_store($_FILES['file'], $selectedBusiness, $actor, $_FILES['parsed_file'] ?? null);
             } else $fileId = (int)($_POST['file_id'] ?? 0);
             $fileRow = ps_import_file_get($fileId, $actor);
             $chosenSheets = $action === 'repreview' ? array_map('strval', (array)($_POST['sheets'] ?? [])) : null;
@@ -213,6 +213,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             $designSeen[$monthKey] = true;
                         }
                     }
+                    // 商标业务识别订单类型：小额分表或包含小额 -> 小额返款；备注或类型含“新客” -> 新客户；其余 -> 普通订单。
+                    if ($selectedBusiness === '商标') {
+                        if (mb_strpos($sheetName, '小额') !== false || mb_strpos($lookup($row, 'order_kind'), '小额') !== false || mb_strpos($lookup($row, 'contact_note'), '小额') !== false) {
+                            $kindText = '小额返款';
+                        } elseif (mb_strpos($lookup($row, 'order_kind'), '新客') !== false || mb_strpos($lookup($row, 'contact_note'), '新客') !== false || mb_strpos($lookup($row, 'detail:service_type'), '新客') !== false) {
+                            $kindText = '新客户';
+                        } elseif ($kindText === '') {
+                            $kindText = '普通订单';
+                        }
+                    }
                     $record['kind_missing'] = false;
                     if ($kindText === '' && !empty($businessDefinition['kind_required'])) {
                         // 从业务描述 / 备注猜类型（续费、定制、技术服务），猜不到的在预览里选择
@@ -264,8 +274,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         $selfId = (int)$actor['employee_id'];
                         if (!isset($record['people']['technical'][$selfId]) && !isset($record['people']['customer_service'][$selfId])) {
                             $selfGroup = $actor['role'] === 'technical' ? 'technical' : 'customer_service';
-                            $record['people'][$selfGroup][$selfId] = ['id' => $selfId, 'role' => $selfGroup === 'technical' ? $peopleLabels['frontend'] : '客服', 'name' => $actorName ?? '本人'];
-                            if ($selfGroup === 'technical') $front[$selfId] = true; else $cs[$selfId] = true;
+                            // 没有填写本组人员时可由上传人接单；若表格明确写了别人，不能擅自把订单据为己有。
+                            $groupHasNamedPerson = $selfGroup === 'technical' ? (bool)($front || $back) : (bool)$cs;
+                            if (!$groupHasNamedPerson) {
+                                $record['people'][$selfGroup][$selfId] = ['id' => $selfId, 'role' => $selfGroup === 'technical' ? $peopleLabels['frontend'] : '客服', 'name' => $actorName ?? '本人'];
+                                if ($selfGroup === 'technical') $front[$selfId] = true; else $cs[$selfId] = true;
+                            }
                         }
                     }
                     if (!$cs && !$front && !$back) throw new RuntimeException('至少需要匹配一名客服或技术参与人');
@@ -404,7 +418,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             $changed = ps_save_customer_intake($orderId, ['customer_name' => $row['payment_nickname'], 'shop' => $row['shop'], 'contract_amount' => $row['contract_amount'], 'payment_nickname' => $row['payment_nickname']], $actor, true);
                             if ($changed) ps_audit('order', $orderId, 'import_customer_intake', $actor, ['line' => $row['line'], 'fields' => $changed]);
                         }
-                        if ($actor['role'] !== 'customer_service' && $selectedBusiness === '网站模板') {
+                        if ($actor['role'] !== 'customer_service' && in_array($selectedBusiness, ['网站模板', '商标'], true)) {
                             $q = $pdo->prepare('SELECT details_json FROM project_order_details WHERE order_id=? FOR UPDATE');
                             $q->execute([$orderId]);
                             $details = json_decode((string)($q->fetchColumn() ?: '{}'), true) ?: [];
@@ -455,8 +469,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         // 部门结算表的稿费 / 杂志社费用：¥500 以内自动通过，超过的由财务审核（与成本中心模板阈值一致）。
                         $costAmount = round((float)$row['direct_cost'], 2);
                         $costStatus = abs($costAmount) <= 500 ? 'approved' : 'pending';
+                        $costItemName = $businessDefinition['cost_label'] ?? ($selectedBusiness === '期刊' ? '杂志社 / 写手费用' : '写手稿费');
                         $pdo->prepare("INSERT INTO project_costs (order_id,category,item_name,quantity,unit,unit_price,amount,cost_kind,is_custom,reason,review_status,submitted_by_employee) VALUES (?,'outsourcing',?,1,'项',?,?,'one_time',1,?,?,?)")
-                            ->execute([$orderId, $selectedBusiness === '期刊' ? '杂志社 / 写手费用' : '写手稿费', $costAmount, $costAmount, 'Excel 第' . $row['line'] . '行导入', $costStatus, $actor['employee_id'] ?? null]);
+                            ->execute([$orderId, $costItemName, $costAmount, $costAmount, 'Excel 第' . $row['line'] . '行导入', $costStatus, $actor['employee_id'] ?? null]);
                     }
                     ps_audit('order', $orderId, 'import', $actor, ['line' => $row['line'], 'order_no' => $row['order_no'], 'domain_template_id' => $domainTemplate['id'] ?? null]);
                     $imported++;
@@ -481,7 +496,7 @@ include __DIR__ . '/../includes/header.php';
 <?php if (!$selectedBusiness): ?><div class="alert alert-warning">当前账户尚未分配业务，请联系财务配置。</div><?php else: ?>
 <div class="card project-form-card mb-3"><div class="card-body"><div class="project-section-title"><span class="project-step">01</span><div><h5>上传订单表</h5><p>支持 .xlsx / .csv，最多 1500 行、5 MB。技术和客服只能导入写有本人参与的订单；网站客服新单须指定接单技术。</p></div></div>
 <form method="get" class="form-inline mb-3"><label class="mr-2" for="importBusiness">业务模板</label><select id="importBusiness" name="business" class="form-control mr-2" onchange="this.form.submit()"><?php foreach ($allowedBusinesses as $businessName): ?><option value="<?php echo e($businessName); ?>" <?php echo $selectedBusiness === $businessName ? 'selected' : ''; ?>><?php echo e($businessName); ?></option><?php endforeach; ?></select><a class="btn btn-outline-success" href="?business=<?php echo rawurlencode($selectedBusiness); ?>&download=1">下载此业务 CSV 表头</a></form>
-<form method="post" enctype="multipart/form-data" id="projectUploadForm"><input type="hidden" name="csrf" value="<?php echo e(ps_csrf_token()); ?>"><input type="hidden" name="action" value="preview"><input type="hidden" name="business" value="<?php echo e($selectedBusiness); ?>"><label for="projectImportFile" id="projectDropZone" class="project-drop-zone"><i class="fas fa-cloud-upload-alt"></i><strong>拖拽 Excel 到这里，或点击选择文件</strong><span id="projectFileName">尚未选择文件</span><input type="file" id="projectImportFile" name="file" accept=".xlsx,.csv" required></label><button class="btn btn-success btn-lg mt-3" type="submit">上传并核对每一行</button></form></div></div>
+<form method="post" enctype="multipart/form-data" id="projectUploadForm" data-legacy-xls-upload><input type="hidden" name="csrf" value="<?php echo e(ps_csrf_token()); ?>"><input type="hidden" name="action" value="preview"><input type="hidden" name="business" value="<?php echo e($selectedBusiness); ?>"><input type="file" name="parsed_file" hidden><label for="projectImportFile" id="projectDropZone" class="project-drop-zone"><i class="fas fa-cloud-upload-alt"></i><strong>拖拽 Excel 到这里，或点击选择文件</strong><span id="projectFileName">尚未选择文件</span><input type="file" id="projectImportFile" name="file" accept=".xlsx,.xls,.csv" required></label><button class="btn btn-success btn-lg mt-3" type="submit">上传并核对每一行</button><small class="d-block text-muted mt-2" data-xls-status>旧版 XLS 可直接上传，原件会保留。</small></form></div></div>
 <?php endif; ?>
 <?php
 $previewSheets = $preview ? array_filter($_SESSION['project_import_sheets'] ?? [], function ($i) { return !empty($i['used']); }) : [];
@@ -535,4 +550,6 @@ document.addEventListener('DOMContentLoaded', function () {
   zone.addEventListener('drop', function (event) { if (!event.dataTransfer.files.length) return; input.files = event.dataTransfer.files; label.textContent = input.files[0].name; });
 })();
 </script>
+<script src="<?php echo BASE_URL; ?>/assets/lib/xlsx.full.min.js"></script>
+<script src="<?php echo BASE_URL; ?>/assets/js/project-xls-upload.js"></script>
 <?php include __DIR__ . '/../includes/footer.php'; ?>

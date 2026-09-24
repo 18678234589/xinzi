@@ -1,0 +1,25 @@
+-- 网站项目的非店铺支付宝退款。原始表格仍由 project_import_files 留档；指纹防止同一流水重复扣回。
+CREATE TABLE IF NOT EXISTS project_refund_import_rows (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  fingerprint CHAR(64) NOT NULL,
+  order_id INT NOT NULL,
+  order_no VARCHAR(100) NOT NULL,
+  refund_date DATE NOT NULL,
+  amount DECIMAL(14,2) NOT NULL,
+  payment_method VARCHAR(30) NOT NULL DEFAULT '支付宝',
+  payment_reference VARCHAR(150) NOT NULL DEFAULT '',
+  reason VARCHAR(300) NOT NULL DEFAULT '',
+  import_file_id INT NULL,
+  source_sheet VARCHAR(150) NOT NULL DEFAULT '',
+  source_row INT NOT NULL DEFAULT 0,
+  review_status ENUM('pending','approved','rejected') NOT NULL DEFAULT 'pending',
+  submitted_by_type VARCHAR(20) NOT NULL,
+  submitted_by_id INT NOT NULL,
+  submitted_employee_id INT NULL,
+  reviewed_by_admin INT NULL,
+  reviewed_at DATETIME NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE KEY uk_refund_fingerprint (fingerprint),
+  KEY idx_refund_order (order_id, refund_date),
+  KEY idx_refund_file (import_file_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

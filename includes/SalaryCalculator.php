@@ -1,11 +1,11 @@
 <?php
 /**
- * 多模块组合式薪资算法加载器
+ * 多模块组合式项目报酬算法加载器
  *
  * 设计理念：
- * - 底薪固定（从员工表读取），不参与算法配置
- * - 薪资 = 底薪 + Σ(各独立模块的计算结果)
- * - 每个员工可配置多个模块，每个模块有独立的算法类型和参数
+ * - 固定服务费固定（从合作人员表读取），不参与算法配置
+ * - 项目报酬 = 固定服务费 + Σ(各独立模块的计算结果)
+ * - 每个合作人员可配置多个模块，每个模块有独立的算法类型和参数
  * - 支持的模块类型：standard / tiered / per_order / attendance_full / attendance_daily / attendance_deduct
  * - 配置以 JSON 格式保存在 algorithms/config_{employee_id}.json
  */
@@ -66,22 +66,22 @@ class SalaryCalculator
         return self::hasCustomConfig($employeeId) || self::hasCustomAlgorithm($employeeId);
     }
 
-    // ==================== 核心：计算薪资 ====================
+    // ==================== 核心：计算项目报酬 ====================
     
     /**
-     * 计算薪资（多模块组合）
+     * 计算项目报酬（多模块组合）
      * 
      * @return array
-     *   base_salary   -> 底薪(固定)
+     *   base_salary   -> 固定服务费(固定)
      *   modules       -> [['name','amount','formula','type'], ...]  各模块结果
      *   module_total  -> 所有模块合计
-     *   net_pay       -> 底薪 + 模块合计
+     *   net_pay       -> 固定服务费 + 模块合计
      *   formula_text  -> 完整公式说明
      *   is_custom     -> 是否自定义了算法
      */
     public static function calculate($employee, $orders, $orderTotal, $month)
     {
-        // 底薪只来自底薪模块：有底薪模块抓取底薪；没有底薪模块视为无底薪（外包员工）。
+        // 固定服务费只来自固定服务费模块：有固定服务费模块抓取固定服务费；没有固定服务费模块视为无固定服务费（外包合作人员）。
         // 不再回退到 employees.base_salary 字段。
         $baseSalary   = 0.0;
         $context = [
@@ -126,8 +126,8 @@ class SalaryCalculator
                 //     $results[] = $refundDeduction;
                 // }
                 
-                // 再计算各个提成模块（排除退款订单）
-                // 先找出 base_salary 模块（自定义底薪，覆盖员工表底薪）
+                // 再计算各个项目分成模块（排除退款订单）
+                // 先找出 base_salary 模块（自定义固定服务费，覆盖合作人员表固定服务费）
                 $customBase = null;
                 $customBaseIdx = -1;
                 foreach ($raw['modules'] as $mi => $mod) {
@@ -137,7 +137,7 @@ class SalaryCalculator
                         if ($r !== null) {
                             $customBase = $r;
                             $customBaseIdx = $mi;
-                            $baseSalary = (float)$r['amount']; // 自定义底薪覆盖员工表底薪
+                            $baseSalary = (float)$r['amount']; // 自定义固定服务费覆盖合作人员表固定服务费
                         }
                         break;
                     }
@@ -151,7 +151,7 @@ class SalaryCalculator
                         $results[] = array_merge($result, ['name' => $mod['name']]);
                     }
                 }
-                // 部门绩效自动计入：部门已配置且未排除 → 无需在个人算法里重复加「客服绩效底薪」模块
+                // 部门绩效自动计入：部门已配置且未排除 → 无需在个人算法里重复加「客服绩效固定服务费」模块
                 $autoPerf = self::autoDeptPerf($context);
                 if ($autoPerf !== null) {
                     $hasPerfMod = false;
@@ -177,7 +177,7 @@ class SalaryCalculator
                     'module_total'  => round($moduleTotal, 2),
                     'net_pay'       => round($baseSalary + $moduleTotal, 2),
                     'formula_text'  => implode(' ', $formulaParts),
-                    'algorithm_name'=> count($results) > 0 ? '多模块组合' : '仅底薪',
+                    'algorithm_name'=> count($results) > 0 ? '多模块组合' : '仅固定服务费',
                     'is_custom'     => true,
                 ];
             }
@@ -201,20 +201,20 @@ class SalaryCalculator
         $commission = $orderTotal * (float)$employee['commission_rate'];
         $netPay = $baseSalary + $commission;
         $modules = [[
-            'name' => '默认提成',
+            'name' => '默认项目分成',
             'amount' => round($commission, 2),
             'formula' => sprintf('%.2f × %.2f%%', $orderTotal, (float)$employee['commission_rate']*100),
             'type' => 'standard',
         ]];
         $moduleTotal = round($commission, 2);
-        $formulaText = sprintf('%.2f(底薪)+%.2f(默认提成)=%.2f', $baseSalary, $commission, $netPay);
-        // 部门绩效自动计入（无自定义模块的员工同样生效）
+        $formulaText = sprintf('%.2f(固定服务费)+%.2f(默认项目分成)=%.2f', $baseSalary, $commission, $netPay);
+        // 部门绩效自动计入（无自定义模块的合作人员同样生效）
         $autoPerf = self::autoDeptPerf($context);
         if ($autoPerf !== null) {
             $modules[] = $autoPerf;
             $moduleTotal = round($commission + $autoPerf['amount'], 2);
             $netPay = round($baseSalary + $moduleTotal, 2);
-            $formulaText = sprintf('%.2f(底薪)+%.2f(默认提成)+%.2f(%s)=%.2f', $baseSalary, $commission, $autoPerf['amount'], $autoPerf['name'], $netPay);
+            $formulaText = sprintf('%.2f(固定服务费)+%.2f(默认项目分成)+%.2f(%s)=%.2f', $baseSalary, $commission, $autoPerf['amount'], $autoPerf['name'], $netPay);
         }
         return [
             'base_salary'   => $baseSalary,
@@ -254,15 +254,15 @@ class SalaryCalculator
         }
     }
 
-    // ---- 底薪（自定义，覆盖员工表底薪）----
+    // ---- 固定服务费（自定义，覆盖合作人员表固定服务费）----
     private static function calcBaseSalary($cfg, $c, $moduleName = '')
     {
         $amount = (float)($cfg['base_amount'] ?? 0);
         $tableBase = (float)($c['base_salary'] ?? 0);
-        $note = abs($amount - $tableBase) > 0.001 ? sprintf('（覆盖员工表底薪 %.2f）', $tableBase) : '';
+        $note = abs($amount - $tableBase) > 0.001 ? sprintf('（覆盖合作人员表固定服务费 %.2f）', $tableBase) : '';
         return [
             'amount' => round($amount, 2),
-            'formula' => sprintf('底薪 %.2f%s', $amount, $note),
+            'formula' => sprintf('固定服务费 %.2f%s', $amount, $note),
             'type' => 'base_salary',
         ];
     }
@@ -272,13 +272,13 @@ class SalaryCalculator
     {
         $debugLog = "=== calcRefundDeduction DEBUG START ===\n";
 
-        // 读取员工算法配置，建立 模块名→rate 映射（standard 类型）
+        // 读取合作人员算法配置，建立 模块名→rate 映射（standard 类型）
         $configFile = self::getConfigFile($c['employee']['id']);
         $moduleRates = [];   // 模块名 => rate
-        $tieredModule = null; // 阶梯提成模块（回退用）
+        $tieredModule = null; // 阶梯项目分成模块（回退用）
         $subsidy = 0;
 
-        $debugLog .= "员工ID: {$c['employee']['id']}\n";
+        $debugLog .= "合作人员ID: {$c['employee']['id']}\n";
         $debugLog .= "配置文件: $configFile\n";
 
         if (file_exists($configFile)) {
@@ -334,7 +334,7 @@ class SalaryCalculator
             return null; // 没有退款订单
         }
 
-        // 阶梯提成：用总额匹配阶梯得到统一 rate + subsidy（回退方案）
+        // 阶梯项目分成：用总额匹配阶梯得到统一 rate + subsidy（回退方案）
         $tieredRate = null;
         if ($tieredModule) {
             $totalForTier = (float)$c['order_total'];
@@ -405,7 +405,7 @@ class SalaryCalculator
         ];
     }
 
-    // ---- 底薪（阶梯）----
+    // ---- 固定服务费（阶梯）----
     private static function calcBaseSalaryTiered($cfg, $c, $moduleName = '')
     {
         $tiers = $cfg['tiers'] ?? [];
@@ -416,7 +416,7 @@ class SalaryCalculator
             $totalForTier += (float)($o['order_amount'] ?? 0);
         }
         
-        // 按阶梯匹配底薪金额
+        // 按阶梯匹配固定服务费金额
         rsort($tiers, SORT_DESC);
         $baseAmount = 0;
         foreach ($tiers as $t) {
@@ -428,7 +428,7 @@ class SalaryCalculator
         
         return [
             'amount' => round($baseAmount, 2),
-            'formula' => sprintf('订单总额¥%.2f → 底薪¥%.2f', $totalForTier, $baseAmount),
+            'formula' => sprintf('订单总额¥%.2f → 固定服务费¥%.2f', $totalForTier, $baseAmount),
             'type' => 'base_salary_tiered',
         ];
     }
@@ -556,7 +556,7 @@ class SalaryCalculator
             $total = $totalPrice - $totalCost;
         }
 
-        // 扣除手续费：提成 = (订单总额 - 手续费) × 提成比例
+        // 扣除手续费：项目分成 = (订单总额 - 手续费) × 项目分成比例
         $serviceFeeBase = $priceSource === 'selling_price' ? $totalPrice : $total;
         $serviceFee = $serviceFeeBase * $serviceFeeRate;
         $netTotal = $total - $serviceFee;
@@ -681,7 +681,7 @@ class SalaryCalculator
     }
 
 
-    // ---- 成本比例提成 ----
+    // ---- 成本比例项目分成 ----
     private static function calcProfitCommission($cfg, $c, $moduleName = '')
     {
         $commissionRate = (float)($cfg['commission_rate'] ?? 0);
@@ -725,7 +725,7 @@ class SalaryCalculator
         ];
     }
 
-    // ---- 商标部提成 ----
+    // ---- 商标部项目分成 ----
     private static function calcTrademarkCommission($cfg, $c, $moduleName = '')
     {
         $commissionRate = (float)($cfg['commission_rate'] ?? 0);
@@ -768,7 +768,7 @@ class SalaryCalculator
             $count++;
         }
 
-        // 公式：[(售价-成本) - (售价×服务费比例)] × 提成比例
+        // 公式：[(售价-成本) - (售价×服务费比例)] × 项目分成比例
         $amt = (($totalPrice - $totalCost) - $totalPrice * $serviceFeeRate) * $commissionRate;
 
         return [
@@ -778,7 +778,7 @@ class SalaryCalculator
         ];
     }
 
-    // ---- 商标部小额返现提成 ----
+    // ---- 商标部小额返现项目分成 ----
     private static function calcTrademarkCashback($cfg, $c, $moduleName = '')
     {
         $perAmount = (float)($cfg['per_amount'] ?? 0);
@@ -822,7 +822,7 @@ class SalaryCalculator
         ];
     }
 
-    // ---- 阶梯提成 ----
+    // ---- 阶梯项目分成 ----
     private static function calcTiered($cfg, $c, $moduleName = '')
     {
         $tiers = $cfg['tiers'] ?? [];
@@ -1046,13 +1046,25 @@ class SalaryCalculator
                 }
                 if ($val !== '') $values[] = $val;
             }
-            $cnt = $distinct ? count(array_unique($values)) : count($values);
+            $isSum = ($cfg['count_distinct'] ?? '') === '求和' || ($cfg['count_mode'] ?? '') === 'sum';
+            if ($isSum) {
+                $cnt = 0;
+                foreach ($values as $v) {
+                    if (is_numeric($v)) {
+                        $cnt += (float)$v;
+                    } elseif (preg_match('/\d+(?:\.\d+)?/', (string)$v, $m)) {
+                        $cnt += (float)$m[0];
+                    }
+                }
+            } else {
+                $cnt = $distinct ? count(array_unique($values)) : count($values);
+            }
             $amt1 = $cnt * (float)($cfg['per_amount'] ?? 50);
             $amt2 = $cnt * (float)($cfg['per_reward'] ?? 0);
-            $colLabel = $distinct ? "{$countColumn}去重" : "{$countColumn}非空";
+            $colLabel = $isSum ? "{$countColumn}求和" : ($distinct ? "{$countColumn}去重" : "{$countColumn}非空");
             return [
                 'amount' => round($amt1 + $amt2, 2),
-                'formula' => sprintf('%s%d个×¥%g+¥%g=%.2f', $colLabel, $cnt, $cfg['per_amount']??50, $cfg['per_reward']??0, $amt1+$amt2),
+                'formula' => sprintf('%s%g个×¥%g+¥%g=%.2f', $colLabel, $cnt, $cfg['per_amount']??50, $cfg['per_reward']??0, $amt1+$amt2),
                 'type' => 'per_order',
             ];
         }
@@ -1126,11 +1138,11 @@ class SalaryCalculator
     // ---- 引流订单 ----
     private static function calcReferralOrder($cfg, $c, $moduleName = '')
     {
-        // count_mode: 'keyword'(默认，按列+关键词计数) / 'staff_match'(接单客服匹配员工姓名+旺旺日期去重)
+        // count_mode: 'keyword'(默认，按列+关键词计数) / 'staff_match'(接单客服匹配合作人员姓名+旺旺日期去重)
         $countMode = $cfg['count_mode'] ?? 'keyword';
 
         if ($countMode === 'staff_match') {
-            // 接单客服出现员工姓名 → 该表订单归属此员工 → 计算单量（旺旺+日期去重）
+            // 接单客服出现合作人员姓名 → 该表订单归属此合作人员 → 计算单量（旺旺+日期去重）
             // 可选：配置 count_column + count_keyword 时，先按该列关键词筛选，再去重计数
             $employeeName = trim($c['employee']['name'] ?? '');
             $subsidy = (float)($cfg['subsidy'] ?? 0);
@@ -1149,7 +1161,7 @@ class SalaryCalculator
                 return '';
             };
 
-            // 第一步：扫描所有订单，判断接单客服列是否出现过员工姓名
+            // 第一步：扫描所有订单，判断接单客服列是否出现过合作人员姓名
             $ownsTable = false;
             foreach (($c['orders'] ?? []) as $o) {
                 $rd = is_string($o['raw_data'] ?? '') ? json_decode($o['raw_data'], true) : ($o['raw_data'] ?? []);
@@ -1168,7 +1180,7 @@ class SalaryCalculator
                 ];
             }
 
-            // 第二步：接单客服匹配到员工姓名，该表订单归属此员工，计算单量
+            // 第二步：接单客服匹配到合作人员姓名，该表订单归属此合作人员，计算单量
             // - 配置了 count_column（如"拍建站链接"按单补助）：按 order_no 去重，每条匹配订单算1单
             //   （不要求付费旺旺/日期非空，这类数量表常不填旺旺日期，否则会少算）
             // - 未配置 count_column（如"单量补贴"，统计独立客户单量）：按 付费旺旺+日期 去重
@@ -1308,7 +1320,7 @@ class SalaryCalculator
         $count = self::filterOrderCount($c, $moduleName);
 
         $subsidy = (float)($cfg['subsidy'] ?? 0);
-        // 引流订单工资 = 每单补助金额 × 订单数量（订单金额仅用于筛选/展示）
+        // 引流订单项目报酬 = 每单补助金额 × 订单数量（订单金额仅用于筛选/展示）
         $subsidyAmt = $count * $subsidy;
         $amt = $subsidyAmt;
 
@@ -1630,7 +1642,7 @@ class SalaryCalculator
         return '';
     }
 
-    // ---- 小程序提成（利润提成 + 新老客户补助）----
+    // ---- 小程序项目分成（利润项目分成 + 新老客户补助）----
     private static function calcMiniProgramCommission($cfg, $c, $moduleName = '')
     {
         $commissionRate = (float)($cfg['commission_rate'] ?? 0);
@@ -1647,8 +1659,8 @@ class SalaryCalculator
             $orders[] = $o;
         }
 
-        // ===== 第一部分：利润提成 =====
-        // 公式：((订单金额 - 成本) - 订单金额 × 服务费比例) × 提成比例
+        // ===== 第一部分：利润项目分成 =====
+        // 公式：((订单金额 - 成本) - 订单金额 × 服务费比例) × 项目分成比例
         $totalPrice = 0;
         $totalCost  = 0;
         $count      = 0;
@@ -1740,7 +1752,7 @@ class SalaryCalculator
         // 构建公式说明
         $formulaParts = [];
         if ($count > 0) {
-            $formulaParts[] = sprintf('利润提成((%.2f-%.2f)-%.2f×%.2f%%)×%.2f%%=%.2f',
+            $formulaParts[] = sprintf('利润项目分成((%.2f-%.2f)-%.2f×%.2f%%)×%.2f%%=%.2f',
                 $totalPrice, $totalCost, $totalPrice, $serviceFeeRate * 100, $commissionRate * 100, $profitCommission);
         }
         if ($subsidyCount > 0 && $customerSubsidy > 0) {
@@ -1770,7 +1782,7 @@ class SalaryCalculator
         ];
     }
 
-    // ---- 客服绩效底薪 ----
+    // ---- 客服绩效固定服务费 ----
     // 绩效指标：回复速度（越低越好）、进线人数、成交转化率。
     // 达成率 = 各指标实际/目标 × 权重 → 综合达成率 → 绩效应发 = 基数 × 综合达成率。
     // 无绩效数据按 0 计（可直接不在算法里启用该模块）。
@@ -1784,18 +1796,18 @@ class SalaryCalculator
         }
 
         ensureCsPerfSchema();
-        // 绩效参与改按「部门配置」自动生成；此处模块仅作兜底。被排除的员工一律不计。
+        // 绩效参与改按「部门配置」自动生成；此处模块仅作兜底。被排除的合作人员一律不计。
         if (is_cs_perf_excluded((int)$c['employee']['id'])) {
             return ['amount' => 0, 'formula' => '已被排除出绩效名单', 'type' => 'cs_performance'];
         }
-        // 统一走共享算法（绩效页与薪资结算共用）：优先「部门基数+绩效方案」，未配置时回退本模块旧参数
+        // 统一走共享算法（绩效页与项目结算共用）：优先「部门基数+绩效方案」，未配置时回退本模块旧参数
         $r = cs_perf_calc((int)$c['employee']['id'], $year, $month, $cfg);
         return ['amount' => $r['amount'], 'formula' => $r['formula'], 'type' => 'cs_performance'];
     }
 
     /**
-     * 部门绩效自动计入：员工所在部门已配置绩效（基数>0 且 有效方案）且未被排除时，
-     * 自动生成「客服绩效底薪」条目（无需在个人算法页手动添加该模块）。
+     * 部门绩效自动计入：合作人员所在部门已配置绩效（基数>0 且 有效方案）且未被排除时，
+     * 自动生成「客服绩效固定服务费」条目（无需在个人算法页手动添加该模块）。
      * 未满足条件返回 null。
      * @param array $c 结算上下文（含 employee / month）
      * @return array|null
@@ -1808,7 +1820,7 @@ class SalaryCalculator
         if ($empId <= 0 || $dept === '') return null;
         $deptCfg = get_cs_perf_dept_config($dept);
         $isRankDept = ($dept === CS_PERF_RANK_DEPT);
-        // 排名部门（设计客服）：无需配置基数，按「多店绩效平均→前三名」定底薪；其余部门需 基数>0 且 有效方案
+        // 排名部门（设计客服）：无需配置基数，按「多店绩效平均→前三名」定固定服务费；其余部门需 基数>0 且 有效方案
         if (!$isRankDept && (!$deptCfg || (float)$deptCfg['base'] <= 0 || (int)$deptCfg['scheme_id'] <= 0)) return null;
         if (is_cs_perf_excluded($empId)) return null; // 被排除者不自动计入
         $year = 0; $month = 0;
@@ -1817,7 +1829,7 @@ class SalaryCalculator
         if ($year <= 0 || $month < 1 || $month > 12) return null;
         $r = cs_perf_calc($empId, $year, $month);
         return [
-            'name'    => '客服绩效底薪',
+            'name'    => '客服绩效固定服务费',
             'amount'  => (float)($r['amount'] ?? 0.0),
             'formula' => (string)($r['formula'] ?? ''),
             'type'    => 'cs_performance',
@@ -1935,10 +1947,10 @@ class SalaryCalculator
         @chmod($file, 0664);
 
         if ($deptShare) {
-            // 参与部门订单提成：部门汇总行已在 orders 表中，结算时通过 __dept_modules__ 虚拟拆分，
-            // 新员工配置后自动生效，无需物理同步拆分行
+            // 参与部门订单项目分成：部门汇总行已在 orders 表中，结算时通过 __dept_modules__ 虚拟拆分，
+            // 新合作人员配置后自动生效，无需物理同步拆分行
         } else {
-            // 不参与部门订单提成：清理旧的物理拆分行（历史数据，新数据不再产生拆分行）
+            // 不参与部门订单项目分成：清理旧的物理拆分行（历史数据，新数据不再产生拆分行）
             try {
                 $del = db()->prepare("UPDATE orders SET is_deleted=1 WHERE employee_id = ? AND raw_data LIKE '%__from_dept__%'");
                 $del->execute([$employeeId]);
@@ -1989,13 +2001,13 @@ class SalaryCalculator
     {
         return [
             'standard' => [
-                'label' => '标准比例提成',
+                'label' => '标准比例项目分成',
                 'icon' => 'fa-percentage',
                 'color' => 'primary',
                 'desc' => '按订单总额的固定比例计算',
                 'fields' => [
                     ['key'=>'_name','label'=>'模块名称（必填）','type'=>'text','placeholder'=>'如：续费、新单、线下渠道、淘宝店A','default'=>''],
-                    ['key'=>'rate','label'=>'提成比例(小数)','type'=>'number','step'=>'any','placeholder'=>'0.018=1.8%, 0.05=5%','default'=>''],
+                    ['key'=>'rate','label'=>'项目分成比例(小数)','type'=>'number','step'=>'any','placeholder'=>'0.018=1.8%, 0.05=5%','default'=>''],
                     ['key'=>'service_fee_rate','label'=>'手续费扣除比例(小数)','type'=>'number','step'=>'any','placeholder'=>'0.03=3%, 0表示不扣除','default'=>'0','desc'=>'上传订单时按此比例从售价中扣除手续费'],
                     ['key'=>'min_amount','label'=>'最小订单金额','type'=>'number','step'=>'0.01','placeholder'=>'留空=不限制，如 50','default'=>''],
                     ['key'=>'max_amount','label'=>'最大订单金额','type'=>'number','step'=>'0.01','placeholder'=>'留空=不限制，如 10000','default'=>''],
@@ -2006,10 +2018,10 @@ class SalaryCalculator
                 ],
             ],
             'tiered' => [
-                'label' => '阶梯提成',
+                'label' => '阶梯项目分成',
                 'icon' => 'fa-stairs',
                 'color' => 'warning',
-                'desc' => '按订单总额分档，越高档提成越多',
+                'desc' => '按订单总额分档，越高档项目分成越多',
                 'fields' => [
                     ['key'=>'_name','label'=>'模块名称（必填）','type'=>'text','placeholder'=>'如：续费阶梯、新单阶梯','default'=>''],
                     ['key'=>'service_fee_rate','label'=>'手续费扣除比例(小数)','type'=>'number','step'=>'any','placeholder'=>'0.03=3%, 0表示不扣除','default'=>'0','desc'=>'上传订单时按此比例从售价中扣除手续费'],
@@ -2022,10 +2034,10 @@ class SalaryCalculator
                 'label' => '每笔订单奖励',
                 'icon' => 'fa-receipt',
                 'color' => 'info',
-                'desc' => '按订单笔数计算固定提成+可选奖励',
+                'desc' => '按订单笔数计算固定项目分成+可选奖励',
                 'fields' => [
                     ['key'=>'_name','label'=>'模块名称（必填）','type'=>'text','placeholder'=>'如：续费单奖、新单奖励','default'=>''],
-                    ['key'=>'per_amount','label'=>'每笔提成','type'=>'number','step'=>'0.01','min'=>'0','placeholder'=>'如 80 元','default'=>'80'],
+                    ['key'=>'per_amount','label'=>'每笔项目分成','type'=>'number','step'=>'0.01','min'=>'0','placeholder'=>'如 80 元','default'=>'80'],
                     ['key'=>'per_reward','label'=>'每笔额外奖励','type'=>'number','step'=>'0.01','min'=>'0','placeholder'=>'可选，如 20','default'=>'0'],
                     ['key'=>'service_fee_rate','label'=>'手续费扣除比例(小数)','type'=>'number','step'=>'any','placeholder'=>'0.03=3%, 0表示不扣除','default'=>'0','desc'=>'上传订单时按此比例从售价中扣除手续费'],
                     ['key'=>'count_column','label'=>'计数列名','type'=>'text','placeholder'=>'填列名如"域名"，按该列去重计数；留空则按订单笔数','default'=>''],
@@ -2033,12 +2045,12 @@ class SalaryCalculator
                 ],
             ],
             'attendance_full' => [
-                'label' => '全勤奖金',
+                'label' => '全勤项目奖励',
                 'icon' => 'fa-calendar-check',
                 'color' => 'success',
-                'desc' => '出满勤给予固定全勤奖金，请假按小时折算或扣除',
+                'desc' => '出满勤给予固定全勤项目奖励，请假按小时折算或扣除',
                 'fields' => [
-                    ['key'=>'full_amount','label'=>'全勤奖金额','type'=>'number','step'=>'0.01','min'=>'0','placeholder'=>'如 200','default'=>'200'],
+                    ['key'=>'full_amount','label'=>'全勤项目奖励额','type'=>'number','step'=>'0.01','min'=>'0','placeholder'=>'如 200','default'=>'200'],
                     ['key'=>'deduct_mode','label'=>'请假扣除方式','type'=>'select','options'=>['none'=>'不扣除（请假照发）','prorate'=>'按小时比例折算','fixed'=>'每小时扣固定金额'],'default'=>'none'],
                     ['key'=>'work_hours','label'=>'当月应出勤总小时数','type'=>'number','step'=>'0.1','min'=>'0','placeholder'=>'如 22天×8小时=176','default'=>'176'],
                     ['key'=>'absent_hours','label'=>'当月请假小时数','type'=>'number','step'=>'0.1','min'=>'0','placeholder'=>'每月结算时填写，如 4=半天','default'=>'0'],
@@ -2052,68 +2064,68 @@ class SalaryCalculator
                 'desc' => '按实际出勤天数乘以日薪计算',
                 'fields' => [
                     ['key'=>'work_days','label'=>'本月出勤天数','type'=>'number','step'=>'1','min'=>'0','max'=>'31','placeholder'=>'实际出勤天数','default'=>'22'],
-                    ['key'=>'daily_rate','label'=>'日薪金额','type'=>'number','step'=>'0.01','min'=>'0','placeholder'=>'每日工资','default'=>'150'],
+                    ['key'=>'daily_rate','label'=>'日薪金额','type'=>'number','step'=>'0.01','min'=>'0','placeholder'=>'每日项目报酬','default'=>'150'],
                 ],
             ],
             'attendance_deduct' => [
                 'label' => '缺勤扣款',
                 'icon' => 'fa-calendar-times',
                 'color' => 'danger',
-                'desc' => '按缺勤天数扣减工资',
+                'desc' => '按缺勤天数扣减项目报酬',
                 'fields' => [
                     ['key'=>'absent_days','label'=>'缺勤天数','type'=>'number','step'=>'1','min'=>'0','placeholder'=>'缺勤天数','default'=>'0'],
                     ['key'=>'deduct_per_day','label'=>'每天扣款','type'=>'number','step'=>'0.01','min'=>'0','placeholder'=>'每缺勤一天扣多少','default'=>'100'],
                 ],
             ],
             'base_salary' => [
-                'label' => '底薪（自定义）',
+                'label' => '固定服务费（自定义）',
                 'icon' => 'fa-coins',
                 'color' => 'secondary',
-                'desc' => '自定义该员工底薪金额，会覆盖员工表中录入的底薪；不配置则用员工表底薪',
+                'desc' => '自定义该合作人员固定服务费金额，会覆盖合作人员表中录入的固定服务费；不配置则用合作人员表固定服务费',
                 'fields' => [
-                    ['key'=>'_name','label'=>'模块名称（必填）','type'=>'text','placeholder'=>'如：底薪','default'=>''],
-                    ['key'=>'base_amount','label'=>'底薪金额','type'=>'number','step'=>'any','placeholder'=>'如 3300','default'=>3300],
+                    ['key'=>'_name','label'=>'模块名称（必填）','type'=>'text','placeholder'=>'如：固定服务费','default'=>''],
+                    ['key'=>'base_amount','label'=>'固定服务费金额','type'=>'number','step'=>'any','placeholder'=>'如 3300','default'=>3300],
                 ],
             ],
             'profit_commission' => [
-                'label' => '标书提成',
+                'label' => '标书项目分成',
                 'icon' => 'fa-coins',
                 'color' => 'info',
-                'desc' => '基于订单金额和成本计算：((订单金额 - 成本) - 订单金额×服务费比例) × 提成比例',
+                'desc' => '基于订单金额和成本计算：((订单金额 - 成本) - 订单金额×服务费比例) × 项目分成比例',
                 'fields' => [
-                    ['key'=>'_name','label'=>'模块名称（必填）','type'=>'text','placeholder'=>'如：成本提成A','default'=>''],
-                    ['key'=>'commission_rate','label'=>'提成比例(小数)','type'=>'number','step'=>'any','placeholder'=>'0.1=10%','default'=>''],
+                    ['key'=>'_name','label'=>'模块名称（必填）','type'=>'text','placeholder'=>'如：成本项目分成A','default'=>''],
+                    ['key'=>'commission_rate','label'=>'项目分成比例(小数)','type'=>'number','step'=>'any','placeholder'=>'0.1=10%','default'=>''],
                     ['key'=>'service_fee_rate','label'=>'服务费比例(小数)','type'=>'number','step'=>'any','placeholder'=>'0.05=5%','default'=>''],
                 ],
             ],
             'trademark_commission' => [
-                'label' => '商标部提成',
+                'label' => '商标部项目分成',
                 'icon' => 'fa-trademark',
                 'color' => 'primary',
-                'desc' => '基于售价和成本计算；((售价 - 成本) - 售价×服务费比例) × 提成比例（负数也参与计算）',
+                'desc' => '基于售价和成本计算；((售价 - 成本) - 售价×服务费比例) × 项目分成比例（负数也参与计算）',
                 'fields' => [
-                    ['key'=>'_name','label'=>'模块名称（必填）','type'=>'text','placeholder'=>'如：商标部提成','default'=>''],
-                    ['key'=>'commission_rate','label'=>'提成比例(小数)','type'=>'number','step'=>'any','placeholder'=>'0.1=10%','default'=>''],
+                    ['key'=>'_name','label'=>'模块名称（必填）','type'=>'text','placeholder'=>'如：商标部项目分成','default'=>''],
+                    ['key'=>'commission_rate','label'=>'项目分成比例(小数)','type'=>'number','step'=>'any','placeholder'=>'0.1=10%','default'=>''],
                     ['key'=>'service_fee_rate','label'=>'服务费比例(小数)','type'=>'number','step'=>'any','placeholder'=>'0.05=5%','default'=>''],
                 ],
             ],
             'trademark_cashback' => [
-                'label' => '商标部小额返现提成',
+                'label' => '商标部小额返现项目分成',
                 'icon' => 'fa-money-bill-wave',
                 'color' => 'success',
-                'desc' => '筛选备注包含"小额返"的订单，按单量×提成金额计算',
+                'desc' => '筛选备注包含"小额返"的订单，按单量×项目分成金额计算',
                 'fields' => [
-                    ['key'=>'_name','label'=>'模块名称（必填）','type'=>'text','placeholder'=>'如：小额返现提成','default'=>''],
-                    ['key'=>'per_amount','label'=>'每单提成金额','type'=>'number','step'=>'0.01','min'=>'0','placeholder'=>'如 10 元/单','default'=>'10'],
+                    ['key'=>'_name','label'=>'模块名称（必填）','type'=>'text','placeholder'=>'如：小额返现项目分成','default'=>''],
+                    ['key'=>'per_amount','label'=>'每单项目分成金额','type'=>'number','step'=>'0.01','min'=>'0','placeholder'=>'如 10 元/单','default'=>'10'],
                 ],
             ],
             'base_salary_tiered' => [
-                'label' => '底薪（阶梯）',
+                'label' => '固定服务费（阶梯）',
                 'icon' => 'fa-layer-group',
                 'color' => 'secondary',
-                'desc' => '按订单总额分档的底薪',
+                'desc' => '按订单总额分档的固定服务费',
                 'fields' => [
-                    ['key'=>'_name','label'=>'模块名称（必填）','type'=>'text','placeholder'=>'如：阶梯底薪','default'=>''],
+                    ['key'=>'_name','label'=>'模块名称（必填）','type'=>'text','placeholder'=>'如：阶梯固定服务费','default'=>''],
                 ],
             ],
             'referral_order' => [
@@ -2127,7 +2139,7 @@ class SalaryCalculator
                     ['key'=>'count_column','label'=>'计数列名','type'=>'text','placeholder'=>'填列名如"建站订单"，按该列内容筛选计数','default'=>''],
                     ['key'=>'count_keyword','label'=>'关键词（+分隔）','type'=>'text','placeholder'=>'如"拍+链接"，按下方匹配方式筛选该列值','default'=>''],
                     ['key'=>'count_keyword_match','label'=>'关键词匹配方式','type'=>'select','options'=>['all'=>'同时包含所有词(且)','any'=>'包含任一词(或)'],'default'=>'all'],
-                    ['key'=>'count_mode','label'=>'计数模式','type'=>'select','options'=>['keyword'=>'关键词匹配(按列+关键词计数)','staff_match'=>'接单客服匹配(按员工姓名匹配+旺旺日期去重)'],'default'=>'keyword'],
+                    ['key'=>'count_mode','label'=>'计数模式','type'=>'select','options'=>['keyword'=>'关键词匹配(按列+关键词计数)','staff_match'=>'接单客服匹配(按合作人员姓名匹配+旺旺日期去重)'],'default'=>'keyword'],
                 ],
             ],
             'customer_reward' => [
@@ -2142,13 +2154,13 @@ class SalaryCalculator
                 ],
             ],
             'miniprogram_commission' => [
-                'label' => '小程序提成',
+                'label' => '小程序项目分成',
                 'icon' => 'fa-mobile-alt',
                 'color' => 'success',
-                'desc' => '小程序订单提成：利润提成 + 新老客户补助',
+                'desc' => '小程序订单项目分成：利润项目分成 + 新老客户补助',
                 'fields' => [
-                    ['key'=>'_name','label'=>'模块名称（必填）','type'=>'text','placeholder'=>'如：小程序提成','default'=>''],
-                    ['key'=>'commission_rate','label'=>'提成比例(小数)','type'=>'number','step'=>'any','placeholder'=>'0.1=10%','default'=>''],
+                    ['key'=>'_name','label'=>'模块名称（必填）','type'=>'text','placeholder'=>'如：小程序项目分成','default'=>''],
+                    ['key'=>'commission_rate','label'=>'项目分成比例(小数)','type'=>'number','step'=>'any','placeholder'=>'0.1=10%','default'=>''],
                     ['key'=>'service_fee_rate','label'=>'服务费比例(小数)','type'=>'number','step'=>'any','placeholder'=>'0.006=0.6%','default'=>''],
                     ['key'=>'filter_column','label'=>'新老客户筛选字段名','type'=>'text','placeholder'=>'如：订单类型','default'=>''],
                     ['key'=>'filter_value','label'=>'新客户字段值','type'=>'text','placeholder'=>'如：新订单','default'=>''],
@@ -2166,12 +2178,12 @@ class SalaryCalculator
                 ],
             ],
             'cs_performance' => [
-                'label' => '客服绩效底薪',
+                'label' => '客服绩效固定服务费',
                 'icon' => 'fa-comments-dollar',
                 'color' => 'success',
-                'desc' => '部门已配置绩效时自动按「部门基数×综合达成率」计算（无需此模块）；本模块仅在该员工所在部门未配置绩效时作为兜底（使用下方旧参数：回复速度/进线人数/转化率加权，可设保底与封顶）。绩效数据在「客服绩效」页上传官网导出表后自动匹配',
+                'desc' => '部门已配置绩效时自动按「部门基数×综合达成率」计算（无需此模块）；本模块仅在该合作人员所在部门未配置绩效时作为兜底（使用下方旧参数：回复速度/进线人数/转化率加权，可设保底与封顶）。绩效数据在「客服绩效」页上传官网导出表后自动匹配',
                 'fields' => [
-                    ['key'=>'_name','label'=>'模块名称（必填）','type'=>'text','placeholder'=>'如：绩效底薪','default'=>''],
+                    ['key'=>'_name','label'=>'模块名称（必填）','type'=>'text','placeholder'=>'如：绩效固定服务费','default'=>''],
                     ['key'=>'base','label'=>'绩效基数(元)','type'=>'number','step'=>'any','placeholder'=>'全达成时发放金额，如 3300','default'=>'3300'],
                     ['key'=>'target_reply_sec','label'=>'目标回复速度(秒)','type'=>'number','step'=>'1','placeholder'=>'如 60 = 平均60秒内首次回复','default'=>''],
                     ['key'=>'target_incoming','label'=>'目标进线人数(个)','type'=>'number','step'=>'1','placeholder'=>'当月进线会话目标数','default'=>''],
@@ -2193,7 +2205,7 @@ class SalaryCalculator
         $template = <<<'PHP'
 <?php
 /**
- * 薪资计算 - 默认算法
+ * 项目报酬计算 - 默认算法
  */
 return function(array $context): array {
     $baseSalary     = (float)$context['employee']['base_salary'];
@@ -2206,7 +2218,7 @@ return function(array $context): array {
     return [
         'commission' => round($commission, 2),
         'net_pay'    => round($netPay, 2),
-        'formula_text' => sprintf('实发=底薪(%.2f)+(%.2f×%.2f%%)=%.2f', $baseSalary, $orderTotal, $commissionRate*100, $netPay),
+        'formula_text' => sprintf('应结算金额=固定服务费(%.2f)+(%.2f×%.2f%%)=%.2f', $baseSalary, $orderTotal, $commissionRate*100, $netPay),
         'algorithm_name' => '默认算法',
     ];
 };

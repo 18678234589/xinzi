@@ -7,7 +7,7 @@ $employee_id = (int)($_GET['employee_id'] ?? 0);
 $employee = get_employee($employee_id);
 if (!$employee) { header('Location: ' . BASE_URL . '/employees/index.php'); exit; }
 
-$page_title = '薪资算法设置';
+$page_title = '项目报酬算法设置';
 $success = '';
 $error = '';
 
@@ -65,7 +65,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     }
                     usort($cfg['tiers'], fn($a,$b)=>$a['threshold']<=>$b['threshold']);
                 }
-                // 阶梯底薪类型的 tiers 数据
+                // 阶梯固定服务费类型的 tiers 数据
                 if ($type === 'base_salary_tiered' && !empty($_POST['t_threshold'][$i])) {
                     $cfg['tiers'] = [];
                     foreach ($_POST['t_threshold'][$i] as $ti => $th) {
@@ -88,7 +88,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $deptShare = isset($_POST['dept_share']) ? 1 : 0;
             if (SalaryCalculator::saveModulesConfig($employee_id, $modules, $deptShare)) {
                 $count = count($modules);
-                $success = "已保存 {$count} 个薪资模块" . ($deptShare ? '' : '（不参与部门订单提成）');
+                $success = "已保存 {$count} 个项目报酬模块" . ($deptShare ? '' : '（不参与部门订单项目分成）');
             } else {
                 $lastErr = SalaryCalculator::getLastError();
                 $error = '保存失败' . ($lastErr ? '：' . $lastErr : '');
@@ -98,7 +98,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     } elseif ($action === 'reset') {
         if (SalaryCalculator::deleteCustomConfig($employee_id)) {
-            $success = '已恢复默认算法（底薪 + 默认提成比例）';
+            $success = '已恢复默认算法（固定服务费 + 默认项目分成比例）';
         } else { $error = '恢复失败'; }
     }
 }
@@ -109,7 +109,7 @@ $isCodeMode  = !SalaryCalculator::hasCustomConfig($employee_id) && SalaryCalcula
 $allTypes    = SalaryCalculator::getAvailableTypes();
 $currentMods = $savedConfig['modules'] ?? [];
 
-// 查询该员工所属部门的手续费率（优先 dept_config.php 独立配置，回退 dept_fee.php）
+// 查询该合作人员所属部门的手续费率（优先 dept_config.php 独立配置，回退 dept_fee.php）
 $deptFeeRate = 0;
 $deptConfigFile = __DIR__ . '/../config/dept_config.php';
 if (file_exists($deptConfigFile) && !empty($employee['department'])) {
@@ -134,7 +134,7 @@ include __DIR__ . '/../includes/header.php';
 
 <div class="d-flex justify-content-between align-items-center mb-3">
     <div>
-        <h4 class="font-weight-bold mb-0 d-inline-block"><i class="fas fa-puzzle-piece"></i> 薪资算法设置</h4>
+        <h4 class="font-weight-bold mb-0 d-inline-block"><i class="fas fa-puzzle-piece"></i> 项目报酬算法设置</h4>
         <span class="badge badge-info ml-2"><?php echo e($employee['name']); ?> · <?php echo e($employee['department']); ?></span>
     </div>
     <a href="<?php echo BASE_URL; ?>/employees/index.php" class="btn btn-outline-secondary btn-sm"><i class="fas fa-arrow-left"></i> 返回</a>
@@ -143,7 +143,7 @@ include __DIR__ . '/../includes/header.php';
 <?php if ($deptFeeRate > 0): ?>
 <div class="alert alert-info alert-dismissible fade show">
     <i class="fas fa-info-circle"></i>
-    <strong>部门手续费提示</strong>：该员工所属部门「<?php echo e($employee['department']); ?>」在 <code>dept_fee.php</code> 中配置了 <strong><?php echo ($deptFeeRate * 100); ?>%</strong> 手续费率。
+    <strong>部门手续费提示</strong>：该合作人员所属部门「<?php echo e($employee['department']); ?>」在 <code>dept_fee.php</code> 中配置了 <strong><?php echo ($deptFeeRate * 100); ?>%</strong> 手续费率。
     <?php
         // 检查算法配置中是否有模块的 service_fee_rate 为 0
         $hasZeroFee = false;
@@ -168,13 +168,13 @@ include __DIR__ . '/../includes/header.php';
 <div class="alert alert-danger alert-dismissible fade show"><i class="fas fa-exclamation-circle"></i> <?php echo e($error); ?><button type="button" class="close" data-dismiss="alert">&times;</button></div>
 <?php endif; ?>
 
-<!-- ====== 底薪信息(固定) ====== -->
+<!-- ====== 固定服务费信息(固定) ====== -->
 <div class="card mb-3 border-left-4 border-left-primary">
     <div class="card-body d-flex align-items-center">
         <div class="mr-auto">
-            <h6 class="mb-1 font-weight-bold text-dark"><i class="fas fa-wallet mr-1"></i> 底薪（固定，不参与模块计算）</h6>
-            <p class="text-muted mb-0 small">该员工的基本工资为：<strong class="text-primary">¥<?php echo money($employee['base_salary']); ?></strong>，
-            提成比例：<strong><?php echo ((float)$employee['commission_rate']*100); ?>%</strong>（仅作参考，实际以模块配置为准）</p>
+            <h6 class="mb-1 font-weight-bold text-dark"><i class="fas fa-wallet mr-1"></i> 固定服务费（固定，不参与模块计算）</h6>
+            <p class="text-muted mb-0 small">该合作人员的固定服务费为：<strong class="text-primary">¥<?php echo money($employee['base_salary']); ?></strong>，
+            项目分成比例：<strong><?php echo ((float)$employee['commission_rate']*100); ?>%</strong>（仅作参考，实际以模块配置为准）</p>
         </div>
         <span class="badge badge-primary h4 p-2">¥<?php echo money($employee['base_salary']); ?></span>
     </div>
@@ -184,17 +184,17 @@ include __DIR__ . '/../includes/header.php';
 <form method="post" id="moduleForm">
 <input type="hidden" name="action" value="save">
 
-<!-- 部门订单提成开关 -->
+<!-- 部门订单项目分成开关 -->
 <div class="card mb-3 border-left-4 border-left-info">
     <div class="card-body py-2 d-flex align-items-center">
         <div class="custom-control custom-checkbox">
             <input type="checkbox" name="dept_share" value="1" class="custom-control-input" id="deptShare"
                 <?php echo (($savedConfig['dept_share'] ?? 1) == 1) ? 'checked' : ''; ?>>
             <label class="custom-control-label" for="deptShare">
-                <i class="fas fa-sitemap text-info"></i> 参与部门订单提成
+                <i class="fas fa-sitemap text-info"></i> 参与部门订单项目分成
             </label>
         </div>
-        <small class="text-muted ml-3">勾选后，上传部门订单时自动为该员工生成提成拆分行；取消勾选则不参与部门订单提成（如仅有单量补贴的员工）</small>
+        <small class="text-muted ml-3">勾选后，上传部门订单时自动为该合作人员生成项目分成拆分行；取消勾选则不参与部门订单项目分成（如仅有单量补贴的合作人员）</small>
     </div>
 </div>
 
@@ -206,8 +206,8 @@ include __DIR__ . '/../includes/header.php';
     <div class="card border-dashed bg-light">
         <div class="card-body text-center py-5">
             <i class="fas fa-plus-circle fa-3x text-muted mb-3"></i>
-            <h5 class="text-muted">尚未添加任何薪资模块</h5>
-            <p class="text-muted small">点击下方按钮添加模块，实发工资 = 底薪 + 各模块合计</p>
+            <h5 class="text-muted">尚未添加任何项目报酬模块</h5>
+            <p class="text-muted small">点击下方按钮添加模块，应结算金额 = 固定服务费 + 各模块合计</p>
             <button type="button" class="btn btn-primary btn-lg mt-2" onclick="showTypePicker()">
                 <i class="fas fa-plus"></i> 添加第一个模块
             </button>
@@ -280,7 +280,7 @@ include __DIR__ . '/../includes/header.php';
         <button type="submit" class="btn btn-primary btn-lg"><i class="fas fa-save"></i> 保存全部配置</button>
         <a href="<?php echo BASE_URL; ?>/salaries/settle.php?employee_id=<?php echo $employee_id; ?>" class="btn btn-outline-info btn-lg ml-2"><i class="fas fa-calculator"></i> 去结算测试</a>
     </div>
-    <button type="button" class="btn btn-outline-warning" onclick="if(confirm('⚠️ 确定要删除所有自定义模块吗？\\n\\n删除后将使用默认算法（底薪 × 提成比例）计算薪资，此操作不可恢复！')){document.getElementById('resetForm').submit();}"><i class="fas fa-undo"></i> 恢复默认</button>
+    <button type="button" class="btn btn-outline-warning" onclick="if(confirm('⚠️ 确定要删除所有自定义模块吗？\\n\\n删除后将使用默认算法（固定服务费 + 订单总额 × 项目分成比例）计算项目报酬，此操作不可恢复！')){document.getElementById('resetForm').submit();}"><i class="fas fa-undo"></i> 恢复默认</button>
 </div>
 </form>
 
@@ -295,10 +295,10 @@ include __DIR__ . '/../includes/header.php';
         <table class="table table-sm table-bordered mb-0">
             <thead><tr><th width="40%">项目</th><th>金额</th><th>说明</th></tr></thead>
             <tbody id="totalBody">
-                <tr><td><i class="fas fa-wallet text-primary"></i> 底薪</td><td class="font-weight-bold"><?php echo money($employee['base_salary']); ?></td><td class="text-muted">员工表底薪（可被"底薪（自定义）"模块覆盖）</td></tr>
+                <tr><td><i class="fas fa-wallet text-primary"></i> 固定服务费</td><td class="font-weight-bold"><?php echo money($employee['base_salary']); ?></td><td class="text-muted">合作人员表固定服务费（可被"固定服务费（自定义）"模块覆盖）</td></tr>
             </tbody>
             <tfoot><tr class="bg-success text-white font-weight-bold">
-                <td colspan="2" class="text-right">实发工资 = </td>
+                <td colspan="2" class="text-right">应结算金额 = </td>
                 <td id="totalNetPay"><?php echo money($employee['base_salary']); ?></td>
             </tr></tfoot>
         </table>
@@ -310,7 +310,7 @@ include __DIR__ . '/../includes/header.php';
 <div class="card mt-3">
     <div class="card-header bg-warning text-white"><i class="fas fa-code"></i> 兼容模式提示</div>
     <div class="card-body">
-        <p>该员工有旧版 PHP 算法文件，建议先删除后使用新版多模块配置。</p>
+        <p>该合作人员有旧版 PHP 算法文件，建议先删除后使用新版多模块配置。</p>
         <pre class="bg-dark text-light p-2 rounded" style="max-height:150px;font-size:11px;"><?php echo htmlspecialchars(substr(SalaryCalculator::readAlgorithm($employee_id),0,500)); ?></pre>
     </div>
 </div>
@@ -426,7 +426,7 @@ function renderModuleForm($idx, $type, $cfg)
         if (empty($tiers)) {
             $tiers = [['threshold'=>10000,'rate'=>0.05,'subsidy'=>0],['threshold'=>20000,'rate'=>0.08,'subsidy'=>0],['threshold'=>30000,'rate'=>0.12,'subsidy'=>0]];
         }
-        
+
         // 根据类型显示不同的字段
         if ($type === 'base_salary_tiered') {
             $html .= '<div class="mt-2" id="tierArea-'.$idx.'"><strong>阶梯规则：</strong>';
@@ -436,7 +436,7 @@ function renderModuleForm($idx, $type, $cfg)
                 $html .= '<div class="tier-row row">'.
                     '<div class="col-5"><label>订单总额≥</label>'.
                     '<input type="number" class="form-control form-control-sm tier-threshold" name="t_threshold['.$idx.']['.$ti.']" value="'.$t['threshold'].'" step="any"></div>'.
-                    '<div class="col-5"><label>底薪金额</label><div class="input-group input-group-sm">'.
+                    '<div class="col-5"><label>固定服务费金额</label><div class="input-group input-group-sm">'.
                     '<div class="input-group-prepend"><span class="input-group-text">¥</span></div>'.
                     '<input type="number" class="form-control tier-base-amount" name="t_base_amount['.$idx.']['.$ti.']" value="'.($t['base_amount']??0).'" step="any" min="0"></div></div>'.
                     '<div class="col-2 d-flex align-items-end"><button type="button" class="btn btn-outline-danger btn-sm tier-rm-form">×</button></div></div>';
@@ -481,11 +481,11 @@ var orderTotalDemo = 25000; // 预算用模拟订单总额
 
 function renderAllPreviews() {
     var total = baseSalary;
-    var baseLabel = '底薪（固定）';
-    var baseNote = '从员工基本工资读取';
+    var baseLabel = '固定服务费（固定）';
+    var baseNote = '从合作人员固定服务费读取';
     var customBaseUsed = false;
 
-    // 先扫一遍：是否有启用的 base_salary（自定义底薪）模块，有则覆盖底薪基数
+    // 先扫一遍：是否有启用的 base_salary（自定义固定服务费）模块，有则覆盖固定服务费基数
     $('.module-card').each(function() {
         var idx = $(this).data('index');
         var enabled = $(this).find('[data-enabled]').val() == '1';
@@ -496,8 +496,8 @@ function renderAllPreviews() {
             if (amt > 0) {
                 baseSalary = amt;
                 total = amt;
-                baseLabel = '底薪（自定义）';
-                baseNote = '覆盖员工表底薪 ¥' + (<?php echo (float)$employee['base_salary']; ?>).toFixed(2);
+                baseLabel = '固定服务费（自定义）';
+                baseNote = '覆盖合作人员表固定服务费 ¥' + (<?php echo (float)$employee['base_salary']; ?>).toFixed(2);
                 customBaseUsed = true;
             }
         }
@@ -510,7 +510,7 @@ function renderAllPreviews() {
         var enabled = $(this).find('[data-enabled]').val() == '1';
         if (!enabled) return;
         var type = $(this).find("[name='mod_type\\["+idx+"\\]']").val();
-        // base_salary 已作为底薪基数，不重复加入模块合计
+        // base_salary 已作为固定服务费基数，不重复加入模块合计
         if (type === 'base_salary') return;
 
         var amt = calcPreview(idx);
@@ -574,7 +574,7 @@ function calcPreview(idx) {
     switch(type) {
         case 'base_salary':
             result.amount = cfg.base_amount || 0;
-            result.detail = '自定义底薪 ¥' + (result.amount).toFixed(2);
+            result.detail = '自定义固定服务费 ¥' + (result.amount).toFixed(2);
             break;
         case 'standard':
             var r = (cfg.rate !== undefined && cfg.rate !== 0) ? cfg.rate : 0.05;
@@ -652,7 +652,7 @@ function calcPreview(idx) {
             var demoCustCnt = Math.round(orderTotalDemo/8000)||2;
             var subsidyAmt = (filterCol && filterVal && custSub > 0) ? demoCustCnt * custSub : 0;
             result.amount = profitComm + subsidyAmt;
-            result.detail = '利润提成+新客户补助(' + demoCustCnt + '单×¥' + custSub + ')';
+            result.detail = '利润项目分成+新客户补助(' + demoCustCnt + '单×¥' + custSub + ')';
             break;
         case 'fixed_subsidy':
             result.amount = cfg.amount || 0;
@@ -761,7 +761,7 @@ function addModule(type) {
           '<button type="button" class="btn btn-outline-info btn-xs ml-2" onclick="addBaseTierRow('+idx+')"><i class="fas fa-plus"></i> 新增档次</button></div></div>'+
           '<div id="tierContainer-'+idx+'">'+
           '<div class="tier-row row"><div class="col-5"><label>订单总额≥</label><input type="number" class="form-control form-control-sm tier-threshold" value="0" step="any" required></div>'+
-          '<div class="col-5"><label>底薪金额</label><div class="input-group input-group-sm"><div class="input-group-prepend"><span class="input-group-text">¥</span></div><input type="number" class="form-control tier-base-amount" step="any" value="2300" required></div></div>'+
+          '<div class="col-5"><label>固定服务费金额</label><div class="input-group input-group-sm"><div class="input-group-prepend"><span class="input-group-text">¥</span></div><input type="number" class="form-control tier-base-amount" step="any" value="2300" required></div></div>'+
           '<div class="col-2 d-flex align-items-end"><button type="button" class="btn btn-outline-danger btn-sm tier-rm" style="margin-top:22px">×</button></div></div></div></div>'
         : '';
 
@@ -781,9 +781,9 @@ function addModule(type) {
         '<div class="mt-2 p-2 bg-light rounded border preview-box" data-mod-idx="'+idx+'"><small class="text-muted"><i class="fas fa-calculator"></i> 预算：<strong class="preview-result text-primary">--</strong></div>'+
         '</div></div></div>'
     );
-    
+
     card.appendTo('#moduleList');
-    
+
     // 模块名称变化时实时更新卡片标题
     $('#modName'+idx).on('input', function() {
         var newName = $(this).val().trim() || tv.label;
@@ -792,7 +792,7 @@ function addModule(type) {
         $(this).closest('.module-card').find("[name^='mod_name']").val(newName);
         renderAllPreviews();
     });
-    
+
     // 绑事件并更新预览
     bindCardEvents(idx, type);
     setTimeout(renderAllPreviews, 100);
@@ -814,7 +814,7 @@ function addTierRow(idx) {
 
 function addBaseTierRow(idx) {
     var row = $('<div class="tier-row row"><div class="col-5"><label>订单总额≥</label><input type="number" class="form-control form-control-sm tier-threshold" step="any" required></div>'+
-        '<div class="col-5"><label>底薪金额</label><div class="input-group input-group-sm"><div class="input-group-prepend"><span class="input-group-text">¥</span></div><input type="number" class="form-control tier-base-amount" step="any" required></div></div>'+
+        '<div class="col-5"><label>固定服务费金额</label><div class="input-group input-group-sm"><div class="input-group-prepend"><span class="input-group-text">¥</span></div><input type="number" class="form-control tier-base-amount" step="any" required></div></div>'+
         '<div class="col-2 d-flex align-items-end"><button type="button" class="btn btn-outline-danger btn-sm tier-rm" style="margin-top:22px">×</button></div></div>');
     row.appendTo('#tierContainer-'+idx);
     row.on('click','.tier-rm',function(){$(this).closest('.tier-row').remove();setTimeout(renderAllPreviews,50);});
@@ -832,7 +832,7 @@ function addTierRowForForm(idx) {
 
 function addBaseTierRowForForm(idx) {
     var row = $('<div class="tier-row row"><div class="col-5"><label>订单总额≥</label><input type="number" class="form-control form-control-sm tier-threshold" name="t_threshold['+idx+'][]" step="any"></div>'+
-        '<div class="col-5"><label>底薪金额</label><div class="input-group input-group-sm"><div class="input-group-prepend"><span class="input-group-text">¥</span></div><input type="number" class="form-control tier-base-amount" name="t_base_amount['+idx+'][]" step="any" min="0"></div></div>'+
+        '<div class="col-5"><label>固定服务费金额</label><div class="input-group input-group-sm"><div class="input-group-prepend"><span class="input-group-text">¥</span></div><input type="number" class="form-control tier-base-amount" name="t_base_amount['+idx+'][]" step="any" min="0"></div></div>'+
         '<div class="col-2 d-flex align-items-end"><button type="button" class="btn btn-outline-danger btn-sm tier-rm-form" style="margin-top:22px">×</button></div></div>');
     row.appendTo('#tierContainer-'+idx);
     row.on('click','.tier-rm-form', function(){$(this).closest('.tier-row').remove();setTimeout(renderAllPreviews,50);});

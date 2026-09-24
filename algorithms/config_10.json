@@ -1,12 +1,11 @@
 {
     "modules": [
         {
-            "name": "新老客户订单奖励",
-            "type": "customer_reward",
+            "name": "底薪（自定义）",
+            "type": "base_salary",
             "enabled": true,
             "config": {
-                "new_customer_reward": 6,
-                "old_customer_reward": 3
+                "base_amount": 800
             }
         },
         {
@@ -27,22 +26,12 @@
             }
         },
         {
-            "name": "自做资料提成",
-            "type": "per_order",
+            "name": "新老客户订单奖励",
+            "type": "customer_reward",
             "enabled": true,
             "config": {
-                "count_column": "设计",
-                "count_distinct": "求和",
-                "per_amount": 2.2,
-                "per_reward": 0
-            }
-        },
-        {
-            "name": "底薪（自定义）",
-            "type": "base_salary",
-            "enabled": true,
-            "config": {
-                "base_amount": 800
+                "new_customer_reward": 6,
+                "old_customer_reward": 3
             }
         },
         {
@@ -68,5 +57,5 @@
         }
     ],
     "dept_share": 1,
-    "updated_at": "2026-07-27 11:19:17"
+    "updated_at": "2026-07-27 11:19:06"
 }

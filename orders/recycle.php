@@ -290,7 +290,7 @@ include __DIR__ . '/../includes/header.php';
                             <th style="width:32px"><input type="checkbox" id="checkAll" title="全选" onclick="var cbs=document.querySelectorAll('.row-check');cbs.forEach(function(c){c.checked=this.checked;}.bind(this));var n=this.checked?cbs.length:0;document.getElementById('selectedCount').textContent='已选 '+n+' 条';document.getElementById('batchBar').style.display=n>0?'flex':'none';"></th>
                             <th>ID</th>
                             <th>类型</th>
-                            <th>员工/部门</th>
+                            <th>合作人员/部门</th>
                             <th>项目</th>
                             <th>金额</th>
                             <th>订单日期</th>

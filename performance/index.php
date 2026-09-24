@@ -17,7 +17,7 @@ $upMD = (int)($_POST['upload_month'] ?? date('n', strtotime('-1 month')));
 if ($upYD < 2000 || $upYD > 2100) $upYD = (int)date('Y');
 if ($upMD < 1 || $upMD > 12)      $upMD = (int)date('n');
 
-// 绩效名单：绩效底薪只涉及名单内员工，页面可自定义增删
+// 绩效名单：绩效固定服务费只涉及名单内合作人员，页面可自定义增删
 $upMsg = '';
 $upErr = '';
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -25,14 +25,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($action === 'member_exclude') {
         $eid = (int)($_POST['employee_id'] ?? 0);
         if ($eid > 0 && exclude_cs_perf_member($eid)) {
-            $upMsg = '已排除该员工，之后不再计入客服绩效';
+            $upMsg = '已排除该合作人员，之后不再计入客服绩效';
         } else {
             $upErr = '排除失败，请重试';
         }
     } elseif ($action === 'member_include') {
         $eid = (int)($_POST['employee_id'] ?? 0);
         if ($eid > 0 && include_cs_perf_member($eid)) {
-            $upMsg = '已恢复该员工参与客服绩效';
+            $upMsg = '已恢复该合作人员参与客服绩效';
         } else {
             $upErr = '恢复失败，请重试';
         }
@@ -225,7 +225,7 @@ include __DIR__ . '/../includes/header.php';
                     </div>
                 </div>
                 <div class="col-auto">
-                    <label class="small text-muted">店铺名称（同一员工允许多店；<strong>设计客服</strong>请按店铺分别上传两店并填写区分，用于「两店绩效平均」）</label>
+                    <label class="small text-muted">店铺名称（同一合作人员允许多店；<strong>设计客服</strong>请按店铺分别上传两店并填写区分，用于「两店绩效平均」）</label>
                     <input type="text" name="store" class="form-control form-control-sm" placeholder="如：美呀美旗舰店" style="width:180px">
                 </div>
             </div>
@@ -241,8 +241,8 @@ include __DIR__ . '/../includes/header.php';
             <small class="text-muted d-block mt-2">
                 <i class="fas fa-info-circle"></i> 系统自动识别列名：客服/旺旺、净销售额、询单最终下单转化率、旺旺回复率、平均响应时长（响应时长支持 HH:MM:SS / X分X秒 / 秒）；
                 <strong>转化率：</strong>上传表没有转化率列也没关系，识别到「下单人数 + 询单人数」时会自动按 <strong>转化率 = 下单人数 ÷ 询单人数</strong> 计算，并在页面显示计算过程（下单X ÷ 询单Y = Z%）；
-                文件里没有日期时归入上方所选月份（默认上个月）；导入后按「旺旺账号 → 姓名」自动匹配名单内员工，未匹配的进入下方【待匹配清单】。
-                <strong>设计客服：</strong>两店数据请分别上传（店铺名不同即可），系统会各自算出达成率并取平均值，再按部门内前三名定底薪 850/800/750 元。
+                文件里没有日期时归入上方所选月份（默认上个月）；导入后按「旺旺账号 → 姓名」自动匹配名单内合作人员，未匹配的进入下方【待匹配清单】。
+                <strong>设计客服：</strong>两店数据请分别上传（店铺名不同即可），系统会各自算出达成率并取平均值，再按部门内前三名定固定服务费 850/800/750 元。
             </small>
         </form>
     </div>
@@ -250,7 +250,7 @@ include __DIR__ . '/../includes/header.php';
 
 <!-- 绩效参与名单（按部门自动） -->
 <div class="card mb-3">
-    <div class="card-header"><i class="fas fa-user-cog"></i> 绩效参与名单（部门配置了基数+方案 → 自动参与；<strong>设计客服</strong>恒参与并按排名定底薪）</div>
+    <div class="card-header"><i class="fas fa-user-cog"></i> 绩效参与名单（部门配置了基数+方案 → 自动参与；<strong>设计客服</strong>恒参与并按排名定固定服务费）</div>
     <div class="card-body">
         <div class="table-responsive">
             <table class="table table-sm table-bordered mb-0">
@@ -266,7 +266,7 @@ include __DIR__ . '/../includes/header.php';
                         <td><span class="badge badge-info"><?php echo e($emp['department']); ?></span></td>
                         <td>
                             <?php if ($isRankDept): ?>
-                                <span class="badge badge-success"><i class="fas fa-trophy"></i> 按排名定底薪（两店绩效平均，前三名 850/800/750）</span>
+                                <span class="badge badge-success"><i class="fas fa-trophy"></i> 按排名定固定服务费（两店绩效平均，前三名 850/800/750）</span>
                             <?php elseif ($rc): ?>
                                 <strong><?php echo number_format((float)$rc['base'], 2); ?></strong>
                                 <small class="text-muted">(<?php echo e($rc['scheme_name'] ?: '默认方案'); ?>)</small>
@@ -275,7 +275,7 @@ include __DIR__ . '/../includes/header.php';
                             <?php endif; ?>
                         </td>
                         <td>
-                            <form method="post" onsubmit="return confirm('排除后该员工将不再计入客服绩效，确定？')">
+                            <form method="post" onsubmit="return confirm('排除后该合作人员将不再计入客服绩效，确定？')">
                                 <input type="hidden" name="action" value="member_exclude">
                                 <input type="hidden" name="employee_id" value="<?php echo (int)$emp['id']; ?>">
                                 <button class="btn btn-sm btn-outline-danger"><i class="fas fa-times"></i> 排除</button>
@@ -284,13 +284,13 @@ include __DIR__ . '/../includes/header.php';
                     </tr>
                 <?php endforeach; ?>
                 <?php if (!$participants): ?>
-                    <tr><td colspan="4" class="text-center text-muted py-3">暂无参与员工。普通部门请先在「<a href="schemes.php">绩效方案/算法</a>」页配置<strong>绩效基数</strong>与<strong>方案</strong>后自动参与；<strong>设计客服</strong>无需配置即按排名参与。</td></tr>
+                    <tr><td colspan="4" class="text-center text-muted py-3">暂无参与合作人员。普通部门请先在「<a href="schemes.php">绩效方案/算法</a>」页配置<strong>绩效基数</strong>与<strong>方案</strong>后自动参与；<strong>设计客服</strong>无需配置即按排名参与。</td></tr>
                 <?php endif; ?>
                 </tbody>
             </table>
         </div>
         <?php if ($excluded): ?>
-        <h6 class="mt-3 mb-2"><i class="fas fa-ban text-danger"></i> 已排除员工（不再计入）</h6>
+        <h6 class="mt-3 mb-2"><i class="fas fa-ban text-danger"></i> 已排除合作人员（不再计入）</h6>
         <table class="table table-sm table-bordered mb-0" style="max-width:560px">
             <tbody>
             <?php foreach ($excluded as $emp): ?>
@@ -309,11 +309,11 @@ include __DIR__ . '/../includes/header.php';
             </tbody>
         </table>
         <?php endif; ?>
-        <small class="text-muted d-block mt-2"><i class="fas fa-info-circle"></i> 员工按所在部门自动参与绩效：普通部门为「基数×综合达成率」，<strong>设计客服</strong>为「两店绩效平均 → 部门内前三名定底薪 850/800/750」；被排除者不会出现在总览、也不计入薪资。导入的绩效表按「旺旺账号 → 姓名」自动匹配到对应员工名下。</small>
+        <small class="text-muted d-block mt-2"><i class="fas fa-info-circle"></i> 合作人员按所在部门自动参与绩效：普通部门为「基数×综合达成率」，<strong>设计客服</strong>为「两店绩效平均 → 部门内前三名定固定服务费 850/800/750」；被排除者不会出现在总览、也不计入项目报酬。导入的绩效表按「旺旺账号 → 姓名」自动匹配到对应合作人员名下。</small>
     </div>
 </div>
 
-<!-- 员工绩效概览 -->
+<!-- 合作人员绩效概览 -->
 <div class="card mb-3">
     <div class="card-header"><i class="fas fa-users"></i> 客服绩效总览（<?php echo $year; ?>年<?php echo $month; ?>月）</div>
     <div class="card-body p-0">
@@ -321,7 +321,7 @@ include __DIR__ . '/../includes/header.php';
             <table class="table table-hover table-bordered mb-0">
                 <thead class="thead-light">
                     <tr>
-                        <th>员工</th><th>旺旺账号</th><th>部门</th>
+                        <th>合作人员</th><th>旺旺账号</th><th>部门</th>
                         <th>净销售额(元)</th><th>询单转化率(%)</th><th>旺旺回复率(%)</th><th>平均响应(秒)</th>
                         <th>绩效金额</th>
                         <th>来源</th><th>操作</th>
@@ -371,7 +371,7 @@ include __DIR__ . '/../includes/header.php';
                         </td>
                     </tr>
                 <?php endforeach; else: ?>
-                    <tr><td colspan="10" class="text-center text-muted py-4">暂无员工</td></tr>
+                    <tr><td colspan="10" class="text-center text-muted py-4">暂无合作人员</td></tr>
                 <?php endif; ?>
                 </tbody>
             </table>
@@ -436,7 +436,7 @@ include __DIR__ . '/../includes/header.php';
                                     data-source="<?php echo e($l['source_file']); ?>" data-name="<?php echo e($fname !== '' ? $fname : $k); ?>">
                                 <i class="fas fa-eye"></i> 查看
                             </button>
-                            <form method="post" class="d-inline" onsubmit="return confirm('确定删除该次上传的所有数据？\n将移除本次导入的匹配数据与待匹配记录，员工该月绩效将变为无数据。');">
+                            <form method="post" class="d-inline" onsubmit="return confirm('确定删除该次上传的所有数据？\n将移除本次导入的匹配数据与待匹配记录，合作人员该月绩效将变为无数据。');">
                                 <input type="hidden" name="action" value="upload_delete">
                                 <input type="hidden" name="source_file" value="<?php echo e($l['source_file']); ?>">
                                 <button class="btn btn-sm btn-outline-danger" title="删除"><i class="fas fa-trash-alt"></i></button>
@@ -484,7 +484,7 @@ function renderUploadView(d){
     }
     if(d.matched && d.matched.length){
         html += '<h6 class="font-weight-bold text-primary mt-3"><i class="fas fa-user-check"></i> 已匹配数据（'+d.matched.length+'）</h6>';
-        html += '<div class="table-responsive"><table class="table table-sm table-bordered mb-3"><thead class="thead-light"><tr><th>员工</th><th>旺旺</th><th>部门</th><th>月份</th><th>净销售额</th><th>转化率%</th><th>下单人数</th><th>回复率%</th><th>响应(秒)</th></tr></thead><tbody>';
+        html += '<div class="table-responsive"><table class="table table-sm table-bordered mb-3"><thead class="thead-light"><tr><th>合作人员</th><th>旺旺</th><th>部门</th><th>月份</th><th>净销售额</th><th>转化率%</th><th>下单人数</th><th>回复率%</th><th>响应(秒)</th></tr></thead><tbody>';
         for(i=0;i<d.matched.length;i++){
             var r = d.matched[i];
             var deriv = (r.order_count>0 && Number(r.incoming_count)>0) ? '（转化率=下单'+r.order_count+'÷询单'+r.incoming_count+'）' : '';
@@ -496,7 +496,7 @@ function renderUploadView(d){
         }
         html += '</tbody></table></div>';
     } else {
-        html += '<div class="alert alert-warning py-2"><i class="fas fa-exclamation-triangle"></i> 该次上传未匹配到任何员工数据（matched=0）。</div>';
+        html += '<div class="alert alert-warning py-2"><i class="fas fa-exclamation-triangle"></i> 该次上传未匹配到任何合作人员数据（matched=0）。</div>';
     }
     if(d.pending && d.pending.length){
         html += '<h6 class="font-weight-bold text-warning mt-3"><i class="fas fa-user-clock"></i> 未匹配暂存（'+d.pending.length+'）</h6>';

@@ -8,7 +8,7 @@ $page_title = '订单上传';
 $success = '';
 $error = '';
 
-// 是否通过员工管理跳转过来，锁定某员工
+// 是否通过合作人员管理跳转过来，锁定某合作人员
 $locked_employee_id = (int)($_GET['employee_id'] ?? 0);
 $locked_employee = null;
 if ($locked_employee_id > 0) {
@@ -18,7 +18,7 @@ if ($locked_employee_id > 0) {
     }
 }
 
-// AJAX接口：获取员工的提成模块列表
+// AJAX接口：获取合作人员的项目分成模块列表
 $ajax_employee_id = (int)($_GET['employee_id'] ?? 0);
 if (($_GET['ajax'] ?? '') === 'modules' && $ajax_employee_id > 0) {
     header('Content-Type: application/json; charset=utf-8');
@@ -33,15 +33,15 @@ if (($_GET['ajax'] ?? '') === 'modules' && $ajax_employee_id > 0) {
                     $extra = ' (' . rtrim(rtrim(number_format($rVal * 100, 4, '.', ''), '0'), '.') . '%)';
                 } elseif ($m['type'] === 'profit_commission' && isset($m['config']['commission_rate']) && $m['config']['commission_rate'] !== '') {
                     $cVal = (float)$m['config']['commission_rate'];
-                    $extra = ' (成本提成' . rtrim(rtrim(number_format($cVal * 100, 4, '.', ''), '0'), '.') . '%)';
+                    $extra = ' (成本项目分成' . rtrim(rtrim(number_format($cVal * 100, 4, '.', ''), '0'), '.') . '%)';
                 } elseif ($m['type'] === 'trademark_commission' && isset($m['config']['commission_rate']) && $m['config']['commission_rate'] !== '') {
                     $cVal = (float)$m['config']['commission_rate'];
-                    $extra = ' (商标部提成' . rtrim(rtrim(number_format($cVal * 100, 4, '.', ''), '0'), '.') . '%)';
+                    $extra = ' (商标部项目分成' . rtrim(rtrim(number_format($cVal * 100, 4, '.', ''), '0'), '.') . '%)';
                 } elseif ($m['type'] === 'trademark_cashback' && isset($m['config']['per_amount'])) {
                     $extra = ' (小额返现¥' . ($m['config']['per_amount'] ?? 0) . '/单)';
                 } elseif ($m['type'] === 'miniprogram_commission' && isset($m['config']['commission_rate']) && $m['config']['commission_rate'] !== '') {
                     $cVal = (float)$m['config']['commission_rate'];
-                    $extra = ' (小程序提成' . rtrim(rtrim(number_format($cVal * 100, 4, '.', ''), '0'), '.') . '%)';
+                    $extra = ' (小程序项目分成' . rtrim(rtrim(number_format($cVal * 100, 4, '.', ''), '0'), '.') . '%)';
                 } elseif ($m['type'] === 'tiered') {
                     $extra = ' (阶梯)';
                 } elseif ($m['type'] === 'per_order') {
@@ -67,7 +67,7 @@ if (($_GET['ajax'] ?? '') === 'modules' && $ajax_employee_id > 0) {
  * 由 verify_status（按模块整批核验）与 verify_pending（待核验清单批量核验）复用，逻辑保持一致。
  * @param array $rows 每行需含 id/order_no/order_amount/raw_data/is_abnormal/abnormal_reason
  * @param string $verifyType  shipped=已发货判定 | success=交易成功判定
- * @param string $creditMonth 核验通过后计入的薪资月份（核验当月，形如 YYYY-MM）
+ * @param string $creditMonth 核验通过后计入的项目报酬月份（核验当月，形如 YYYY-MM）
  * @return array ['updated'=>, 'normal'=>, 'abnormal'=>, 'total'=>]
  */
 function applyOrderVerification(array $rows, $verifyType, $creditMonth) {
@@ -120,7 +120,7 @@ function applyOrderVerification(array $rows, $verifyType, $creditMonth) {
         if ($shopOrig <= 0) $shopOrig = (float)$sr['order_amount'];
         $shopAmountMap[$sr['order_no']] = $shopOrig;
     }
-    // 员工侧原始售价合计（按订单号求和，处理一单拆多行）
+    // 合作人员侧原始售价合计（按订单号求和，处理一单拆多行）
     $empOrigSum = [];
     foreach ($rows as $r) {
         $rd = json_decode($r['raw_data'], true) ?: [];
@@ -138,18 +138,18 @@ function applyOrderVerification(array $rows, $verifyType, $creditMonth) {
         // 当前已是正常状态（人工已确认或此前已核验通过）的订单：重新核验时保持正常，
         // 不再用店铺侧数据覆盖 is_abnormal（否则手工改成正常的订单一核验就被标回异常，改动等于没保存）。
         // 但若仍带着"未核验"标记且店铺侧有状态可依，则把 __order_status__ 更新为店铺状态，
-        // 避免薪资预览里"未核验订单"提示一直存在（这些正常订单本就计入薪资）。
+        // 避免项目报酬预览里"未核验订单"提示一直存在（这些正常订单本就计入项目报酬）。
         if (!$wasAbnormal) {
             $raw = json_decode($r['raw_data'], true) ?: [];
             $oldStatus = trim((string)($raw['__order_status__'] ?? ''));
             if ($oldStatus === '未核验' || $oldStatus === '') {
                 // 有店铺状态的可对照则写入店铺状态；
                 // 对公/财务等无店铺状态可对照的订单，点击核验即确认到账，按"交易成功"处理，
-                // 以清除"未核验"标记（否则薪资预览会一直提示未核验）
+                // 以清除"未核验"标记（否则项目报酬预览会一直提示未核验）
                 $setStatus = ($status !== '') ? $status : '交易成功';
                 $raw['__order_status__'] = $setStatus;
                 $raw['__shop_order_status__'] = $setStatus;
-                // 记录计入薪资的月份（核验当月），供结算按核验月归月
+                // 记录计入项目报酬的月份（核验当月），供结算按核验月归月
                 $raw['__verified_month__'] = $creditMonth;
                 $upd = db()->prepare("UPDATE orders SET raw_data = ? WHERE id = ?");
                 $upd->execute([json_encode($raw, JSON_UNESCAPED_UNICODE), $rid]);
@@ -194,10 +194,10 @@ function applyOrderVerification(array $rows, $verifyType, $creditMonth) {
                 $raw = json_decode($r['raw_data'], true) ?: [];
                 $raw['__shop_order_status__'] = $status;
                 // 核验通过(非异常)的订单：把本人订单状态更新为已核验状态，
-                // 否则薪资结算仍按 __order_status__='未核验' 把本正常订单拦掉
+                // 否则项目结算仍按 __order_status__='未核验' 把本正常订单拦掉
                 if ($nowAbnormal === 0) {
                     $prevStatus = trim((string)($raw['__order_status__'] ?? ''));
-                    // 首次从未核验通过核验：记录计入薪资的月份（核验当月）
+                    // 首次从未核验通过核验：记录计入项目报酬的月份（核验当月）
                     if ($prevStatus === '未核验' || $prevStatus === '') {
                         $raw['__verified_month__'] = $creditMonth;
                     }
@@ -255,7 +255,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             // 部门订单：employee_id 可以为0，但需要有部门名
             if ($order_scope === 'personal' && $employee_id <= 0) {
-                $error = '请先选择员工';
+                $error = '请先选择合作人员';
             } elseif ($order_scope === 'department' && $dept_name === '') {
                 $error = '请选择部门';
             } elseif ($upload_month === '') {
@@ -263,7 +263,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             } else {
                 try {
                     ensureProjectColumn();
-                    // 对应提成模块（多选，支持比例提成+单量补贴等同时关联）
+                    // 对应项目分成模块（多选，支持比例项目分成+单量补贴等同时关联）
                     $projectArr = $_POST['upload_project'] ?? [];
                     if (!is_array($projectArr)) $projectArr = [$projectArr];
                     $projectArr = array_values(array_unique(array_filter(array_map('trim', $projectArr))));
@@ -277,7 +277,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         }
                     }
 
-                    // 部门订单多员工配置：[{employee_id, module}, ...]
+                    // 部门订单多合作人员配置：[{employee_id, module}, ...]
                     $deptEmpModules = [];
                     if ($order_scope === 'department') {
                         $dem = trim($_POST['dept_emp_modules'] ?? '');
@@ -291,7 +291,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                 }
                             }
                         }
-                        // 过滤掉不参与部门订单提成的员工（dept_share=0）
+                        // 过滤掉不参与部门订单项目分成的合作人员（dept_share=0）
                         if (!empty($deptEmpModules)) {
                             $filtered = [];
                             foreach ($deptEmpModules as $dem) {
@@ -340,7 +340,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                     if ($error === '' && !empty($rows)) {
                         // 自动查找表头行：第一行可能不是真正的表头（如标题行），往下找含已知列名的行
-                        $headerKeywords = ['姓名', '价格', '售价', '成本', '域名', '建站', '订单', '金额', '日期', '时间', '店铺', '备注', '员工'];
+                        $headerKeywords = ['姓名', '价格', '售价', '成本', '域名', '建站', '订单', '金额', '日期', '时间', '店铺', '备注', '员工', '合作人员'];
                         $headerIdx = 0;
                         for ($hi = 0; $hi < min(count($rows), 5); $hi++) {
                             $rowText = implode(' ', array_map('trim', $rows[$hi]));
@@ -409,13 +409,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         // 清空当月同模块旧数据，避免重复上传导致数据累加（不同模块互不影响）
                         $monthPattern = $upload_month . '%';
                         if ($order_scope === 'department' && $dept_name !== '') {
-                            // 部门订单：软删除该部门当月的汇总行 + 归属员工的拆分行（移入回收站）
+                            // 部门订单：软删除该部门当月的汇总行 + 归属合作人员的拆分行（移入回收站）
                             $del = db()->prepare("UPDATE orders SET is_deleted=1 WHERE DATE_FORMAT(order_date, '%Y-%m') = ? AND order_scope = 'department' AND employee_id = 0 AND raw_data LIKE ?");
                             $del->execute([$upload_month, '%\"__dept__\":\"' . $dept_name . '\"%']);
                             $del2 = db()->prepare("UPDATE orders SET is_deleted=1 WHERE DATE_FORMAT(order_date, '%Y-%m') = ? AND order_scope = 'personal' AND raw_data LIKE ?");
                             $del2->execute([$upload_month, '%\"__from_dept__\":\"' . $dept_name . '\"%']);
                         } else {
-                            // 个人订单：软删除该员工当月旧数据（移入回收站，排除部门拆分行 __from_dept__）
+                            // 个人订单：软删除该合作人员当月旧数据（移入回收站，排除部门拆分行 __from_dept__）
                             // 如果选了模块，只清这些模块对应的 project，避免多次上传不同表时互相覆盖；
                             // 如果没选模块，清全部个人订单（整批替换）
                             if (!empty($projectArr)) {
@@ -440,7 +440,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         // 循环外预加载：避免每行重复查询
                         $modCfg = (!empty($projectArr) && $employee_id > 0) ? SalaryCalculator::readModulesConfig($employee_id) : null;
 
-                        // 预构建员工姓名→模块配置映射，避免循环内每行重复查 get_employee
+                        // 预构建合作人员姓名→模块配置映射，避免循环内每行重复查 get_employee
                         $empNameMap = [];
                         if ($order_scope === 'department' && !empty($deptEmpModules)) {
                             foreach ($deptEmpModules as $dem) {
@@ -478,7 +478,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                 $feeRate = 0;
                                 $modMatched = false;
 
-                                // 1. 查员工算法配置，按选中的模块名匹配（已预加载到 $modCfg）
+                                // 1. 查合作人员算法配置，按选中的模块名匹配（已预加载到 $modCfg）
                                 if (!empty($projectArr) && $employee_id > 0 && $modCfg && !empty($modCfg['modules'])) {
                                     foreach ($modCfg['modules'] as $m) {
                                         if (($m['enabled'] ?? true) && in_array($m['name'] ?? '', $projectArr)) {
@@ -547,7 +547,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             }
                             if ($order_scope === 'department') {
                                 $rawMap['__dept__'] = $dept_name;
-                                // 存储员工-模块映射，结算时虚拟生成拆分行（不再物理插入N条拆分记录）
+                                // 存储合作人员-模块映射，结算时虚拟生成拆分行（不再物理插入N条拆分记录）
                                 if (!empty($deptEmpModules)) {
                                     $rawMap['__dept_modules__'] = $deptEmpModules;
                                 }
@@ -566,7 +566,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             }
                             // 订单状态统一设置为"未核验"
                             $rawMap['__order_status__'] = '未核验';
-                            // 提取订单号（用于后续店铺/员工订单对比）
+                            // 提取订单号（用于后续店铺/合作人员订单对比）
                             $orderNo = extract_order_no($rawMap);
 
                             // 没有订单编号的订单跳过并记录行号
@@ -580,10 +580,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                 $stmt->execute([0, $amount, $parsedDate, $deptProjStr, $orderNo, json_encode($rawMap, JSON_UNESCAPED_UNICODE), $isAbn, $abnReason, $order_scope]);
                                 $isAbn ? $skipped++ : $inserted++;
 
-                                // 归属字段匹配：只在指定的列中查找员工姓名
+                                // 归属字段匹配：只在指定的列中查找合作人员姓名
                                 $matchedEmps = [];
-                                // 员工姓名→模块配置映射已在外层预构建到 $empNameMap
-                                // 只在指定的归属字段列中匹配员工姓名
+                                // 合作人员姓名→模块配置映射已在外层预构建到 $empNameMap
+                                // 只在指定的归属字段列中匹配合作人员姓名
                                 $scanKeys = !empty($ownershipFields) ? $ownershipFields : array_keys($rawMap);
                                 foreach ($scanKeys as $field) {
                                     if (!isset($rawMap[$field])) continue;
@@ -591,7 +591,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                     if ($v === '') continue;
                                     if (isset($empNameMap[$v])) {
                                         $dem = $empNameMap[$v];
-                                        // 去重：同一员工不重复添加
+                                        // 去重：同一合作人员不重复添加
                                         $alreadyMatched = false;
                                         foreach ($matchedEmps as $m) {
                                             if ((int)$m['employee_id'] === (int)$dem['employee_id']) {
@@ -605,7 +605,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                     }
                                 }
 
-                                // 有匹配的员工：只为匹配到的员工创建拆分行
+                                // 有匹配的合作人员：只为匹配到的合作人员创建拆分行
                                 // 无匹配：跳过，不分配给任何人
                                 $splits = $matchedEmps;
                                 $isUnmatched = empty($matchedEmps);
@@ -652,7 +652,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             $empName = $dept_name . '（部门）';
                             $msg = "导入完成！为【{$empName}】成功导入 {$inserted} 条{$modNote}";
                             if ($skipped > 0) $msg .= "，{$skipped} 条标记为异常";
-                            if ($unmatched > 0) $msg .= "，{$unmatched} 条未匹配归属（已分配给所有归属员工）";
+                            if ($unmatched > 0) $msg .= "，{$unmatched} 条未匹配归属（已分配给所有归属合作人员）";
                             $msg .= $noOrderNoMsg;
                             $rq = ['upload_ok' => '1', 'msg' => urlencode($msg)];
                         } else {
@@ -715,7 +715,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
         }
     } elseif ($action === 'delete_group') {
-        // 按筛选条件批量删除：员工+月份+project（可不指定project则删该员工该月全部）
+        // 按筛选条件批量删除：合作人员+月份+project（可不指定project则删该合作人员该月全部）
         $delEmployeeId = (int)($_POST['del_employee_id'] ?? 0);
         $delMonth      = $_POST['del_month'] ?? '';
         $delProject    = $_POST['del_project'] ?? '';
@@ -853,7 +853,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $vAbnormal  = (($_POST['abnormal'] ?? '') === '1');
         $vRefund    = (($_POST['refund'] ?? '') === '1');
         $vSearch    = trim($_POST['search_no'] ?? '');
-        // 计入薪资月份：未核验订单核验通过后归属的薪资月份（核验当月）
+        // 计入项目报酬月份：未核验订单核验通过后归属的项目报酬月份（核验当月）
         $creditMonth = trim($_POST['credit_month'] ?? $month ?? '');
         if ($creditMonth === '') $creditMonth = date('Y-m');
         if ($project === '' || !in_array($verifyType, ['shipped', 'success'])) {
@@ -940,7 +940,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-// 订单列表查询：锁定员工时只显示该员工订单
+// 订单列表查询：锁定合作人员时只显示该合作人员订单
 
 /**
  * 确保 orders 表有 project 字段（自动升级，兼容旧表结构）
@@ -1058,7 +1058,7 @@ function ensureProjectColumn() {
             }
         } catch (\Throwable $e) {}
 
-        // 复合索引：加速按员工+月份查询（删除/工资计算常用）
+        // 复合索引：加速按合作人员+月份查询（删除/项目报酬计算常用）
         try {
             $idxExists = db()->query("SHOW INDEX FROM `orders` WHERE Key_name = 'idx_emp_date'")->fetchAll();
             if (empty($idxExists)) {
@@ -1096,13 +1096,13 @@ ensureOrderNoColumn(); // 确保 orders.order_no 字段存在
 $baseWhere  = " WHERE NOT (o.order_scope = 'department' AND o.shop <> '') AND COALESCE(o.is_deleted, 0) = 0";
 $baseParams = [];
 if ($filter_employee) {
-    // 个人订单：只显示该员工自己的个人拆分行，不显示部门汇总行
+    // 个人订单：只显示该合作人员自己的个人拆分行，不显示部门汇总行
     // 部门订单需通过"部门订单"视图单独查看
     $baseWhere .= " AND o.employee_id = ? AND COALESCE(o.order_scope, 'personal') = 'personal'";
     $baseParams[] = $filter_employee;
 }
 if ($filter_dept) {
-    // 按部门过滤：员工部门匹配 + 部门汇总行（employee_id=0，通过 __dept__ 匹配）
+    // 按部门过滤：合作人员部门匹配 + 部门汇总行（employee_id=0，通过 __dept__ 匹配）
     $baseWhere .= " AND (e.department = ? OR (o.employee_id = 0 AND o.order_scope = 'department' AND JSON_UNQUOTE(JSON_EXTRACT(o.raw_data, '$.__dept__')) = ?))";
     $baseParams[] = $filter_dept;
     $baseParams[] = $filter_dept;
@@ -1110,7 +1110,7 @@ if ($filter_dept) {
 if ($filter_month)    { $baseWhere .= " AND DATE_FORMAT(o.order_date, '%Y-%m') = ?"; $baseParams[] = $filter_month; }
 // 部门订单视图：只看 employee_id=0 的部门汇总订单（用 __dept__ 匹配，绕过 e.department 过滤）
 if ($filter_dept_orders) {
-    // 重建 WHERE：去掉 e.department 过滤（部门订单 JOIN 不到员工），改用 __dept__
+    // 重建 WHERE：去掉 e.department 过滤（部门订单 JOIN 不到合作人员），改用 __dept__
     $baseWhere = " WHERE NOT (o.order_scope = 'department' AND o.shop <> '')"
         . " AND COALESCE(o.is_deleted, 0) = 0"
         . " AND o.employee_id = 0 AND o.order_scope = 'department'"
@@ -1173,7 +1173,7 @@ foreach ($allGroups as $row) {
     $projectGroups[] = $row;
 }
 
-// 按部门分组统计（部门订单通过 raw_data.__dept__ 命名部门，个人订单回退到员工部门）
+// 按部门分组统计（部门订单通过 raw_data.__dept__ 命名部门，个人订单回退到合作人员部门）
 $deptSql = "SELECT COALESCE(
                 NULLIF(JSON_UNQUOTE(JSON_EXTRACT(o.raw_data, '$.__dept__')), ''),
                 e.department,
@@ -1188,7 +1188,7 @@ $deptStmt->execute($baseParams);
 $deptGroups = $deptStmt->fetchAll();
 $deptStmt->closeCursor();
 
-// 如果选择了部门，按员工分组统计
+// 如果选择了部门，按合作人员分组统计
 $empGroups = [];
 if ($filter_dept) {
     $empSql = "SELECT e.id as emp_id, e.name as emp_name,
@@ -1202,7 +1202,7 @@ if ($filter_dept) {
     $empStmt->closeCursor();
 
     // 追加"部门订单"虚拟行（employee_id=0 的部门汇总订单）
-    // 注意：部门订单 employee_id=0，JOIN 不到员工，不能用 e.department 过滤，
+    // 注意：部门订单 employee_id=0，JOIN 不到合作人员，不能用 e.department 过滤，
     // 要用 raw_data.__dept__ 匹配部门名。重建 WHERE，不复用含 e.department 的 baseWhere。
     $deptSumParams = [];
     $deptSumWhere = " WHERE NOT (o.order_scope = 'department' AND o.shop <> '')"
@@ -1329,7 +1329,7 @@ include __DIR__ . '/../includes/header.php';
         <h4 class="font-weight-bold mb-0 d-inline-block"><i class="fas fa-file-upload"></i> 订单上传</h4>
         <?php if ($locked_employee): ?>
             <span class="badge badge-success ml-2" style="font-size:.9em">
-                <i class="fas fa-user-lock"></i> 已锁定员工：<?php echo e($locked_employee['name']); ?>（<?php echo e($locked_employee['department']); ?>）
+                <i class="fas fa-user-lock"></i> 已锁定合作人员：<?php echo e($locked_employee['name']); ?>（<?php echo e($locked_employee['department']); ?>）
             </span>
         <?php endif; ?>
     </div>
@@ -1339,7 +1339,7 @@ include __DIR__ . '/../includes/header.php';
                 <i class="fas fa-hourglass-half"></i> 待核验
             </a>
             <a href="<?php echo BASE_URL; ?>/employees/index.php" class="btn btn-outline-secondary btn-sm">
-                <i class="fas fa-arrow-left"></i> 返回员工管理
+                <i class="fas fa-arrow-left"></i> 返回合作人员管理
             </a>
         </div>
     <?php else: ?>
@@ -1372,13 +1372,13 @@ include __DIR__ . '/../includes/header.php';
                 <form method="post" enctype="multipart/form-data" id="uploadForm">
                     <input type="hidden" name="action" value="upload">
                     <?php if ($locked_employee): ?>
-                        <!-- 锁定员工模式：固定为个人订单 -->
+                        <!-- 锁定合作人员模式：固定为个人订单 -->
                         <input type="hidden" name="employee_id" value="<?php echo $locked_employee['id']; ?>">
                         <input type="hidden" name="order_scope" value="personal">
                         <div class="form-group">
-                            <label>归属员工</label>
+                            <label>归属合作人员</label>
                             <input type="text" class="form-control" value="<?php echo e($locked_employee['name']); ?>（<?php echo e($locked_employee['department']); ?>）" disabled>
-                            <small class="text-muted"><i class="fas fa-info-circle"></i> 已从员工管理锁定，本批订单将归属该员工</small>
+                            <small class="text-muted"><i class="fas fa-info-circle"></i> 已从合作人员管理锁定，本批订单将归属该合作人员</small>
                         </div>
                     <?php else: ?>
                         <!-- 归属类型选择 -->
@@ -1395,7 +1395,7 @@ include __DIR__ . '/../includes/header.php';
                                 </div>
                             </div>
                         </div>
-                        <!-- 个人订单：选部门+员工 -->
+                        <!-- 个人订单：选部门+合作人员 -->
                         <div id="personalFields">
                             <div class="form-group">
                                 <label>选择部门</label>
@@ -1407,7 +1407,7 @@ include __DIR__ . '/../includes/header.php';
                                 </select>
                             </div>
                             <div class="form-group">
-                                <label>选择员工 <span class="required">*</span></label>
+                                <label>选择合作人员 <span class="required">*</span></label>
                                 <select name="employee_id" id="uploadEmp" class="form-control">
                                     <option value="">-- 请先选择部门 --</option>
                                 </select>
@@ -1423,20 +1423,20 @@ include __DIR__ . '/../includes/header.php';
                                         <option value="<?php echo e($d); ?>"><?php echo e($d); ?></option>
                                     <?php endforeach; ?>
                                 </select>
-                                <small class="text-muted">部门订单不归属于具体员工，仅记录部门整体业绩</small>
+                                <small class="text-muted">部门订单不归属于具体合作人员，仅记录部门整体业绩</small>
                             </div>
                             <div class="form-group">
-                                <label><i class="fas fa-users text-primary"></i> 提成归属员工 <small class="text-muted">（可添加多个，每人选各自的提成模块）</small></label>
+                                <label><i class="fas fa-users text-primary"></i> 项目分成归属合作人员 <small class="text-muted">（可添加多个，每人选各自的项目分成模块）</small></label>
                                 <div id="deptEmpRows">
                                     <!-- 动态行由JS生成 -->
                                 </div>
-                                <button type="button" class="btn btn-sm btn-outline-primary mt-1" onclick="addDeptEmpRow()"><i class="fas fa-plus"></i> 添加员工</button>
+                                <button type="button" class="btn btn-sm btn-outline-primary mt-1" onclick="addDeptEmpRow()"><i class="fas fa-plus"></i> 添加合作人员</button>
                                 <input type="hidden" name="dept_emp_modules" id="deptEmpModules">
                             </div>
                             <div class="form-group" id="ownershipFieldsGroup" style="display:none">
-                                <label><i class="fas fa-link text-info"></i> 归属匹配字段 <small class="text-muted">（指定Excel中用于匹配员工姓名的列名，逗号分隔）</small></label>
+                                <label><i class="fas fa-link text-info"></i> 归属匹配字段 <small class="text-muted">（指定Excel中用于匹配合作人员姓名的列名，逗号分隔）</small></label>
                                 <input type="text" class="form-control form-control-sm" id="ownershipFields" placeholder="如：客服,制作技术">
-                                <small class="text-muted">系统只在这些列中查找员工姓名，匹配成功则将订单归属到该员工</small>
+                                <small class="text-muted">系统只在这些列中查找合作人员姓名，匹配成功则将订单归属到该合作人员</small>
                                 <input type="hidden" name="ownership_fields" id="ownershipFieldsHidden">
                             </div>
                         </div>
@@ -1446,7 +1446,7 @@ include __DIR__ . '/../includes/header.php';
                     <div class="form-group">
                         <label><i class="fas fa-calendar text-warning"></i> 订单归属月份 <span class="required">*</span></label>
                         <input type="month" name="upload_month" class="form-control" value="<?php echo date('Y-m', strtotime('-1 month')); ?>" min="2020-01" max="2030-12" required>
-                        <small class="text-muted"><i class="fas fa-info-circle"></i> 该批订单将统一归属到所选月份，用于薪资结算（不受Excel中日期列影响）</small>
+                        <small class="text-muted"><i class="fas fa-info-circle"></i> 该批订单将统一归属到所选月份，用于项目结算（不受Excel中日期列影响）</small>
                     </div>
                     
                     <div class="form-group">
@@ -1460,7 +1460,7 @@ include __DIR__ . '/../includes/header.php';
                         <a href="<?php echo BASE_URL; ?>/orders/template_safehou.csv" class="btn btn-sm btn-link text-warning" download><i class="fas fa-download"></i> 下载模板</a>
                     </div>
                     <div class="form-group" id="uploadProjectGroup">
-                        <label><i class="fas fa-percentage text-warning"></i> 对应提成模块 <small class="text-muted">（勾选要关联的模块，订单会按勾选模块分别结算）</small></label>
+                        <label><i class="fas fa-percentage text-warning"></i> 对应项目分成模块 <small class="text-muted">（勾选要关联的模块，订单会按勾选模块分别结算）</small></label>
                         <div id="uploadProject" class="project-checkbox-list">
                             <?php
                             if ($locked_employee):
@@ -1473,9 +1473,9 @@ include __DIR__ . '/../includes/header.php';
                                             if ($m['type'] === 'standard' && isset($m['config']['rate']) && $m['config']['rate'] !== '') {
                                                 $extra = ' (' . rtrim(rtrim(number_format((float)$m['config']['rate']*100, 4, '.', ''), '0'), '.') . '%)';
                                             } elseif ($m['type'] === 'profit_commission' && isset($m['config']['commission_rate']) && $m['config']['commission_rate'] !== '') {
-                                                $extra = ' (成本提成' . rtrim(rtrim(number_format((float)$m['config']['commission_rate']*100, 4, '.', ''), '0'), '.') . '%)';
+                                                $extra = ' (成本项目分成' . rtrim(rtrim(number_format((float)$m['config']['commission_rate']*100, 4, '.', ''), '0'), '.') . '%)';
                                             } elseif ($m['type'] === 'trademark_commission' && isset($m['config']['commission_rate']) && $m['config']['commission_rate'] !== '') {
-                                                $extra = ' (商标部提成' . rtrim(rtrim(number_format((float)$m['config']['commission_rate']*100, 4, '.', ''), '0'), '.') . '%)';
+                                                $extra = ' (商标部项目分成' . rtrim(rtrim(number_format((float)$m['config']['commission_rate']*100, 4, '.', ''), '0'), '.') . '%)';
                                             } elseif ($m['type'] === 'trademark_cashback' && isset($m['config']['per_amount'])) {
                                                 $extra = ' (小额返现¥' . ($m['config']['per_amount'] ?? 0) . '/单)';
                                             } elseif ($m['type'] === 'tiered') {
@@ -1517,7 +1517,7 @@ include __DIR__ . '/../includes/header.php';
                     <?php if ($locked_employee): ?>
                         <input type="hidden" name="employee_id" value="<?php echo $locked_employee['id']; ?>">
                         <div class="form-group">
-                            <label>归属员工</label>
+                            <label>归属合作人员</label>
                             <input type="text" class="form-control" value="<?php echo e($locked_employee['name']); ?>（<?php echo e($locked_employee['department']); ?>）" disabled>
                         </div>
                     <?php else: ?>
@@ -1531,7 +1531,7 @@ include __DIR__ . '/../includes/header.php';
                             </select>
                         </div>
                         <div class="form-group">
-                            <label>选择员工 <span class="required">*</span></label>
+                            <label>选择合作人员 <span class="required">*</span></label>
                             <select name="employee_id" id="manualEmp" class="form-control" required>
                                 <option value="">-- 请先选择部门 --</option>
                             </select>
@@ -1548,7 +1548,7 @@ include __DIR__ . '/../includes/header.php';
                         </div>
                     </div>
                     <div class="form-group">
-                        <label><i class="fas fa-percentage text-warning"></i> 对应提成模块 <small class="text-muted">（选择该员工已配置的提成模块，订单会按对应比例结算）</small></label>
+                        <label><i class="fas fa-percentage text-warning"></i> 对应项目分成模块 <small class="text-muted">（选择该合作人员已配置的项目分成模块，订单会按对应比例结算）</small></label>
                         <select name="project" id="manualProject" class="form-control">
                             <option value="">-- 不指定 --</option>
                             <?php
@@ -1562,9 +1562,9 @@ include __DIR__ . '/../includes/header.php';
                                             if ($m['type'] === 'standard' && isset($m['config']['rate']) && $m['config']['rate'] !== '') {
                                                 $extra = ' (' . rtrim(rtrim(number_format((float)$m['config']['rate']*100, 4, '.', ''), '0'), '.') . '%)';
                                             } elseif ($m['type'] === 'profit_commission' && isset($m['config']['commission_rate']) && $m['config']['commission_rate'] !== '') {
-                                                $extra = ' (成本提成' . rtrim(rtrim(number_format((float)$m['config']['commission_rate']*100, 4, '.', ''), '0'), '.') . '%)';
+                                                $extra = ' (成本项目分成' . rtrim(rtrim(number_format((float)$m['config']['commission_rate']*100, 4, '.', ''), '0'), '.') . '%)';
                                             } elseif ($m['type'] === 'trademark_commission' && isset($m['config']['commission_rate']) && $m['config']['commission_rate'] !== '') {
-                                                $extra = ' (商标部提成' . rtrim(rtrim(number_format((float)$m['config']['commission_rate']*100, 4, '.', ''), '0'), '.') . '%)';
+                                                $extra = ' (商标部项目分成' . rtrim(rtrim(number_format((float)$m['config']['commission_rate']*100, 4, '.', ''), '0'), '.') . '%)';
                                             } elseif ($m['type'] === 'trademark_cashback' && isset($m['config']['per_amount'])) {
                                                 $extra = ' (小额返现¥' . ($m['config']['per_amount'] ?? 0) . '/单)';
                                             } elseif ($m['type'] === 'tiered') {
@@ -1640,7 +1640,7 @@ include __DIR__ . '/../includes/header.php';
                             <?php endif; ?>
                             <?php if ($filter_employee): ?>
                                 <?php $emp = get_employee($filter_employee); ?>
-                                <li class="breadcrumb-item active"><?php echo $emp ? e($emp['name']) : '员工'.$filter_employee; ?></li>
+                                <li class="breadcrumb-item active"><?php echo $emp ? e($emp['name']) : '合作人员'.$filter_employee; ?></li>
                             <?php endif; ?>
                         </ol>
                     </nav>
@@ -1681,7 +1681,7 @@ include __DIR__ . '/../includes/header.php';
                         <?php endforeach; ?>
                     </div>
                 
-                <!-- 第二级：员工卡片（选择了部门但未选择员工且非部门订单视图时显示） -->
+                <!-- 第二级：合作人员卡片（选择了部门但未选择合作人员且非部门订单视图时显示） -->
                 <?php elseif ($filter_dept && !$filter_employee && !$locked_employee && !$filter_dept_orders): ?>
                     <div class="row">
                         <?php foreach ($empGroups as $emp):
@@ -1714,7 +1714,7 @@ include __DIR__ . '/../includes/header.php';
                         <?php endforeach; ?>
                     </div>
                 
-                <!-- 第三级：按年份-月份-提成模块三级分组（选择了员工/锁定员工/部门订单时显示） -->
+                <!-- 第三级：按年份-月份-项目分成模块三级分组（选择了合作人员/锁定合作人员/部门订单时显示） -->
                 <?php elseif ($filter_employee || $locked_employee || $filter_dept_orders): ?>
                 <!-- 按月份批量删除（勾选下方各月份前的复选框，可单选/多选后一次性删除） -->
                 <form method="post" id="monthDeleteForm" onsubmit="return confirm('确定删除所选月份的【全部】订单？此操作不可恢复！')">
@@ -1884,14 +1884,14 @@ include __DIR__ . '/../includes/header.php';
                         <div class="mb-2">
                             <small class="text-muted mr-3"><span class="badge badge-primary"><i class="fas fa-user"></i></span> 个人订单</small>
                             <small class="text-muted mr-3"><span class="badge badge-success"><i class="fas fa-building"></i></span> 部门汇总</small>
-                            <small class="text-muted mr-3"><span class="badge badge-warning"><i class="fas fa-share-alt"></i></span> 部门拆分(员工提成来源)</small>
+                            <small class="text-muted mr-3"><span class="badge badge-warning"><i class="fas fa-share-alt"></i></span> 部门拆分(合作人员项目分成来源)</small>
                             <small class="text-muted"><span class="badge badge-danger"><i class="fas fa-exclamation-triangle"></i></span> 异常</small>
                         </div>
                         <table class="table table-sm table-hover mb-0 order-detail-table" id="ordersTable">
                             <thead class="thead-light sticky-top">
                                 <tr>
                                     <th style="width:32px"><input type="checkbox" id="checkAll" title="全选" onclick="var cbs=document.querySelectorAll('.row-check');cbs.forEach(function(c){c.checked=this.checked;}.bind(this));document.getElementById('batchBar').style.display=this.checked?'flex':'none';document.getElementById('batchBar').style.alignItems='center';document.getElementById('selectedCount').textContent='已选 '+(this.checked?cbs.length:0)+' 条';document.getElementById('batchDelBtn').disabled=!this.checked;"></th>
-                                    <th>ID</th><th>员工</th>
+                                    <th>ID</th><th>合作人员</th>
                                     <?php foreach ($uploadHeaders as $hdr): ?>
                                         <th><?php echo e($hdr); ?></th>
                                         <?php if ($hdr === '店铺'): ?><th>订单状态</th><?php endif; ?>
@@ -1913,7 +1913,7 @@ include __DIR__ . '/../includes/header.php';
                                             <?php $dept = $rawData['__dept__'] ?? ''; ?>
                                             <span class="badge badge-success" title="部门订单汇总行"><i class="fas fa-building"></i> <?php echo e($dept ?: '部门'); ?></span>
                                         <?php elseif ($isFromDept): ?>
-                                            <span class="badge badge-warning" title="部门订单拆分到员工（提成来源）"><i class="fas fa-share-alt"></i> <?php echo e($o['name'] ?: '--'); ?></span><small class="text-muted d-block">来自：<?php echo e($rawData['__from_dept__']); ?></small>
+                                            <span class="badge badge-warning" title="部门订单拆分到合作人员（项目分成来源）"><i class="fas fa-share-alt"></i> <?php echo e($o['name'] ?: '--'); ?></span><small class="text-muted d-block">来自：<?php echo e($rawData['__from_dept__']); ?></small>
                                         <?php else: ?>
                                             <span class="badge badge-primary"><i class="fas fa-user"></i> <?php echo e($o['name'] ?: '--'); ?></span>
                                         <?php endif; ?>
@@ -2055,7 +2055,7 @@ function toggleScopeFields() {
     if (!pf || !df) return;
     pf.style.display = isDept ? 'none' : '';
     df.style.display = isDept ? '' : 'none';
-    // 部门订单模式下隐藏统一的"对应提成模块"（每个员工各自配置）
+    // 部门订单模式下隐藏统一的"对应项目分成模块"（每个合作人员各自配置）
     var pg = document.getElementById('uploadProjectGroup');
     if (pg) pg.style.display = isDept ? 'none' : '';
     // 个人字段的 required
@@ -2071,20 +2071,20 @@ function loadEmployees(prefix) {
         $sel.append('<option value="">-- 请先选择部门 --</option>');
         return;
     }
-    $sel.append('<option value="">-- 选择员工 --</option>');
+    $sel.append('<option value="">-- 选择合作人员 --</option>');
     allEmployees.forEach(function(emp) {
         if (emp.department === dept) {
             $sel.append('<option value="' + emp.id + '">' + emp.name + '</option>');
         }
     });
-    // 只有一个员工时自动选中并触发模块加载
+    // 只有一个合作人员时自动选中并触发模块加载
     if ($sel.find('option[value!=""]').length === 1) {
         $sel.find('option[value!=""]').prop('selected', true);
         $sel.trigger('change');
     }
 }
 
-// 选择员工后，加载该员工的提成模块为勾选框列表
+// 选择合作人员后，加载该合作人员的项目分成模块为勾选框列表
 function loadEmployeeModules(empId, prefix) {
     var $proj = $('#' + prefix + 'Project');
     $proj.empty();
@@ -2101,21 +2101,21 @@ function loadEmployeeModules(empId, prefix) {
                 );
             });
         } else {
-            $proj.append('<p class="text-muted small mb-0">（该员工未配置提成模块，请先去算法设置）</p>');
+            $proj.append('<p class="text-muted small mb-0">（该合作人员未配置项目分成模块，请先去算法设置）</p>');
         }
     }, 'json').fail(function() {
         $proj.append('<p class="text-muted small mb-0">加载失败</p>');
     });
 }
 
-// 部门订单：选部门后重置员工行
+// 部门订单：选部门后重置合作人员行
 function loadDeptEmployees(dept) {
     $('#deptEmpRows').empty();
     $('#ownershipFieldsGroup').toggle(!!dept);
     if (dept) addDeptEmpRow();
 }
 
-// 员工名→id 映射（按当前所选部门过滤后重建）
+// 合作人员名→id 映射（按当前所选部门过滤后重建）
 var deptEmpMap = {};
 function rebuildDeptEmpMap(dept) {
     deptEmpMap = {};
@@ -2128,7 +2128,7 @@ function rebuildDeptEmpMap(dept) {
 }
 
 var deptEmpSeq = 0;
-// 添加一行员工+模块选择（datalist 搜索下拉，可输入匹配也可直接选）
+// 添加一行合作人员+模块选择（datalist 搜索下拉，可输入匹配也可直接选）
 function addDeptEmpRow() {
     var dept = $('#uploadDeptName').val();
     rebuildDeptEmpMap(dept);
@@ -2155,14 +2155,14 @@ function addDeptEmpRow() {
     );
     $('#deptEmpRows').append(row);
 
-    // 输入/选中后同步 employee_id 并加载该员工的提成模块
+    // 输入/选中后同步 employee_id 并加载该合作人员的项目分成模块
     var $search = row.find('.dept-emp-search');
     var $id = row.find('.dept-emp-id');
     var lastEmpId = undefined; // 防止 input+change 重复触发
     $search.on('input change', function() {
         var text = $(this).val().trim();
         var empId = deptEmpMap[text] || '';
-        if (empId === lastEmpId) return; // 同一员工不重复加载
+        if (empId === lastEmpId) return; // 同一合作人员不重复加载
         lastEmpId = empId;
         $id.val(empId);
         var $modSel = row.find('.dept-mod-sel');
@@ -2195,7 +2195,7 @@ $('#uploadForm').on('submit', function() {
 });
 
 <?php if (!$locked_employee): ?>
-// 非锁定模式：员工选择变化时动态加载模块
+// 非锁定模式：合作人员选择变化时动态加载模块
 $(document).ready(function() {
     $('#uploadEmp').on('change', function() { loadEmployeeModules($(this).val(), 'upload'); });
     $('#manualEmp').on('change', function() { loadEmployeeModules($(this).val(), 'manual'); });

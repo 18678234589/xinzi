@@ -28,6 +28,8 @@ function ps_business_catalog()
         '网站修改' => ['departments' => ['网站售后技术', '网站售后备案'], 'resources' => false, 'requires_technical' => false, 'service_fee_rate' => 0, 'order_kinds' => ['修改', '备案', '备案修改'], 'kind_required' => true, 'default_kind' => '修改', 'cost_label' => '成本', 'import_cost' => true, 'fields' => ['website_url' => '网站地址', 'service_item' => '修改 / 备案内容']],
         // 微信代写：编辑员自接单（店铺订单每单补助 3 元），部门利润池按月分配（规则中心“部门利润池分配”）。
         '微信代写' => ['departments' => ['微信代写客服', '微信代写售后', '微信营销部经理'], 'resources' => false, 'requires_technical' => false, 'service_fee_rate' => 0, 'order_kinds' => ['店铺订单', '微信付款'], 'kind_required' => true, 'default_kind' => '店铺订单', 'cost_label' => '写手稿费', 'import_cost' => true, 'free_shop' => true, 'fields' => ['writer_code' => '写手编号', 'writing_volume' => '字数']],
+        // 商标部：普通订单 (售价 − 成本 − 1%服务费) × 12% + 3元/单；新客户订单 + 6元/单；小额返款订单 3元/单；资料专员与提交专员每件 2.2 元。
+        '商标' => ['departments' => ['商标', '商标部'], 'resources' => false, 'requires_technical' => false, 'service_fee_rate' => 0.01, 'order_kinds' => ['普通订单', '新客户', '小额返款'], 'kind_required' => true, 'default_kind' => '普通订单', 'cost_label' => '成本', 'import_cost' => true, 'free_shop' => true, 'fields' => ['trademark_name' => '商标名称', 'trademark_count' => '商标个数', 'service_type' => '网报类型']],
     ];
 }
 
@@ -51,7 +53,7 @@ function ps_business_fallback($department)
 function ps_business_normalize($name)
 {
     $name = trim((string)$name);
-    return ['AI开发定制' => 'AI网站定制', 'AI网站开发定制' => 'AI网站定制', '网站定制' => 'AI网站定制', '网站技术服务' => 'AI网站定制', '网站模板技术' => '网站模板', '服务器配置' => '环境配置', '小程序' => '小程序开发', '小程序商城' => '小程序开发', '小程序引流' => '小额引流', '代写客服' => '软文代写', '代写' => '软文代写', '软文' => '软文代写', '期刊发表' => '期刊'][$name] ?? $name;
+    return ['AI开发定制' => 'AI网站定制', 'AI网站开发定制' => 'AI网站定制', '网站定制' => 'AI网站定制', '网站技术服务' => 'AI网站定制', '网站模板技术' => '网站模板', '服务器配置' => '环境配置', '小程序' => '小程序开发', '小程序商城' => '小程序开发', '小程序引流' => '小额引流', '代写客服' => '软文代写', '代写' => '软文代写', '软文' => '软文代写', '期刊发表' => '期刊', '商标部' => '商标', '商标注册' => '商标'][$name] ?? $name;
 }
 
 function ps_is_website_order($business)
@@ -158,17 +160,17 @@ function ps_business_import_columns($business)
     if (!$definition) throw new RuntimeException('业务类型无效');
     $labels = ps_business_people_labels($business);
     $columns = [
-        'order_date' => ['日期', '接单日期', '下单日期', '付款日期'],
+        'order_date' => ['日期', '接单日期', '下单日期', '付款日期', '时间'],
         'shop' => ['店铺', '店铺名称', '店铺编码'],
         'business' => ['业务'],
-        'payment_nickname' => ['付款昵称', '付款账号', '付款人', '买家昵称'],
-        'order_no' => ['订单编号', '订单号'],
-        'contract_amount' => ['售价', '金额', '订单金额', '总价（需支付至我司的价格）', '总价', '收入'],
-        'status' => ['状态(填已完成/未完成)', '状态', '到账情况', '订单情况', '是否完成', '收发货状态'],
+        'payment_nickname' => ['付款昵称', '付款账号', '付款人', '买家昵称', '旺旺', '付款账号（旺旺）', '旺旺号', '客户旺旺', '买家旺旺'],
+        'order_no' => ['订单编号', '订单号', '订单', '淘宝订单号'],
+        'contract_amount' => ['售价', '金额', '订单金额', '总价（需支付至我司的价格）', '总价', '收入', '返款金额', '返现'],
+        'status' => ['状态(填已完成/未完成)', '状态', '到账情况', '订单情况', '是否完成', '收发货状态', '订单状态'],
         'contact_note' => ['备注（写客户电话或者微信）', '客户联系方式', '客户微信', '备注'],
         'customer_service' => ['客服', '客服姓名', '客服编号'],
-        'frontend' => array_values(array_unique([$labels['frontend'], '前端（技术）', '前端', '技术', '制作技术', '模板技术', '建群编辑', '编辑员'])),
-        'backend' => array_values(array_unique([$labels['backend'], '后端', '技术协作', '协作技术'])),
+        'frontend' => array_values(array_unique([$labels['frontend'], '前端（技术）', '前端', '技术', '制作技术', '模板技术', '建群编辑', '编辑员', '资料', '资料专员'])),
+        'backend' => array_values(array_unique([$labels['backend'], '后端', '技术协作', '协作技术', '提交', '提交专员'])),
     ];
     if (ps_business_order_kinds($business)) $columns['order_kind'] = ['订单类型', '类型'];
     // 代写 / 期刊 / 微信代写：成本 = 写手稿费或杂志社费用，随订单导入；“提成”列为 0 的代写行识别为合并单；期刊“模式”列识别代付版面费。
@@ -185,13 +187,22 @@ function ps_business_import_columns($business)
         $columns['order_no'] = array_merge($columns['order_no'], ['编码或者订单号']);
         $columns['ppt_marker'] = ['设计师佣金'];
     }
+    if ($business === '商标') {
+        $columns['detail:trademark_name'] = ['商标名称', '商标'];
+        $columns['detail:trademark_count'] = ['商标个数', '数量', '件数'];
+        $columns['detail:service_type'] = ['网报类型', '网报加急', '业务类型'];
+    }
     if (!empty($definition['program'])) $columns['program_name'] = ['程序名称', '程序套餐'];
     if ($definition['resources']) {
         $columns['domain_used'] = ['域名使用（写是/否）', '域名使用'];
         $columns['ssl_used'] = ['SSL证书使用（写真实成本）', 'SSL证书使用', 'SSL使用'];
         $columns['resource_note'] = ['填一下域名或者空间', '空间+域名网址', '域名或空间'];
     }
-    foreach ($definition['fields'] as $key => $label) $columns['detail:' . $key] = [$label];
+    foreach ($definition['fields'] as $key => $label) {
+        if (!isset($columns['detail:' . $key])) {
+            $columns['detail:' . $key] = [$label];
+        }
+    }
     return $columns;
 }
 
@@ -242,5 +253,6 @@ function ps_business_people_labels($business)
     if ($business === '网站模板') return ['frontend' => '模板技术', 'backend' => '技术协作'];
     if ($business === '设计') return ['frontend' => '设计执行', 'backend' => '协作设计'];
     if ($business === '软文代写') return ['frontend' => '对接编辑', 'backend' => '协作执行'];
+    if ($business === '商标') return ['frontend' => '资料专员', 'backend' => '提交专员'];
     return ['frontend' => '项目执行', 'backend' => '协作执行'];
 }

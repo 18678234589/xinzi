@@ -4,7 +4,7 @@ require_once __DIR__ . '/../includes/SalaryCalculator.php';
 require_login();
 ensureCsPerfSchema(); // 保证 employees.wangwang 等客服绩效相关字段/表存在
 
-$page_title = '员工管理';
+$page_title = '合作人员管理';
 $success = '';
 $error = '';
 
@@ -30,9 +30,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $stmt = db()->prepare("INSERT INTO employees (name, department, wangwang, base_salary, commission_rate, password) VALUES (?, ?, ?, ?, ?, MD5(?))");
                     $stmt->execute([$name, $department, $wangwang, $base_salary, $commission_rate, $password]);
                     $newId = (int)db()->lastInsertId();
-                    // 自动补录之前因员工不存在而暂存的考勤记录
+                    // 自动补录之前因合作人员不存在而暂存的考勤记录
                     $backfilled = backfill_pending_attendance($newId, $name);
-                    $success = '员工添加成功，默认密码: ' . ($password === '123456' ? '123456' : '已设置');
+                    $success = '合作人员添加成功，默认密码: ' . ($password === '123456' ? '123456' : '已设置');
                     if ($backfilled > 0) $success .= "，已自动补录 {$backfilled} 条考勤记录";
                 } else {
                     if ($password !== '') {
@@ -44,7 +44,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     }
                     // 改名后尝试补录新姓名对应的暂存考勤
                     backfill_pending_attendance($id, $name);
-                    $success = '员工信息更新成功';
+                    $success = '合作人员信息更新成功';
                 }
             } catch (PDOException $ex) {
                 $error = '操作失败: ' . $ex->getMessage();
@@ -53,15 +53,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     } elseif ($action === 'delete') {
         $id = (int)($_POST['id'] ?? 0);
         try {
-            // orders 表的员工外键已被移除（部门订单需存 employee_id=0，见 orders/index.php 的 ensureProjectColumn），
-            // ON DELETE CASCADE 已失效，这里手动清理关联数据，避免留下指向不存在员工的孤儿订单/薪资记录。
+            // orders 表的合作人员外键已被移除（部门订单需存 employee_id=0，见 orders/index.php 的 ensureProjectColumn），
+            // ON DELETE CASCADE 已失效，这里手动清理关联数据，避免留下指向不存在合作人员的孤儿订单/项目报酬记录。
             db()->beginTransaction();
-            // 订单软删除（移入回收站，可恢复），薪资和员工记录物理删除
+            // 订单软删除（移入回收站，可恢复），项目报酬和合作人员记录物理删除
             db()->prepare("UPDATE orders SET is_deleted=1 WHERE employee_id = ?")->execute([$id]);
             db()->prepare("DELETE FROM salaries WHERE employee_id = ?")->execute([$id]);
             db()->prepare("DELETE FROM employees WHERE id = ?")->execute([$id]);
             db()->commit();
-            $success = '员工已删除';
+            $success = '合作人员已删除';
         } catch (PDOException $ex) {
             if (db()->inTransaction()) {
                 db()->rollBack();
@@ -92,9 +92,9 @@ include __DIR__ . '/../includes/header.php';
 ?>
 
 <div class="d-flex justify-content-between align-items-center mb-3">
-    <h4 class="font-weight-bold mb-0"><i class="fas fa-users"></i> 员工管理</h4>
+    <h4 class="font-weight-bold mb-0"><i class="fas fa-users"></i> 合作人员管理</h4>
     <button class="btn btn-primary" data-toggle="modal" data-target="#empModal" onclick="resetForm()">
-        <i class="fas fa-plus"></i> 新增员工
+        <i class="fas fa-plus"></i> 新增合作人员
     </button>
 </div>
 
@@ -127,7 +127,7 @@ include __DIR__ . '/../includes/header.php';
     </div>
 </div>
 
-<!-- 员工列表 -->
+<!-- 合作人员列表 -->
 <div class="card">
     <div class="card-body">
         <div class="table-responsive">
@@ -145,16 +145,16 @@ include __DIR__ . '/../includes/header.php';
                         <td><span class="badge badge-info"><?php echo e($emp['department']); ?></span></td>
                         <td><?php echo e($emp['wangwang'] ?? ''); ?></td>
                         <td>
-                            <a href="<?php echo BASE_URL; ?>/orders/index.php?employee_id=<?php echo $emp['id']; ?>" class="btn btn-sm btn-outline-success" title="为该员工上传订单">
+                            <a href="<?php echo BASE_URL; ?>/orders/index.php?employee_id=<?php echo $emp['id']; ?>" class="btn btn-sm btn-outline-success" title="为该合作人员上传订单">
                                 <i class="fas fa-file-upload"></i> 上传订单
                             </a>
-                            <a href="<?php echo BASE_URL; ?>/employees/algorithm.php?employee_id=<?php echo $emp['id']; ?>" class="btn btn-sm btn-outline-<?php echo SalaryCalculator::hasCustomAlgorithm($emp['id']) ? 'warning' : 'secondary'; ?>" title="薪资算法设置">
+                            <a href="<?php echo BASE_URL; ?>/employees/algorithm.php?employee_id=<?php echo $emp['id']; ?>" class="btn btn-sm btn-outline-<?php echo SalaryCalculator::hasCustomAlgorithm($emp['id']) ? 'warning' : 'secondary'; ?>" title="项目报酬算法设置">
                                 <i class="fas fa-code"></i> <?php echo SalaryCalculator::hasCustomAlgorithm($emp['id']) ? '专属算法' : '算法设置'; ?>
                             </a>
                             <button class="btn btn-sm btn-outline-primary" onclick='editEmp(<?php echo json_encode($emp, JSON_UNESCAPED_UNICODE); ?>)'>
                                 <i class="fas fa-edit"></i> 编辑
                             </button>
-                            <form method="post" class="d-inline" onsubmit="return confirm('确定删除该员工？相关订单和薪资记录也会被删除。')">
+                            <form method="post" class="d-inline" onsubmit="return confirm('确定删除该合作人员？相关订单和项目报酬记录也会被删除。')">
                                 <input type="hidden" name="action" value="delete">
                                 <input type="hidden" name="id" value="<?php echo $emp['id']; ?>">
                                 <button class="btn btn-sm btn-outline-danger"><i class="fas fa-trash"></i> 删除</button>
@@ -162,7 +162,7 @@ include __DIR__ . '/../includes/header.php';
                         </td>
                     </tr>
                 <?php endforeach; else: ?>
-                    <tr><td colspan="5" class="text-center text-muted py-4">暂无员工数据</td></tr>
+                    <tr><td colspan="5" class="text-center text-muted py-4">暂无合作人员数据</td></tr>
                 <?php endif; ?>
                 </tbody>
             </table>
@@ -176,7 +176,7 @@ include __DIR__ . '/../includes/header.php';
         <div class="modal-content">
             <form method="post" id="empForm">
                 <div class="modal-header">
-                    <h5 class="modal-title" id="modalTitle">新增员工</h5>
+                    <h5 class="modal-title" id="modalTitle">新增合作人员</h5>
                     <button type="button" class="close" data-dismiss="modal">&times;</button>
                 </div>
                 <div class="modal-body">
@@ -203,7 +203,7 @@ include __DIR__ . '/../includes/header.php';
                     <div class="form-group">
                         <label>旺旺账号</label>
                         <input type="text" name="wangwang" class="form-control" placeholder="客服旺旺账号，用于客服绩效数据匹配">
-                        <small class="text-muted">客服绩效导入时按此账号/姓名自动匹配到员工，一人多账号用逗号/空格分隔</small>
+                        <small class="text-muted">客服绩效导入时按此账号/姓名自动匹配到合作人员，一人多账号用逗号/空格分隔</small>
                     </div>
                     <input type="hidden" name="base_salary" value="0">
                     <input type="hidden" name="commission_rate" value="0">
@@ -222,7 +222,7 @@ function resetForm() {
     $('#empForm')[0].reset();
     $('#empForm input[name="action"]').val('create');
     $('#empForm input[name="id"]').val('');
-    $('#modalTitle').text('新增员工');
+    $('#modalTitle').text('新增合作人员');
 }
 
 function editEmp(emp) {
@@ -233,7 +233,7 @@ function editEmp(emp) {
     $('#empForm input[name="department"]').val(emp.department);
     $('#empForm input[name="wangwang"]').val(emp.wangwang || '');
     $('#empForm input[name="password"]').val('');
-    $('#modalTitle').text('编辑员工 - ' + emp.name);
+    $('#modalTitle').text('编辑合作人员 - ' + emp.name);
     $('#empModal').modal('show');
 }
 </script>

@@ -3,7 +3,7 @@ require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/SalaryCalculator.php';
 require_login();
 
-$page_title = '薪资结算';
+$page_title = '原系统项目报酬结算';
 $success = '';
 $error = '';
 $preview = null;
@@ -53,11 +53,11 @@ function calcFullAttendanceBonus($empId, $month, $bonusBase) {
             'net' => $bonusBase - $deduct, 'status' => $status, 'has_att' => true];
 }
 
-// 按出勤天数折算底薪（分母固定30）
-// 规则：请假≤4天 → 底薪−底薪/30×请假天数；请假>4天 → 底薪/30×实际出勤天数
-// 两段统一为 底薪/30×实际出勤天数；满勤不折；无考勤按满勤发全额
-// 返回 ['original'=>原始底薪, 'actual_days'=>实际出勤天数, 'leave_days'=>请假天数,
-//        'prorated'=>折算后底薪, 'status'=>说明, 'has_att'=>是否有考勤]
+// 按出勤天数折算固定服务费（分母固定30）
+// 规则：请假≤4天 → 固定服务费−固定服务费/30×请假天数；请假>4天 → 固定服务费/30×实际出勤天数
+// 两段统一为 固定服务费/30×实际出勤天数；满勤不折；无考勤按满勤发全额
+// 返回 ['original'=>原始固定服务费, 'actual_days'=>实际出勤天数, 'leave_days'=>请假天数,
+//        'prorated'=>折算后固定服务费, 'status'=>说明, 'has_att'=>是否有考勤]
 function calcProratedBaseSalary($empId, $month, $baseSalary) {
     $attInfo = null;
     $mp = explode('-', (string)$month);
@@ -66,7 +66,7 @@ function calcProratedBaseSalary($empId, $month, $baseSalary) {
     }
     if (!$attInfo) {
         return ['original' => $baseSalary, 'actual_days' => 0, 'leave_days' => 0,
-                'prorated' => $baseSalary, 'status' => '未录入考勤，底薪按满勤发放', 'has_att' => false];
+                'prorated' => $baseSalary, 'status' => '未录入考勤，固定服务费按满勤发放', 'has_att' => false];
     }
     $workH   = (float)$attInfo['work_hours'];
     $absentH = (float)$attInfo['absent_hours'];
@@ -77,26 +77,26 @@ function calcProratedBaseSalary($empId, $month, $baseSalary) {
     $leaveDays  = round($fullDays - $actualDays, 2);             // 请假天数 = 满勤 − 实际出勤
     if ($leaveDays <= 0) {
         $prorated = $baseSalary;                   // 满勤不折
-        $status   = '满勤，底薪全额发放';
+        $status   = '满勤，固定服务费全额发放';
     } elseif ($leaveDays <= 4) {
-        // 请假≤4天：底薪 − 底薪/30 × 请假天数（基数用30，与满勤天数无关）
+        // 请假≤4天：固定服务费 − 固定服务费/30 × 请假天数（基数用30，与满勤天数无关）
         $prorated = round($baseSalary - $baseSalary / 30 * $leaveDays, 2);
         $actualDays = 30 - $leaveDays;             // 显示用：30−请假天数
-        $status = sprintf('请假%.2f天(≤4天)，底薪−底薪/30×请假天数', $leaveDays);
+        $status = sprintf('请假%.2f天(≤4天)，固定服务费−固定服务费/30×请假天数', $leaveDays);
     } else {
-        // 请假>4天：底薪/30 × 实际出勤天数（实际出勤=满勤天数−请假天数）
+        // 请假>4天：固定服务费/30 × 实际出勤天数（实际出勤=满勤天数−请假天数）
         $prorated = round($baseSalary / 30 * $actualDays, 2);
-        $status = sprintf('请假%.2f天(>4天)，底薪/30×实际出勤%.2f天', $leaveDays, $actualDays);
+        $status = sprintf('请假%.2f天(>4天)，固定服务费/30×实际出勤%.2f天', $leaveDays, $actualDays);
     }
     return ['original' => $baseSalary, 'actual_days' => $actualDays, 'leave_days' => $leaveDays,
             'prorated' => $prorated, 'status' => $status, 'has_att' => true];
 }
 
-// 在 $result 上应用底薪折算（员工表底薪与底薪类模块——阶梯底薪/客服绩效底薪——各自独立折算）
+// 在 $result 上应用固定服务费折算（合作人员表固定服务费与固定服务费类模块——阶梯固定服务费/客服绩效固定服务费——各自独立折算）
 // 直接修改 $result，返回 base_info 数组
 function applyProratedBaseSalary(&$result, $empId, $month) {
     $rawBase = (float)($result['base_salary'] ?? 0);
-    // 检测需按出勤折算的底薪类模块（阶梯底薪 / 客服绩效底薪，其金额在 modules 里，不在 base_salary 字段）
+    // 检测需按出勤折算的固定服务费类模块（阶梯固定服务费 / 客服绩效固定服务费，其金额在 modules 里，不在 base_salary 字段）
     $baseModTypes = ['base_salary_tiered', 'cs_performance'];
     $baseModIdx = -1;
     $baseModType = '';
@@ -110,52 +110,52 @@ function applyProratedBaseSalary(&$result, $empId, $month) {
         }
     }
 
-    // 1. 员工表底薪单独折算
+    // 1. 合作人员表固定服务费单独折算
     $rawBaseInfo = calcProratedBaseSalary($empId, $month, $rawBase);
     $baseDiff = round($rawBaseInfo['prorated'] - $rawBase, 2);
     $result['base_salary'] = $rawBaseInfo['prorated'];
     $result['net_pay']  = round(($result['net_pay'] ?? 0) + $baseDiff, 2);
 
-    // 2. 底薪类模块单独折算（阶梯底薪 / 客服绩效底薪）
+    // 2. 固定服务费类模块单独折算（阶梯固定服务费 / 客服绩效固定服务费）
     if ($baseModIdx >= 0) {
         $modBaseInfo = calcProratedBaseSalary($empId, $month, $baseModAmount);
         $proAmount = round($modBaseInfo['prorated'], 2);
         $result['modules'][$baseModIdx]['amount'] = $proAmount;
         if ($baseModAmount > 0) {
             if ($baseModType === 'cs_performance') {
-                // 客服绩效底薪：保留达成率明细，追加出勤折算说明
+                // 客服绩效固定服务费：保留达成率明细，追加出勤折算说明
                 $result['modules'][$baseModIdx]['formula'] .= '；' . $modBaseInfo['status'] . '（原 ¥' . number_format($baseModAmount, 2) . ' → 折算后 ¥' . number_format($proAmount, 2) . '）';
             } else {
                 $result['modules'][$baseModIdx]['formula'] = $modBaseInfo['status'] . '（原 ¥' . number_format($baseModAmount, 2) . '）';
             }
         } elseif ($baseModType === 'base_salary_tiered') {
-            // 阶梯底薪模块金额为0，保持0，不把员工表底薪塞进去
-            $result['modules'][$baseModIdx]['formula'] = '阶梯底薪¥0.00（未匹配阶梯或未配置base_amount）';
+            // 阶梯固定服务费模块金额为0，保持0，不把合作人员表固定服务费塞进去
+            $result['modules'][$baseModIdx]['formula'] = '阶梯固定服务费¥0.00（未匹配阶梯或未配置base_amount）';
         }
-        // 客服绩效底薪金额为0 时保留原公式（如"当月无绩效数据/不在绩效名单内"）以便诊断
+        // 客服绩效固定服务费金额为0 时保留原公式（如"当月无绩效数据/不在绩效名单内"）以便诊断
         $result['module_total'] = round(array_sum(array_column($result['modules'], 'amount')), 2);
         $modDiff = round($proAmount - $baseModAmount, 2);
         $result['net_pay'] = round($result['net_pay'] + $modDiff, 2);
     }
 
-    // 返回员工表底薪的折算信息（主底薪）
+    // 返回合作人员表固定服务费的折算信息（主固定服务费）
     return $rawBaseInfo;
 }
 
 /**
- * 加载员工当月订单（含部门订单虚拟拆分）
- * 1. 查该员工当月个人订单（排除旧的物理拆分行 __from_dept__）
- * 2. 查该员工所在部门的汇总行（employee_id=0, __dept__=部门名），按 __dept_modules__ 虚拟生成拆分行
+ * 加载合作人员当月订单（含部门订单虚拟拆分）
+ * 1. 查该合作人员当月个人订单（排除旧的物理拆分行 __from_dept__）
+ * 2. 查该合作人员所在部门的汇总行（employee_id=0, __dept__=部门名），按 __dept_modules__ 虚拟生成拆分行
  * 3. 合并返回订单列表和总金额
  *
  * @param int    $employeeId
  * @param string $month     'YYYY-MM'
- * @param string $deptName  员工所属部门名
- * @param bool   $deptShare 是否参与部门订单提成（false 则跳过虚拟拆分）
+ * @param string $deptName  合作人员所属部门名
+ * @param bool   $deptShare 是否参与部门订单项目分成（false 则跳过虚拟拆分）
  * @return array ['orders'=>[], 'order_total'=>float]
  */
 function loadEmployeeOrdersWithDept($employeeId, $month, $deptName, $deptShare = true, $backendName = '') {
-    // 计薪月份 = 核验月：未核验订单不计入薪资；___verified_month__ = 当月 或 遗留(无标记且已核验)按 order_date 归月。
+    // 计薪月份 = 核验月：未核验订单不计入项目报酬；___verified_month__ = 当月 或 遗留(无标记且已核验)按 order_date 归月。
     // 未核验订单核验通过后才计入，归属核验时写入的 __verified_month__（核验当月），实现跨月晚核验计入当月的规则。
     $creditSql = "(JSON_UNQUOTE(JSON_EXTRACT(raw_data, '$.__verified_month__')) = ?"
         . " OR ("
@@ -184,7 +184,7 @@ function loadEmployeeOrdersWithDept($employeeId, $month, $deptName, $deptShare =
     // 2. 部门订单虚拟拆分
     if ($deptShare && $deptName !== '') {
         // 用 JSON_EXTRACT 精确匹配部门名
-        // 注意：部门订单不按 is_abnormal 过滤——部门汇总订单是提成基数来源，必须参与计算
+        // 注意：部门订单不按 is_abnormal 过滤——部门汇总订单是项目分成基数来源，必须参与计算
         // （异常检测标记为"金额不符"是部门汇总的固有特征）。但按核验月/未核验过滤，未核验不计薪
         $dstmt = db()->prepare(
             "SELECT *, order_amount, order_date, project, raw_data FROM orders
@@ -202,7 +202,7 @@ function loadEmployeeOrdersWithDept($employeeId, $month, $deptName, $deptShare =
             $modules = $rd['__dept_modules__'] ?? null;
             if (!is_array($modules)) continue;
 
-            // 找到该员工的模块
+            // 找到该合作人员的模块
             $myModule = null;
             foreach ($modules as $m) {
                 if ((int)($m['employee_id'] ?? 0) === (int)$employeeId) {
@@ -210,7 +210,7 @@ function loadEmployeeOrdersWithDept($employeeId, $month, $deptName, $deptShare =
                     break;
                 }
             }
-            if ($myModule === null) continue; // 该员工不参与此部门订单
+            if ($myModule === null) continue; // 该合作人员不参与此部门订单
 
             // 虚拟生成拆分行
             $vRaw = $rd;
@@ -223,7 +223,7 @@ function loadEmployeeOrdersWithDept($employeeId, $month, $deptName, $deptShare =
         }
     }
 
-    // 3. 后端/技术员工：追加 raw_data.后端 或（环境配置项目的）raw_data.技术 = 员工名 的订单，
+    // 3. 后端/技术合作人员：追加 raw_data.后端 或（环境配置项目的）raw_data.技术 = 合作人员名 的订单，
     //    本人名下可能无订单行，按其姓名参与汇总，按 id 去重避免重复计入
     if ($backendName !== '') {
         $bstmt = db()->prepare(
@@ -240,7 +240,7 @@ function loadEmployeeOrdersWithDept($employeeId, $month, $deptName, $deptShare =
         foreach ($bstmt->fetchAll() as $bo) {
             $bid = (int)$bo['id'];
             if (isset($seen[$bid])) continue;
-            // 退款订单同样保留在列表中：销售金额不计，但域名/SSL 等已发生的成本仍计入提成扣减
+            // 退款订单同样保留在列表中：销售金额不计，但域名/SSL 等已发生的成本仍计入项目分成扣减
             $seen[$bid] = true;
             $orders[] = $bo;
         }
@@ -265,11 +265,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $month       = $_POST['month'] ?? '';
 
         if ($employee_id <= 0 || $month === '') {
-            $error = '请选择员工和月份';
+            $error = '请选择合作人员和月份';
         } else {
             $emp = get_employee($employee_id);
             if (!$emp) {
-                $error = '员工不存在';
+                $error = '合作人员不存在';
             } else {
                 // 加载当月订单（个人订单 + 部门订单虚拟拆分）
                 $deptShare = true;
@@ -286,7 +286,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $order_total = $loaded['order_total'];
 
                 if (count($orderList) === 0) {
-                    // 文员等无订单员工：不报错，继续计算（底薪+考勤+保险等不依赖订单）
+                    // 文员等无订单合作人员：不报错，继续计算（固定服务费+考勤+保险等不依赖订单）
                     $orderList = [];
                     $order_total = 0;
                 }
@@ -311,10 +311,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $bonusBase = (float)($_POST['full_attendance_bonus'] ?? 200);
                     $bonus = calcFullAttendanceBonus($emp['id'], $month, $bonusBase);
 
-                    // 调用薪资算法（自动选择员工专属算法或默认算法）
+                    // 调用项目报酬算法（自动选择合作人员专属算法或默认算法）
                     $result = SalaryCalculator::calculate($emp, $orderList, $order_total, $month);
 
-                    // 底薪按出勤天数折算（分母固定30；处理 base_salary 字段与阶梯/客服绩效底薪等底薪类模块）
+                    // 固定服务费按出勤天数折算（分母固定30；处理 base_salary 字段与阶梯/客服绩效固定服务费等固定服务费类模块）
                     $baseInfo = applyProratedBaseSalary($result, $emp['id'], $month);
 
                     // 将自定义金额叠加到最终结果
@@ -332,7 +332,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         }
                     }
 
-                    // 全勤奖叠加（先加后扣模式：净额累加到实发工资）
+                    // 全勤奖叠加（先加后扣模式：净额累加到应结算金额）
                     if ($bonus['net'] != 0) {
                         $result['net_pay'] = round($result['net_pay'] + $bonus['net'], 2);
                         $result['module_total'] = round(($result['module_total'] ?? 0) + $bonus['net'], 2);
@@ -511,7 +511,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } else {
             $emp = get_employee($employee_id);
             if (!$emp) {
-                $error = '员工不存在';
+                $error = '合作人员不存在';
             } else {
                 // 加载当月订单（个人订单 + 部门订单虚拟拆分）
                 $deptShare = true;
@@ -527,7 +527,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $orderList = $loaded['orders'];
                 $order_total = $loaded['order_total'];
 
-                // 调用薪资算法
+                // 调用项目报酬算法
                 $result = SalaryCalculator::calculate($emp, $orderList, $order_total, $month);
 
                 // 自定义额外金额（多项，每项含金额+备注，求和为总额）
@@ -550,7 +550,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $bonus = calcFullAttendanceBonus($emp['id'], $month, $bonusBase);
                 $bonusNet = (float)$bonus['net'];
 
-                // 底薪按出勤天数折算（直接修改 $result，处理阶梯底薪/客服绩效底薪等底薪类模块）
+                // 固定服务费按出勤天数折算（直接修改 $result，处理阶梯固定服务费/客服绩效固定服务费等固定服务费类模块）
                 $baseInfo = applyProratedBaseSalary($result, $emp['id'], $month);
 
                 $commission = $result['module_total'] ?? $result['commission'];
@@ -577,7 +577,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     }
                     $hasBaseAmt = db()->query("SHOW COLUMNS FROM `salaries` LIKE 'base_salary_amount'")->fetchAll();
                     if (empty($hasBaseAmt)) {
-                        db()->exec("ALTER TABLE `salaries` ADD COLUMN `base_salary_amount` DECIMAL(12,2) NOT NULL DEFAULT 0.00 COMMENT '折算后底薪' AFTER `full_attendance_bonus`");
+                        db()->exec("ALTER TABLE `salaries` ADD COLUMN `base_salary_amount` DECIMAL(12,2) NOT NULL DEFAULT 0.00 COMMENT '折算后固定服务费' AFTER `full_attendance_bonus`");
                     }
                     $hasIns = db()->query("SHOW COLUMNS FROM `salaries` LIKE 'insurance_amount'")->fetchAll();
                     if (empty($hasIns)) {
@@ -597,7 +597,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             created_at = CURRENT_TIMESTAMP
                     ");
                     $stmt->execute([$employee_id, $month, $order_total, $commission, $net_pay, $extraAmount, $bonusNet, $baseInfo['prorated'], $insuranceDeduct]);
-                    $success = sprintf('薪资结算成功！%s %s：订单总额 ¥%s，提成 ¥%s，实发 ¥%s（%s）',
+                    $success = sprintf('项目结算成功！%s %s：订单总额 ¥%s，原系统绩效等净额 ¥%s，应结算金额 ¥%s（%s）',
                         $emp['name'], $month, money($order_total), money($commission), money($net_pay), $result['algorithm_name']);
 
                     // 追加全勤奖模块到模块列表（便于结算后预览展示）
@@ -672,7 +672,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 $departments = get_departments();
 $employees   = get_employees();
 
-// 检查某员工某月是否已结算
+// 检查某合作人员某月是否已结算
 $existing = null;
 if ($preview) {
     $stmt = db()->prepare("SELECT * FROM salaries WHERE employee_id = ? AND month = ?");
@@ -685,7 +685,7 @@ include __DIR__ . '/../includes/header.php';
 ?>
 
 <div class="d-flex justify-content-between align-items-center mb-3">
-    <h4 class="font-weight-bold mb-0"><i class="fas fa-calculator"></i> 薪资结算</h4>
+    <h4 class="font-weight-bold mb-0"><i class="fas fa-calculator"></i> 项目结算</h4>
 </div>
 
 <?php if ($success): ?>
@@ -713,7 +713,7 @@ include __DIR__ . '/../includes/header.php';
                         </select>
                     </div>
                     <div class="form-group">
-                        <label>选择员工 <span class="required">*</span></label>
+                        <label>选择合作人员 <span class="required">*</span></label>
                         <input type="text" id="empSearch" class="form-control" list="empList" placeholder="输入姓名搜索选择…" autocomplete="off" onchange="syncEmpId()" required>
                         <datalist id="empList">
                             <?php foreach ($employees as $emp): ?>
@@ -734,13 +734,13 @@ include __DIR__ . '/../includes/header.php';
                         <button type="button" class="btn btn-sm btn-outline-warning mt-1" onclick="addExtraRow(0, '')">
                             <i class="fas fa-plus"></i> 添加一项
                         </button>
-                        <small class="text-muted d-block mt-1">用于无法通过订单计算的金额，正数加、负数减，结算时累加到实发工资</small>
+                        <small class="text-muted d-block mt-1">用于无法通过订单计算的金额，正数加、负数减，结算时累加到应结算金额</small>
                     </div>
                     <div class="form-group">
-                        <label><i class="fas fa-award text-success"></i> 全勤奖金额</label>
+                        <label><i class="fas fa-award text-success"></i> 全勤项目奖励额</label>
                         <div class="input-group">
                             <div class="input-group-prepend"><span class="input-group-text">¥</span></div>
-                            <input type="number" name="full_attendance_bonus" class="form-control" step="0.01" value="<?php echo e($_POST['full_attendance_bonus'] ?? ($preview['full_attendance_bonus'] ?? '200')); ?>" placeholder="满勤奖金额，默认200">
+                            <input type="number" name="full_attendance_bonus" class="form-control" step="0.01" value="<?php echo e($_POST['full_attendance_bonus'] ?? ($preview['full_attendance_bonus'] ?? '200')); ?>" placeholder="满勤项目奖励额，默认200">
                         </div>
                         <small class="text-muted">自动抓取考勤：请假≥4h扣一半，≥8h全扣；无考勤记录不发</small>
                     </div>
@@ -752,15 +752,15 @@ include __DIR__ . '/../includes/header.php';
                                 <span class="text-muted">¥<?php echo money($insuranceAmount); ?></span>
                             </label>
                         </div>
-                        <small class="text-muted">默认勾选扣除，不扣保险的员工请手动取消；金额请在<a href="<?php echo BASE_URL; ?>/insurance/index.php">保险管理</a>中设置</small>
+                        <small class="text-muted">默认勾选扣除，不扣保险的合作人员请手动取消；金额请在<a href="<?php echo BASE_URL; ?>/insurance/index.php">保险管理</a>中设置</small>
                     </div>
                     <div class="form-group">
-                        <label><i class="fas fa-money-bill-wave text-primary"></i> 底薪</label>
+                        <label><i class="fas fa-money-bill-wave text-primary"></i> 固定服务费</label>
                         <div class="input-group">
                             <div class="input-group-prepend"><span class="input-group-text">¥</span></div>
                             <input type="text" class="form-control" value="<?php echo e($preview['base_info']['original'] ?? ($emp['base_salary'] ?? '')); ?>" readonly>
                         </div>
-                        <small class="text-muted">自动抓取员工底薪（自定义底薪、阶梯底薪或客服绩效底薪），按出勤天数折算：底薪/30×实际出勤天数</small>
+                        <small class="text-muted">自动抓取合作人员固定服务费（自定义固定服务费、阶梯固定服务费或客服绩效固定服务费），按出勤天数折算：固定服务费/30×实际出勤天数</small>
                     </div>
                     <button type="submit" class="btn btn-info btn-block"><i class="fas fa-eye"></i> 预览计算</button>
                 </form>
@@ -771,7 +771,7 @@ include __DIR__ . '/../includes/header.php';
     <!-- 结算预览 -->
     <div class="col-md-8">
         <div class="card">
-            <div class="card-header bg-white"><h5 class="mb-0"><i class="fas fa-receipt text-success"></i> 薪资结算单</h5></div>
+            <div class="card-header bg-white"><h5 class="mb-0"><i class="fas fa-receipt text-success"></i> 项目结算单</h5></div>
             <div class="card-body">
                 <?php if ($preview): ?>
                 <?php
@@ -782,7 +782,7 @@ include __DIR__ . '/../includes/header.php';
                 <table class="table table-bordered mb-2">
                     <tbody class="bg-white">
                         <tr><th colspan="4" class="py-2 bg-primary text-white"><i class="fas fa-file-invoice mr-1"></i> 基础信息</th></tr>
-                        <tr><th width="20%">员工</th><td><?php echo e($emp['name']); ?></td><th width="20%">部门</th><td><?php echo e($emp['department']); ?></td></tr>
+                        <tr><th width="20%">合作人员</th><td><?php echo e($emp['name']); ?></td><th width="20%">部门</th><td><?php echo e($emp['department']); ?></td></tr>
                         <tr><th>结算月份</th><td><?php echo e($preview['month']); ?></td><th>当月订单数</th><td><?php echo $preview['order_count']; ?> 笔</td></tr>
                         <tr><th>订单总额</th><td class="text-primary font-weight-bold" colspan="3">¥<?php echo money($preview['order_total']); ?></td></tr>
                         <?php
@@ -827,9 +827,9 @@ include __DIR__ . '/../includes/header.php';
                         </tr>
                         <?php $bi = $preview['base_info'] ?? null; if ($bi): ?>
                         <tr>
-                            <th>底薪（按出勤折算）</th>
+                            <th>固定服务费（按出勤折算）</th>
                             <td colspan="3">
-                                <span class="text-muted">原底薪 <b>¥<?php echo money($bi['original']); ?></b></span>
+                                <span class="text-muted">原固定服务费 <b>¥<?php echo money($bi['original']); ?></b></span>
                                 <?php if ($bi['has_att']): ?>
                                     <span class="ml-3 text-muted">实际出勤 <b><?php echo number_format($bi['actual_days'], 2); ?>天</b></span>
                                     <span class="ml-3 text-muted">请假 <b><?php echo number_format($bi['leave_days'], 2); ?>天</b></span>
@@ -843,7 +843,7 @@ include __DIR__ . '/../includes/header.php';
                         <tr>
                             <th class="text-danger" width="20%"><i class="fas fa-exclamation-triangle"></i> 异常订单</th>
                             <td colspan="3">
-                                <span class="text-danger font-weight-bold"><?php echo count($abnormalMods); ?> 个模块存在异常，共 <?php echo array_sum(array_column($abnormalMods, 'cnt')); ?> 笔，合计 ¥<?php echo money(array_sum(array_column($abnormalMods, 'total'))); ?>（不计入薪资）</span>
+                                <span class="text-danger font-weight-bold"><?php echo count($abnormalMods); ?> 个模块存在异常，共 <?php echo array_sum(array_column($abnormalMods, 'cnt')); ?> 笔，合计 ¥<?php echo money(array_sum(array_column($abnormalMods, 'total'))); ?>（不计入项目报酬）</span>
                                 <table class="table table-sm table-bordered mb-0 mt-2" style="font-size:13px;">
                                     <thead class="thead-light"><tr><th>模块</th><th class="text-center">笔数</th><th class="text-right">金额</th><th class="text-center" style="width:80px;">操作</th></tr></thead>
                                     <tbody>
@@ -869,7 +869,7 @@ include __DIR__ . '/../includes/header.php';
                         <tr>
                             <th class="text-warning" width="20%"><i class="fas fa-question-circle"></i> 未核验订单</th>
                             <td colspan="3">
-                                <span class="text-warning font-weight-bold"><?php echo count($unverifiedMods); ?> 个模块存在未核验订单，共 <?php echo array_sum(array_column($unverifiedMods, 'cnt')); ?> 笔，合计 ¥<?php echo money(array_sum(array_column($unverifiedMods, 'total'))); ?>（已计入薪资，待核验确认）</span>
+                                <span class="text-warning font-weight-bold"><?php echo count($unverifiedMods); ?> 个模块存在未核验订单，共 <?php echo array_sum(array_column($unverifiedMods, 'cnt')); ?> 笔，合计 ¥<?php echo money(array_sum(array_column($unverifiedMods, 'total'))); ?>（已计入项目报酬，待核验确认）</span>
                                 <table class="table table-sm table-bordered mb-0 mt-2" style="font-size:13px;">
                                     <thead class="thead-light"><tr><th>模块</th><th class="text-center">笔数</th><th class="text-right">金额</th><th class="text-center" style="width:80px;">操作</th></tr></thead>
                                     <tbody>
@@ -903,7 +903,7 @@ include __DIR__ . '/../includes/header.php';
 
                     <?php if (!empty($mods)): ?>
                     <tbody>
-                        <tr class="bg-light"><th colspan="4" class="py-1 text-center"><strong><i class="fas fa-layer-group mr-1"></i>薪资模块明细（共 <?php echo count($mods); ?> 个模块，合计 ¥<?php echo money(array_sum(array_column($mods, 'amount'))); ?>）</strong></th></tr>
+                        <tr class="bg-light"><th colspan="4" class="py-1 text-center"><strong><i class="fas fa-layer-group mr-1"></i>项目报酬模块明细（共 <?php echo count($mods); ?> 个模块，合计 ¥<?php echo money(array_sum(array_column($mods, 'amount'))); ?>）</strong></th></tr>
                         <tr class="table-secondary"><th>#</th><th>模块名称</th><th>类型</th><th class="text-right">金额</th></tr>
                         <?php foreach ($mods as $mi => $m):
                             $cls = $m['amount'] >= 0 ? 'text-success' : 'text-danger';
@@ -952,14 +952,14 @@ include __DIR__ . '/../includes/header.php';
 
                         <?php if (!empty($preview['base_info']) && abs($preview['base_info']['prorated'] - $preview['base_info']['original']) > 0.001): ?>
                         <tr class="table-light">
-                            <th colspan="3" class="text-right h6 mb-0"><i class="fas fa-money-bill-wave text-primary"></i> 底薪折算（<?php echo e($preview['base_info']['status']); ?>）</th>
+                            <th colspan="3" class="text-right h6 mb-0"><i class="fas fa-money-bill-wave text-primary"></i> 固定服务费折算（<?php echo e($preview['base_info']['status']); ?>）</th>
                             <td class="h6 mb-0 text-primary font-weight-bold">¥<?php echo money($preview['base_info']['prorated']); ?>
                                 <small class="text-muted d-block">原 ¥<?php echo money($preview['base_info']['original']); ?></small>
                             </td>
                         </tr>
                         <?php endif; ?>
                         <tr class="table-success">
-                            <th colspan="3" class="text-right h5 mb-0">底薪 + 模块合计 <?php if (abs((float)($preview['extra_amount'] ?? 0)) > 0.001) echo '+ 自定义'; ?> <?php if (!empty($preview['bonus_info']) && $preview['bonus_info']['base'] > 0) echo '+ 全勤奖'; ?> <?php if (($preview['insurance_amount'] ?? 0) > 0) echo '− 保险'; ?> → 实发工资</th>
+                            <th colspan="3" class="text-right h5 mb-0">固定服务费 + 模块合计 <?php if (abs((float)($preview['extra_amount'] ?? 0)) > 0.001) echo '+ 自定义'; ?> <?php if (!empty($preview['bonus_info']) && $preview['bonus_info']['base'] > 0) echo '+ 全勤奖'; ?> <?php if (($preview['insurance_amount'] ?? 0) > 0) echo '− 保险'; ?> → 应结算金额</th>
                             <td class="h4 mb-0 text-success font-weight-bold">¥<?php echo money($preview['net_pay']); ?></td>
                         </tr>
                     </tbody>
@@ -974,9 +974,9 @@ include __DIR__ . '/../includes/header.php';
                     if ($baseSalaryAmount > 0) {
                         $bi = $preview['base_info'] ?? null;
                         if ($bi && abs($bi['prorated'] - $bi['original']) > 0.001) {
-                            $detailStr = '底薪 ¥' . money($baseSalaryAmount) . '（按出勤折算）';
+                            $detailStr = '固定服务费 ¥' . money($baseSalaryAmount) . '（按出勤折算）';
                         } else {
-                            $detailStr = '底薪 ¥' . money($baseSalaryAmount);
+                            $detailStr = '固定服务费 ¥' . money($baseSalaryAmount);
                         }
                     }
                     foreach ($mods as $m) {
@@ -990,7 +990,7 @@ include __DIR__ . '/../includes/header.php';
                 </div>
                 <?php if ($existing): ?>
                     <div class="alert alert-warning">
-                        <i class="fas fa-exclamation-triangle"></i> 该员工 <?php echo e($preview['month']); ?> 月薪资已结算过（创建于 <?php echo $existing['created_at']; ?>），再次生成将覆盖原记录。
+                        <i class="fas fa-exclamation-triangle"></i> 该合作人员 <?php echo e($preview['month']); ?> 月项目报酬已结算过（创建于 <?php echo $existing['created_at']; ?>），再次生成将覆盖原记录。
                     </div>
                 <?php endif; ?>
                 <form method="post">
@@ -1006,14 +1006,14 @@ include __DIR__ . '/../includes/header.php';
                     <input type="hidden" name="deduct_insurance" value="1">
                     <?php endif; ?>
                     <button type="submit" class="btn btn-success btn-lg btn-block"
-                        onclick="return confirm('确认生成<?php echo e($emp['name']); ?> <?php echo e($preview['month']); ?>月的薪资记录？<?php echo $existing ? '将覆盖已有记录。' : ''; ?>')">
-                        <i class="fas fa-check-double"></i> 确认生成薪资记录
+                        onclick="return confirm('确认生成<?php echo e($emp['name']); ?> <?php echo e($preview['month']); ?>月的项目报酬记录？<?php echo $existing ? '将覆盖已有记录。' : ''; ?>')">
+                        <i class="fas fa-check-double"></i> 确认生成项目报酬记录
                     </button>
                 </form>
                 <?php else: ?>
                     <div class="text-center text-muted py-5">
                         <i class="fas fa-calculator fa-4x mb-3"></i>
-                        <p>请在左侧选择部门、员工和月份，点击"预览计算"查看薪资详情</p>
+                        <p>请在左侧选择部门、合作人员和月份，点击"预览计算"查看项目报酬详情</p>
                     </div>
                 <?php endif; ?>
             </div>
@@ -1024,7 +1024,7 @@ include __DIR__ . '/../includes/header.php';
 <?php include __DIR__ . '/../includes/footer.php'; ?>
 
 <script>
-// 员工名→id 映射（原生JS，不依赖jQuery）
+// 合作人员名→id 映射（原生JS，不依赖jQuery）
 var empMap = {};
 <?php foreach ($employees as $emp): ?>
 empMap[<?php echo json_encode($emp['name'] . '（' . ($emp['department'] ?? '') . '）', JSON_UNESCAPED_UNICODE); ?>] = <?php echo $emp['id']; ?>;
@@ -1085,7 +1085,7 @@ document.addEventListener('DOMContentLoaded', function() {
             syncEmpId();
             if (!document.getElementById('empId').value) {
                 e.preventDefault();
-                alert('请从列表中选择一名员工。');
+                alert('请从列表中选择一名合作人员。');
                 document.getElementById('empSearch').focus();
             }
         });

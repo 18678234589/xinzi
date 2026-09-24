@@ -1,0 +1,13 @@
+{
+    "modules": [
+        {
+            "name": "底薪3800",
+            "type": "base_salary",
+            "enabled": true,
+            "config": {
+                "base_amount": 3300
+            }
+        }
+    ],
+    "updated_at": "2026-07-15 11:28:53"
+}

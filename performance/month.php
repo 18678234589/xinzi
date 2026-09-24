@@ -45,7 +45,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 order_count=VALUES(order_count)");
             $stmt->execute([$employeeId, $y, $m, $replySpeed, $incoming, $dealVal, $remark, $netSales, $inquiryConv, $wangReply, $orderCount]);
             cs_perf_cache_reset();
-            $msg = '已保存员工绩效';
+            $msg = '已保存合作人员绩效';
         } else {
             $err = '参数错误';
         }
@@ -79,9 +79,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     (float)$p['net_sales'], $pInquiryConv, (float)$p['wangwang_reply'], $pOrderCount]);
                 db()->prepare("DELETE FROM cs_perf_pending WHERE id=?")->execute([$pendingId]);
                 cs_perf_cache_reset();
-                $msg = '已把待匹配数据归属到员工并写入';
+                $msg = '已把待匹配数据归属到合作人员并写入';
             } else {
-                $err = '待匹配记录不存在或未选择员工';
+                $err = '待匹配记录不存在或未选择合作人员';
             }
         } catch (PDOException $ex) {
             $err = '操作失败: ' . $ex->getMessage();
@@ -107,7 +107,7 @@ try {
     $pending = db()->query("SELECT * FROM cs_perf_pending WHERE year=" . (int)$year . " AND month=" . (int)$month . " ORDER BY name, wangwang")->fetchAll();
 } catch (\Throwable $e) {}
 
-/* ============ 绩效金额算法过程明细：与总览/薪资结算共用 cs_perf_calc_detail，结果绝对一致 ============ */
+/* ============ 绩效金额算法过程明细：与总览/项目结算共用 cs_perf_calc_detail，结果绝对一致 ============ */
 $perfDetails = [];
 foreach ($rows as $r) {
     $perfDetails[(int)$r['emp']['id']] = cs_perf_calc_detail((int)$r['emp']['id'], $year, $month);
@@ -150,7 +150,7 @@ include __DIR__ . '/../includes/header.php';
     <div class="alert alert-danger alert-dismissible fade show"><i class="fas fa-exclamation-circle"></i> <?php echo e($err); ?><button type="button" class="close" data-dismiss="alert">&times;</button></div>
 <?php endif; ?>
 
-<!-- 月份/员工切换 -->
+<!-- 月份/合作人员切换 -->
 <div class="card mb-3">
     <div class="card-body">
         <form method="get" class="form-inline">
@@ -165,7 +165,7 @@ include __DIR__ . '/../includes/header.php';
                 <?php endfor; ?>
             </select>
             <select name="employee_id" class="form-control form-control-sm mr-2">
-                <option value="0">全部员工</option>
+                <option value="0">全部合作人员</option>
                 <?php foreach ($employees as $emp): ?>
                     <option value="<?php echo (int)$emp['id']; ?>" <?php echo $filterEmp === (int)$emp['id'] ? 'selected' : ''; ?>><?php echo e($emp['name']); ?></option>
                 <?php endforeach; ?>
@@ -175,7 +175,7 @@ include __DIR__ . '/../includes/header.php';
     </div>
 </div>
 
-<!-- 员工绩效逐人编辑 -->
+<!-- 合作人员绩效逐人编辑 -->
 <div class="card mb-3">
     <div class="card-header"><i class="fas fa-users"></i> 逐人编辑（净销售额/询单转化率/旺旺回复率 = 采集上报；平均回复秒 = 采集上报；成交数留空则按订单自动统计；<strong>填了「下单人数」时转化率自动 = 下单 ÷ 询单并显示计算过程</strong>）</div>
     <div class="card-body p-0">
@@ -183,7 +183,7 @@ include __DIR__ . '/../includes/header.php';
             <table class="table table-bordered mb-0 align-middle">
                 <thead class="thead-light">
                     <tr>
-                        <th>员工</th><th>旺旺账号</th><th>净销售额(元)</th><th>询单转化率(%)</th><th>下单人数</th><th>旺旺回复率(%)</th><th>进线人数</th><th>平均回复(秒)</th>
+                        <th>合作人员</th><th>旺旺账号</th><th>净销售额(元)</th><th>询单转化率(%)</th><th>下单人数</th><th>旺旺回复率(%)</th><th>进线人数</th><th>平均回复(秒)</th>
                         <th>成交数(留空自动)</th><th>备注</th><th style="width:100px">操作</th>
                     </tr>
                 </thead>
@@ -221,7 +221,7 @@ include __DIR__ . '/../includes/header.php';
                         </tr>
                     <?php endforeach;
                 else: ?>
-                    <tr><td colspan="10" class="text-center text-muted py-4">暂无员工</td></tr>
+                    <tr><td colspan="10" class="text-center text-muted py-4">暂无合作人员</td></tr>
                 <?php endif; ?>
                 </tbody>
             </table>
@@ -232,7 +232,7 @@ include __DIR__ . '/../includes/header.php';
 <!-- 绩效金额算法过程 -->
 <div class="card mb-3">
     <div class="card-header py-2"><i class="fas fa-calculator"></i> <strong>绩效金额算法过程</strong>
-        <small class="text-muted ml-2">与「客服绩效总览」「薪资结算」共用同一计算函数（cs_perf_calc），金额绝对一致；点「详细过程」查看每一指标如何命中档位、加权、排名</small>
+        <small class="text-muted ml-2">与「客服绩效总览」「项目结算」共用同一计算函数（cs_perf_calc），金额绝对一致；点「详细过程」查看每一指标如何命中档位、加权、排名</small>
     </div>
     <?php foreach ($rows as $r):
         $cEmp = $r['emp'];
@@ -266,7 +266,7 @@ include __DIR__ . '/../includes/header.php';
                     <div class="alert alert-light border py-2 mb-3" style="font-size:12.5px"><strong>最终算式：</strong><?php echo e($cDt['formula']); ?></div>
 
                     <?php if ($cDt['mode'] === 'rank'): /* ===== 设计客服：排名制 ===== */ ?>
-                        <p class="text-muted mb-3">设计客服不用「基数 × 达成率」，而是排名制：<strong class="text-dark">各店铺分别按绩效方案算出综合达成率 → 取平均得分为排名分 → 部门内前三名拿固定底薪（第1名850 / 第2名800 / 第3名750），不再乘达成率、无保底封顶。</strong></p>
+                        <p class="text-muted mb-3">设计客服不用「基数 × 达成率」，而是排名制：<strong class="text-dark">各店铺分别按绩效方案算出综合达成率 → 取平均得分为排名分 → 部门内前三名拿固定服务费（第1名850 / 第2名800 / 第3名750），不再乘达成率、无保底封顶。</strong></p>
 
                         <div class="font-weight-bold mb-1">第1步 · 每店铺采集数据 → 命中档位 → 店综合达成率</div>
                         <table class="table table-sm table-bordered mb-3" style="font-size:12px">
@@ -323,14 +323,14 @@ include __DIR__ . '/../includes/header.php';
                             <?php endif; ?>
                         </p>
 
-                        <div class="font-weight-bold mb-1 mt-3">第3步 · 部门内排名 → 底薪档位（同分按员工ID升序）</div>
+                        <div class="font-weight-bold mb-1 mt-3">第3步 · 部门内排名 → 固定服务费档位（同分按合作人员ID升序）</div>
                         <table class="table table-sm table-bordered mb-2" style="font-size:12px">
-                            <thead class="thead-light"><tr><th style="width:70px">名次</th><th>员工</th><th>平均得分</th><th style="width:110px">本月绩效底薪</th></tr></thead>
+                            <thead class="thead-light"><tr><th style="width:70px">名次</th><th>合作人员</th><th>平均得分</th><th style="width:110px">本月绩效固定服务费</th></tr></thead>
                             <tbody>
                             <?php foreach ($cDt['ranking'] as $item): $isMe = (int)$item['id'] === (int)$cEmp['id']; ?>
                                 <tr class="<?php echo $isMe ? 'table-active' : ''; ?>">
                                     <td>第<?php echo (int)$item['rank']; ?>名<?php if ($isMe): ?><span class="badge badge-info ml-1">本人</span><?php endif; ?></td>
-                                    <td><?php echo e($item['name']); ?><?php if ((int)$item['rank'] <= count($cDt['rank_tiers'])): ?><small class="text-muted ml-1">→ 底薪<?php echo e($calcNum($cDt['rank_tiers'][(int)$item['rank'] - 1], 0)); ?></small><?php endif; ?></td>
+                                    <td><?php echo e($item['name']); ?><?php if ((int)$item['rank'] <= count($cDt['rank_tiers'])): ?><small class="text-muted ml-1">→ 固定服务费<?php echo e($calcNum($cDt['rank_tiers'][(int)$item['rank'] - 1], 0)); ?></small><?php endif; ?></td>
                                     <td><?php echo e($calcPct($item['score'] * 100, 2)); ?></td>
                                     <td><?php echo (float)$item['amount'] > 0 ? '<strong>¥' . $calcNum($item['amount'], 2) . '</strong>' : '¥0.00 <small class="text-muted">仅前三名</small>'; ?></td>
                                 </tr>
@@ -343,7 +343,7 @@ include __DIR__ . '/../includes/header.php';
                         <?php if (in_array($cDt['mode'], ['scheme', 'legacy', 'no_metrics'], true) && !empty($cDt['perf'])): ?>
 
                             <?php if ($cDt['mode'] === 'legacy'): ?>
-                                <p class="text-muted mb-2">该部门未配置「绩效方案」，回退旧版「客服绩效底薪」四因素算法：综合达成率 = Σ(权重×实际/目标) ÷ Σ权重。</p>
+                                <p class="text-muted mb-2">该部门未配置「绩效方案」，回退旧版「客服绩效固定服务费」四因素算法：综合达成率 = Σ(权重×实际/目标) ÷ Σ权重。</p>
                             <?php else: ?>
                                 <p class="text-muted mb-2">部门配置基数 + 方案：<strong class="text-dark"><?php if (!empty($cDt['scheme'])) echo e($cDt['scheme']['name']); ?></strong>
                                     <?php if ($sp && ((float)$sp['floor_pct'] > 0 || (float)$sp['cap_pct'] > 0)): ?><small class="text-muted ml-1">（方案含保底<?php echo e($calcNum($sp['floor_pct'], 0)); ?>%/封顶<?php echo e($calcNum($sp['cap_pct'], 0)); ?>%，仅当最终金额过低/过高时生效）</small><?php endif; ?></p>
@@ -452,7 +452,7 @@ include __DIR__ . '/../includes/header.php';
                             <div class="alert alert-light border mb-0" style="font-size:12.5px">
                                 <div><strong>本月绩效金额 = ¥<?php echo e(number_format($cDt['amount'], 2)); ?></strong></div>
                                 <div class="text-muted"><?php echo e($cDt['formula']); ?>
-                                    <?php if ($cDt['mode'] === 'no_scheme'): ?>：需在「客服绩效」菜单的<strong>绩效配置</strong>页为部门设置基数和方案，或由薪资模块的「客服绩效底薪」旧配置提供计算参数。<?php endif; ?>
+                                    <?php if ($cDt['mode'] === 'no_scheme'): ?>：需在「客服绩效」菜单的<strong>绩效配置</strong>页为部门设置基数和方案，或由项目报酬模块的「客服绩效固定服务费」旧配置提供计算参数。<?php endif; ?>
                                 </div>
                             </div>
                         <?php endif; ?>
@@ -462,7 +462,7 @@ include __DIR__ . '/../includes/header.php';
         </div>
     <?php endforeach; ?>
     <?php if (!$rows): ?>
-        <div class="card-body text-center text-muted">无参与员工，无法计算算法过程</div>
+        <div class="card-body text-center text-muted">无参与合作人员，无法计算算法过程</div>
     <?php endif; ?>
 </div>
 
@@ -473,7 +473,7 @@ include __DIR__ . '/../includes/header.php';
         <div class="table-responsive">
             <table class="table table-hover table-bordered mb-0">
                 <thead class="thead-light">
-                    <tr><th>旺旺账号</th><th>姓名</th><th>净销售额(元)</th><th>询单转化率(%)</th><th>下单人数</th><th>旺旺回复率(%)</th><th>进线</th><th>回复总秒</th><th>来源</th><th>归属员工</th><th style="width:190px">操作</th></tr>
+                    <tr><th>旺旺账号</th><th>姓名</th><th>净销售额(元)</th><th>询单转化率(%)</th><th>下单人数</th><th>旺旺回复率(%)</th><th>进线</th><th>回复总秒</th><th>来源</th><th>归属合作人员</th><th style="width:190px">操作</th></tr>
                 </thead>
                 <tbody>
                 <?php if ($pending): foreach ($pending as $p): ?>
@@ -498,7 +498,7 @@ include __DIR__ . '/../includes/header.php';
                                 <input type="hidden" name="action" value="assign">
                                 <input type="hidden" name="pending_id" value="<?php echo (int)$p['id']; ?>">
                                 <select name="employee_id" class="form-control form-control-sm mr-1" style="width:130px">
-                                    <option value="">选择员工</option>
+                                    <option value="">选择合作人员</option>
                                     <?php foreach ($employees as $emp): ?>
                                         <option value="<?php echo (int)$emp['id']; ?>"><?php echo e($emp['name']); ?>(<?php echo e($emp['wangwang'] ?? '无'); ?>)</option>
                                     <?php endforeach; ?>

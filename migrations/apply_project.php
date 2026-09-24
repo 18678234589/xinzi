@@ -1,7 +1,18 @@
 <?php
 if (PHP_SAPI !== 'cli') { http_response_code(403); exit; }
 require_once __DIR__ . '/../config/database.php';
-foreach (['20260922_project_settlement.sql', '20260922_project_cashflow.sql', '20260922_project_payroll_periods.sql', '20260922_project_technical_reconciliation.sql', '20260922_project_order_resources.sql', '20260922_project_businesses.sql', '20260922_project_order_source.sql', '20260923_website_commission_rules.sql', '20260923_order_algorithms.sql', '20260923_system_settings.sql', '20260923_monthly_rules.sql', '20260923_staff_login.sql', '20260924_attendance_precision.sql', '20260924_writing_rules.sql', '20260924_import_files.sql', '20260924_ai_solutions.sql'] as $migration) {
+foreach ([
+    '20260922_project_settlement.sql', '20260922_project_cashflow.sql',
+    '20260922_project_payroll_periods.sql', '20260922_project_technical_reconciliation.sql',
+    '20260922_project_order_resources.sql', '20260922_project_businesses.sql',
+    '20260922_project_order_source.sql', '20260923_website_commission_rules.sql',
+    '20260923_order_algorithms.sql', '20260923_system_settings.sql',
+    '20260923_monthly_rules.sql', '20260923_staff_login.sql',
+    '20260924_attendance_precision.sql', '20260924_writing_rules.sql',
+    '20260924_import_files.sql', '20260924_legacy_xls.sql', '20260924_ai_solutions.sql',
+    '20260924_ai_application.sql', '20260924_import_kind_preferences.sql',
+    '20260924_website_refund_import.sql',
+] as $migration) {
     $sql = file_get_contents(__DIR__ . '/' . $migration);
     if ($sql === false) { fwrite(STDERR, "无法读取迁移文件：$migration\n"); exit(1); }
     $statements = preg_split('/;\s*(?:\r?\n|$)/', $sql);

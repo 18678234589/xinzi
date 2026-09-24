@@ -13,7 +13,7 @@
         {
             "name": "引流订单",
             "type": "referral_order",
-            "enabled": true,
+            "enabled": false,
             "config": {
                 "subsidy": 3,
                 "count_keyword_match": "all",
@@ -45,5 +45,5 @@
         }
     ],
     "dept_share": 1,
-    "updated_at": "2026-07-17 16:07:56"
+    "updated_at": "2026-07-20 08:32:32"
 }

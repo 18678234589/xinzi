@@ -21,7 +21,7 @@
 	    // UTF-8 BOM 兼容Excel
 	    echo "\xEF\xBB\xBF";
 	    $out = fopen('php://output', 'w');
-	    fputcsv($out, ['店铺', '订单号', '差异类型', '归属员工', '员工上传售价', '店铺订单售价', '差异金额', '员工上传日期', '店铺订单日期', '员工订单ID', '店铺订单ID']);
+	    fputcsv($out, ['店铺', '订单号', '差异类型', '归属合作人员', '合作人员上传售价', '店铺订单售价', '差异金额', '合作人员上传日期', '店铺订单日期', '合作人员订单ID', '店铺订单ID']);
 	    foreach ($rows as $r) {
 	        fputcsv($out, [
 	            $r['shop_name'],
@@ -48,7 +48,7 @@
 	$items = $abn['items'];
 	$total_abn = count($items);
 
-	// 取员工部门映射
+	// 取合作人员部门映射
 	$pdo = db();
 	$empDeptMap = []; // emp_name => department
 	try {
@@ -58,7 +58,7 @@
 	    }
 	} catch (\Throwable $e) {}
 
-	// 按员工汇总异常
+	// 按合作人员汇总异常
 	$empStats = [];
 	foreach ($items as $r) {
 	    $empName = $r['emp_name'] ?? '';
@@ -105,11 +105,11 @@
 	$deptStats = array_values($deptStats);
 	usort($deptStats, fn($a, $b) => $b['total'] - $a['total']);
 
-	// 员工搜索过滤
+	// 合作人员搜索过滤
 	if ($filter_emp !== '') {
 	    $empStats = array_filter($empStats, fn($s) => mb_stripos($s['emp_name'], $filter_emp) !== false);
 	}
-	// 部门过滤（点击部门后只显示该部门员工）
+	// 部门过滤（点击部门后只显示该部门合作人员）
 	if ($filter_dept !== '') {
 	    $empStats = array_filter($empStats, fn($s) => $s['department'] === $filter_dept);
 	}
@@ -133,7 +133,7 @@
             <span class="badge badge-info ml-1"><i class="fas fa-sitemap"></i> <?php echo e($filter_dept); ?></span>
         <?php endif; ?>
         <?php if ($filter_emp): ?>
-            <span class="badge badge-primary ml-1"><i class="fas fa-filter"></i> 员工: <?php echo e($filter_emp); ?></span>
+            <span class="badge badge-primary ml-1"><i class="fas fa-filter"></i> 合作人员: <?php echo e($filter_emp); ?></span>
         <?php endif; ?>
     </div>
     <div class="d-flex align-items-center">
@@ -146,13 +146,13 @@
             <?php endif; ?>
         </form>
         <?php if (!$filter_dept): ?>
-        <!-- 部门列表页不显示员工搜索 -->
+        <!-- 部门列表页不显示合作人员搜索 -->
         <?php else: ?>
         <form method="get" class="form-inline mr-2">
             <?php if ($filter_month): ?><input type="hidden" name="month" value="<?php echo e($filter_month); ?>"><?php endif; ?>
             <?php if ($filter_dept): ?><input type="hidden" name="dept" value="<?php echo e($filter_dept); ?>"><?php endif; ?>
             <div class="input-group input-group-sm">
-                <input type="text" name="emp_search" class="form-control" placeholder="搜索员工..." value="<?php echo e($filter_emp); ?>">
+                <input type="text" name="emp_search" class="form-control" placeholder="搜索合作人员..." value="<?php echo e($filter_emp); ?>">
                 <div class="input-group-append">
                     <button type="submit" class="btn btn-outline-primary"><i class="fas fa-search"></i></button>
                     <?php if ($filter_emp): ?>
@@ -172,8 +172,8 @@
 
 <div class="alert alert-info">
     <i class="fas fa-info-circle"></i>
-    <b>异常定义：</b>员工上传的订单号在店铺订单表里<b>查不到</b>（店铺缺失），或<b>能查到但售价不一致</b>。
-    <br><span class="text-muted small">对比范围，员工上传订单（personal）vs 病铺订单（department），按订单号 + 月份匹配，按<b>售价</b>对比（非利润）。</span>
+    <b>异常定义：</b>合作人员上传的订单号在店铺订单表里<b>查不到</b>（店铺缺失），或<b>能查到但售价不一致</b>。
+    <br><span class="text-muted small">对比范围，合作人员上传订单（personal）vs 病铺订单（department），按订单号 + 月份匹配，按<b>售价</b>对比（非利润）。</span>
 </div>
 
 <?php if ($error): ?>
@@ -191,7 +191,7 @@
             <div class="text-center text-success py-5">
                 <i class="fas fa-check-circle fa-3x mb-2 d-block"></i>
                 <b>暂无异常订单</b>
-                <p class="text-muted">所有员工上传订单与店铺订单都能匹配上</p>
+                <p class="text-muted">所有合作人员上传订单与店铺订单都能匹配上</p>
             </div>
         <?php else: ?>
         <div class="table-responsive">
@@ -200,7 +200,7 @@
                     <tr>
                         <th>#</th>
                         <th>部门</th>
-                        <th style="width:100px">员工数</th>
+                        <th style="width:100px">合作人员数</th>
                         <th style="width:120px">店铺缺失</th>
                         <th style="width:120px">售价不一致</th>
                         <th style="width:100px">异常总数</th>
@@ -229,7 +229,7 @@
                         <td>
                             <a href="<?php echo BASE_URL; ?>/abnormal/index.php?dept=<?php echo urlencode($s['dept_name']); ?><?php echo $filter_month ? '&month='.urlencode($filter_month) : ''; ?>"
                                class="btn btn-sm btn-outline-primary">
-                                <i class="fas fa-users"></i> 查看员工
+                                <i class="fas fa-users"></i> 查看合作人员
                             </a>
                         </td>
                     </tr>
@@ -242,11 +242,11 @@
 </div>
 
 <?php else: ?>
-<!-- ===== 第二层：部门内员工列表 ===== -->
+<!-- ===== 第二层：部门内合作人员列表 ===== -->
 <div class="card">
     <div class="card-header bg-white">
         <h5 class="mb-0">
-            <i class="fas fa-users text-primary"></i> <?php echo e($filter_dept); ?> - 员工异常概览
+            <i class="fas fa-users text-primary"></i> <?php echo e($filter_dept); ?> - 合作人员异常概览
             <?php if ($filter_emp): ?>
                 <span class="text-muted small">（搜索"<?php echo e($filter_emp); ?>"，共 <?php echo count($empStats); ?> 人）</span>
             <?php else: ?>
@@ -266,7 +266,7 @@
                 <thead class="thead-light">
                     <tr>
                         <th>#</th>
-                        <th>员工</th>
+                        <th>合作人员</th>
                         <th style="width:120px">店铺缺失</th>
                         <th style="width:120px">售价不一致</th>
                         <th style="width:100px">异常总数</th>

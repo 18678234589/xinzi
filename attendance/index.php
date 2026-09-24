@@ -133,7 +133,7 @@ include __DIR__ . '/../includes/header.php';
                         </div>
                         <div>
                             <div class="h5 mb-0 font-weight-bold <?php echo $hasData ? 'text-info' : 'text-muted'; ?>"><?php echo $totalEmp; ?></div>
-                            <small class="text-muted">员工记录</small>
+                            <small class="text-muted">合作人员记录</small>
                         </div>
                         <div>
                             <div class="h5 mb-0 font-weight-bold <?php echo $totalAbsent > 0 ? 'text-warning' : 'text-muted'; ?>"><?php echo number_format($totalAbsent, 1); ?>h</div>
@@ -162,8 +162,8 @@ include __DIR__ . '/../includes/header.php';
 
 <?php if (empty(get_attendance_years())): ?>
 <div class="alert alert-info">
-    <i class="fas fa-info-circle"></i> 暂无考勤记录。点击上方年份卡片进入，选择月份后为员工录入考勤（应出勤小时数、请假小时数）。
-    录入后数据会自动供"全勤奖"等薪资模块计算使用。
+    <i class="fas fa-info-circle"></i> 暂无考勤记录。点击上方年份卡片进入，选择月份后为合作人员录入考勤（应出勤小时数、请假小时数）。
+    录入后数据会自动供"全勤奖"等项目报酬模块计算使用。
 </div>
 <?php endif; ?>
 

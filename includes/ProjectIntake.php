@@ -241,17 +241,45 @@ function ps_import_domain_mode($text)
     return '';
 }
 
+function ps_import_kind_preference($employeeId, $business, $layoutSignature)
+{
+    if (!$employeeId || !$layoutSignature) return '';
+    try {
+        $q = db()->prepare('SELECT order_kind FROM project_import_kind_preferences WHERE employee_id=? AND business_name=? AND layout_signature=?');
+        $q->execute([(int)$employeeId, $business, $layoutSignature]);
+        $kind = (string)$q->fetchColumn();
+        return in_array($kind, ps_business_order_kinds($business), true) ? $kind : '';
+    } catch (PDOException $e) { return ''; }
+}
+
+function ps_import_kind_preference_save($employeeId, $business, $layoutSignature, $kind)
+{
+    if (!$employeeId || !$layoutSignature || !in_array($kind, ps_business_order_kinds($business), true)) return;
+    db()->prepare("INSERT INTO project_import_kind_preferences (employee_id,business_name,layout_signature,order_kind) VALUES (?,?,?,?) ON DUPLICATE KEY UPDATE order_kind=VALUES(order_kind),confirmed_count=confirmed_count+1,updated_at=NOW()")
+        ->execute([(int)$employeeId, $business, $layoutSignature, $kind]);
+}
+
 /* ---------- 原始上传表格：保存、读取、权限 ---------- */
 
 /** 保存上传的原始表格（站点目录外），返回记录 id。 */
-function ps_import_file_store($file, $business, $actor)
+function ps_import_file_store($file, $business, $actor, $parsedFile = null)
 {
     $ext = strtolower(pathinfo((string)$file['name'], PATHINFO_EXTENSION));
-    if (!in_array($ext, ['xlsx', 'csv'], true)) throw new RuntimeException('文件仅支持 XLSX 或 CSV');
+    if (!in_array($ext, ['xlsx', 'csv', 'xls'], true)) throw new RuntimeException('文件仅支持 XLSX、XLS 或 CSV');
+    if ($ext === 'xls' && (!$parsedFile || ($parsedFile['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK || strtolower(pathinfo((string)$parsedFile['name'], PATHINFO_EXTENSION)) !== 'xlsx' || (int)($parsedFile['size'] ?? 0) > 10 * 1024 * 1024)) throw new RuntimeException('旧版 XLS 转换失败或文件过大，请使用新版浏览器重试或另存为 XLSX');
     $stored = ps_private_store('imports', $file['tmp_name'], date('Ym') . '_' . bin2hex(random_bytes(12)) . '.' . $ext);
-    db()->prepare('INSERT INTO project_import_files (business_name,original_name,stored_name,file_size,uploaded_by_type,uploaded_by_id,employee_id) VALUES (?,?,?,?,?,?,?)')
-        ->execute([$business, mb_substr(basename((string)$file['name']), 0, 255), $stored, (int)$file['size'], $actor['type'], (int)$actor['id'], $actor['employee_id'] ?? null]);
+    $parsed = $ext === 'xls' ? ps_private_store('imports', $parsedFile['tmp_name'], date('Ym') . '_' . bin2hex(random_bytes(12)) . '.xlsx') : null;
+    db()->prepare('INSERT INTO project_import_files (business_name,original_name,stored_name,parse_name,file_size,uploaded_by_type,uploaded_by_id,employee_id) VALUES (?,?,?,?,?,?,?,?)')
+        ->execute([$business, ps_import_original_name($file['name']), $stored, $parsed, (int)$file['size'], $actor['type'], (int)$actor['id'], $actor['employee_id'] ?? null]);
     return (int)db()->lastInsertId();
+}
+
+/** 不依赖服务器 locale 的 basename()，保留中文文件名并去掉浏览器可能携带的 Windows 路径。 */
+function ps_import_original_name($name)
+{
+    $name = str_replace('\\', '/', (string)$name);
+    $position = strrpos($name, '/');
+    return mb_substr($position === false ? $name : substr($name, $position + 1), 0, 255);
 }
 
 /** 读取记录并校验权限：财务看全部，合作人员只看本人上传的。 */
@@ -264,6 +292,10 @@ function ps_import_file_get($id, $actor)
     if ($actor['role'] !== 'finance' && ((int)$row['employee_id'] !== (int)($actor['employee_id'] ?? 0) || $row['uploaded_by_type'] !== $actor['type'])) throw new RuntimeException('只能查看本人上传的表格');
     $row['content'] = ps_private_read('imports', $row['stored_name']);
     if ($row['content'] === null) throw new RuntimeException('原始文件已不存在');
+    if (!empty($row['parse_name'])) {
+        $row['parse_content'] = ps_private_read('imports', $row['parse_name']);
+        if ($row['parse_content'] === null) throw new RuntimeException('转换后的解析文件已不存在');
+    }
     return $row;
 }
 
@@ -272,7 +304,8 @@ function ps_import_file_sheets($row)
 {
     // 解析需要真实文件路径（zip），临时复制到 /tmp，读完即删
     $row['path'] = tempnam(sys_get_temp_dir(), 'psx_');
-    file_put_contents($row['path'], $row['content']);
+    if (!empty($row['parse_name'])) $row['stored_name'] = $row['parse_name'];
+    file_put_contents($row['path'], $row['parse_content'] ?? $row['content']);
     try { return ps_import_file_parse($row); } finally { @unlink($row['path']); }
 }
 

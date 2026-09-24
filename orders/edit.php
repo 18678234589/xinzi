@@ -136,7 +136,7 @@ if ($_cand !== '') $backUrl = $_cand;
                             <input type="text" class="form-control" value="<?php echo $order['id']; ?>" disabled>
                         </div>
                         <div class="form-group col-md-6">
-                            <label>员工</label>
+                            <label>合作人员</label>
                             <?php
                             $empStmt = db()->prepare("SELECT name FROM employees WHERE id = ?");
                             $empStmt->execute([$order['employee_id']]);
