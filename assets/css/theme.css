@@ -484,3 +484,59 @@ body.app-warm::before {
 @media (max-width: 575.98px) { .app-warm .dash-grid, .app-warm .dash-actions { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 .app-warm .dash-tile strong { text-overflow: clip; }
 .dash-unit { font-size: .62em; font-weight: 600; margin-left: 2px; color: var(--mac-ink-2); }
+
+/* ---------- 收入走势（近 6 个月） ---------- */
+.project-trend { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 8px; align-items: end; height: 150px; }
+.project-trend a { display: flex; flex-direction: column; justify-content: flex-end; align-items: center; height: 100%; gap: 4px; color: var(--mac-ink) !important; text-decoration: none !important; border-radius: 10px; padding: 6px 2px; transition: background .15s; }
+.project-trend a:hover { background: rgba(63, 138, 108, .07); }
+.project-trend-bar { display: block; width: 60%; min-height: 4px; border-radius: 6px 6px 3px 3px; background: linear-gradient(180deg, #7fbf9e, #3f8a6c); }
+.project-trend a.is-current .project-trend-bar { background: linear-gradient(180deg, #f2c27f, #d8914a); }
+.project-trend strong { font-size: .78rem; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.project-trend small { color: var(--mac-ink-2); font-size: .72rem; }
+
+/* ---------- 原始表格查看 ---------- */
+.project-sheet-wrap { max-height: 70vh; overflow: auto; }
+.project-sheet { font-size: .82rem; white-space: nowrap; }
+.project-sheet tr.is-head td { position: sticky; top: 0; background: #f4f6f1; font-weight: 600; z-index: 1; }
+.project-sheet th { background: #fafaf7; position: sticky; left: 0; z-index: 2; }
+
+/* ---------- 手机端（全员） ---------- */
+@media (max-width: 767.98px) {
+    body.app-warm { font-size: .95rem; }
+    .app-warm .main-content { padding: 14px 15px 28px; }
+    .app-warm .app-topbar .navbar-brand { font-size: .92rem; }
+    .app-warm .app-topbar .navbar-brand .app-brand-mark { width: 26px; height: 26px; }
+    .app-warm .app-logout { padding: .2rem .55rem; }
+    .app-warm .project-hero { padding: 18px 16px; border-radius: 16px; flex-direction: column; align-items: flex-start !important; gap: 12px; }
+    .app-warm .project-hero h2 { font-size: 1.35rem; }
+    .app-warm .project-hero p { font-size: .85rem; margin-bottom: 0; }
+    .app-warm .project-hero-actions { display: flex; flex-wrap: wrap; gap: 6px; width: 100%; }
+    .app-warm .project-hero-actions .btn { flex: 1 1 auto; margin: 0 !important; }
+    /* 页签横向滑动，不换成多行 */
+    .app-warm .app-tabs { flex-wrap: nowrap; overflow-x: auto; width: 100%; -webkit-overflow-scrolling: touch; scrollbar-width: none; }
+    .app-warm .app-tabs::-webkit-scrollbar { display: none; }
+    .app-warm .main-content .app-tabs a { white-space: nowrap; flex: 0 0 auto; }
+    /* 表单：行内表单改为竖排，按钮铺满 */
+    .app-warm .form-inline { flex-direction: column; align-items: stretch; }
+    .app-warm .form-inline > * { width: 100%; margin: 0 0 8px 0 !important; }
+    .app-warm .form-inline .form-control, .app-warm .form-inline .custom-select { width: 100% !important; }
+    .app-warm .form-control, .app-warm .custom-select { font-size: 16px; } /* iOS 聚焦不自动放大 */
+    .app-warm .card-body { padding: 14px; }
+    .app-warm .card-header { padding: .65rem .9rem; }
+    .app-warm .project-slip-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .app-warm .project-totals { flex-wrap: wrap; }
+    .app-warm .project-totals > div { flex: 1 1 45%; border-right: 0; border-bottom: .5px solid var(--mac-hair); }
+    /* 列表表格变卡片：每行一张卡，左标签右数值 */
+    .app-warm .project-stack-table thead { display: none; }
+    .app-warm .project-stack-table, .app-warm .project-stack-table tbody { display: block; }
+    .app-warm .project-stack-table tr { display: block; margin: 0 0 10px; padding: 10px 12px; border-radius: 12px; background: rgba(255, 255, 255, .8); box-shadow: 0 0 0 .5px var(--mac-hair-strong); }
+    .app-warm .project-stack-table tr[hidden] { display: none; }
+    .app-warm .project-stack-table td { display: flex; justify-content: flex-end; align-items: baseline; flex-wrap: wrap; gap: 4px 8px; padding: 4px 0; border: 0; text-align: right; }
+    .app-warm .project-stack-table td::before { content: attr(data-label); color: var(--mac-ink-2); font-size: .8rem; text-align: left; flex: 0 0 auto; margin-right: auto; }
+    .app-warm .project-stack-table td:first-child { display: block; text-align: left; padding-bottom: 6px; border-bottom: .5px solid var(--mac-hair); margin-bottom: 4px; }
+    .app-warm .project-stack-table td:first-child::before { content: none; }
+    .app-warm .project-stack-table td:not([data-label]) { justify-content: flex-end; }
+    .app-warm .project-stack-table td:not([data-label])::before { content: none; }
+    .project-trend { height: 130px; gap: 4px; }
+    .project-trend strong { font-size: .66rem; }
+}

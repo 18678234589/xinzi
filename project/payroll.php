@@ -117,7 +117,15 @@ if ($employeeId > 0) {
     $adjustSum->execute([$month]);
     foreach ($adjustSum->fetchAll() as $row) $adjustByEmployee[(int)$row['employee_id']] = $row;
     $monthlyByEmployee = [];
-    foreach (ps_monthly_results($month) as $row) if (empty($row['paid_separately'])) $monthlyByEmployee[(int)$row['employee_id']] = ($monthlyByEmployee[(int)$row['employee_id']] ?? 0) + (float)$row['amount'];
+    $monthlyBreak = [];
+    foreach (ps_monthly_results($month) as $row) {
+        $eid = (int)$row['employee_id'];
+        $key = !empty($row['paid_separately']) ? 'separate' : (in_array($row['rule_type'], ['base_fee', 'attendance_bonus'], true) ? $row['rule_type'] : 'other');
+        $monthlyBreak[$eid][$key] = ($monthlyBreak[$eid][$key] ?? 0) + (float)$row['amount'];
+        if (empty($row['paid_separately'])) $monthlyByEmployee[$eid] = ($monthlyByEmployee[$eid] ?? 0) + (float)$row['amount'];
+    }
+    $usernames = [];
+    foreach (db()->query('SELECT employee_id,username FROM project_users WHERE employee_id IS NOT NULL')->fetchAll() as $u) $usernames[(int)$u['employee_id']] = $u['username'];
     $legacyQuery = db()->prepare('SELECT employee_id,net_pay FROM salaries WHERE month=? ORDER BY id DESC');
     $legacyQuery->execute([$month]);
     $legacyByEmployee = [];
@@ -129,7 +137,10 @@ if ($employeeId > 0) {
             'amount' => round((float)($commissionsByEmployee[$eid]['amount'] ?? 0) + (float)($adjustByEmployee[$eid]['amount'] ?? 0) + (float)($monthlyByEmployee[$eid] ?? 0), 2),
             'legacy_net_pay' => $legacyByEmployee[$eid] ?? null,
             'pending_reconciliations' => (int)($commissionsByEmployee[$eid]['pending_reconciliations'] ?? 0),
-            'legacy_deduction' => (float)($commissionsByEmployee[$eid]['legacy_deduction'] ?? 0)];
+            'legacy_deduction' => (float)($commissionsByEmployee[$eid]['legacy_deduction'] ?? 0),
+            'base_fee' => round((float)($monthlyBreak[$eid]['base_fee'] ?? 0), 2), 'attendance_bonus' => round((float)($monthlyBreak[$eid]['attendance_bonus'] ?? 0), 2),
+            'share' => round((float)($commissionsByEmployee[$eid]['amount'] ?? 0) + (float)($adjustByEmployee[$eid]['amount'] ?? 0), 2), 'other' => round((float)($monthlyBreak[$eid]['other'] ?? 0), 2),
+            'separate' => round((float)($monthlyBreak[$eid]['separate'] ?? 0), 2), 'username' => $usernames[$eid] ?? ''];
     }
 }
 $totalCents = array_sum(array_map(function ($r) { return (int)round((float)($r['commission_amount'] ?? $r['amount']) * 100); }, $rows));
@@ -161,6 +172,25 @@ if ($employeeId > 0) foreach (array_merge($rows, $adjustRows) as $row) {
     if ($row['commission_group'] === 'customer_service') $customerServiceTotal += $value;
 }
 $reconciliation = $employeeId > 0 ? ps_technical_reconciliation_summary($rows) : ['pending' => 0, 'deduction' => 0];
+$monthShift = function ($m, $delta) { return date('Y-m', strtotime($m . '-01 ' . ($delta >= 0 ? '+' : '') . $delta . ' month')); };
+$trend = [];
+if ($employeeId > 0) {
+    // 近 6 个月应结算（逐单分成 + 售后调整 + 月度规则，不含另行支付），点击可切换月份
+    $snapTrend = db()->prepare('SELECT payroll_month,SUM(commission_amount) FROM project_commission_snapshots WHERE employee_id=? AND payroll_month BETWEEN ? AND ? GROUP BY payroll_month');
+    $adjTrend = db()->prepare('SELECT payroll_month,SUM(amount) FROM project_commission_adjustments WHERE employee_id=? AND payroll_month BETWEEN ? AND ? GROUP BY payroll_month');
+    $from = $monthShift($month, -5);
+    $snapTrend->execute([$employeeId, $from, $month]); $snapByMonth = $snapTrend->fetchAll(PDO::FETCH_KEY_PAIR);
+    $adjTrend->execute([$employeeId, $from, $month]); $adjByMonth = $adjTrend->fetchAll(PDO::FETCH_KEY_PAIR);
+    for ($i = -5; $i <= 0; $i++) {
+        $m = $monthShift($month, $i);
+        $sum = (float)($snapByMonth[$m] ?? 0) + (float)($adjByMonth[$m] ?? 0);
+        if ($m === $month) $sum = $total;
+        else foreach (ps_monthly_results($m) as $r) if ((int)$r['employee_id'] === $employeeId && empty($r['paid_separately'])) $sum += (float)$r['amount'];
+        $trend[$m] = round($sum, 2);
+    }
+}
+$prevEmployee = $nextEmployee = null;
+if ($actor['role'] === 'finance' && $employeeId > 0) foreach ($employees as $i => $emp) if ((int)$emp['id'] === $employeeId) { $prevEmployee = $employees[$i - 1] ?? null; $nextEmployee = $employees[$i + 1] ?? null; }
 $settlementPreview = ps_settlement_preview($legacySalary['net_pay'] ?? null, $total, $reconciliation['deduction'], $reconciliation['pending'] === 0);
 $page_title = $actor['role'] === 'finance' ? '项目报酬结算中心' : '我的项目报酬';
 include __DIR__ . '/../includes/header.php';
@@ -169,11 +199,33 @@ include __DIR__ . '/../includes/header.php';
 <?php if ($periodError): ?><div class="alert alert-danger"><?php echo e($periodError); ?></div><?php endif; ?>
 <?php if (isset($_GET['locked'])): ?><div class="alert alert-success">该月项目分成已锁定。</div><?php endif; ?>
 <?php if (isset($_GET['reconciled'])): ?><div class="alert alert-success">技术旧分成核对记录已保存。</div><?php endif; ?>
-<div class="card mb-3"><div class="card-body"><form method="get" class="form-inline"><label class="mr-2">结算月份</label><input type="month" class="form-control mr-3" name="month" value="<?php echo e($month); ?>" required>
-<?php if ($actor['role'] === 'finance'): ?><label class="mr-2">合作人员</label><select class="form-control mr-3" name="employee_id"><option value="0">全部合作人员</option><?php foreach ($employees as $emp): ?><option value="<?php echo (int)$emp['id']; ?>" <?php echo (int)$emp['id'] === $employeeId ? 'selected' : ''; ?>><?php echo e($emp['name'] . ' · ' . $emp['department'] . ' · ID ' . $emp['id']); ?></option><?php endforeach; ?></select><?php endif; ?><button class="btn btn-primary">查询</button></form></div></div>
+<?php $qs = function ($over) use ($month, $employeeId) { return BASE_URL . '/project/payroll.php?' . http_build_query(array_merge(['month' => $month, 'employee_id' => $employeeId ?: null], $over)); }; ?>
+<div class="card mb-3 project-payroll-bar"><div class="card-body"><form method="get" class="form-row align-items-end" id="payrollFilter">
+  <div class="form-group col-12 col-md-4"><label>结算月份</label><div class="input-group"><div class="input-group-prepend"><a class="btn btn-outline-secondary" href="<?php echo e($qs(['month' => $monthShift($month, -1)])); ?>" aria-label="上个月">‹</a></div><input type="month" class="form-control" name="month" value="<?php echo e($month); ?>" required onchange="this.form.submit()"><div class="input-group-append"><a class="btn btn-outline-secondary" href="<?php echo e($qs(['month' => $monthShift($month, 1)])); ?>" aria-label="下个月">›</a></div></div></div>
+  <?php if ($actor['role'] === 'finance'): ?>
+  <div class="form-group col-12 col-md-5"><label>查某个人（输入姓名 / 拼音 / 部门）</label><input class="form-control" id="personPicker" list="personList" placeholder="例如 张欣、zhangxin、设计" autocomplete="off" value="<?php echo $selectedEmployee ? e($selectedEmployee['name'] . ' · ' . $selectedEmployee['department']) : ''; ?>"><input type="hidden" name="employee_id" id="personId" value="<?php echo (int)$employeeId; ?>"><datalist id="personList"><?php foreach ($employees as $emp): ?><option data-id="<?php echo (int)$emp['id']; ?>" value="<?php echo e($emp['name'] . ' · ' . $emp['department']); ?>"><?php endforeach; ?></datalist></div>
+  <div class="form-group col-12 col-md-3 d-flex" style="gap:6px"><button class="btn btn-primary flex-fill">查询</button><?php if ($employeeId > 0): ?><a class="btn btn-outline-secondary flex-fill" href="<?php echo e($qs(['employee_id' => null])); ?>">全员概览</a><?php endif; ?></div>
+  <?php else: ?><div class="form-group col-12 col-md-2"><button class="btn btn-primary btn-block">查询</button></div><?php endif; ?>
+</form>
+<?php if ($prevEmployee || $nextEmployee): ?><div class="d-flex justify-content-between small mt-1"><span><?php if ($prevEmployee): ?><a href="<?php echo e($qs(['employee_id' => (int)$prevEmployee['id']])); ?>">‹ <?php echo e($prevEmployee['name']); ?></a><?php endif; ?></span><span><?php if ($nextEmployee): ?><a href="<?php echo e($qs(['employee_id' => (int)$nextEmployee['id']])); ?>"><?php echo e($nextEmployee['name']); ?> ›</a><?php endif; ?></span></div><?php endif; ?>
+</div></div>
+<script>
+(function () {
+  var picker = document.getElementById('personPicker'); if (!picker) return;
+  var hidden = document.getElementById('personId'), options = document.querySelectorAll('#personList option');
+  picker.addEventListener('change', function () {
+    var v = picker.value.trim(); hidden.value = '0';
+    options.forEach(function (o) { if (o.value === v) hidden.value = o.dataset.id; });
+    if (hidden.value !== '0') picker.form.submit();
+  });
+})();
+</script>
+<?php if ($employeeId > 0 && $trend): $maxTrend = max(array_map('abs', $trend)) ?: 1; ?>
+<div class="card mb-3"><div class="card-header">近 6 个月应结算 · <?php echo e($selectedEmployee['name']); ?></div><div class="card-body"><div class="project-trend"><?php foreach ($trend as $m => $v): ?><a class="<?php echo $m === $month ? 'is-current' : ''; ?>" href="<?php echo e($qs(['month' => $m])); ?>"><span class="project-trend-bar" style="height:<?php echo max(4, round(abs($v) / $maxTrend * 100)); ?>%"></span><strong>¥<?php echo money($v); ?></strong><small><?php echo e(substr($m, 2)); ?></small></a><?php endforeach; ?></div></div></div>
+<?php endif; ?>
 <div class="alert alert-<?php echo $period['status'] === 'locked' ? 'secondary' : 'info'; ?>">项目分成月份 <?php echo e($month); ?>：<?php echo $period['status'] === 'locked' ? '已锁定（' . e($period['locked_at']) . '）' : '未锁定'; ?>。此状态仅锁定项目分成，不代表项目报酬已发放。</div>
 <?php if ($actor['role'] === 'finance' && $employeeId === 0 && $period['status'] !== 'locked'): ?><form method="post" class="text-right mb-3" onsubmit="return confirm('确认该月项目分成已核对？锁定后新订单不能计入本月。')"><input type="hidden" name="csrf" value="<?php echo e(ps_csrf_token()); ?>"><input type="hidden" name="action" value="lock_period"><input type="hidden" name="period" value="<?php echo e($month); ?>"><button class="btn btn-outline-danger btn-sm">锁定本月项目分成</button></form><?php endif; ?>
-<div class="card mb-3"><div class="card-body"><div class="row align-items-center"><div class="col-md-8"><div class="text-muted small"><?php echo $selectedEmployee ? e($selectedEmployee['name'] . ' · ' . $selectedEmployee['department']) : '全部合作人员'; ?> · <?php echo e($month); ?></div><h3 class="mb-0">项目分成合计 ¥<?php echo money($total); ?></h3></div><div class="col-md-4 text-md-right text-muted small">逐单分成快照 + 售后调整 + 月度规则<?php echo $period['status'] === 'locked' ? '（已冻结）' : '（月度规则实时计算）'; ?></div></div></div></div>
+<div class="card mb-3"><div class="card-body"><div class="row align-items-center"><div class="col-md-8"><div class="text-muted small"><?php echo $selectedEmployee ? e($selectedEmployee['name'] . ' · ' . $selectedEmployee['department']) : '全部合作人员'; ?> · <?php echo e($month); ?></div><h3 class="mb-0">应结算合计 ¥<?php echo money($total); ?></h3></div><div class="col-md-4 text-md-right text-muted small">逐单分成快照 + 售后调整 + 月度规则<?php echo $period['status'] === 'locked' ? '（已冻结）' : '（月度规则实时计算）'; ?></div></div></div></div>
 <?php if ($employeeId > 0): ?>
 <?php if ($hasFullSlip): $orderShare = 0.0; foreach ($rows as $r) $orderShare += (float)$r['commission_amount']; $adjustShare = 0.0; foreach ($adjustRows as $a) $adjustShare += (float)$a['amount']; ?>
 <div class="card mb-3 project-slip"><div class="card-header d-flex justify-content-between flex-wrap"><span>项目报酬结算单 · <?php echo e($selectedEmployee['name']); ?> · <?php echo e($month); ?></span><span class="text-muted small"><?php echo $period['status'] === 'locked' ? '已锁定' : '实时计算，锁月后冻结'; ?></span></div><div class="card-body">
@@ -195,7 +247,7 @@ include __DIR__ . '/../includes/header.php';
   <p class="small text-muted mt-2 mb-0">技术同一订单只保留新项目分成：原系统净额 − 财务逐单核实的旧技术分成 + 新技术分成 + 新客服分成。客服原有绩效保留并叠加。原系统金额已含奖扣，上方分项不能再次相加；本页为试算，不改写原结算记录。<?php if ($reconciliation['pending']): ?>尚有 <?php echo (int)$reconciliation['pending']; ?> 条技术分成待核对，暂不提供预计应结算金额。<?php endif; ?></p>
 </div></div>
 <?php else: ?><div class="alert alert-warning">该月原系统项目报酬尚未结算，且规则中心未给此人配置固定服务费，暂不能给出完整应结算金额；项目分成已列在下方。</div><?php endif; ?>
-<div class="card"><div class="card-header">逐单项目分成明细</div><div class="table-responsive"><table class="table table-hover mb-0"><thead><tr><th>订单</th><th>客户</th><th>组别 / 岗位</th><th class="text-right">收入</th><th class="text-right">直接成本</th><th class="text-right">服务费</th><th class="text-right">计提基数</th><th class="text-right">比例</th><th class="text-right">本人权重</th><th class="text-right">本人项目分成</th><th>旧技术分成核对</th></tr></thead><tbody>
+<div class="card"><div class="card-header">逐单项目分成明细</div><div class="table-responsive"><table class="table table-hover mb-0 project-stack-table"><thead><tr><th>订单</th><th>客户</th><th>组别 / 岗位</th><th class="text-right">收入</th><th class="text-right">直接成本</th><th class="text-right">服务费</th><th class="text-right">计提基数</th><th class="text-right">比例</th><th class="text-right">本人权重</th><th class="text-right">本人项目分成</th><th>旧技术分成核对</th></tr></thead><tbody>
 <?php foreach ($rows as $row): ?><tr><td><a href="<?php echo BASE_URL; ?>/project/order.php?id=<?php echo (int)$row['order_id']; ?>"><?php echo e($row['order_no']); ?></a></td><td><?php echo e($row['customer_name']); ?></td><td><?php echo $row['commission_group'] === 'technical' ? '技术' : '客服'; ?><?php if (($row['role_name'] ?? '') !== ''): ?><div class="small text-muted"><?php echo e($row['role_name']); ?></div><?php endif; ?></td><td class="text-right">¥<?php echo money($row['income_amount']); ?></td><td class="text-right">¥<?php echo money($row['direct_cost']); ?></td><td class="text-right">¥<?php echo money($row['service_fee'] ?? 0); ?></td><td class="text-right">¥<?php echo money($row['contribution_profit']); ?></td><td class="text-right"><?php echo money($row['rate'] * 100); ?>%</td><td class="text-right"><?php echo money($row['group_weight'] * 100); ?>%</td><td class="text-right font-weight-bold">¥<?php echo money($row['commission_amount']); ?><?php if ((float)($row['subsidy_amount'] ?? 0) > 0): ?><div class="small text-muted font-weight-normal">含每单补助 ¥<?php echo money($row['subsidy_amount']); ?></div><?php endif; ?><?php if (($row['calc_note'] ?? '') !== ''): ?><div class="small text-muted font-weight-normal"><?php echo e($row['calc_note']); ?></div><?php endif; ?></td><td><?php if ($row['commission_group'] === 'technical'): ?><?php if ($row['reconciliation_id']): ?>旧分成 ¥<?php echo money($row['legacy_amount']); ?><?php if ($row['legacy_salary_month']): ?>（<?php echo e($row['legacy_salary_month']); ?>）<?php endif; ?><br><small class="text-muted"><?php echo e($row['basis_note']); ?></small><?php else: ?><span class="text-warning">待财务核对</span><?php endif; ?><?php else: ?>客服原绩效叠加<?php endif; ?></td></tr><?php endforeach; ?>
 <?php if (!$rows): ?><tr><td colspan="10" class="text-center text-muted py-4">该月暂无已审核项目分成</td></tr><?php endif; ?></tbody></table></div></div>
 <?php if ($monthlyItems): ?><div class="card mt-3"><div class="card-header d-flex justify-content-between"><span>月度规则（已计入上方合计 ¥<?php echo money($monthlyTotal); ?>）</span><a class="small" href="<?php echo BASE_URL; ?>/project/rules.php?month=<?php echo e($month); ?>#monthly">在规则中心调整</a></div><div class="table-responsive"><table class="table table-sm mb-0"><thead><tr><th>规则</th><th class="text-right">金额</th><th>计算过程</th></tr></thead><tbody><?php foreach ($monthlyItems as $item): ?><tr class="<?php echo !empty($item['paid_separately']) ? 'text-muted' : ''; ?>"><td><?php echo e($item['rule_name']); ?><?php echo !empty($item['paid_separately']) ? ' <span class="badge badge-secondary">另行支付</span>' : ''; ?></td><td class="text-right font-weight-bold <?php echo (float)$item['amount'] < 0 ? 'text-danger' : ''; ?>">¥<?php echo money($item['amount']); ?></td><td class="small text-muted"><?php echo e($item['detail']); ?></td></tr><?php endforeach; ?></tbody></table></div></div><?php endif; ?>
@@ -205,6 +257,50 @@ include __DIR__ . '/../includes/header.php';
 <?php endforeach; endif; ?>
 <p class="text-muted small mt-3">订单分成按审核快照计算；固定服务费、考勤、客服绩效、保险和其他奖扣沿用原有结算记录。</p>
 <?php else: ?>
-<div class="card"><div class="card-header">合作人员月度项目结算概览</div><div class="table-responsive"><table class="table mb-0"><thead><tr><th>合作人员</th><th>部门</th><th>项目分成记录数</th><th class="text-right">新增项目分成</th><th class="text-right">旧技术分成核销</th><th class="text-right">原系统已结算金额</th><th class="text-right">预计应结算金额</th><th></th></tr></thead><tbody><?php foreach ($rows as $row): ?><tr><td><?php echo e($row['name']); ?> <small class="text-muted">ID <?php echo (int)$row['employee_id']; ?></small></td><td><?php echo e($row['department']); ?></td><td><?php echo (int)$row['order_count']; ?></td><td class="text-right">¥<?php echo money($row['amount']); ?></td><td class="text-right">− ¥<?php echo money($row['legacy_deduction']); ?></td><td class="text-right"><?php echo $row['legacy_net_pay'] === null ? '未结算' : '¥' . money($row['legacy_net_pay']); ?></td><td class="text-right"><?php $previewAmount = ps_settlement_preview($row['legacy_net_pay'], $row['amount'], $row['legacy_deduction'], $row['pending_reconciliations'] === 0); echo $previewAmount === null ? ($row['pending_reconciliations'] ? '待技术分成核对' : '待原系统结算') : '¥' . money($previewAmount); ?></td><td><a href="<?php echo BASE_URL; ?>/project/payroll.php?month=<?php echo urlencode($month); ?>&employee_id=<?php echo (int)$row['employee_id']; ?>">查看结算单</a></td></tr><?php endforeach; ?><?php if (!$rows): ?><tr><td colspan="8" class="text-center text-muted py-4">暂无合作人员</td></tr><?php endif; ?></tbody></table></div></div>
+<?php $departments = array_values(array_unique(array_filter(array_column($rows, 'department')))); ?>
+<div class="card"><div class="card-header d-flex justify-content-between align-items-center flex-wrap" style="gap:8px"><span>全员收入概览 · <?php echo e($month); ?></span><span class="small text-muted" id="overviewSummary"></span></div>
+<div class="card-body pb-0"><div class="form-row">
+  <div class="form-group col-12 col-md-4"><input type="search" class="form-control" id="ovSearch" placeholder="搜姓名 / 拼音登录名 / 部门" aria-label="搜索合作人员"></div>
+  <div class="form-group col-6 col-md-3"><select class="form-control" id="ovDept" aria-label="部门"><option value="">全部部门</option><?php foreach ($departments as $d): ?><option value="<?php echo e($d); ?>"><?php echo e($d); ?></option><?php endforeach; ?></select></div>
+  <div class="form-group col-6 col-md-3"><select class="form-control" id="ovSort" aria-label="排序"><option value="total">应结算从高到低</option><option value="share">项目分成从高到低</option><option value="dept">按部门</option><option value="name">按姓名</option></select></div>
+  <div class="form-group col-12 col-md-2 d-flex align-items-center"><label class="mb-0"><input type="checkbox" id="ovNonzero" checked> 只看有收入</label></div>
+</div></div>
+<div class="table-responsive"><table class="table table-hover mb-0 project-stack-table" id="overviewTable"><thead><tr><th>合作人员</th><th class="text-right">固定服务费</th><th class="text-right">全勤</th><th class="text-right">项目分成</th><th class="text-right">奖励补助</th><th class="text-right">应结算</th><th class="text-right">另行支付</th><th></th></tr></thead><tbody>
+<?php foreach ($rows as $row): ?><tr data-name="<?php echo e(mb_strtolower($row['name'] . ' ' . $row['username'] . ' ' . $row['department'])); ?>" data-dept="<?php echo e($row['department']); ?>" data-total="<?php echo e($row['amount']); ?>" data-share="<?php echo e($row['share']); ?>" data-sep="<?php echo e($row['separate']); ?>" data-sortname="<?php echo e($row['name']); ?>" onclick="if(!event.target.closest('a'))location.href=this.querySelector('a').href" style="cursor:pointer">
+  <td data-label="合作人员"><a href="<?php echo e($qs(['employee_id' => (int)$row['employee_id']])); ?>"><strong><?php echo e($row['name']); ?></strong></a><div class="small text-muted"><?php echo e($row['department']); ?><?php echo $row['username'] !== '' ? ' · ' . e($row['username']) : ''; ?></div></td>
+  <td data-label="固定服务费" class="text-right">¥<?php echo money($row['base_fee']); ?></td>
+  <td data-label="全勤" class="text-right">¥<?php echo money($row['attendance_bonus']); ?></td>
+  <td data-label="项目分成" class="text-right">¥<?php echo money($row['share']); ?><?php if ((int)$row['order_count']): ?><div class="small text-muted"><?php echo (int)$row['order_count']; ?> 条</div><?php endif; ?></td>
+  <td data-label="奖励补助" class="text-right">¥<?php echo money($row['other']); ?></td>
+  <td data-label="应结算" class="text-right font-weight-bold">¥<?php echo money($row['amount']); ?></td>
+  <td data-label="另行支付" class="text-right text-muted"><?php echo $row['separate'] > 0 ? '¥' . money($row['separate']) : '—'; ?></td>
+  <td class="text-right"><span class="btn btn-sm btn-outline-primary">明细</span></td>
+</tr><?php endforeach; ?>
+</tbody></table></div>
+<div class="card-body py-2 small text-muted" id="overviewEmpty" hidden>没有符合条件的合作人员</div></div>
+<script>
+(function () {
+  var table = document.getElementById('overviewTable'); if (!table) return;
+  var body = table.tBodies[0], rows = Array.prototype.slice.call(body.rows);
+  var search = document.getElementById('ovSearch'), dept = document.getElementById('ovDept'), sort = document.getElementById('ovSort'), nonzero = document.getElementById('ovNonzero');
+  var money = function (n) { return '¥' + n.toLocaleString('zh-CN', {minimumFractionDigits: 2, maximumFractionDigits: 2}); };
+  function apply() {
+    var k = search.value.trim().toLowerCase(), d = dept.value, total = 0, sep = 0, n = 0;
+    rows.sort(function (a, b) {
+      if (sort.value === 'dept') return a.dataset.dept.localeCompare(b.dataset.dept, 'zh') || a.dataset.sortname.localeCompare(b.dataset.sortname, 'zh');
+      if (sort.value === 'name') return a.dataset.sortname.localeCompare(b.dataset.sortname, 'zh');
+      return Number(b.dataset[sort.value === 'share' ? 'share' : 'total']) - Number(a.dataset[sort.value === 'share' ? 'share' : 'total']);
+    }).forEach(function (tr) {
+      var show = (!k || tr.dataset.name.indexOf(k) !== -1) && (!d || tr.dataset.dept === d) && (!nonzero.checked || Number(tr.dataset.total) !== 0 || Number(tr.dataset.sep) !== 0);
+      tr.hidden = !show; body.appendChild(tr);
+      if (show) { n++; total += Number(tr.dataset.total); sep += Number(tr.dataset.sep); }
+    });
+    document.getElementById('overviewSummary').textContent = n + ' 人 · 应结算合计 ' + money(total) + (sep ? ' · 另行支付 ' + money(sep) : '');
+    document.getElementById('overviewEmpty').hidden = n > 0;
+  }
+  [search, dept, sort, nonzero].forEach(function (el) { el.addEventListener(el === search ? 'input' : 'change', apply); });
+  apply();
+})();
+</script>
 <?php endif; ?>
 <?php include __DIR__ . '/../includes/footer.php'; ?>

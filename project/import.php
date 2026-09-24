@@ -39,23 +39,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $businessDefinition = ps_require_business($actor, $selectedBusiness);
         $peopleLabels = ps_business_people_labels($selectedBusiness);
         $action = (string)($_POST['action'] ?? '');
-        if ($action === 'preview') {
-            if (empty($_FILES['file']['tmp_name']) || $_FILES['file']['error'] !== UPLOAD_ERR_OK || $_FILES['file']['size'] > 5 * 1024 * 1024) throw new RuntimeException('请选择不超过 5MB 的 XLSX 或 CSV 文件');
-            $ext = strtolower(pathinfo($_FILES['file']['name'], PATHINFO_EXTENSION));
-            if (!in_array($ext, ['xlsx','csv'], true)) throw new RuntimeException('文件仅支持 XLSX 或 CSV');
-            if ($ext === 'xlsx') $raw = SimpleXLSX::parse($_FILES['file']['tmp_name']);
-            else {
-                $raw = []; $handle = fopen($_FILES['file']['tmp_name'], 'rb');
-                while (($line = fgetcsv($handle)) !== false && count($raw) <= 1501) $raw[] = array_map(function ($v) { return mb_convert_encoding($v, 'UTF-8', 'UTF-8,GBK,GB2312'); }, $line);
-                fclose($handle);
-            }
-            if (count($raw) < 2 || count($raw) > 1502) throw new RuntimeException("文件须包含表头与数据，且一次最多 1500 行");
-            $head = array_map(function ($v) { return trim((string)$v); }, array_shift($raw));
-            $head[0] = preg_replace('/^\xEF\xBB\xBF/', '', $head[0] ?? '');
-            // 表头按别名匹配：原 AI 定制模板、部门现有表（付款账号 / 接单日期 / 到账情况 / 程序名称…）都可直接上传。
-            try { $columnMap = ps_business_import_map($selectedBusiness, $head); } catch (RuntimeException $e) { throw new RuntimeException('当前选中“' . $selectedBusiness . '”：' . $e->getMessage()); }
-            $lookup = function ($row, $key) use ($columnMap) { return isset($columnMap[$key]) ? trim((string)($row[$columnMap[$key]] ?? '')) : ''; };
-            $hasDomainColumn = isset($columnMap['domain_used']);
+        if ($action === 'preview' || $action === 'repreview') {
+            // 原始表格先保存（财务可在“原始表格”页查看 / 下载）；重新选择工作表时直接读已保存的文件，不必重新上传。
+            if ($action === 'preview') {
+                if (empty($_FILES['file']['tmp_name']) || $_FILES['file']['error'] !== UPLOAD_ERR_OK || $_FILES['file']['size'] > 5 * 1024 * 1024) throw new RuntimeException('请选择不超过 5MB 的 XLSX 或 CSV 文件');
+                $fileId = ps_import_file_store($_FILES['file'], $selectedBusiness, $actor);
+            } else $fileId = (int)($_POST['file_id'] ?? 0);
+            $fileRow = ps_import_file_get($fileId, $actor);
+            $chosenSheets = $action === 'repreview' ? array_map('strval', (array)($_POST['sheets'] ?? [])) : null;
+            $sheetReport = [];
+            $usedSheets = 0;
+            $totalRows = 0;
             $orderKinds = ps_business_order_kinds($selectedBusiness);
             $employeesByName = ps_import_employee_index();
             $knownShops = db()->query('SELECT name FROM shops')->fetchAll(PDO::FETCH_COLUMN);
@@ -64,9 +58,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $exists = db()->prepare('SELECT o.id,o.project_type,o.settlement_status,o.shop,o.contract_amount,s.payment_nickname,s.price_source FROM project_orders o LEFT JOIN project_order_sources s ON s.order_id=o.id WHERE o.order_no=? LIMIT 1');
             $existingAccess = db()->prepare('SELECT 1 FROM project_participants WHERE order_id=? AND employee_id=? LIMIT 1');
             $existingResource = db()->prepare('SELECT domain_mode FROM project_order_resources WHERE order_id=?');
+            // 一个工作簿多张分表（如“图片 / PPT / 小额”、每位客服一张）：表头能对上当前业务的分表都读取，可在预览里取消勾选。
+            foreach (ps_import_file_sheets($fileRow) as $sheetName => $raw) {
+                $sheetName = (string)$sheetName;
+                $raw = array_values(array_filter($raw, function ($r) { return is_array($r); }));
+                if (count($raw) < 2) { $sheetReport[$sheetName] = ['used' => false, 'matchable' => false, 'reason' => '没有数据']; continue; }
+                $head = array_map(function ($v) { return trim((string)$v); }, array_shift($raw));
+                $head[0] = preg_replace('/^\xEF\xBB\xBF/', '', $head[0] ?? '');
+                // 表头按别名匹配：原 AI 定制模板、部门现有表（付款账号 / 接单日期 / 到账情况 / 程序名称…）都可直接上传。
+                try { $columnMap = ps_business_import_map($selectedBusiness, $head); } catch (RuntimeException $e) { $sheetReport[$sheetName] = ['used' => false, 'matchable' => false, 'reason' => $e->getMessage()]; continue; }
+                if ($chosenSheets !== null && !in_array($sheetName, $chosenSheets, true)) { $sheetReport[$sheetName] = ['used' => false, 'matchable' => true, 'reason' => '未勾选', 'rows' => count($raw)]; continue; }
+                // 自动识别时，“未到账 / 交易关闭 / 汇总 / 合计 / 总表”类分表默认不读，需要时勾选后重新预览
+                if ($chosenSheets === null && preg_match('/未到账|关闭|汇总|合计|总表|（总）|\(总\)/u', $sheetName)) { $sheetReport[$sheetName] = ['used' => false, 'matchable' => true, 'reason' => '默认不读取', 'rows' => count($raw)]; continue; }
+                $totalRows += count($raw);
+                if ($totalRows > 1500) throw new RuntimeException('所选工作表合计超过 1500 行，请取消部分分表后再预览');
+                $sheetReport[$sheetName] = ['used' => true, 'matchable' => true, 'rows' => count($raw)];
+                $lineOffset = $usedSheets * 10000;
+                $usedSheets++;
+                $lookup = function ($row, $key) use ($columnMap) { return isset($columnMap[$key]) ? trim((string)($row[$columnMap[$key]] ?? '')) : ''; };
+                $hasDomainColumn = isset($columnMap['domain_used']);
             foreach ($raw as $index => $row) {
                 if (!array_filter($row, function ($v) { return trim((string)$v) !== ''; })) continue;
-                $record = ['line' => $index + 2, 'status' => '可导入', 'error' => '', 'warning' => '', 'base_valid' => true, 'people' => ['technical' => [], 'customer_service' => []], 'domain_mode' => '', 'domain_template_id' => 0];
+                $record = ['line' => $lineOffset + $index + 2, 'sheet' => $sheetName, 'status' => '可导入', 'error' => '', 'warning' => '', 'base_valid' => true, 'people' => ['technical' => [], 'customer_service' => []], 'domain_mode' => '', 'domain_template_id' => 0];
                 try {
                     $record['order_no'] = $lookup($row, 'order_no');
                     $exists->execute([$record['order_no']]);
@@ -232,9 +245,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 if ($orderKey !== '') $seen[$orderKey] = count($preview);
                 $preview[] = $record;
             }
+            }
+            if (!$usedSheets) {
+                $reasons = [];
+                foreach ($sheetReport as $name => $info) $reasons[] = '“' . $name . '”' . $info['reason'];
+                throw new RuntimeException('没有与“' . $selectedBusiness . '”表头对应的工作表（' . implode('；', $reasons) . '）。请确认业务类型，或下载该业务模板对照表头');
+            }
+            ps_import_file_mark($fileId, 'preview', ['sheets_used' => mb_substr(implode('、', array_keys(array_filter($sheetReport, function ($i) { return $i['used']; }))), 0, 500), 'rows_total' => count($preview)]);
             $_SESSION['project_import_preview'] = $preview;
             $_SESSION['project_import_actor'] = $actorKey;
             $_SESSION['project_import_business'] = $selectedBusiness;
+            $_SESSION['project_import_file'] = $fileId;
+            $_SESSION['project_import_sheets'] = $sheetReport;
         } elseif ($action === 'commit') {
             if (!$preview || $previewOwner !== $actorKey || $previewBusiness !== $selectedBusiness) throw new RuntimeException('预览已失效，请重新上传');
             $choices = $_POST['domain_choice'] ?? [];
@@ -352,7 +374,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
                 if ($nested) $pdo->exec('RELEASE SAVEPOINT project_order_import');
                 else $pdo->commit();
-                unset($_SESSION['project_import_preview'], $_SESSION['project_import_actor'], $_SESSION['project_import_business']);
+                if (!empty($_SESSION['project_import_file'])) ps_import_file_mark((int)$_SESSION['project_import_file'], 'imported', ['imported_count' => $imported, 'skipped_count' => $skipped]);
+                unset($_SESSION['project_import_preview'], $_SESSION['project_import_actor'], $_SESSION['project_import_business'], $_SESSION['project_import_file'], $_SESSION['project_import_sheets']);
                 $preview = [];
             } catch (Throwable $e) { if ($nested) $pdo->exec('ROLLBACK TO SAVEPOINT project_order_import'); else $pdo->rollBack(); throw $e; }
         } else throw new RuntimeException('操作无效');
@@ -371,10 +394,22 @@ include __DIR__ . '/../includes/header.php';
 <form method="get" class="form-inline mb-3"><label class="mr-2" for="importBusiness">业务模板</label><select id="importBusiness" name="business" class="form-control mr-2" onchange="this.form.submit()"><?php foreach ($allowedBusinesses as $businessName): ?><option value="<?php echo e($businessName); ?>" <?php echo $selectedBusiness === $businessName ? 'selected' : ''; ?>><?php echo e($businessName); ?></option><?php endforeach; ?></select><a class="btn btn-outline-success" href="?business=<?php echo rawurlencode($selectedBusiness); ?>&download=1">下载此业务 CSV 表头</a></form>
 <form method="post" enctype="multipart/form-data" id="projectUploadForm"><input type="hidden" name="csrf" value="<?php echo e(ps_csrf_token()); ?>"><input type="hidden" name="action" value="preview"><input type="hidden" name="business" value="<?php echo e($selectedBusiness); ?>"><label for="projectImportFile" id="projectDropZone" class="project-drop-zone"><i class="fas fa-cloud-upload-alt"></i><strong>拖拽 Excel 到这里，或点击选择文件</strong><span id="projectFileName">尚未选择文件</span><input type="file" id="projectImportFile" name="file" accept=".xlsx,.csv" required></label><button class="btn btn-success btn-lg mt-3" type="submit">上传并核对每一行</button></form></div></div>
 <?php endif; ?>
+<?php
+$previewSheets = $preview ? array_filter($_SESSION['project_import_sheets'] ?? [], function ($i) { return !empty($i['used']); }) : [];
+$sheetReport = $preview ? ($_SESSION['project_import_sheets'] ?? []) : [];
+$previewFileId = $preview ? (int)($_SESSION['project_import_file'] ?? 0) : 0;
+?>
+<?php if ($preview && count($sheetReport) > 1): ?>
+<form method="post" class="card project-form-card mb-3"><div class="card-body"><input type="hidden" name="csrf" value="<?php echo e(ps_csrf_token()); ?>"><input type="hidden" name="action" value="repreview"><input type="hidden" name="business" value="<?php echo e($selectedBusiness); ?>"><input type="hidden" name="file_id" value="<?php echo $previewFileId; ?>">
+<div class="project-mini-title mb-2">这个表格有 <?php echo count($sheetReport); ?> 张工作表 <small>表头能对上“<?php echo e($selectedBusiness); ?>”的已自动勾选；取消不需要的分表后点“重新预览”，不用重新上传。</small></div>
+<div class="d-flex flex-wrap" style="gap:8px 16px"><?php foreach ($sheetReport as $name => $info): ?><label class="mb-0 <?php echo empty($info['matchable']) ? 'text-muted' : ''; ?>"><input type="checkbox" name="sheets[]" value="<?php echo e($name); ?>" <?php echo !empty($info['used']) ? 'checked' : ''; ?> <?php echo empty($info['matchable']) ? 'disabled' : ''; ?>> <?php echo e($name); ?><?php echo isset($info['rows']) ? ' · ' . (int)$info['rows'] . ' 行' : ''; ?><?php echo empty($info['matchable']) ? '（' . e(mb_strimwidth($info['reason'], 0, 40, '…')) . '）' : ''; ?></label><?php endforeach; ?></div>
+<button class="btn btn-outline-primary btn-sm mt-2">重新预览所选工作表</button> <a class="btn btn-link btn-sm mt-2" href="<?php echo BASE_URL; ?>/project/files.php?view=<?php echo $previewFileId; ?>" target="_blank" rel="noopener">查看原始表格</a>
+</div></form>
+<?php endif; ?>
 <?php if ($preview): ?>
 <form method="post" class="card project-form-card mb-3"><input type="hidden" name="csrf" value="<?php echo e(ps_csrf_token()); ?>"><input type="hidden" name="action" value="commit"><input type="hidden" name="business" value="<?php echo e($selectedBusiness); ?>"><div class="card-body pb-2"><div class="project-section-title"><span class="project-step">02</span><div><h5>核对预览</h5><p><?php echo $baseValidCount; ?> 行基础资料通过<?php echo $resourceSelection ? '；缺失域名规格的行请选标准模板，服务器成本可选填' : '；客服提交后由技术在同一订单确认资源与成本'; ?>。</p></div></div></div><div class="table-responsive"><table class="table project-preview-table mb-0"><thead><tr><th>行 / 订单</th><th>日期 / 售价</th><th>参与人</th><?php if ($businessDefinition['fields']): ?><th>业务信息</th><?php endif; ?><?php if ($resourceSelection && $usesProgram): ?><th>程序套餐</th><?php endif; ?><?php if ($resourceSelection): ?><th>域名选择与标准成本</th><th>服务器成本</th><?php endif; ?><th>核对结果</th></tr></thead><tbody>
 <?php foreach ($preview as $row): ?><tr class="<?php echo empty($row['base_valid']) ? 'table-danger' : ($row['status'] === '可导入' ? '' : 'table-warning'); ?>">
-<td><small>第 <?php echo e(implode('、', $row['lines'] ?? [$row['line']])); ?> 行</small><br><strong><?php echo e($row['order_no'] ?? '—'); ?></strong><br><small><?php echo e($row['project_type'] ?? ''); ?></small></td>
+<td><small><?php echo count($previewSheets) > 1 && !empty($row['sheet']) ? '【' . e($row['sheet']) . '】' : ''; ?>第 <?php echo e(implode('、', array_map(function ($l) { return (int)$l % 10000; }, $row['lines'] ?? [$row['line']]))); ?> 行</small><br><strong><?php echo e($row['order_no'] ?? '—'); ?></strong><br><small><?php echo e($row['project_type'] ?? ''); ?></small></td>
 <td><?php echo e($row['order_date'] ?? '—'); ?><br><strong>¥<?php echo e(($row['contract_amount'] ?? '') === '' ? '待补' : $row['contract_amount']); ?></strong><?php if (($row['order_kind'] ?? '') !== ''): ?><br><small class="text-muted"><?php echo e($row['order_kind']); ?></small><?php endif; ?></td>
 <td><small>客服：<?php echo e(implode('、', array_column($row['people']['customer_service'], 'name')) ?: '—'); ?><br>技术：<?php echo e(implode('、', array_column($row['people']['technical'], 'name')) ?: '—'); ?></small></td>
 <?php if ($businessDefinition['fields']): ?><td><small><?php foreach ($businessDefinition['fields'] as $key => $label): ?><?php echo e($label . '：' . ps_contact_for($actor, ($row['details'][$key] ?? '') ?: '—', $key === 'customer_wechat')); ?><br><?php endforeach; ?></small></td><?php endif; ?>
