@@ -110,6 +110,13 @@ $nav = function ($href, $icon, $label, $active) {
     <?php echo $nav('/salaries/settle.php', 'fa-calculator', '原系统结算', $group_active === 'legacy'); ?>
     <?php echo $nav('/project/system.php', 'fa-sliders-h', '系统设置', $_rel === 'project/system.php'); ?>
     <?php endif; ?>
+    <div class="sidebar-project-footer">
+        <a class="sidebar-project-token" href="https://token.laibangwo.com/" target="_blank" rel="noopener noreferrer" aria-label="Token 工作台（新窗口打开）">
+            <span class="sidebar-project-token-mark"><i class="fas fa-bolt" aria-hidden="true"></i></span>
+            <span class="sidebar-project-token-copy"><strong>Token 工作台</strong><small>在新窗口打开</small></span>
+            <i class="fas fa-external-link-alt sidebar-project-token-external" aria-hidden="true"></i>
+        </a>
+    </div>
 </div>
 
 <div class="main-content">

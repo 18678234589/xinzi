@@ -26,6 +26,9 @@ body.pd-shell::before {
   background: linear-gradient(110deg, rgba(109, 223, 204, .34), rgba(122, 177, 214, .15));
   box-shadow: inset 2px 0 #9af0d8, inset 0 0 0 1px rgba(158, 238, 218, .22), 0 8px 25px rgba(10, 41, 40, .16);
 }
+.pd-shell.app-warm .sidebar-project-footer .sidebar-project-token { color: #eafff7; border-color: rgba(142, 235, 210, .25); background: rgba(126, 216, 192, .13); }
+.pd-shell.app-warm .sidebar-project-footer .sidebar-project-token:hover { color: #fff; background: rgba(126, 216, 192, .25); }
+.pd-shell.app-warm .sidebar-project-token-mark { background: linear-gradient(135deg, #26aa92, #558ab1); }
 .partner-dashboard {
   --pd-ink: #153744;
   --pd-aqua: #43ceb7;
