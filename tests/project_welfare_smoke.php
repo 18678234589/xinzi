@@ -16,6 +16,15 @@ welfare_check(pw_chair_earned($policy,5000,0,0)===10000.0,'innovation cannot exc
 welfare_check(pw_chair_earned($policy,0,-500,-300)===6200.0,'manual and automatic deductions each count once');
 welfare_check(pw_committee_earned(1000,20,0)===1000.0,'committee member can earn full 1000');
 welfare_check(pw_committee_earned(1000,21,0)===1000.0 && pw_committee_earned(1000,1,100)===150.0,'committee cap and explicit award do not double-count');
+db()->beginTransaction();
+try {
+    $before = pw_balance();
+    $beforeFirstTerm = pw_balance_as_of('2026-Q4');
+    pw_ledger('smoke:cumulative:2026-Q4','quarter_remainder',200,'2026-Q4',null,'回滚测试：第一届结转');
+    pw_ledger('smoke:cumulative:2027-Q1','quarter_remainder',300,'2027-Q1',null,'回滚测试：第二届结转');
+    welfare_check(pw_balance() === round($before+500,2),'welfare pool accumulates across terms');
+    welfare_check(pw_balance_as_of('2026-Q4') === round($beforeFirstTerm+200,2),'successor funding does not enter prior term');
+} finally { if (db()->inTransaction()) db()->rollBack(); }
 $blocked=false;
 try { pw_close_quarter('2026-Q3'); } catch (RuntimeException $e) { $blocked=true; }
 welfare_check($blocked,'no automatic retrospective funding');
@@ -49,6 +58,7 @@ ob_start();
 include __DIR__ . '/../project/welfare.php';
 $html=ob_get_clean();
 welfare_check(strpos($html,'全员福利池')!==false && strpos($html,'¥1,000.00')!==false,'finance welfare view and correct per-member amount');
+welfare_check(strpos($html,'池余额跨任期累计')!==false,'page distinguishes per-term cap from cumulative welfare pool');
 welfare_check(strpos($html,'生成待核对名单')!==false && strpos($html,'确认本年度名单')!==false,'finance must review the roster before year-end awards');
 welfare_check(strpos($html,'部门主管代录权限')!==false,'manager authorization entry');
 unset($_SESSION['admin_id'],$_SESSION['admin_username']);
