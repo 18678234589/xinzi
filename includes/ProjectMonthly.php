@@ -33,6 +33,7 @@ function ps_monthly_types()
         'base_fee' => '固定服务费（按考勤折算）',
         'attendance_bonus' => '全勤奖',
         'manual' => '手工调整（每月填写）',
+        'profit_pool' => '部门利润池分配',
     ];
 }
 
@@ -258,6 +259,28 @@ function ps_monthly_results($month, $forceLive = false)
             $share = (float)($p['share'] ?? 1);
             $base = max($total - $deduct - $extra, 0);
             $add($rule['employee_id'], $rule, $base * $rate * $share, sprintf('部门 %d 单%s ¥%s%s − 其他费用 ¥%s = ¥%s，× %s%% × 分配 %s%%', count($orders), $byRevenue ? '收入（扣服务费）' : '毛利', money_plain($total), $deduct > 0 ? ' − 部门提成 ¥' . money_plain($deduct) : '', money_plain($extra), money_plain($base), round($rate * 100, 4), round($share * 100, 2)));
+        } elseif ($type === 'profit_pool') {
+            // 部门利润池（如微信代写）：池 = (范围内订单毛利合计 − 扣除额) × 比例；
+            // 指定人员按固定比例分池，其余范围内人员分“成员比例”，按各自毛利占比。
+            $orderProfit = [];
+            foreach ($snapshots as $snap) if (ps_monthly_snapshot_matches($rule, $snap)) $orderProfit[(int)$snap['order_id']] = max((float)$snap['contribution_profit'], $orderProfit[(int)$snap['order_id']] ?? -INF);
+            $total = array_sum($orderProfit);
+            $deduction = (float)($p['deduction'] ?? 0);
+            $pool = max($total - $deduction, 0) * (float)($p['rate'] ?? 0);
+            $poolText = sprintf('部门毛利 ¥%s − 扣除 ¥%s = ¥%s，× %s%% = 池 ¥%s', money_plain($total), money_plain($deduction), money_plain(max($total - $deduction, 0)), round((float)($p['rate'] ?? 0) * 100, 4), money_plain($pool));
+            $fixedIds = [];
+            foreach ((array)($p['fixed'] ?? []) as $member) {
+                $eid = (int)($member['employee_id'] ?? 0);
+                if ($eid <= 0) continue;
+                $fixedIds[] = $eid;
+                $add($eid, $rule, $pool * (float)$member['share'], $poolText . sprintf('；本人固定 %s%%', round((float)$member['share'] * 100, 4)));
+            }
+            $membersShare = (float)($p['members_share'] ?? 0);
+            foreach ($people as $eid => $m) {
+                if (in_array($eid, $fixedIds, true) || $total <= 0) continue;
+                $ratio = $m['portion'] / $total;
+                $add($eid, $rule, $pool * $membersShare * $ratio, $poolText . sprintf('；成员分配 %s%% × 本人毛利占比 %s%%（¥%s / ¥%s）', round($membersShare * 100, 4), round($ratio * 100, 2), money_plain($m['portion']), money_plain($total)));
+            }
         } elseif ($type === 'fixed') {
             if ($rule['employee_id'] === null) continue;
             $override = $inputs[(int)$rule['id']][(int)$rule['employee_id']] ?? null;
@@ -338,6 +361,19 @@ function ps_monthly_params_from_input($type, $input)
     if ($type === 'fixed') return ['amount' => $num($input['amount'] ?? '', '金额'), 'separate' => !empty($input['separate'])];
     if ($type === 'per_unit' || $type === 'base_fee' || $type === 'attendance_bonus') return ['amount' => $num($input['amount'] ?? '0', '金额')];
     if ($type === 'manual') return [];
+    if ($type === 'profit_pool') {
+        // 固定分成人员：每行“姓名=13%”，按姓名匹配合作人员（重名时取有项目账号者）
+        $fixed = [];
+        foreach (array_filter(array_map('trim', preg_split('/[\r\n,，;；]+/u', (string)($input['pool_fixed'] ?? ''))), 'strlen') as $line) {
+            if (!preg_match('/^(.+?)\s*[=＝:：]\s*([\d.]+)\s*%?$/u', $line, $m)) throw new RuntimeException('固定分成人员请按“姓名=13%”填写，每行一个');
+            $ids = db()->prepare('SELECT e.id FROM employees e LEFT JOIN project_users u ON u.employee_id=e.id AND u.is_active=1 WHERE e.name=? ORDER BY u.id IS NULL, e.id');
+            $ids->execute([trim($m[1])]);
+            $id = $ids->fetchColumn();
+            if (!$id) throw new RuntimeException('找不到合作人员“' . trim($m[1]) . '”');
+            $fixed[] = ['employee_id' => (int)$id, 'name' => trim($m[1]), 'share' => round((float)$m[2] / 100, 6)];
+        }
+        return ['deduction' => $num($input['deduction'] ?? '0', '扣除额'), 'rate' => $num($input['rate'] ?? '', '比例') / 100, 'members_share' => $num($input['members_share'] ?? '', '成员分配比例') / 100, 'fixed' => $fixed];
+    }
     throw new RuntimeException('规则类型无效');
 }
 
@@ -357,16 +393,17 @@ function ps_monthly_presets()
         ['name' => '环境配置主管提成', 'rule_type' => 'dept_share', 'scope_business' => '环境配置', 'scope_group' => '*', 'scope_role' => '*', 'employee' => '于洋', 'metric' => 'profit', 'params' => ['rate' => 0.05, 'share' => 0.5, 'base' => 'revenue', 'deduct_commissions' => true], 'note' => '于洋（网站售后部主管）：(环境配置收入 − 3% 服务费 − 部门客服/技术提成 − 员工底薪等其他费用) × 5% × 50%'],
         ['name' => '优站模板奖励', 'rule_type' => 'per_unit', 'scope_business' => '*', 'scope_group' => '*', 'scope_role' => '*', 'employee' => null, 'metric' => 'profit', 'params' => ['amount' => 15], 'note' => '每做一个优站模板奖励 15 元（8 月李仁超 75、李子晖 195、崔鑫栋 30）'],
         ['name' => '其他业务提成（未接入系统）', 'rule_type' => 'manual', 'scope_business' => '*', 'scope_group' => '*', 'scope_role' => '*', 'employee' => null, 'metric' => 'profit', 'params' => [], 'note' => '标书、续费、代写等尚未在项目系统录单的业务提成，由财务每月填写'],
+        ['name' => '微信代写部门利润池', 'rule_type' => 'profit_pool', 'scope_business' => '微信代写', 'scope_group' => 'customer_service', 'scope_role' => '*', 'employee' => null, 'metric' => 'profit', 'params' => ['deduction' => 6000, 'rate' => 0.10, 'members_share' => 0.68, 'fixed' => [['name' => '姚鹏', 'share' => 0.13], ['name' => '李雪', 'share' => 0.13]]], 'note' => '《微信代写提成比例汇总》：(四名编辑总利润 − 1000×6) × 10%；姚鹏、李雪各 13%，编辑 68% 按本人利润占比'],
         ['name' => '其他调整', 'rule_type' => 'manual', 'scope_business' => '*', 'scope_group' => '*', 'scope_role' => '*', 'employee' => null, 'metric' => 'profit', 'params' => [], 'note' => '上月漏记、临时奖扣等，每月填写并写明原因'],
     ];
     // 固定服务费（原基本工资，按考勤折算）；网站客服为每月不同的“补单提成”，默认 0，每月在规则中心填写。
-    foreach (['光君' => 800, '张强' => 800, '孙妍' => 800, '刘帅' => 2300, '于海波' => 2300, '崔鑫栋' => 2300, '李子晖' => 2800, '纪鹏程' => 1300, '石凯新' => 2000, '刘丹丹' => 2000, '曹双双' => 800, '王宁' => 800, '王亚' => 3000, '吴宁' => 1800, '刘媛媛' => 800, '于洋' => 3800, '翟建跃' => 4800, '朱俊英' => 2300, '田悦琦' => 3300, '谢文婷' => 2800, '高晶晶' => 2300, '姚琳' => 3900, '孙曼' => 3800, '刘群' => 3500, '魏慧子' => 3800, '王芳' => 3400, '宋文娜' => 2700, '董旭' => 0, '宋倩倩' => 0, '苏婷' => 0, '孙湉湉' => 0] as $name => $amount) {
+    foreach (['光君' => 800, '张强' => 800, '孙妍' => 800, '刘帅' => 2300, '于海波' => 2300, '崔鑫栋' => 2300, '李子晖' => 2800, '纪鹏程' => 1300, '石凯新' => 2000, '刘丹丹' => 2000, '曹双双' => 800, '王宁' => 800, '王亚' => 3000, '吴宁' => 1800, '刘媛媛' => 800, '于洋' => 3800, '翟建跃' => 4800, '朱俊英' => 2300, '田悦琦' => 3300, '谢文婷' => 2800, '高晶晶' => 2300, '姚琳' => 3900, '孙曼' => 3800, '刘群' => 3500, '魏慧子' => 3800, '王芳' => 3400, '宋文娜' => 2700, '王向晖' => 800, '刘淑萍' => 800, '徐春' => 800, '乔立宾' => 5000, '韩菲菲' => 1000, '孙梦琦' => 1000, '张钰琪' => 1000, '李雪' => 1000, '姚鹏' => 1500, '董旭' => 0, '宋倩倩' => 0, '苏婷' => 0, '孙湉湉' => 0] as $name => $amount) {
         $rows[] = ['name' => $name . ' 固定服务费', 'rule_type' => 'base_fee', 'scope_business' => $all, 'scope_group' => $all, 'scope_role' => $all, 'employee' => $name, 'metric' => 'profit', 'params' => ['amount' => $amount], 'note' => $amount > 0 ? '原基本工资，按考勤折算' : '网站客服补单提成，每月金额不同，请在本月试算里填写（按考勤折算）'];
     }
-    foreach (['光君' => 200, '张强' => 200, '孙妍' => 200, '刘帅' => 200, '于海波' => 200, '崔鑫栋' => 200, '李子晖' => 200, '纪鹏程' => 200, '石凯新' => 200, '刘丹丹' => 200, '曹双双' => 200, '王宁' => 200, '吴宁' => 200, '刘媛媛' => 200, '于洋' => 200, '翟建跃' => 200, '朱俊英' => 200, '田悦琦' => 200, '谢文婷' => 200, '高晶晶' => 200, '姚琳' => 200, '孙曼' => 200, '刘群' => 200, '魏慧子' => 200, '王芳' => 200, '宋文娜' => 200, '董旭' => 100, '宋倩倩' => 100, '苏婷' => 100, '孙湉湉' => 100] as $name => $amount) {
+    foreach (['光君' => 200, '张强' => 200, '孙妍' => 200, '刘帅' => 200, '于海波' => 200, '崔鑫栋' => 200, '李子晖' => 200, '纪鹏程' => 200, '石凯新' => 200, '刘丹丹' => 200, '曹双双' => 200, '王宁' => 200, '吴宁' => 200, '刘媛媛' => 200, '于洋' => 200, '翟建跃' => 200, '朱俊英' => 200, '田悦琦' => 200, '谢文婷' => 200, '高晶晶' => 200, '姚琳' => 200, '孙曼' => 200, '刘群' => 200, '魏慧子' => 200, '王芳' => 200, '宋文娜' => 200, '王向晖' => 200, '刘淑萍' => 200, '徐春' => 200, '韩菲菲' => 200, '孙梦琦' => 200, '张钰琪' => 200, '李雪' => 200, '姚鹏' => 200, '董旭' => 100, '宋倩倩' => 100, '苏婷' => 100, '孙湉湉' => 100] as $name => $amount) {
         $rows[] = ['name' => $name . ' 全勤奖', 'rule_type' => 'attendance_bonus', 'scope_business' => $all, 'scope_group' => $all, 'scope_role' => $all, 'employee' => $name, 'metric' => 'profit', 'params' => ['amount' => $amount], 'note' => '请假 <4 小时全额、≥4 小时减半、≥8 小时不发'];
     }
-    foreach ([['孙妍', '经理补助', 100, false], ['崔鑫栋', '部门经理补助', 200, false], ['石凯新', '技术主管补助', 500, false], ['于洋', '其他补助', 2000, false], ['翟建跃', '其他补助', 900, false], ['王亚', '其他补助', 300, false], ['曹双双', '其他补助', 200, false], ['王宁', '其他补助', 200, false], ['姚琳', '其他补助', 300, false], ['孙曼', '其他补助', 400, false], ['刘群', '经理补助', 300, false], ['魏慧子', '其他补助', 200, false], ['宋文娜', '其他补助', 500, false], ['于洋', '法人补助', 500, true], ['翟建跃', '法人补助', 200, true]] as [$name, $label, $amount, $separate]) {
+    foreach ([['孙妍', '经理补助', 100, false], ['崔鑫栋', '部门经理补助', 200, false], ['石凯新', '技术主管补助', 500, false], ['于洋', '其他补助', 2000, false], ['翟建跃', '其他补助', 900, false], ['王亚', '其他补助', 300, false], ['曹双双', '其他补助', 200, false], ['王宁', '其他补助', 200, false], ['姚琳', '其他补助', 300, false], ['孙曼', '其他补助', 400, false], ['刘群', '经理补助', 300, false], ['魏慧子', '其他补助', 200, false], ['宋文娜', '其他补助', 500, false], ['李雪', '其他补助', 300, false], ['姚鹏', '经理补助', 200, false], ['姚鹏', '其他补助', 200, false], ['姚鹏', '法人补助', 300, true], ['于洋', '法人补助', 500, true], ['翟建跃', '法人补助', 200, true]] as [$name, $label, $amount, $separate]) {
         $rows[] = ['name' => $name . ' ' . $label, 'rule_type' => 'fixed', 'scope_business' => $all, 'scope_group' => $all, 'scope_role' => $all, 'employee' => $name, 'metric' => 'profit', 'params' => ['amount' => $amount, 'separate' => $separate], 'note' => $separate ? '由关联公司另行支付，单列展示，不计入应结算' : '收入表“经理补助 / 其他补助”'];
     }
     return $rows;
@@ -397,6 +434,15 @@ function ps_monthly_apply_presets($actor, $month)
             }
             if (count($ids) !== 1) { $skipped[] = $row['name'] . '（人员“' . $row['employee'] . '”' . (count($ids) ? '重名' : '不存在') . '）'; continue; }
             $employeeId = (int)$ids[0];
+        }
+        if (!empty($row['params']['fixed'])) {
+            // 利润池固定分成人员按姓名解析
+            foreach ($row['params']['fixed'] as $i => $member) {
+                $findEmployee->execute([$member['name']]);
+                $memberIds = $findEmployee->fetchAll(PDO::FETCH_COLUMN);
+                if (count($memberIds) !== 1) { $skipped[] = $row['name'] . '（固定分成人员“' . $member['name'] . '”' . (count($memberIds) ? '重名' : '不存在') . '）'; continue 2; }
+                $row['params']['fixed'][$i]['employee_id'] = (int)$memberIds[0];
+            }
         }
         $insert->execute([$row['name'], $row['rule_type'], $row['scope_business'], $row['scope_group'], $row['scope_role'], $employeeId, $row['metric'], json_encode($row['params'], JSON_UNESCAPED_UNICODE), $month, $row['note'], $actor['id']]);
         $added++;

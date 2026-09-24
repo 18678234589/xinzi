@@ -78,7 +78,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         if (in_array($existing['settlement_status'], ['approved','locked'], true)) throw new RuntimeException('订单已审核，不能通过导入修改');
                         if ($actor['role'] !== 'finance') {
                             $existingAccess->execute([(int)$existing['id'], (int)$actor['employee_id']]);
-                            if (!$existingAccess->fetchColumn()) throw new RuntimeException('该订单号已存在，但本人尚未被关联；请由参与人或财务关联后再上传');
+                            // 代写类：编辑上传“编辑订单”表时可把本人挂到客服已建的订单（本组尚无人时），反之亦然。
+                            if (!$existingAccess->fetchColumn()) {
+                                if (empty($businessDefinition['import_cost'])) throw new RuntimeException('该订单号已存在，但本人尚未被关联；请由参与人或财务关联后再上传');
+                                $record['attach_check'] = true; // 读出本行人员后再核对本人所在组是否空缺
+                            }
                         }
                         $existingResource->execute([(int)$existing['id']]);
                         $existingMode = $existingResource->fetchColumn();
@@ -97,15 +101,39 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     if ($sheetBusiness !== '' && ps_business_normalize($sheetBusiness) !== $selectedBusiness) throw new RuntimeException('表格业务与当前选中业务不一致');
                     $record['project_type'] = $selectedBusiness;
                     $record['shop'] = $lookup($row, 'shop');
-                    if ($record['shop'] !== '' && !in_array($record['shop'], $knownShops, true)) throw new RuntimeException('店铺不在店铺管理列表中，请先核对');
+                    if ($record['shop'] !== '' && empty($businessDefinition['free_shop']) && !in_array($record['shop'], $knownShops, true)) throw new RuntimeException('店铺不在店铺管理列表中，请先核对');
                     $record['payment_nickname'] = $lookup($row, 'payment_nickname');
                     $record['contact_note'] = $lookup($row, 'contact_note');
                     // 小程序结算表的“备注”常写 新订单 / 续费 / 定制：识别为订单类型。
                     $kindText = $lookup($row, 'order_kind');
                     if ($kindText === '' && in_array($record['contact_note'], $orderKinds, true)) { $kindText = $record['contact_note']; $record['contact_note'] = ''; }
                     if ($kindText !== '' && !in_array($kindText, $orderKinds, true)) throw new RuntimeException('订单类型“' . $kindText . '”无效，可选：' . implode('、', $orderKinds));
+                    // 代写 / 期刊 / 微信代写按原表内容识别类型：负数行 = 退款冲减；“提成”列为 0 = 合并单；微信付款；期刊“杂志社版面费” = 代付版面费。
+                    if ($kindText === '' && !empty($businessDefinition['import_cost'])) {
+                        $amountText = str_replace([',','¥','￥',' '], '', $lookup($row, 'contract_amount'));
+                        $unitText = $lookup($row, 'unit_marker');
+                        $shopText = $lookup($row, 'shop');
+                        if (in_array('退款冲减', $orderKinds, true) && is_numeric($amountText) && (float)$amountText < 0) $kindText = '退款冲减';
+                        elseif (in_array('合并单', $orderKinds, true) && $unitText !== '' && is_numeric($unitText) && (float)$unitText == 0) $kindText = '合并单';
+                        elseif (in_array('新订单', $orderKinds, true)) $kindText = '新订单';
+                        elseif (in_array('代付版面费', $orderKinds, true) && mb_strpos($lookup($row, 'pay_mode'), '版面费') !== false) $kindText = '代付版面费';
+                        elseif (mb_strpos($shopText, '微信') !== false && in_array('微信付款', $orderKinds, true)) $kindText = '微信付款';
+                        elseif (in_array('店铺付款', $orderKinds, true)) $kindText = '店铺付款';
+                        elseif (in_array('店铺订单', $orderKinds, true)) $kindText = '店铺订单';
+                    }
                     if ($kindText === '' && !empty($businessDefinition['kind_required'])) throw new RuntimeException('缺少订单类型（新订单 / 定制 / 续费），可在“订单类型”列或“备注”列填写');
                     $record['order_kind'] = $kindText;
+                    // 成本（稿费 / 杂志社费用 + 写手费用）：只对代写类业务读取；退款冲减行为负数。
+                    $record['direct_cost'] = '';
+                    if (!empty($businessDefinition['import_cost'])) {
+                        $costTotal = 0.0; $hasCost = false;
+                        foreach (['direct_cost', 'direct_cost2'] as $costKey) {
+                            $costText = str_replace([',','¥','￥',' '], '', $lookup($row, $costKey));
+                            if ($costText === '' || !is_numeric($costText)) continue;
+                            $costTotal += (float)$costText; $hasCost = true;
+                        }
+                        if ($hasCost) $record['direct_cost'] = number_format($costTotal, 2, '.', '');
+                    }
                     $record['domain_used'] = $businessDefinition['resources'] ? $lookup($row, 'domain_used') : '否';
                     $record['ssl_used'] = $businessDefinition['resources'] ? $lookup($row, 'ssl_used') : '';
                     $record['resource_note'] = $businessDefinition['resources'] ? $lookup($row, 'resource_note') : '';
@@ -116,7 +144,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     foreach ($businessDefinition['fields'] as $key => $label) $rawDetails[$key] = $lookup($row, 'detail:' . $key);
                     $record['details'] = ps_business_details($selectedBusiness, $rawDetails);
                     if ($record['ssl_used'] !== '' && !in_array($record['ssl_used'], ['无','否'], true) && (!preg_match('/^\d+(?:\.\d{1,2})?$/', $record['ssl_used']) || (float)$record['ssl_used'] > 999999999999.99)) throw new RuntimeException('SSL 真实成本无效，请填写金额、0 或无');
-                    if ($record['order_no'] === '' || strlen($record['order_no']) > 100 || !$record['order_date'] || ($record['contract_amount'] !== '' && !preg_match('/^\d+(?:\.\d{1,2})?$/', $record['contract_amount'])) || (float)$record['contract_amount'] > 999999999999.99) throw new RuntimeException(!$record['order_date'] ? '日期无法识别' : ($record['order_no'] === '' ? '缺少订单编号' : '订单号或售价无效'));
+                    if ($record['order_no'] === '' || strlen($record['order_no']) > 100 || !$record['order_date'] || ($record['contract_amount'] !== '' && !preg_match(($record['order_kind'] === '退款冲减' ? '/^-?' : '/^') . '\d+(?:\.\d{1,2})?$/', $record['contract_amount'])) || (float)$record['contract_amount'] > 999999999999.99) throw new RuntimeException(!$record['order_date'] ? '日期无法识别' : ($record['order_no'] === '' ? '缺少订单编号' : '订单号或售价无效'));
                     if ($existing) {
                         $conflicts = ps_customer_intake_conflicts($existing, $record);
                         if ($conflicts) throw new RuntimeException('原单与上传表的' . implode('、', $conflicts) . '不一致，请由财务核对');
@@ -133,7 +161,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     if (!$cs && !$front && !$back) throw new RuntimeException('至少需要匹配一名客服或技术参与人');
                     if ($actor['role'] !== 'finance') {
                         $group = $actor['role'] === 'technical' ? 'technical' : 'customer_service';
+                        // 代写类：编辑员（客服账号）在代写订单上是“对接编辑”，本人在任一组即可
+                        if (!empty($businessDefinition['import_cost']) && !isset($record['people'][$group][(int)$actor['employee_id']]) && isset($record['people']['technical'][(int)$actor['employee_id']])) $group = 'technical';
                         if (!isset($record['people'][$group][(int)$actor['employee_id']])) throw new RuntimeException('此行未写本人为' . ($group === 'technical' ? '技术' : '客服') . '，不可导入他人订单');
+                        if (!empty($record['attach_check']) && ps_import_group_taken((int)$record['existing_order_id'], $group)) throw new RuntimeException('该订单号已存在且已有' . ($group === 'technical' ? '对接编辑 / 技术' : '客服') . '，请由财务核对');
                     }
                     if (!$existing && $actor['role'] === 'customer_service' && ps_business_requires_technical($selectedBusiness)) {
                         if (!$record['people']['technical']) throw new RuntimeException('客服导入新订单须指定接单技术');
@@ -170,6 +201,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         $target['error'] = trim(($target['error'] ?? '') . '；同号第 ' . $record['line'] . ' 行：' . ($record['error'] ?: '所在订单有错误'), '；');
                     } else {
                         if ($record['contract_amount'] !== '') $target['contract_amount'] = number_format((float)$target['contract_amount'] + (float)$record['contract_amount'], 2, '.', '');
+                        if (($record['direct_cost'] ?? '') !== '') $target['direct_cost'] = number_format((float)($target['direct_cost'] ?? 0) + (float)$record['direct_cost'], 2, '.', '');
                         if (is_numeric($record['ssl_used']) && (float)$record['ssl_used'] > 0) $target['ssl_used'] = number_format((float)(is_numeric($target['ssl_used']) ? $target['ssl_used'] : 0) + (float)$record['ssl_used'], 2, '.', '');
                         foreach (['technical', 'customer_service'] as $groupKey) foreach ($record['people'][$groupKey] as $personId => $person) $target['people'][$groupKey][$personId] = $target['people'][$groupKey][$personId] ?? $person;
                         foreach ($record['details'] as $key => $value) if ($value !== '' && ($target['details'][$key] ?? '') === '') $target['details'][$key] = $value;
@@ -199,6 +231,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $line = (int)$row['line'];
                 if ($actor['role'] !== 'finance') {
                     $group = $actor['role'] === 'technical' ? 'technical' : 'customer_service';
+                    if (!empty($businessDefinition['import_cost']) && !isset($row['people'][$group][(int)$actor['employee_id']]) && isset($row['people']['technical'][(int)$actor['employee_id']])) $group = 'technical';
                     if (!isset($row['people'][$group][(int)$actor['employee_id']])) throw new RuntimeException('第 ' . $line . ' 行不属于当前登录人员，请重新上传核对');
                 }
                 $needsResources = $resourceSelection && empty($row['resource_locked']);
@@ -231,6 +264,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         if (ps_business_normalize($existing['project_type']) !== $selectedBusiness || in_array($existing['settlement_status'], ['approved','locked'], true)) throw new RuntimeException('第 ' . $row['line'] . ' 行订单状态已变化，请重新预览');
                         if (ps_customer_intake_conflicts($existing, $row)) throw new RuntimeException('第 ' . $row['line'] . ' 行买家资料与原单不一致，请重新核对');
                         $orderId = (int)$existing['id'];
+                        if (!empty($businessDefinition['import_cost'])) {
+                            // 代写类：补充本组尚无人的参与人（客服 / 对接编辑），已有人的组不改动
+                            $missing = [];
+                            foreach (['technical', 'customer_service'] as $groupKey) if ($row['people'][$groupKey] && !ps_import_group_taken($orderId, $groupKey)) $missing[$groupKey] = array_values($row['people'][$groupKey]);
+                            if ($missing) { ps_intake_participants($orderId, $missing, $selectedBusiness); ps_audit('order', $orderId, 'import_add_participants', $actor, ['line' => $row['line'], 'groups' => array_keys($missing)]); }
+                        }
                         if ($actor['role'] !== 'finance') {
                             $access = $pdo->prepare('SELECT 1 FROM project_participants WHERE order_id=? AND employee_id=?');
                             $access->execute([$orderId, (int)$actor['employee_id']]);
@@ -286,6 +325,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     if ($programTemplate) ps_intake_add_template_cost($orderId, $programTemplate, $actor, 'Excel 第' . $row['line'] . '行：程序套餐');
                     if ($domainTemplate) ps_intake_add_template_cost($orderId, $domainTemplate, $actor, 'Excel 第' . $row['line'] . '行：域名');
                     if ($serverTemplate) ps_intake_add_template_cost($orderId, $serverTemplate, $actor, 'Excel 第' . $row['line'] . '行：服务器');
+                    if (($row['direct_cost'] ?? '') !== '' && (float)$row['direct_cost'] != 0) {
+                        // 部门结算表的稿费 / 杂志社费用：¥500 以内自动通过，超过的由财务审核（与成本中心模板阈值一致）。
+                        $costAmount = round((float)$row['direct_cost'], 2);
+                        $costStatus = abs($costAmount) <= 500 ? 'approved' : 'pending';
+                        $pdo->prepare("INSERT INTO project_costs (order_id,category,item_name,quantity,unit,unit_price,amount,cost_kind,is_custom,reason,review_status,submitted_by_employee) VALUES (?,'outsourcing',?,1,'项',?,?,'one_time',1,?,?,?)")
+                            ->execute([$orderId, $selectedBusiness === '期刊' ? '杂志社 / 写手费用' : '写手稿费', $costAmount, $costAmount, 'Excel 第' . $row['line'] . '行导入', $costStatus, $actor['employee_id'] ?? null]);
+                    }
                     ps_audit('order', $orderId, 'import', $actor, ['line' => $row['line'], 'order_no' => $row['order_no'], 'domain_template_id' => $domainTemplate['id'] ?? null]);
                     $imported++;
                 }

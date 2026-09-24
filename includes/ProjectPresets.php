@@ -55,9 +55,11 @@ function ps_preset_cost_templates()
  */
 function ps_preset_rules()
 {
-    $r = function ($group, $type, $role, $kind, $mode, $rate, $fee, $subsidy = 0, $min = 0, $note = '', $minCost = null) {
-        return ['commission_group' => $group, 'project_type' => $type, 'role_name' => $role, 'order_kind' => $kind, 'calc_mode' => $mode, 'rate' => $rate, 'service_fee_rate' => $fee, 'per_order_subsidy' => $subsidy, 'min_contract_amount' => $min, 'note' => $note, 'min_cost_rate' => $minCost];
+    $r = function ($group, $type, $role, $kind, $mode, $rate, $fee, $subsidy = 0, $min = 0, $note = '', $minCost = null, $extra = []) {
+        return ['commission_group' => $group, 'project_type' => $type, 'role_name' => $role, 'order_kind' => $kind, 'calc_mode' => $mode, 'rate' => $rate, 'service_fee_rate' => $fee, 'per_order_subsidy' => $subsidy, 'min_contract_amount' => $min, 'note' => $note, 'min_cost_rate' => $minCost,
+            'allow_negative' => !empty($extra['allow_negative']) ? 1 : 0, 'low_profit_threshold' => $extra['low_threshold'] ?? null, 'low_profit_subsidy' => $extra['low_subsidy'] ?? null];
     };
+    $neg = ['allow_negative' => true];
     return [
         $r('technical', '网站模板', '*', '*', 'pool', 0.13, 0.03, 0, 0, '模板技术：(售价−空间域名−3%服务费)×13%'),
         $r('technical', '网站模板', '资料员', '*', 'pool', 0.10, 0.03, 0, 0, '资料员：×10%'),
@@ -78,6 +80,21 @@ function ps_preset_rules()
         $r('technical', '小程序开发', '*', '定制', 'pool', 0.30, 0.03, 20, 50, '定制技术 30% + 每单 20 元，售价低于 50 元不算'),
         $r('technical', '小程序开发', '定制技术15', '定制', 'pool', 0.15, 0.03, 20, 50, '翟建跃：定制 15% + 每单 20 元，售价低于 50 元不算'),
         $r('customer_service', '小额引流', '*', '*', 'pool', 0, 0, 3, 0, '小额引流：客服每单补助 3 元'),
+        // 代写部门《提成算法》：利润 = 售价 − 稿费 − 售价×5.7%；利润提成 4%，退款冲减按负数计入；单量提成利润 5 元以上 2.5 元/单、以下 1.5 元/单；同一旺旺 3 天内同一写手记为合并单不计单量。
+        $r('customer_service', '软文代写', '*', '*', 'pool', 0.04, 0.057, 2.5, 0, '代写客服：利润×4% + 单量 2.5 元/单（利润 5 元以下 1.5 元）', null, ['allow_negative' => true, 'low_threshold' => 5, 'low_subsidy' => 1.5]),
+        $r('customer_service', '软文代写', '*', '合并单', 'pool', 0.04, 0.057, 0, 0, '合并单（同一旺旺 3 天内同一写手）：只计利润提成，不计单量', null, $neg),
+        $r('customer_service', '软文代写', '*', '退款冲减', 'pool', 0.04, 0.057, 0, 0, '退款 / 换写手冲减：按负数冲减利润提成', null, $neg),
+        $r('technical', '软文代写', '*', '*', 'pool', 0, 0.057, 2.5, 0, '微信代写编辑对接建群：每单 2.5 元'),
+        $r('technical', '软文代写', '*', '合并单', 'pool', 0, 0.057, 0, 0, '合并单不计对接'),
+        $r('technical', '软文代写', '*', '退款冲减', 'pool', 0, 0.057, 0, 0, '冲减单不计对接'),
+        // 期刊：提成 = (利润 − 单量提成) × 3% + 单量提成 50 元/单 = 利润 × 3% + 48.5 元/单；利润 = 总价 − 杂志社/写手费用 − 服务费（店铺 5.7%，微信 0.35%）。
+        $r('customer_service', '期刊', '*', '*', 'pool', 0.03, 0.057, 48.5, 0, '期刊（店铺付款）：(利润 − 50)×3% + 50 元/单', null, $neg),
+        $r('customer_service', '期刊', '*', '店铺付款', 'pool', 0.03, 0.057, 48.5, 0, '期刊（店铺付款）：(利润 − 50)×3% + 50 元/单', null, $neg),
+        $r('customer_service', '期刊', '*', '微信付款', 'pool', 0.03, 0.0035, 48.5, 0, '期刊（微信付款，服务费 0.35%）：(利润 − 50)×3% + 50 元/单', null, $neg),
+        $r('customer_service', '期刊', '*', '代付版面费', 'pool', 0.03, 0.057, 0, 0, '代付版面费：不计单量，服务费照扣（冲减利润提成）', null, $neg),
+        // 微信代写：逐单只记毛利（售价 − 稿费）与订单补助；利润提成在月度“部门利润池分配”。
+        $r('customer_service', '微信代写', '*', '店铺订单', 'pool', 0, 0, 3, 0, '微信代写店铺订单：每单补助 3 元；毛利计入部门利润池'),
+        $r('customer_service', '微信代写', '*', '微信付款', 'pool', 0, 0, 0, 0, '微信付款订单：无补助；毛利计入部门利润池'),
     ];
 }
 
@@ -92,14 +109,16 @@ function ps_preset_template_exists($row)
 
 function ps_preset_rule_exists($row)
 {
-    $q = db()->prepare("SELECT rate,calc_mode,service_fee_rate,per_order_subsidy,min_contract_amount,min_cost_rate FROM project_commission_rules WHERE commission_group=? AND project_type=? AND role_name=? AND order_kind=? AND is_active=1 ORDER BY effective_from DESC,id DESC LIMIT 1");
+    $q = db()->prepare("SELECT rate,calc_mode,service_fee_rate,per_order_subsidy,min_contract_amount,min_cost_rate,allow_negative,low_profit_threshold,low_profit_subsidy FROM project_commission_rules WHERE commission_group=? AND project_type=? AND role_name=? AND order_kind=? AND is_active=1 ORDER BY effective_from DESC,id DESC LIMIT 1");
     $q->execute([$row['commission_group'], $row['project_type'], $row['role_name'], $row['order_kind']]);
     $current = $q->fetch();
     if (!$current) return 'new';
     $same = abs((float)$current['rate'] - $row['rate']) < 0.0000005 && $current['calc_mode'] === $row['calc_mode']
         && $current['service_fee_rate'] !== null && abs((float)$current['service_fee_rate'] - $row['service_fee_rate']) < 0.0000005
         && abs((float)$current['per_order_subsidy'] - $row['per_order_subsidy']) < 0.005 && abs((float)$current['min_contract_amount'] - $row['min_contract_amount']) < 0.005
-        && abs((float)$current['min_cost_rate'] - (float)($row['min_cost_rate'] ?? 0)) < 0.0000005;
+        && abs((float)$current['min_cost_rate'] - (float)($row['min_cost_rate'] ?? 0)) < 0.0000005
+        && (int)$current['allow_negative'] === (int)($row['allow_negative'] ?? 0)
+        && abs((float)$current['low_profit_threshold'] - (float)($row['low_profit_threshold'] ?? 0)) < 0.005 && abs((float)$current['low_profit_subsidy'] - (float)($row['low_profit_subsidy'] ?? 0)) < 0.005;
     return $same ? 'same' : 'differs';
 }
 
@@ -120,11 +139,11 @@ function ps_apply_preset_templates($actor)
 /** 新增缺失或参数不同的规则版本（2026-09-01 起生效）；已审核快照不受影响。 */
 function ps_apply_preset_rules($actor, $effectiveFrom = '2026-09-01')
 {
-    $insert = db()->prepare('INSERT INTO project_commission_rules (commission_group,project_type,role_name,order_kind,calc_mode,rate,service_fee_rate,per_order_subsidy,min_contract_amount,min_cost_rate,note,effective_from) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)');
+    $insert = db()->prepare('INSERT INTO project_commission_rules (commission_group,project_type,role_name,order_kind,calc_mode,rate,service_fee_rate,per_order_subsidy,min_contract_amount,min_cost_rate,allow_negative,low_profit_threshold,low_profit_subsidy,note,effective_from) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)');
     $added = 0;
     foreach (ps_preset_rules() as $row) {
         if (ps_preset_rule_exists($row) === 'same') continue;
-        $insert->execute([$row['commission_group'], $row['project_type'], $row['role_name'], $row['order_kind'], $row['calc_mode'], $row['rate'], $row['service_fee_rate'], $row['per_order_subsidy'], $row['min_contract_amount'], $row['min_cost_rate'] ?? null, $row['note'], $effectiveFrom]);
+        $insert->execute([$row['commission_group'], $row['project_type'], $row['role_name'], $row['order_kind'], $row['calc_mode'], $row['rate'], $row['service_fee_rate'], $row['per_order_subsidy'], $row['min_contract_amount'], $row['min_cost_rate'] ?? null, $row['allow_negative'] ?? 0, $row['low_profit_threshold'] ?? null, $row['low_profit_subsidy'] ?? null, $row['note'], $effectiveFrom]);
         $added++;
     }
     ps_audit('rule', 0, 'import_preset', $actor, ['added' => $added, 'effective_from' => $effectiveFrom]);

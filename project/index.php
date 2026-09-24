@@ -52,8 +52,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['bulk_action'])) {
             $orderNo = $row['order_no'];
             if (in_array($row['settlement_status'], ['approved', 'locked'], true)) throw new RuntimeException('已审核');
             if ($bulkAction === 'receipt') {
-                if ((float)$row['receipt_amount'] > 0) throw new RuntimeException('已有实收，未重复登记');
-                if ($row['price_source'] === 'missing' || (float)$row['contract_amount'] <= 0) throw new RuntimeException('售价待补');
+                if ((float)$row['receipt_amount'] != 0) throw new RuntimeException('已有实收，未重复登记');
+                $isOffset = ($row['order_kind'] ?? '') === '退款冲减' && (float)$row['contract_amount'] < 0;
+                if ($row['price_source'] === 'missing' || ((float)$row['contract_amount'] <= 0 && !$isOffset)) throw new RuntimeException('售价待补');
                 if (mb_strpos($row['trade_status'], '关闭') !== false || mb_strpos($row['trade_status'], '退款') !== false) throw new RuntimeException('店铺状态为“' . $row['trade_status'] . '”，请逐单核对');
                 db()->prepare("INSERT INTO project_cash_movements (order_id,movement_type,amount,note,review_status,submitted_by_type,submitted_by_id,reviewed_by_admin,reviewed_at) VALUES (?,'receipt',?,'批量按售价确认实收','approved','admin',?,?,NOW())")
                     ->execute([$orderId, $row['contract_amount'], $actor['id'], $actor['id']]);

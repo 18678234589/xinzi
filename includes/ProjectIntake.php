@@ -161,10 +161,20 @@ function ps_intake_domain_suggestion($resourceNote, $templates)
     return count($matches) === 1 ? $matches[0] : null;
 }
 
+/** 订单某组（技术 / 客服）是否已有参与人。 */
+function ps_import_group_taken($orderId, $group)
+{
+    $q = db()->prepare('SELECT 1 FROM project_participants WHERE order_id=? AND commission_group=? LIMIT 1');
+    $q->execute([(int)$orderId, $group]);
+    return (bool)$q->fetchColumn();
+}
+
 function ps_import_date($value)
 {
-    $value = trim((string)$value);
+    $value = rtrim(trim((string)$value), '.。'); // 容忍手录多打的句点，如“8.30.”
     if (is_numeric($value) && (float)$value > 30000) return gmdate('Y-m-d', ((int)$value - 25569) * 86400);
+    // Excel 把 8.3 / 8.7 存成浮点，读出来是 8.300000000000001：先按两位小数还原成“月.日”。
+    if (preg_match('/^\d{1,2}\.\d{3,}$/', $value) && (float)$value < 13) $value = rtrim(rtrim(number_format((float)$value, 2, '.', ''), '0'), '.');
     // 部门表常见写法：9.05 / 8.3（省略年份）、24.7.30（两位年份）、2026.8.3、8月3日。
     if (mb_strpos($value, '月') !== false) $value = str_replace(['年', '月', '日'], ['.', '.', ''], $value);
     if (preg_match('/^(?:(\d{2}|\d{4})[.\/-])?(\d{1,2})[.\/-](\d{1,2})$/', $value, $m)) {

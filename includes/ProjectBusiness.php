@@ -17,8 +17,12 @@ function ps_business_catalog()
         '小额引流' => ['departments' => [], 'resources' => false, 'requires_technical' => false, 'service_fee_rate' => 0, 'order_kinds' => [], 'fields' => ['refund_diff' => '客户退差价金额', 'service_item' => '业务说明']],
         '小程序客服' => ['departments' => ['小程序客服'], 'resources' => false, 'fields' => ['miniapp_name' => '小程序名称', 'service_item' => '服务事项'], 'legacy' => true],
         '设计' => ['departments' => ['设计客服','美工部'], 'resources' => false, 'order_kinds' => [], 'fields' => ['design_item' => '设计内容', 'deliverable' => '交付文件 / 规格']],
-        '代写客服' => ['departments' => ['代写客服'], 'resources' => false, 'order_kinds' => [], 'fields' => ['writing_topic' => '文稿主题', 'writing_volume' => '篇幅 / 字数']],
-        '期刊' => ['departments' => [], 'resources' => false, 'order_kinds' => [], 'fields' => ['journal_name' => '期刊名称', 'manuscript_ref' => '稿件编号 / 刊期']],
+        // 代写：店铺软文代写（代写客服接单，微信代写编辑“对接建群”作为协作执行）；成本 = 写手实际稿费，服务费 5.7%。
+        '软文代写' => ['departments' => ['代写客服', '代写.客服', '代写.主管'], 'resources' => false, 'requires_technical' => false, 'service_fee_rate' => 0.057, 'order_kinds' => ['新订单', '合并单', '退款冲减'], 'import_cost' => true, 'free_shop' => true, 'fields' => ['writer_code' => '写手编号', 'writing_volume' => '字数']],
+        // 期刊：店铺付款扣 5.7%，微信付款扣 0.35%；代付版面费单不计单量提成。
+        '期刊' => ['departments' => [], 'resources' => false, 'requires_technical' => false, 'service_fee_rate' => 0.057, 'order_kinds' => ['店铺付款', '微信付款', '代付版面费'], 'kind_required' => true, 'import_cost' => true, 'free_shop' => true, 'fields' => ['journal_name' => '发表刊物名称', 'manuscript_ref' => '稿件编号 / 刊期']],
+        // 微信代写：编辑员自接单（店铺订单每单补助 3 元），部门利润池按月分配（规则中心“部门利润池分配”）。
+        '微信代写' => ['departments' => ['微信代写客服', '微信代写售后', '微信营销部经理'], 'resources' => false, 'requires_technical' => false, 'service_fee_rate' => 0, 'order_kinds' => ['店铺订单', '微信付款'], 'kind_required' => true, 'import_cost' => true, 'free_shop' => true, 'fields' => ['writer_code' => '写手编号', 'writing_volume' => '字数']],
     ];
 }
 
@@ -42,7 +46,7 @@ function ps_business_fallback($department)
 function ps_business_normalize($name)
 {
     $name = trim((string)$name);
-    return ['AI开发定制' => 'AI网站定制', 'AI网站开发定制' => 'AI网站定制', '网站定制' => 'AI网站定制', '网站技术服务' => 'AI网站定制', '网站模板技术' => '网站模板', '服务器配置' => '环境配置', '小程序' => '小程序开发', '小程序商城' => '小程序开发', '小程序引流' => '小额引流'][$name] ?? $name;
+    return ['AI开发定制' => 'AI网站定制', 'AI网站开发定制' => 'AI网站定制', '网站定制' => 'AI网站定制', '网站技术服务' => 'AI网站定制', '网站模板技术' => '网站模板', '服务器配置' => '环境配置', '小程序' => '小程序开发', '小程序商城' => '小程序开发', '小程序引流' => '小额引流', '代写客服' => '软文代写', '代写' => '软文代写', '软文' => '软文代写', '期刊发表' => '期刊'][$name] ?? $name;
 }
 
 function ps_is_website_order($business)
@@ -149,19 +153,26 @@ function ps_business_import_columns($business)
     if (!$definition) throw new RuntimeException('业务类型无效');
     $labels = ps_business_people_labels($business);
     $columns = [
-        'order_date' => ['日期', '接单日期', '下单日期'],
-        'shop' => ['店铺'],
+        'order_date' => ['日期', '接单日期', '下单日期', '付款日期'],
+        'shop' => ['店铺', '店铺名称', '店铺编码'],
         'business' => ['业务'],
         'payment_nickname' => ['付款昵称', '付款账号', '付款人', '买家昵称'],
         'order_no' => ['订单编号', '订单号'],
-        'contract_amount' => ['售价', '金额', '订单金额'],
-        'status' => ['状态(填已完成/未完成)', '状态', '到账情况', '订单情况', '是否完成'],
+        'contract_amount' => ['售价', '金额', '订单金额', '总价（需支付至我司的价格）', '总价', '收入'],
+        'status' => ['状态(填已完成/未完成)', '状态', '到账情况', '订单情况', '是否完成', '收发货状态'],
         'contact_note' => ['备注（写客户电话或者微信）', '客户联系方式', '客户微信', '备注'],
-        'customer_service' => ['客服'],
-        'frontend' => array_values(array_unique([$labels['frontend'], '前端（技术）', '前端', '技术', '制作技术', '模板技术'])),
+        'customer_service' => ['客服', '客服姓名', '客服编号'],
+        'frontend' => array_values(array_unique([$labels['frontend'], '前端（技术）', '前端', '技术', '制作技术', '模板技术', '建群编辑', '编辑员'])),
         'backend' => array_values(array_unique([$labels['backend'], '后端', '技术协作', '协作技术'])),
     ];
     if (ps_business_order_kinds($business)) $columns['order_kind'] = ['订单类型', '类型'];
+    // 代写 / 期刊 / 微信代写：成本 = 写手稿费或杂志社费用，随订单导入；“提成”列为 0 的代写行识别为合并单；期刊“模式”列识别代付版面费。
+    if (!empty($definition['import_cost'])) {
+        $columns['direct_cost'] = ['实际稿费', '成本', '稿费', '杂志社费用'];
+        $columns['direct_cost2'] = ['我司写手承担写作的写手费用', '写手费用'];
+        $columns['unit_marker'] = ['提成'];
+        $columns['pay_mode'] = ['模式'];
+    }
     if (!empty($definition['program'])) $columns['program_name'] = ['程序名称', '程序套餐'];
     if ($definition['resources']) {
         $columns['domain_used'] = ['域名使用（写是/否）', '域名使用'];
@@ -215,5 +226,6 @@ function ps_business_people_labels($business)
     if ($business === '环境配置') return ['frontend' => '技术', 'backend' => '协作技术'];
     if ($business === '网站模板') return ['frontend' => '模板技术', 'backend' => '技术协作'];
     if ($business === '设计') return ['frontend' => '设计执行', 'backend' => '协作设计'];
+    if ($business === '软文代写') return ['frontend' => '对接编辑', 'backend' => '协作执行'];
     return ['frontend' => '项目执行', 'backend' => '协作执行'];
 }

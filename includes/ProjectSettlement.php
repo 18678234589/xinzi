@@ -81,7 +81,8 @@ function ps_recalculate_cash($orderId)
     $q = db()->prepare("SELECT COALESCE(SUM(CASE WHEN movement_type='receipt' THEN amount ELSE 0 END),0) AS receipt, COALESCE(SUM(CASE WHEN movement_type='refund' THEN amount ELSE 0 END),0) AS refund FROM project_cash_movements WHERE order_id=? AND review_status='approved'");
     $q->execute([(int)$orderId]);
     $totals = $q->fetch();
-    if ((float)$totals['refund'] > (float)$totals['receipt']) throw new RuntimeException('累计退款不能超过已审核实收');
+    // 退款冲减单（代写换写手、上月退款）以负数实收登记，不受“退款不超过实收”限制。
+    if ((float)$totals['refund'] > 0 && (float)$totals['refund'] > (float)$totals['receipt']) throw new RuntimeException('累计退款不能超过已审核实收');
     $update = db()->prepare('UPDATE project_orders SET receipt_amount=?,refund_amount=?,row_version=row_version+1 WHERE id=?');
     $update->execute([$totals['receipt'], $totals['refund'], (int)$orderId]);
 }
@@ -163,13 +164,23 @@ function ps_calc_person($rule, $income, $directCost, $contract, $weight, $busine
     $costBasis = $mode === 'individual' ? round($cost * (float)$weight, 2) : round($cost, 2);
     $feePart = $mode === 'pool' ? round($fee * (float)$weight, 2) : $fee;
     $base = round((float)$income - $costBasis - $feePart, 2);
+    // 提成按未取整的服务费计算（核算表按月售价合计 × 费率），展示仍用到分的服务费；差额进“分成尾差”。
+    $feeExact = (float)$contract * $feeRate * ($mode === 'pool' ? (float)$weight : 1);
+    $baseExact = (float)$income - $costBasis - $feeExact;
     $rate = (float)$rule['rate'];
     $min = (float)($rule['min_contract_amount'] ?? 0);
     $blocked = $min > 0 && (float)$contract < $min;
-    $share = $blocked ? 0.0 : max($base, 0) * $rate * ($mode === 'pool' ? (float)$weight : 1);
+    // allow_negative：退款冲减、亏损单按负数计入（代写/期刊按月合计口径）；否则单笔最低为 0。
+    $allowNegative = !empty($rule['allow_negative']);
+    $share = $blocked ? 0.0 : ($allowNegative ? $baseExact : max($baseExact, 0)) * $rate * ($mode === 'pool' ? (float)$weight : 1);
     $subsidy = $blocked ? 0.0 : round((float)($rule['per_order_subsidy'] ?? 0), 2);
+    // 低利润单补助：整单利润（收入 − 成本，不扣服务费，与代写结算表一致）低于门槛时改按低档补助（如代写利润 5 元以下 1.5 元/单）。
+    $lowThreshold = isset($rule['low_profit_threshold']) && $rule['low_profit_threshold'] !== null && $rule['low_profit_threshold'] !== '' ? (float)$rule['low_profit_threshold'] : null;
+    $orderProfit = round((float)$income - (float)$cost, 2);
+    $lowApplied = !$blocked && $lowThreshold !== null && $subsidy > 0 && $orderProfit < $lowThreshold;
+    if ($lowApplied) $subsidy = round((float)($rule['low_profit_subsidy'] ?? 0), 2);
     $note = '(收入 ' . money_plain($income) . ' − 成本 ' . money_plain($costBasis) . ($costNote !== '' ? '〔' . $costNote . '〕' : '') . ($floorApplied ? '〔售价×' . round($minCostRate * 100, 2) . '%〕' : '') . ($mode === 'individual' && (float)$weight < 1 ? '〔分摊 ' . round((float)$weight * 100, 2) . '%〕' : '') . ' − 服务费 ' . money_plain($feePart) . ') × ' . round($rate * 100, 4) . '%' . ($mode === 'pool' && (float)$weight < 1 ? ' × 权重 ' . round((float)$weight * 100, 2) . '%' : '');
-    if ($subsidy > 0) $note .= ' + 每单补助 ' . money_plain($subsidy);
+    if ($subsidy > 0) $note .= ' + 每单补助 ' . money_plain($subsidy) . ($lowApplied ? '（售价 − 成本 ' . money_plain($orderProfit) . ' 低于 ' . money_plain($lowThreshold) . '）' : '');
     if ($blocked) $note = '售价低于 ¥' . money_plain($min) . '，本单不计分成';
     return ['mode' => $mode, 'fee_rate' => $feeRate, 'fee' => $fee, 'fee_part' => $feePart, 'cost_basis' => $costBasis, 'base' => $base, 'rate' => $rate, 'weight' => (float)$weight, 'share' => $share, 'subsidy' => $subsidy, 'blocked' => $blocked, 'note' => $note];
 }
@@ -257,7 +268,7 @@ function ps_group_share_cents($people)
     foreach ($poolGroups as $members) {
         $first = reset($members);
         $weightSum = array_sum(array_map(function ($p) { return (float)$p['group_weight']; }, $members));
-        $subPoolCents = (int)round(max($first['calc']['base'], 0) * $first['calc']['rate'] * $weightSum * 100);
+        $subPoolCents = (int)round((!empty($first['rule']['allow_negative']) ? $first['calc']['base'] : max($first['calc']['base'], 0)) * $first['calc']['rate'] * $weightSum * 100);
         $normalized = array_map(function ($p) use ($weightSum) { return ['group_weight' => $weightSum > 0 ? (float)$p['group_weight'] / $weightSum : 0]; }, array_values($members));
         $shares = ps_allocate_pool_cents($subPoolCents, $normalized);
         foreach (array_keys($members) as $n => $i) $cents[$i] = $shares[$n];
@@ -346,7 +357,9 @@ function ps_approve_order($orderId, $actor, $payrollMonth)
         if ($order['delivery_status'] !== 'finished') throw new RuntimeException('项目尚未完成');
         if (!empty(ps_business_catalog()[ps_business_normalize($order['project_type'])]['kind_required']) && trim((string)($order['order_kind'] ?? '')) === '') throw new RuntimeException('请先选择订单类型（新订单 / 定制 / 续费），它决定分成比例和每单补助');
         $hasSubsidy = $sum['groups']['technical']['subsidy'] > 0 || $sum['groups']['customer_service']['subsidy'] > 0;
-        if ($sum['income'] <= 0 && !$hasSubsidy) throw new RuntimeException('没有可结算的实收收入');
+        $allowsNegative = false;
+        foreach ($sum['groups'] as $group) foreach ($group['people'] as $person) if (!empty($person['rule']['allow_negative'])) $allowsNegative = true;
+        if ($sum['income'] <= 0 && !$hasSubsidy && !($allowsNegative && $sum['income'] < 0)) throw new RuntimeException('没有可结算的实收收入');
         if ($sum['service_fee_rate'] > 0 && (float)$order['contract_amount'] <= 0 && $sum['income'] > 0) throw new RuntimeException($order['project_type'] . '订单须先核对售价，才能计算 ' . round($sum['service_fee_rate'] * 100, 2) . '% 店铺服务费');
         $cashPending = $pdo->prepare("SELECT COUNT(*) FROM project_cash_movements WHERE order_id=? AND review_status='pending'");
         $cashPending->execute([$orderId]);
@@ -503,7 +516,7 @@ function ps_post_adjustment($orderId, $actor, $refundAmount, $costDelta, $reason
         $phpCost = 0.0;
         foreach (ps_costs((int)$orderId) as $cost) if ($cost['review_status'] === 'approved') { $directCost += (float)$cost['amount']; if (ps_is_php_cost($cost)) $phpCost += (float)$cost['amount']; }
         $businessFeeRate = ps_business_service_fee_rate($order['project_type']);
-        $snapshots = $pdo->prepare('SELECT s.*,r.service_fee_rate AS r_fee,r.min_contract_amount AS r_min,r.min_cost_rate AS r_min_cost,r.id AS live_rule_id FROM project_commission_snapshots s LEFT JOIN project_commission_rules r ON r.id=s.rule_id WHERE s.order_id=? ORDER BY s.commission_group,s.id');
+        $snapshots = $pdo->prepare('SELECT s.*,r.service_fee_rate AS r_fee,r.min_contract_amount AS r_min,r.min_cost_rate AS r_min_cost,r.allow_negative AS r_allow_negative,r.id AS live_rule_id FROM project_commission_snapshots s LEFT JOIN project_commission_rules r ON r.id=s.rule_id WHERE s.order_id=? ORDER BY s.commission_group,s.id');
         $snapshots->execute([(int)$orderId]);
         $prior = $pdo->prepare('SELECT COALESCE(SUM(amount),0) FROM project_commission_adjustments WHERE order_id=? AND employee_id=? AND commission_group=?');
         $insert = $pdo->prepare('INSERT INTO project_commission_adjustments (order_id,employee_id,commission_group,amount,payroll_month,reason,calc_note,cash_movement_id,created_by_admin) VALUES (?,?,?,?,?,?,?,?,?)');
@@ -511,7 +524,7 @@ function ps_post_adjustment($orderId, $actor, $refundAmount, $costDelta, $reason
         foreach ($snapshots->fetchAll() as $snap) {
             // 比例、方式、补助、服务费全部取自审核快照（服务费率 = 快照服务费 ÷ 售价），规则之后被修改不影响已审核订单口径。
             $feeRate = (float)$order['contract_amount'] > 0 ? round((float)$snap['service_fee'] / (float)$order['contract_amount'], 6) : 0;
-            $rule = ['id' => (int)$snap['rule_id'], 'rate' => $snap['rate'], 'calc_mode' => $snap['calc_mode'], 'service_fee_rate' => $feeRate, 'per_order_subsidy' => $snap['subsidy_amount'], 'min_contract_amount' => $snap['r_min'] ?? 0, 'min_cost_rate' => $snap['r_min_cost'] ?? null];
+            $rule = ['id' => (int)$snap['rule_id'], 'rate' => $snap['rate'], 'calc_mode' => $snap['calc_mode'], 'service_fee_rate' => $feeRate, 'per_order_subsidy' => $snap['subsidy_amount'], 'min_contract_amount' => $snap['r_min'] ?? 0, 'min_cost_rate' => $snap['r_min_cost'] ?? null, 'allow_negative' => $snap['r_allow_negative'] ?? 0];
             [$phpAdjusted, $phpNote] = $phpCost > 0 ? ps_php_cost_for((float)$order['contract_amount'], $snap['commission_group'], (string)$snap['role_name'], $phpCost) : [0.0, ''];
             $calc = ps_calc_person($rule, $income, round($directCost - $phpCost + $phpAdjusted, 2), $order['contract_amount'], $snap['group_weight'], $businessFeeRate, $phpNote);
             if ($income <= 0) { $calc['share'] = 0.0; $calc['subsidy'] = 0.0; }
