@@ -7,11 +7,12 @@ $cost = $q->fetch();
 if (!$cost || !$cost['proof_path']) { http_response_code(404); exit('凭证不存在'); }
 ps_order((int)$cost['order_id'], $actor);
 $name = basename($cost['proof_path']);
-$file = dirname(__DIR__, 2) . '/project_proofs_private/' . $name;
-if (!is_file($file)) { http_response_code(404); exit('凭证文件不存在'); }
-$mime = (new finfo(FILEINFO_MIME_TYPE))->file($file);
+$data = ps_private_read('proofs', $name);
+if ($data === null) { http_response_code(404); exit('凭证文件不存在'); }
+$mime = (new finfo(FILEINFO_MIME_TYPE))->buffer($data);
 if (!in_array($mime, ['image/jpeg','image/png','application/pdf'], true)) { http_response_code(404); exit('文件类型无效'); }
 header('Content-Type: ' . $mime);
 header('Content-Disposition: inline; filename="proof-' . $costId . '"');
 header('X-Content-Type-Options: nosniff');
-readfile($file);
+header('Content-Length: ' . strlen($data));
+echo $data;

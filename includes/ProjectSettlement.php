@@ -310,6 +310,51 @@ function ps_technical_reconciliation_summary($rows)
     return ['pending' => $pending, 'deduction' => $deductionCents / 100];
 }
 
+/*
+ * 私有文件（付款凭证、原始上传表格）：存放在站点目录内 storage/private/<类别>/。
+ * 线上 PHP 的 open_basedir 只允许站点目录和 /tmp，不能写到站点目录外；为防止被直接下载，
+ * 每个文件都存成 .php、以“返回 404 并退出”的 PHP 代码开头——即使路径被猜到，Web 服务器也只会执行它返回 404。
+ */
+const PS_PRIVATE_GUARD = "<?php http_response_code(404); exit; ?>
+";
+
+function ps_private_dir($kind)
+{
+    $dir = dirname(__DIR__) . '/storage/private/' . preg_replace('/[^a-z_]/', '', $kind);
+    if (!is_dir($dir) && !@mkdir($dir, 0700, true) && !is_dir($dir)) throw new RuntimeException('无法创建私有文件目录，请联系管理员检查 storage 目录权限');
+    if (!is_file($dir . '/index.php')) @file_put_contents($dir . '/index.php', PS_PRIVATE_GUARD);
+    return $dir;
+}
+
+/** 保存私有文件，返回存储名（不含 .php 后缀）。 */
+function ps_private_store($kind, $sourcePath, $name)
+{
+    $data = @file_get_contents($sourcePath);
+    if ($data === false) throw new RuntimeException('上传文件读取失败，请重新上传');
+    $name = basename($name);
+    if (@file_put_contents(ps_private_dir($kind) . '/' . $name . '.php', PS_PRIVATE_GUARD . $data, LOCK_EX) === false) throw new RuntimeException('文件保存失败，请联系管理员检查 storage 目录权限');
+    return $name;
+}
+
+/** 读取私有文件内容；不存在时返回 null。 */
+function ps_private_read($kind, $name)
+{
+    $path = ps_private_dir($kind) . '/' . basename($name) . '.php';
+    if (!is_file($path)) return null;
+    $data = file_get_contents($path);
+    return strpos($data, PS_PRIVATE_GUARD) === 0 ? substr($data, strlen(PS_PRIVATE_GUARD)) : null;
+}
+
+/** 私有文件复制到临时文件（供需要真实路径的解析器使用，如 xlsx 的 zip 读取），调用方负责删除。 */
+function ps_private_temp_copy($kind, $name)
+{
+    $data = ps_private_read($kind, $name);
+    if ($data === null) return null;
+    $temp = tempnam(sys_get_temp_dir(), 'ps_');
+    file_put_contents($temp, $data);
+    return $temp;
+}
+
 function ps_upload_proof($field)
 {
     if (empty($_FILES[$field]['name']) || $_FILES[$field]['error'] !== UPLOAD_ERR_OK) throw new RuntimeException('请上传付款凭证');
@@ -317,11 +362,8 @@ function ps_upload_proof($field)
     $mime = (new finfo(FILEINFO_MIME_TYPE))->file($_FILES[$field]['tmp_name']);
     $ext = ['image/jpeg' => 'jpg', 'image/png' => 'png', 'application/pdf' => 'pdf'][$mime] ?? null;
     if (!$ext) throw new RuntimeException('凭证仅支持 JPG、PNG 或 PDF');
-    $folder = dirname(__DIR__, 2) . '/project_proofs_private';
-    if (!is_dir($folder) && !mkdir($folder, 0700, true)) throw new RuntimeException('无法创建凭证目录');
-    $filename = bin2hex(random_bytes(16)) . '.' . $ext;
-    if (!move_uploaded_file($_FILES[$field]['tmp_name'], $folder . '/' . $filename)) throw new RuntimeException('凭证保存失败');
-    return $filename;
+    if (!is_uploaded_file($_FILES[$field]['tmp_name'])) throw new RuntimeException('凭证上传无效，请重新上传');
+    return ps_private_store('proofs', $_FILES[$field]['tmp_name'], bin2hex(random_bytes(16)) . '.' . $ext);
 }
 
 function ps_approve_order($orderId, $actor, $payrollMonth)

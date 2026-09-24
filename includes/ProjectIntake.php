@@ -240,20 +240,12 @@ function ps_import_domain_mode($text)
 
 /* ---------- 原始上传表格：保存、读取、权限 ---------- */
 
-function ps_import_file_dir()
-{
-    return dirname(__DIR__, 2) . '/project_imports_private';
-}
-
 /** 保存上传的原始表格（站点目录外），返回记录 id。 */
 function ps_import_file_store($file, $business, $actor)
 {
     $ext = strtolower(pathinfo((string)$file['name'], PATHINFO_EXTENSION));
     if (!in_array($ext, ['xlsx', 'csv'], true)) throw new RuntimeException('文件仅支持 XLSX 或 CSV');
-    $dir = ps_import_file_dir();
-    if (!is_dir($dir) && !mkdir($dir, 0700, true)) throw new RuntimeException('无法创建原始表格目录');
-    $stored = date('Ym') . '_' . bin2hex(random_bytes(12)) . '.' . $ext;
-    if (!move_uploaded_file($file['tmp_name'], $dir . '/' . $stored) && !copy($file['tmp_name'], $dir . '/' . $stored)) throw new RuntimeException('原始表格保存失败');
+    $stored = ps_private_store('imports', $file['tmp_name'], date('Ym') . '_' . bin2hex(random_bytes(12)) . '.' . $ext);
     db()->prepare('INSERT INTO project_import_files (business_name,original_name,stored_name,file_size,uploaded_by_type,uploaded_by_id,employee_id) VALUES (?,?,?,?,?,?,?)')
         ->execute([$business, mb_substr(basename((string)$file['name']), 0, 255), $stored, (int)$file['size'], $actor['type'], (int)$actor['id'], $actor['employee_id'] ?? null]);
     return (int)db()->lastInsertId();
@@ -267,13 +259,21 @@ function ps_import_file_get($id, $actor)
     $row = $q->fetch();
     if (!$row) throw new RuntimeException('原始表格不存在');
     if ($actor['role'] !== 'finance' && ((int)$row['employee_id'] !== (int)($actor['employee_id'] ?? 0) || $row['uploaded_by_type'] !== $actor['type'])) throw new RuntimeException('只能查看本人上传的表格');
-    $row['path'] = ps_import_file_dir() . '/' . basename($row['stored_name']);
-    if (!is_file($row['path'])) throw new RuntimeException('原始文件已不存在');
+    $row['content'] = ps_private_read('imports', $row['stored_name']);
+    if ($row['content'] === null) throw new RuntimeException('原始文件已不存在');
     return $row;
 }
 
 /** 解析全部工作表：['工作表名' => [[单元格...], ...]]；CSV 视为一张表。 */
 function ps_import_file_sheets($row)
+{
+    // 解析需要真实文件路径（zip），临时复制到 /tmp，读完即删
+    $row['path'] = tempnam(sys_get_temp_dir(), 'psx_');
+    file_put_contents($row['path'], $row['content']);
+    try { return ps_import_file_parse($row); } finally { @unlink($row['path']); }
+}
+
+function ps_import_file_parse($row)
 {
     if (strtolower(pathinfo($row['stored_name'], PATHINFO_EXTENSION)) === 'csv') {
         $rows = [];

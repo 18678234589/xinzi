@@ -10,9 +10,9 @@ if (isset($_GET['download'])) {
     $name = $file['original_name'] !== '' ? $file['original_name'] : basename($file['stored_name']);
     header('Content-Type: ' . (substr($file['stored_name'], -4) === '.csv' ? 'text/csv; charset=UTF-8' : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'));
     header('Content-Disposition: attachment; filename="' . rawurlencode($name) . '"; filename*=UTF-8\'\'' . rawurlencode($name));
-    header('Content-Length: ' . filesize($file['path']));
+    header('Content-Length: ' . strlen($file['content']));
     header('X-Content-Type-Options: nosniff');
-    readfile($file['path']);
+    echo $file['content'];
     exit;
 }
 
