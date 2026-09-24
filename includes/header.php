@@ -67,8 +67,9 @@ $nav = function ($href, $icon, $label, $active) {
     <link href="<?php echo BASE_URL; ?>/assets/css/project-intake.css" rel="stylesheet">
     <link href="<?php echo BASE_URL; ?>/assets/css/theme.css" rel="stylesheet">
     <?php if (($_rel ?? '') === 'project/dashboard.php'): ?><link href="<?php echo BASE_URL; ?>/assets/css/partner-dashboard.css" rel="stylesheet"><?php endif; ?>
+    <?php if (($_rel ?? '') === 'project/dashboard.php'): ?><link href="<?php echo BASE_URL; ?>/assets/css/partner-dashboard-future.css" rel="stylesheet"><?php endif; ?>
 </head>
-<body class="app-warm">
+<body class="app-warm<?php echo ($_rel ?? '') === 'project/dashboard.php' ? ' pd-shell' : ''; ?>">
 <nav class="navbar navbar-expand-lg navbar-light fixed-top app-topbar">
     <button class="app-menu-btn d-lg-none" type="button" id="sidebarToggle" aria-label="打开菜单"><i class="fas fa-bars"></i></button>
     <a class="navbar-brand" href="<?php echo BASE_URL; ?><?php echo $project_staff ? '/project/index.php' : '/index.php'; ?>"><span class="app-brand-mark"><i class="fas fa-seedling"></i></span> 项目合作结算中心</a>

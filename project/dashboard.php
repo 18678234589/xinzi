@@ -66,9 +66,11 @@ $netDelta = $summary['net'] - $previous['net'];
 ?>
 <div class="partner-dashboard">
   <section class="pd-hero">
-    <div><span class="pd-eyebrow"><i class="fas fa-seedling"></i> 每月复盘 · 把努力看得更清楚</span>
+    <div class="pd-hero-orbit" aria-hidden="true"><i></i><i></i><i></i></div>
+    <div class="pd-hero-copy"><span class="pd-eyebrow"><i class="pd-signal-dot" aria-hidden="true"></i> CO-CREATION / 月度经营洞察</span>
       <h1><?php echo e($person['name']); ?>的经营看板</h1>
       <p><?php echo e($month); ?> 订单归属月 · <?php echo e($person['department'] ?: '项目合作方'); ?>。看清进展，也找到下一步。</p>
+      <span class="pd-hero-caption"><i class="fas fa-bolt" aria-hidden="true"></i> 数据为锚 · 判断为光 · 与平台一起向前</span>
     </div>
     <form method="get" class="pd-filter" aria-label="选择看板月份和合作方">
       <?php if ($actor['role'] === 'finance'): ?><label>合作人员<select name="employee_id" class="form-control" onchange="this.form.submit()" aria-label="选择合作人员"><?php foreach ($people as $p): ?><option value="<?php echo (int)$p['id']; ?>" <?php echo $employeeId === (int)$p['id'] ? 'selected' : ''; ?>><?php echo e($p['name'] . ($p['department'] ? ' · ' . $p['department'] : '')); ?></option><?php endforeach; ?></select></label><?php endif; ?>
@@ -79,19 +81,22 @@ $netDelta = $summary['net'] - $previous['net'];
 
   <div class="pd-note"><i class="fas fa-info-circle"></i> 以下按订单日期归属到所选月份，并按本人分单权重计算；跨岗位参与同一单最多计 100%。实收和退款为当前已审核累计金额，可能包含次月发生的收退款，不代表该月现金流水。</div>
 
+  <div class="pd-section-label"><span>01 / 经营脉搏</span><small>清晰看见每一步</small></div>
   <section class="pd-kpis" aria-label="经营数据">
-    <article class="pd-kpi"><span>参与订单</span><strong><?php echo (int)$summary['orders']; ?> <small>单</small></strong><em>上月 <?php echo (int)$previous['orders']; ?> 单</em></article>
-    <article class="pd-kpi"><span>订单成交额</span><strong>¥<?php echo money($summary['contract']); ?></strong><em>按本人分单权重归属</em></article>
-    <article class="pd-kpi pd-kpi-primary"><span>订单净实收</span><strong>¥<?php echo money($summary['net']); ?></strong><em>较前月 <?php echo $netDelta >= 0 ? '+' : '−'; ?>¥<?php echo money(abs($netDelta)); ?></em></article>
-    <article class="pd-kpi"><span>退款率</span><strong><?php echo e($rateText); ?></strong><em>退款 ¥<?php echo money($summary['refunds']); ?> / 已审核实收 ¥<?php echo money($summary['receipts']); ?></em></article>
+    <article class="pd-kpi"><b class="pd-kpi-id" aria-hidden="true">01 / ORDERS</b><span>参与订单</span><strong><?php echo (int)$summary['orders']; ?> <small>单</small></strong><em>上月 <?php echo (int)$previous['orders']; ?> 单</em></article>
+    <article class="pd-kpi"><b class="pd-kpi-id" aria-hidden="true">02 / VALUE</b><span>订单成交额</span><strong>¥<?php echo money($summary['contract']); ?></strong><em>按本人分单权重归属</em></article>
+    <article class="pd-kpi pd-kpi-primary"><b class="pd-kpi-id" aria-hidden="true">03 / VERIFIED</b><span>订单净实收</span><strong>¥<?php echo money($summary['net']); ?></strong><em>较前月 <?php echo $netDelta >= 0 ? '+' : '−'; ?>¥<?php echo money(abs($netDelta)); ?></em></article>
+    <article class="pd-kpi"><b class="pd-kpi-id" aria-hidden="true">04 / REFUNDS</b><span>退款率</span><strong><?php echo e($rateText); ?></strong><em>退款 ¥<?php echo money($summary['refunds']); ?> / 已审核实收 ¥<?php echo money($summary['receipts']); ?></em></article>
   </section>
   <?php if ($summary['unverified_cash_orders']): ?><div class="pd-data-note"><i class="fas fa-receipt"></i> <?php echo (int)$summary['unverified_cash_orders']; ?> 单尚无已审核实收：成交额可看，净实收与退款率要等财务完成收款核对后再判断；这不计为个人异常。</div><?php endif; ?>
 
+  <div class="pd-section-label"><span>02 / 业务信号</span><small>把数据变成下一步的线索</small></div>
   <div class="pd-grid">
     <section class="pd-panel"><div class="pd-panel-title"><div><span class="pd-icon"><i class="fas fa-layer-group"></i></span><h2>业务构成</h2></div><small><?php echo $summary['receipts'] > 0 ? '按净实收排序' : '实收待核对 · 按订单数查看'; ?></small></div>
       <?php if (!$summary['businesses']): ?><div class="pd-empty">暂时没有关联订单。录入订单并关联参与人后，这里会自动呈现。</div><?php else: ?>
-      <div class="pd-businesses"><?php foreach ($summary['businesses'] as $name => $item): ?>
-        <div class="pd-business"><div><strong><?php echo e($name); ?></strong><small><?php echo (int)$item['orders']; ?> 单</small></div><span>¥<?php echo money($item['net']); ?></span></div>
+      <?php $businessScale = $summary['receipts'] > 0 ? max(1, ...array_map(static fn($x) => max(0, (float)$x['net']), $summary['businesses'])) : max(1, ...array_column($summary['businesses'], 'orders')); ?>
+      <div class="pd-businesses"><?php foreach ($summary['businesses'] as $name => $item): $businessValue = $summary['receipts'] > 0 ? max(0, (float)$item['net']) : (int)$item['orders']; $businessShare = min(100, round($businessValue / $businessScale * 100, 1)); ?>
+        <div class="pd-business"><div><strong><?php echo e($name); ?></strong><small><?php echo (int)$item['orders']; ?> 单</small></div><span>¥<?php echo money($item['net']); ?></span><div class="pd-business-track" aria-hidden="true"><i style="--pd-fill:<?php echo $businessShare; ?>%"></i></div></div>
       <?php endforeach; ?></div><?php endif; ?>
     </section>
     <section class="pd-panel"><div class="pd-panel-title"><div><span class="pd-icon amber"><i class="fas fa-clipboard-check"></i></span><h2>待核对清单</h2></div><small><?php echo (int)$summary['alert_count']; ?> 单需关注</small></div>
@@ -101,6 +106,7 @@ $netDelta = $summary['net'] - $previous['net'];
     </section>
   </div>
 
+  <div class="pd-section-label"><span>03 / 共创方向</span><small>把经验变成未来的底气</small></div>
   <section class="pd-panel pd-insight" id="pd-insight" data-autoload="<?php echo !$insight && $summary['orders'] && ps_ai_ready() ? '1' : '0'; ?>">
     <div class="pd-panel-title"><div><span class="pd-icon purple"><i class="fas fa-sparkles"></i></span><h2>给你的经营建议</h2></div><small id="pd-source"><?php echo $insight ? 'AI 已生成 · 数据变化后会更新' : '基于现有订单的规则建议'; ?></small></div>
     <div class="pd-insight-grid"><div><span>你做得好的地方</span><p id="pd-strength"><?php echo e(($insight ?: $fallback)['strength']); ?></p></div><div><span>一起留意</span><p id="pd-risk"><?php echo e(($insight ?: $fallback)['risk']); ?></p></div><div><span>未来机会 · 一起验证</span><p id="pd-opportunity"><?php echo e(($insight ?: $fallback)['opportunity']); ?></p></div><div class="pd-future"><span>一起成长的方向</span><p id="pd-future_path"><?php echo e(($insight ?: $fallback)['future_path']); ?></p></div></div>
@@ -132,6 +138,38 @@ $netDelta = $summary['net'] - $previous['net'];
   }
   button.addEventListener('click', generate);
   if (box.dataset.autoload === '1') generate();
+})();
+(function () {
+  var reduceMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  if (reduceMotion) return;
+  var panels = document.querySelectorAll('.pd-grid .pd-panel, .pd-insight');
+  if ('IntersectionObserver' in window) {
+    var observer = new IntersectionObserver(function (entries) {
+      entries.forEach(function (entry) {
+        if (!entry.isIntersecting) return;
+        entry.target.classList.add('pd-in');
+        entry.target.addEventListener('animationend', function () { entry.target.classList.remove('pd-in'); }, {once: true});
+        observer.unobserve(entry.target);
+      });
+    }, {threshold: .12});
+    panels.forEach(function (panel) { observer.observe(panel); });
+  }
+  if (!window.matchMedia || !window.matchMedia('(pointer: fine)').matches) return;
+  document.querySelectorAll('.pd-kpi, .pd-panel').forEach(function (card) {
+    var frame = 0, eventPoint = null;
+    card.addEventListener('pointermove', function (event) {
+      eventPoint = [event.clientX, event.clientY];
+      if (frame) return;
+      frame = requestAnimationFrame(function () {
+        frame = 0;
+        if (!eventPoint) return;
+        var rect = card.getBoundingClientRect();
+        card.style.setProperty('--spot-x', (eventPoint[0] - rect.left) + 'px');
+        card.style.setProperty('--spot-y', (eventPoint[1] - rect.top) + 'px');
+      });
+    }, {passive: true});
+    card.addEventListener('pointerleave', function () { eventPoint = null; card.style.removeProperty('--spot-x'); card.style.removeProperty('--spot-y'); });
+  });
 })();
 </script>
 <?php include __DIR__ . '/../includes/footer.php'; ?>
