@@ -1,0 +1,3 @@
+SHELL=/bin/sh
+PATH=/usr/sbin:/usr/bin:/sbin:/bin
+17 0 * * * root /usr/bin/php /www/wwwroot/xinzi.206.yjkj2026.cn/jobs/governance_penalty_sync.php 2>&1 | /usr/bin/logger -t xinzi-governance

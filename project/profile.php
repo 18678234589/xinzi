@@ -48,13 +48,14 @@ $csrf = e(ps_csrf_token());
 <div class="project-hero mb-3"><div><div class="project-eyebrow">项目合作结算中心 · 我的账号</div><h2><?php echo $needPhone ? '欢迎，' . e($me['name']) : '我的账号'; ?></h2><p><?php echo $needPhone ? '第一次登录，请先绑定手机号。绑定后可以用手机号或登录名 ' . e($me['username']) . ' 登录。' : '登录名 ' . e($me['username']) . ' · 手机号 ' . e(substr($me['phone'], 0, 3) . '****' . substr($me['phone'], -4)) . '，两者都可以登录。'; ?></p></div></div>
 <?php if ($error): ?><div class="alert alert-danger"><?php echo e($error); ?></div><?php endif; ?>
 <?php if ($success): ?><div class="alert alert-success"><?php echo e($success); ?></div><?php endif; ?>
-<?php if (isset($_GET['bound'])): ?><div class="alert alert-success">手机号绑定成功，现在可以使用系统了。<a href="<?php echo BASE_URL; ?>/project/index.php">进入我的项目订单 →</a></div><?php endif; ?>
-<?php if (!$needPhone && empty($me['password_changed_at'])): ?><div class="alert alert-warning">你还在使用默认密码（登录名 / 姓名拼音），别人知道你的登录名就能看到你的订单和报酬，建议现在修改。</div><?php endif; ?>
+<?php if (isset($_GET['bound'])): ?><div class="alert alert-success">手机号绑定成功。<?php if ($me['role'] === 'governance'): ?>请先修改初始密码，再进入管理层工作台。<?php else: ?><a href="<?php echo BASE_URL; ?>/project/index.php">进入我的项目订单 →</a><?php endif; ?></div><?php endif; ?>
+<?php if (!$needPhone && empty($me['password_changed_at'])): ?><div class="alert alert-warning"><?php echo $me['role'] === 'governance' ? '首次使用管理层工作台，请先把初始密码改为仅自己知道的新密码。' : '你还在使用默认密码，建议现在修改。'; ?></div><?php endif; ?>
+<?php if ($me['role'] === 'governance' && !empty($me['password_changed_at'])): ?><a class="btn btn-success mb-3" href="<?php echo BASE_URL; ?>/project/governance_ideas.php">进入管理层工作台 →</a><?php endif; ?>
 
 <div class="card mb-3"><div class="card-header"><?php echo $needPhone ? '① 绑定手机号（必填）' : '修改手机号'; ?></div><div class="card-body">
 <form method="post" class="form-row align-items-end"><input type="hidden" name="csrf" value="<?php echo $csrf; ?>"><input type="hidden" name="action" value="phone">
 <div class="form-group col-md-5"><label for="phone">手机号</label><input class="form-control" id="phone" name="phone" inputmode="numeric" maxlength="11" pattern="1[3-9][0-9]{9}" required value="<?php echo e($_POST['phone'] ?? ($me['phone'] ?? '')); ?>" placeholder="11 位手机号"></div>
-<div class="form-group col-md-4"><label for="phoneCurrent">当前密码</label><input class="form-control" id="phoneCurrent" type="password" name="current_password" required autocomplete="current-password" placeholder="<?php echo empty($me['password_changed_at']) ? '默认为登录名（姓名拼音）' : ''; ?>"></div>
+<div class="form-group col-md-4"><label for="phoneCurrent">当前密码</label><input class="form-control" id="phoneCurrent" type="password" name="current_password" required autocomplete="current-password" placeholder="<?php echo empty($me['password_changed_at']) ? ($me['role'] === 'governance' ? '首次发放的初始密码' : '默认为登录名（姓名拼音）') : ''; ?>"></div>
 <div class="form-group col-md-3"><button class="btn btn-primary btn-block"><?php echo $needPhone ? '绑定并开始使用' : '保存手机号'; ?></button></div>
 </form></div></div>
 

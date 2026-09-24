@@ -15,6 +15,9 @@ foreach ([
     '20260924_payment_reference.sql', '20260924_refund_linkage.sql',
     '20260924_department_orders.sql',
     '20260924_governance_incentives.sql',
+    '20260924_governance_accounts.sql',
+    '20260924_governance_fixed_fees.sql',
+    '20260924_governance_cycles.sql',
 ] as $migration) {
     $sql = file_get_contents(__DIR__ . '/' . $migration);
     if ($sql === false) { fwrite(STDERR, "无法读取迁移文件：$migration\n"); exit(1); }

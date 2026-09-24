@@ -70,5 +70,39 @@
 .governance-rule > p { color: #506d5b; font-size: 13px; line-height: 1.7; }
 .governance-rule-facts { padding-top: 10px; border-top: 1px solid #edf2ed; }
 .governance-rule .governance-review { margin-top: 16px; }
+.governance-idea-layout { display: grid; grid-template-columns: minmax(0,1.65fr) minmax(260px,.75fr); gap: 16px; align-items: start; }
+.governance-idea-form { position: relative; background: linear-gradient(145deg,#ffffff 60%,#f3fbf5); }
+.governance-idea-form textarea { min-height: 138px; resize: vertical; }
+.governance-step { display: inline-block; margin-bottom: 9px; font-size: 10px; font-weight: 800; letter-spacing: .12em; color: #51a479; }
+.governance-idea-orb { display: grid; place-items: center; width: 55px; height: 55px; border-radius: 18px; color: #ffdda1; background: linear-gradient(145deg,#244d48,#286e56); box-shadow: 0 12px 24px -12px #215441; font-size: 24px; }
+.governance-idea-side { background: radial-gradient(circle at 100% 0%,rgba(144,216,171,.18),transparent 52%),#fff; }
+.governance-idea-side p { color: #6b8275; font-size: 13px; line-height: 1.7; }
+.governance-idea-counter { display: flex; gap: 10px; align-items: baseline; margin: 26px 0 20px; padding: 16px; border-radius: 13px; background: #edf7ee; color: #396f50; }
+.governance-idea-counter strong { font-size: 31px; line-height: 1; }
+.governance-idea-side a { color: #2a7957; font-size: 12px; font-weight: 700; }
+.governance-decision { display: flex; align-items: center; flex-wrap: wrap; gap: 9px; margin: 13px 0; font-size: 12px; }
+.governance-decision > span { color: #5b7969; font-weight: 750; }
+.governance-decision label { margin: 0; padding: 8px 11px; border: 1px solid #dcebe0; border-radius: 9px; background: #f8fbf7; cursor: pointer; }
+.governance-decision label:has(input:checked) { border-color: #6db88c; background: #ebf7ef; }
+.governance-decision input { accent-color: #2e805e; }
+.governance-idea-form .governance-submit { margin-top: 18px; min-width: 205px; box-shadow: 0 9px 19px -12px #205c43; }
+.governance-ideas-page .governance-record { padding: 22px 0; }
+.governance-ideas-page .governance-record h3 { font-size: 17px; }
+.governance-new-rule { margin-top: 0; }
+.governance-pool-grid { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 9px; margin: 18px 0 15px; }
+.governance-pool-grid > div { padding: 15px; border: 1px solid #e3eee5; border-radius: 12px; background: #f9fcf9; }
+.governance-pool-grid small { display: block; color: #778c7c; font-size: 11px; }
+.governance-pool-grid strong { display: block; margin-top: 6px; color: #2b664d; font-size: 20px; }
+.governance-pool-grid .governance-pool-balance { background: #286b53; border-color: #286b53; }
+.governance-pool-balance small,.governance-pool-balance strong { color: #f4fff8; }
+.governance-rotation-form { margin: 17px 0; padding: 16px 17px; border-radius: 12px; background: #f7fbf8; }
+.governance-rotation-list { display: flex; flex-wrap: wrap; gap: 9px; }
+.governance-rotation-list > div { display: flex; align-items: center; flex-wrap: wrap; gap: 9px; padding: 10px 13px; border: 1px solid #e1ebe3; border-radius: 10px; font-size: 12px; }
+.governance-rotation-list span,.governance-rotation-list small { color: #698070; }
+.governance-penalty { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px 20px; padding: 13px 0; border-top: 1px solid #edf1ed; font-size: 12px; }
+.governance-penalty > div:first-child small { display: block; margin-top: 4px; color: #7a8e7e; }
+.governance-penalty > small { width: 100%; color: #66836e; }
+.governance-penalty > .governance-review { flex-basis: 100%; margin: 0; }
 @media(max-width:980px) { .governance-grid, .governance-rule-list { grid-template-columns: 1fr; } }
-@media(max-width:640px) { .governance-page { padding: 0 0 32px; } .governance-hero { align-items: flex-start; flex-direction: column; padding: 25px 21px; border-radius: 19px; } .governance-stats { grid-template-columns: 1fr 1fr; gap: 9px; } .governance-stats > div:last-child { grid-column: 1 / -1; } .governance-card { padding: 20px 17px; } .governance-heading { flex-direction: column; } .governance-filters, .governance-filters .form-control { width: 100%; } .governance-quick-kind label { width: 100%; } }
+@media(max-width:980px) { .governance-idea-layout { grid-template-columns: 1fr; } }
+@media(max-width:640px) { .governance-page { padding: 0 0 32px; } .governance-hero { align-items: flex-start; flex-direction: column; padding: 25px 21px; border-radius: 19px; } .governance-stats { grid-template-columns: 1fr 1fr; gap: 9px; } .governance-stats > div:last-child { grid-column: 1 / -1; } .governance-card { padding: 20px 17px; } .governance-heading { flex-direction: column; } .governance-filters, .governance-filters .form-control { width: 100%; } .governance-quick-kind label { width: 100%; } .governance-pool-grid { grid-template-columns: 1fr 1fr; } .governance-pool-grid strong { font-size: 16px; } }

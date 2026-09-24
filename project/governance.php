@@ -1,6 +1,7 @@
 <?php
 require_once __DIR__ . '/../includes/ProjectGovernance.php';
 [$actor, $member] = pg_require_member();
+pg_sync_idea_penalties();
 $error = '';
 $success = '';
 
@@ -105,6 +106,17 @@ $quarterEnd = (new DateTimeImmutable($quarterStart))->modify('+3 months')->forma
 $quarterStmt = db()->prepare("SELECT r.owner_employee_id,e.name,COUNT(*) AS record_count,COALESCE(SUM(r.bonus_delta),0) AS amount FROM project_governance_records r JOIN employees e ON e.id=r.owner_employee_id WHERE r.review_state='approved' AND r.record_date>=? AND r.record_date<? AND r.bonus_delta IS NOT NULL GROUP BY r.owner_employee_id,e.name ORDER BY e.name");
 $quarterStmt->execute([$quarterStart, $quarterEnd]);
 $quarterRows = $quarterStmt->fetchAll();
+$penaltyStmt = db()->prepare("SELECT p.chair_employee_id AS owner_employee_id,e.name,COUNT(*) AS record_count,COALESCE(SUM(p.amount),0) AS amount FROM project_governance_penalties p JOIN employees e ON e.id=p.chair_employee_id WHERE p.state='applied' AND p.window_end>=? AND p.window_end<? GROUP BY p.chair_employee_id,e.name");
+$penaltyStmt->execute([$quarterStart,$quarterEnd]);
+$quarterByPerson = [];
+foreach (array_merge($quarterRows,$penaltyStmt->fetchAll()) as $row) {
+    $id = (int)$row['owner_employee_id'];
+    if (!isset($quarterByPerson[$id])) $quarterByPerson[$id] = ['owner_employee_id'=>$id,'name'=>$row['name'],'record_count'=>0,'amount'=>0];
+    $quarterByPerson[$id]['record_count'] += (int)$row['record_count'];
+    $quarterByPerson[$id]['amount'] += (float)$row['amount'];
+}
+$quarterRows = array_values($quarterByPerson);
+usort($quarterRows, static fn($a,$b) => strcmp($a['name'],$b['name']));
 $myQuarter = 0.0;
 foreach ($quarterRows as $row) if ((int)$row['owner_employee_id'] === (int)$actor['employee_id']) $myQuarter = (float)$row['amount'];
 $page_title = '管理层激励考核';
@@ -112,7 +124,7 @@ include __DIR__ . '/../includes/header.php';
 ?>
 <div class="governance-page">
   <section class="governance-hero"><div><span class="governance-kicker">CO-CREATION / 治理与共创</span><h1>管理层激励考核</h1><p>承诺、监督和改进都有记录。事项先提交、再由监委会核验；奖惩经确认后留在独立台账，不自动改动项目报酬。</p></div><span class="governance-role"><?php echo $member['governance_role'] === 'chair' ? '轮值董事长' : '监委会成员'; ?></span></section>
-  <nav class="governance-tabs" aria-label="管理层栏目"><a class="active" aria-current="page" href="<?php echo BASE_URL; ?>/project/governance.php">事项台账</a><a href="<?php echo BASE_URL; ?>/project/rules.php?domain=governance">规则中心</a></nav>
+  <nav class="governance-tabs" aria-label="管理层栏目"><a href="<?php echo BASE_URL; ?>/project/governance_ideas.php">三天脑洞</a><a class="active" aria-current="page" href="<?php echo BASE_URL; ?>/project/governance.php">事项台账</a><a href="<?php echo BASE_URL; ?>/project/rules.php?domain=governance">规则中心</a></nav>
   <?php if ($error): ?><div class="alert alert-danger mt-3"><?php echo e($error); ?></div><?php endif; ?>
   <?php if (isset($_GET['created'])): ?><div class="alert alert-success mt-3">事项已提交，等待监委会核验。</div><?php endif; ?>
   <?php if (isset($_GET['reviewed'])): ?><div class="alert alert-success mt-3">核验结果已记入台账。</div><?php endif; ?>
@@ -143,7 +155,7 @@ include __DIR__ . '/../includes/header.php';
       <?php if ($row['review_state'] !== 'pending'): ?><div class="governance-result">核验：<?php echo e($row['outcome_status']); ?> · <?php echo e($row['reviewer_name'] ?: '—'); ?><?php if ($row['bonus_delta'] !== null): ?> · 奖惩变动 <strong class="<?php echo (float)$row['bonus_delta'] < 0 ? 'negative' : ''; ?>"><?php echo (float)$row['bonus_delta'] >= 0 ? '+' : '−'; ?>¥<?php echo money(abs((float)$row['bonus_delta'])); ?></strong><?php endif; ?><?php if ($row['flow_note']): ?> · <?php echo e($row['flow_note']); ?><?php endif; ?><?php if ($row['review_note']): ?><div><?php echo e($row['review_note']); ?></div><?php endif; ?></div><?php endif; ?>
       <?php if (pg_can_review($member, $row)): ?><details class="governance-review"><summary>监委会核验此事项</summary><form method="post"><input type="hidden" name="csrf" value="<?php echo e(ps_csrf_token()); ?>"><input type="hidden" name="action" value="review"><input type="hidden" name="record_id" value="<?php echo (int)$row['id']; ?>"><div class="form-row"><div class="form-group col-md-4"><label>核验结论</label><select class="form-control" name="decision"><option value="approved">确认记录</option><option value="rejected">退回补充</option></select></div><div class="form-group col-md-4"><label>事项状态</label><select class="form-control" name="outcome_status"><?php foreach (['有效提出','进行中','完整闭环','推进中','及时干预','严重逾期','无效方案','有效监督','待补证据'] as $status): ?><option value="<?php echo e($status); ?>"><?php echo e($status); ?></option><?php endforeach; ?></select></div><div class="form-group col-md-4"><label>奖惩变动（可留空）</label><input class="form-control" name="bonus_delta" type="number" step="0.01" placeholder="奖励填正数，处罚填负数"></div></div><div class="form-row"><div class="form-group col-md-6"><label>奖金池 / 流向</label><input class="form-control" name="flow_note" maxlength="255" placeholder="例如：董事长奖金池 / 全员福利池"></div><div class="form-group col-md-6"><label>核验说明</label><input class="form-control" name="review_note" maxlength="500" placeholder="退回时必填；也可写明判定依据"></div></div><button class="btn btn-sm btn-success" type="submit">确认核验</button></form></details><?php endif; ?></article><?php endforeach; ?></div>
   </section>
-  <section class="governance-card" id="quarter"><h2>本季度奖惩变动</h2><p class="governance-hint"><?php echo e(substr($quarterStart, 0, 7)); ?> 起，按记录日期汇总已核验金额；不是可发放余额，也不自动进入项目报酬。</p><?php if (!$quarterRows): ?><div class="governance-empty">本季度暂无已核验的奖惩变动。</div><?php else: ?><div class="table-responsive"><table class="table table-sm governance-summary"><thead><tr><th>当事人</th><th>记录数</th><th>已核验变动</th></tr></thead><tbody><?php foreach ($quarterRows as $row): ?><tr><td><?php echo e($row['name']); ?></td><td><?php echo (int)$row['record_count']; ?></td><td class="<?php echo (float)$row['amount'] < 0 ? 'negative' : ''; ?>"><?php echo (float)$row['amount'] >= 0 ? '+' : '−'; ?>¥<?php echo money(abs((float)$row['amount'])); ?></td></tr><?php endforeach; ?></tbody></table></div><?php endif; ?></section>
+  <section class="governance-card" id="quarter"><h2>本季度奖惩变动</h2><p class="governance-hint"><?php echo e(substr($quarterStart, 0, 7)); ?> 起，汇总已核验金额与未豁免的自动扣减；不是可发放余额，也不自动进入项目报酬。奖金池期初与余额见<a href="<?php echo BASE_URL; ?>/project/governance_ideas.php#pool">三天脑洞</a>。</p><?php if (!$quarterRows): ?><div class="governance-empty">本季度暂无已核验的奖惩变动。</div><?php else: ?><div class="table-responsive"><table class="table table-sm governance-summary"><thead><tr><th>当事人</th><th>记录数</th><th>已记账变动</th></tr></thead><tbody><?php foreach ($quarterRows as $row): ?><tr><td><?php echo e($row['name']); ?></td><td><?php echo (int)$row['record_count']; ?></td><td class="<?php echo (float)$row['amount'] < 0 ? 'negative' : ''; ?>"><?php echo (float)$row['amount'] >= 0 ? '+' : '−'; ?>¥<?php echo money(abs((float)$row['amount'])); ?></td></tr><?php endforeach; ?></tbody></table></div><?php endif; ?></section>
 </div>
 <script>
 (function () {

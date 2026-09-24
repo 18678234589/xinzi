@@ -30,7 +30,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             // 项目结算合作人员账户与旧管理员账户隔离；合作人员只能进入项目模块。
             try {
                 // 合作人员可用登录名（姓名拼音）或已绑定的手机号登录。
-                $staffQuery = db()->prepare('SELECT id,password_hash,phone FROM project_users WHERE (username=? OR phone=?) AND is_active=1 LIMIT 1');
+                $staffQuery = db()->prepare('SELECT id,password_hash,phone,role,password_changed_at FROM project_users WHERE (username=? OR phone=?) AND is_active=1 LIMIT 1');
                 $staffQuery->execute([$username, $username]);
                 $staff = $staffQuery->fetch();
                 if ($staff && password_verify($password, $staff['password_hash'])) {
@@ -38,7 +38,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     unset($_SESSION['admin_id'], $_SESSION['admin_username']);
                     $_SESSION['project_user_id'] = (int)$staff['id'];
                     session_regenerate_id(true);
-                    header('Location: ' . BASE_URL . ($staff['phone'] ? '/project/index.php' : '/project/profile.php?first=1'));
+                    $destination = !$staff['phone'] ? '/project/profile.php?first=1' : (($staff['role'] === 'governance') ? (empty($staff['password_changed_at']) ? '/project/profile.php?password=1' : '/project/governance_ideas.php') : '/project/index.php');
+                    header('Location: ' . BASE_URL . $destination);
                     exit;
                 }
             } catch (PDOException $ignored) {

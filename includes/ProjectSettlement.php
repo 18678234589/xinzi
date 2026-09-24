@@ -18,6 +18,15 @@ function ps_require_actor()
 {
     $actor = ps_actor();
     if (!$actor) { header('Location: ' . BASE_URL . '/login.php'); exit; }
+    if ($actor['type'] === 'employee' && $actor['role'] === 'governance') {
+        $script = basename($_SERVER['SCRIPT_NAME'] ?? '');
+        $allowed = ['profile.php', 'governance.php', 'governance_ideas.php', 'governance_rules.php', 'governance_evidence.php', 'payroll.php'];
+        if ($script === 'rules.php' && ($_GET['domain'] ?? $_POST['domain'] ?? '') === 'governance') $allowed[] = 'rules.php';
+        if (!in_array($script, $allowed, true)) { http_response_code(403); exit('此账号仅可访问管理层事项与本人结算'); }
+        if ($script !== 'profile.php' && empty($actor['password_changed_at']) && PHP_SAPI !== 'cli') {
+            header('Location: ' . BASE_URL . '/project/profile.php?password=1'); exit;
+        }
+    }
     // 合作人员首次登录须先绑定手机号（之后可用手机号登录），绑定前只能进入“我的账号”。
     if ($actor['type'] === 'employee' && array_key_exists('phone', $actor) && empty($actor['phone']) && basename($_SERVER['SCRIPT_NAME'] ?? '') !== 'profile.php' && PHP_SAPI !== 'cli') {
         header('Location: ' . BASE_URL . '/project/profile.php?first=1'); exit;
