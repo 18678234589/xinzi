@@ -106,8 +106,11 @@ $quarterEnd = (new DateTimeImmutable($quarterStart))->modify('+3 months')->forma
 $quarterStmt = db()->prepare("SELECT r.owner_employee_id,e.name,COUNT(*) AS record_count,COALESCE(SUM(r.bonus_delta),0) AS amount FROM project_governance_records r JOIN employees e ON e.id=r.owner_employee_id WHERE r.review_state='approved' AND r.record_date>=? AND r.record_date<? AND r.bonus_delta IS NOT NULL GROUP BY r.owner_employee_id,e.name ORDER BY e.name");
 $quarterStmt->execute([$quarterStart, $quarterEnd]);
 $quarterRows = $quarterStmt->fetchAll();
-$penaltyStmt = db()->prepare("SELECT p.chair_employee_id AS owner_employee_id,e.name,COUNT(*) AS record_count,COALESCE(SUM(p.amount),0) AS amount FROM project_governance_penalties p JOIN employees e ON e.id=p.chair_employee_id WHERE p.state='applied' AND p.window_end>=? AND p.window_end<? GROUP BY p.chair_employee_id,e.name");
-$penaltyStmt->execute([$quarterStart,$quarterEnd]);
+$penaltySql = "SELECT p.chair_employee_id AS owner_employee_id,e.name,COUNT(*) AS record_count,COALESCE(SUM(p.amount),0) AS amount FROM project_governance_penalties p JOIN employees e ON e.id=p.chair_employee_id WHERE p.state='applied' AND p.window_end>=? AND p.window_end<?";
+$penaltyParams = [$quarterStart,$quarterEnd];
+if ($member['governance_role'] !== 'committee') { $penaltySql .= ' AND p.chair_employee_id=?'; $penaltyParams[] = (int)$actor['employee_id']; }
+$penaltyStmt = db()->prepare($penaltySql . ' GROUP BY p.chair_employee_id,e.name');
+$penaltyStmt->execute($penaltyParams);
 $quarterByPerson = [];
 foreach (array_merge($quarterRows,$penaltyStmt->fetchAll()) as $row) {
     $id = (int)$row['owner_employee_id'];

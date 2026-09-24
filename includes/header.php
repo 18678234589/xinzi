@@ -5,6 +5,7 @@ if (!defined('BASE_PATH')) {
 $current_admin = current_admin();
 $project_staff = null;
 $governance_nav = false;
+$governance_committee_nav = false;
 $department_upload_nav = (bool)$current_admin;
 $department_upload_business = '网站续费';
 if (!$current_admin && isset($_SESSION['project_user_id'])) {
@@ -13,12 +14,15 @@ if (!$current_admin && isset($_SESSION['project_user_id'])) {
     $project_staff = $staffStmt->fetch();
     if ($project_staff) {
         try {
-            $governanceStmt = db()->prepare('SELECT 1 FROM project_governance_members WHERE employee_id=? AND is_active=1 LIMIT 1');
+            $governanceStmt = db()->prepare('SELECT governance_role FROM project_governance_members WHERE employee_id=? AND is_active=1 LIMIT 1');
             $governanceStmt->execute([(int)$project_staff['employee_id']]);
-            $governance_nav = (bool)$governanceStmt->fetchColumn();
+            $governance_role = $governanceStmt->fetchColumn();
+            $governance_nav = (bool)$governance_role;
+            $governance_committee_nav = $governance_role === 'committee';
         } catch (PDOException $e) {
             // 新迁移尚未执行时，普通页面仍可正常打开；新栏目保持隐藏。
             $governance_nav = false;
+            $governance_committee_nav = false;
         }
     }
     if ($project_staff && $project_staff['department'] === '网站售后部') {
@@ -99,6 +103,7 @@ $nav = function ($href, $icon, $label, $active) {
     <?php if ($project_staff['role'] === 'governance'): ?>
     <div class="sidebar-project-label">管理层工作台</div>
     <?php echo $nav('/project/governance_ideas.php', 'fa-lightbulb', '三天脑洞', $_rel === 'project/governance_ideas.php'); ?>
+    <?php if ($governance_committee_nav): echo $nav('/project/governance_ideas.php#penalties', 'fa-shield-alt', '缺报核对与豁免', false); endif; ?>
     <?php echo $nav('/project/governance.php', 'fa-clipboard-check', '事项与评审', $_rel === 'project/governance.php'); ?>
     <?php echo $nav('/project/rules.php?domain=governance', 'fa-book-open', '考核规则', $_rel === 'project/rules.php'); ?>
     <?php echo $nav('/project/payroll.php', 'fa-wallet', '我的项目报酬', $_rel === 'project/payroll.php'); ?>
@@ -112,7 +117,7 @@ $nav = function ($href, $icon, $label, $active) {
     <?php echo $nav('/project/files.php', 'fa-file-excel', '我上传的表格', $_rel === 'project/files.php'); ?>
     <?php echo $nav('/project/refunds.php', 'fa-undo-alt', '退款与返现', $_rel === 'project/refunds.php'); ?>
     <?php echo $nav('/project/profile.php', 'fa-user-cog', '我的账号', $_rel === 'project/profile.php'); ?>
-    <?php if ($governance_nav): ?><div class="sidebar-project-label">管理层专属</div><?php echo $nav('/project/governance_ideas.php', 'fa-lightbulb', '三天脑洞', $_rel === 'project/governance_ideas.php'); echo $nav('/project/governance.php', 'fa-clipboard-check', '事项与评审', $_rel === 'project/governance.php'); echo $nav('/project/rules.php?domain=governance', 'fa-book-open', '考核规则', $_rel === 'project/rules.php' && ($_GET['domain'] ?? '') === 'governance'); endif; ?>
+    <?php if ($governance_nav): ?><div class="sidebar-project-label">管理层专属</div><?php echo $nav('/project/governance_ideas.php', 'fa-lightbulb', '三天脑洞', $_rel === 'project/governance_ideas.php'); if ($governance_committee_nav) echo $nav('/project/governance_ideas.php#penalties', 'fa-shield-alt', '缺报核对与豁免', false); echo $nav('/project/governance.php', 'fa-clipboard-check', '事项与评审', $_rel === 'project/governance.php'); echo $nav('/project/rules.php?domain=governance', 'fa-book-open', '考核规则', $_rel === 'project/rules.php' && ($_GET['domain'] ?? '') === 'governance'); endif; ?>
     <div class="sidebar-project-tip"><i class="fas fa-lock"></i> 这里只显示你参与或代录的订单，以及你自己的报酬。</div>
     <?php endif; ?>
     <?php else: ?>
