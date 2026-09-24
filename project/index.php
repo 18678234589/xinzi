@@ -6,6 +6,8 @@ $actor = ps_require_actor();
 $error = '';
 $businessCatalog = ps_business_catalog();
 $allowedBusinesses = ps_actor_businesses($actor);
+// 只有固定报酬、不录订单的合作人员（如售后退款部）：直接进入“我的项目报酬”
+if ($actor['role'] !== 'finance' && !$allowedBusinesses && $_SERVER['REQUEST_METHOD'] !== 'POST') { header('Location: ' . BASE_URL . '/project/payroll.php'); exit; }
 $selectedBusiness = ps_business_choice($actor, (string)($_POST['project_type'] ?? $_GET['business'] ?? ''));
 $shops = db()->query('SELECT name FROM shops ORDER BY sort,id')->fetchAll(PDO::FETCH_COLUMN);
 $month = (string)($_GET['month'] ?? date('Y-m'));
