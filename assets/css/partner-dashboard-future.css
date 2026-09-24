@@ -77,6 +77,64 @@ body.pd-shell::before {
   filter: blur(42px);
   animation: pd-aurora 12s ease-in-out infinite alternate;
 }
+.pd-hero-fx {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  border-radius: inherit;
+  pointer-events: none;
+}
+.pd-hero-nebula {
+  position: absolute;
+  width: 72%;
+  height: 175%;
+  right: -15%;
+  top: -40%;
+  border-radius: 50%;
+  background: radial-gradient(ellipse at 46% 52%, rgba(92, 244, 215, .28), transparent 38%),
+    radial-gradient(ellipse at 72% 43%, rgba(148, 132, 255, .28), transparent 42%),
+    radial-gradient(ellipse at 38% 85%, rgba(86, 157, 249, .22), transparent 40%);
+  filter: blur(19px);
+  mix-blend-mode: screen;
+  animation: pd-nebula-breathe 13s ease-in-out infinite alternate;
+}
+.pd-hero-comet {
+  position: absolute;
+  left: -34%;
+  top: 34%;
+  width: 34%;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, rgba(109, 249, 222, .12) 27%, rgba(168, 255, 240, .85) 92%, #fff);
+  box-shadow: 0 0 13px rgba(89, 247, 217, .7), 0 0 29px rgba(105, 209, 245, .42);
+  transform: rotate(-17deg);
+  transform-origin: right center;
+  opacity: 0;
+  animation: pd-comet-pass 13s linear infinite;
+}
+.pd-hero-comet::after {
+  content: "";
+  position: absolute;
+  right: -2px;
+  top: -2px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #e9fffa;
+  box-shadow: 0 0 14px 5px rgba(109, 249, 222, .65);
+}
+.pd-hero-comet:nth-of-type(3) { top: 77%; width: 25%; animation-delay: -7s; animation-duration: 17s; opacity: 0; }
+.pd-hero-particles {
+  position: absolute;
+  inset: 0;
+  background-image: radial-gradient(2px 2px at 16% 23%, rgba(180, 255, 239, .8) 98%, transparent),
+    radial-gradient(2px 2px at 38% 78%, rgba(189, 197, 255, .75) 98%, transparent),
+    radial-gradient(2px 2px at 64% 21%, rgba(191, 255, 244, .8) 98%, transparent),
+    radial-gradient(2px 2px at 82% 65%, rgba(255, 210, 192, .72) 98%, transparent),
+    radial-gradient(2px 2px at 94% 29%, rgba(163, 239, 255, .7) 98%, transparent);
+  background-repeat: no-repeat;
+  animation: pd-particles-float 7s ease-in-out infinite alternate;
+}
 .pd-hero > .pd-hero-copy, .pd-hero > .pd-filter { position: relative; z-index: 2; }
 .pd-hero-copy { max-width: 690px; }
 .pd-hero h1 {
@@ -302,6 +360,14 @@ body.pd-shell::before {
 @keyframes pd-orbit { to { transform: rotate(360deg); } }
 @keyframes pd-grid-drift { to { transform: rotate(-6deg) scale(1.15) translateX(-18px); } }
 @keyframes pd-aurora { to { transform: translate(-32px, 24px) scale(1.15) rotate(25deg); opacity: .75; } }
+@keyframes pd-nebula-breathe { to { transform: translate3d(-10%, 5%, 0) scale(1.18) rotate(12deg); opacity: .75; } }
+@keyframes pd-comet-pass {
+  0%, 8% { transform: translate3d(0, 0, 0) rotate(-17deg); opacity: 0; }
+  14% { opacity: .8; }
+  42% { opacity: .85; }
+  54%, 100% { transform: translate3d(140vw, -45px, 0) rotate(-17deg); opacity: 0; }
+}
+@keyframes pd-particles-float { to { transform: translate3d(0, -12px, 0); opacity: .48; } }
 @keyframes pd-signal { 50% { box-shadow: 0 0 0 7px rgba(93, 242, 207, 0), 0 0 23px #4de7cb; } }
 @keyframes pd-shimmer { to { background-position: 220% 0; } }
 @keyframes pd-bar-grow { from { transform: scaleX(0); } to { transform: scaleX(1); } }

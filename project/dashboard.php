@@ -66,6 +66,7 @@ $netDelta = $summary['net'] - $previous['net'];
 ?>
 <div class="partner-dashboard">
   <section class="pd-hero">
+    <div class="pd-hero-fx" aria-hidden="true"><span class="pd-hero-nebula"></span><span class="pd-hero-comet"></span><span class="pd-hero-comet"></span><span class="pd-hero-particles"></span></div>
     <div class="pd-hero-orbit" aria-hidden="true"><i></i><i></i><i></i></div>
     <div class="pd-hero-copy"><span class="pd-eyebrow"><i class="pd-signal-dot" aria-hidden="true"></i> CO-CREATION / 月度经营洞察</span>
       <h1><?php echo e($person['name']); ?>的经营看板</h1>

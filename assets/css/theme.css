@@ -336,7 +336,6 @@ body.app-warm::before {
 .app-warm .sidebar-project-footer .sidebar-project-token .sidebar-project-token-mark i { width: auto; margin: 0; color: #fff; }
 .sidebar-project-token-copy { display: flex; flex: 1; flex-direction: column; gap: 2px; min-width: 0; line-height: 1.2; }
 .sidebar-project-token-copy strong { font-size: .85rem; font-weight: 700; }
-.sidebar-project-token-copy small { font-size: .68rem; opacity: .72; }
 .app-warm .sidebar-project-footer .sidebar-project-token .sidebar-project-token-external { width: auto; margin: 0; font-size: .68rem; opacity: .55; color: inherit; }
 .app-warm .sidebar-backdrop { background: rgba(31, 45, 39, .25); -webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px); }
 
