@@ -4,10 +4,19 @@ if (!defined('BASE_PATH')) {
 }
 $current_admin = current_admin();
 $project_staff = null;
+$department_upload_nav = (bool)$current_admin;
+$department_upload_business = '网站续费';
 if (!$current_admin && isset($_SESSION['project_user_id'])) {
-    $staffStmt = db()->prepare('SELECT u.username,u.role,e.name FROM project_users u JOIN employees e ON e.id=u.employee_id WHERE u.id=? AND u.is_active=1');
+    $staffStmt = db()->prepare('SELECT u.username,u.role,e.name,e.department FROM project_users u JOIN employees e ON e.id=u.employee_id WHERE u.id=? AND u.is_active=1');
     $staffStmt->execute([(int)$_SESSION['project_user_id']]);
     $project_staff = $staffStmt->fetch();
+    if ($project_staff && $project_staff['department'] === '网站售后部') {
+        $departmentStmt = db()->prepare("SELECT business_name FROM project_user_businesses WHERE user_id=? AND business_name IN ('网站续费','网站修改') ORDER BY (business_name='网站续费') DESC LIMIT 1");
+        $departmentStmt->execute([(int)$_SESSION['project_user_id']]);
+        $assignedDepartmentBusiness = $departmentStmt->fetchColumn();
+        $department_upload_nav = (bool)$assignedDepartmentBusiness;
+        if ($assignedDepartmentBusiness) $department_upload_business = $assignedDepartmentBusiness;
+    }
 }
 $display_name = $current_admin['username'] ?? ($project_staff['name'] ?? ($project_staff['username'] ?? ''));
 $display_role = $current_admin ? '财务 / 管理员' : (($project_staff['role'] ?? '') === 'technical' ? '技术' : '客服');
@@ -36,7 +45,7 @@ $is_project     = (strpos($_rel, 'project/') === 0);
 $is_project_orders = $is_project && !in_array($_rel, ['project/payroll.php', 'project/settings.php', 'project/system.php', 'project/rules.php', 'project/profile.php', 'project/files.php', 'project/refunds.php'], true);
 // 合并栏目：同类页面在侧栏只占一个入口，进入后顶部页签切换。
 $nav_groups = [
-    'shop' => [['/shops/index.php', 'fa-store', '店铺管理', $is_shops], ['/shops/etmll_sync.php', 'fa-sync-alt', 'ETMLL 订单同步', $is_etmll], ['/orders/index.php', 'fa-file-upload', '订单上传', $is_orders], ['/abnormal/index.php', 'fa-exclamation-triangle', '异常订单', $is_abnormal]],
+    'shop' => [['/shops/index.php', 'fa-store', '店铺管理', $is_shops], ['/shops/etmll_sync.php', 'fa-sync-alt', 'ETMLL 订单同步', $is_etmll], ['/orders/index.php', 'fa-file-upload', '平台订单导入', $is_orders], ['/abnormal/index.php', 'fa-exclamation-triangle', '异常订单', $is_abnormal]],
     'people' => [['/employees/index.php', 'fa-users', '合作人员', $is_employees], ['/departments/index.php', 'fa-sitemap', '部门', $is_departments], ['/attendance/index.php', 'fa-calendar-check', '考勤表', $is_attendance], ['/performance/index.php', 'fa-headset', '客服绩效', $is_performance], ['/insurance/index.php', 'fa-shield-alt', '保险', $is_insurance]],
     'legacy' => [['/salaries/settle.php', 'fa-calculator', '报酬结算', $is_settle], ['/salaries/query.php', 'fa-search-dollar', '结算查询', $is_query]],
 ];
@@ -75,19 +84,21 @@ $nav = function ($href, $icon, $label, $active) {
     <?php if ($project_staff): ?>
     <div class="sidebar-project-label">我的工作台</div>
     <?php echo $nav('/project/index.php', 'fa-folder-open', '我的项目订单', $is_project_orders); ?>
+    <?php if ($department_upload_nav): echo $nav('/project/import.php?scope=department&business=' . rawurlencode($department_upload_business), 'fa-users', '部门订单上传', $_rel === 'project/import.php' && ($_GET['scope'] ?? $_POST['scope'] ?? '') === 'department'); endif; ?>
     <?php echo $nav('/project/payroll.php', 'fa-wallet', '我的项目报酬', $_rel === 'project/payroll.php'); ?>
     <?php echo $nav('/project/files.php', 'fa-file-excel', '我上传的表格', $_rel === 'project/files.php'); ?>
     <?php echo $nav('/project/refunds.php', 'fa-undo-alt', '退款与返现', $_rel === 'project/refunds.php'); ?>
     <?php echo $nav('/project/profile.php', 'fa-user-cog', '我的账号', $_rel === 'project/profile.php'); ?>
-    <div class="sidebar-project-tip"><i class="fas fa-lock"></i> 这里只显示你参与的订单和你自己的报酬。</div>
+    <div class="sidebar-project-tip"><i class="fas fa-lock"></i> 这里只显示你参与或代录的订单，以及你自己的报酬。</div>
     <?php else: ?>
     <?php echo $nav('/index.php', 'fa-home', '工作台首页', $is_home); ?>
     <div class="sidebar-project-label">日常办公</div>
     <?php echo $nav('/project/index.php', 'fa-folder-open', '项目订单', $is_project_orders); ?>
+    <?php echo $nav('/project/import.php?scope=department&business=网站续费', 'fa-users', '网站售后部门订单', $_rel === 'project/import.php' && ($_GET['scope'] ?? $_POST['scope'] ?? '') === 'department'); ?>
     <?php echo $nav('/project/payroll.php', 'fa-wallet', '项目报酬结算', $_rel === 'project/payroll.php'); ?>
     <?php echo $nav('/project/files.php', 'fa-file-excel', '原始表格', $_rel === 'project/files.php'); ?>
     <?php echo $nav('/project/refunds.php', 'fa-undo-alt', '退款与返现', $_rel === 'project/refunds.php'); ?>
-    <?php echo $nav('/shops/index.php', 'fa-store', '店铺与订单', $group_active === 'shop'); ?>
+    <?php echo $nav('/shops/index.php', 'fa-store', '店铺交易流水', $group_active === 'shop'); ?>
     <?php echo $nav('/employees/index.php', 'fa-users', '人员与考勤', $group_active === 'people'); ?>
     <div class="sidebar-project-label">财务与配置</div>
     <?php echo $nav('/project/rules.php', 'fa-percent', '规则中心', $_rel === 'project/rules.php'); ?>

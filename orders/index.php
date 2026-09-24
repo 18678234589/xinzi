@@ -4,7 +4,7 @@ require_once __DIR__ . '/../includes/SalaryCalculator.php';
 require_login();
 require_once __DIR__ . '/../classes/SimpleXLSX.php';
 
-$page_title = '订单上传';
+$page_title = '平台订单导入';
 $success = '';
 $error = '';
 
@@ -256,6 +256,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             // 部门订单：employee_id 可以为0，但需要有部门名
             if ($order_scope === 'personal' && $employee_id <= 0) {
                 $error = '请先选择合作人员';
+            } elseif ($order_scope === 'department' && $dept_name === '网站售后部') {
+                $error = '网站售后部门订单请从“项目订单 → 网站售后部门订单”上传，避免旧账与新版项目分成重复';
             } elseif ($order_scope === 'department' && $dept_name === '') {
                 $error = '请选择部门';
             } elseif ($upload_month === '') {
@@ -1326,7 +1328,7 @@ include __DIR__ . '/../includes/header.php';
 
 <div class="d-flex justify-content-between align-items-center mb-3">
     <div>
-        <h4 class="font-weight-bold mb-0 d-inline-block"><i class="fas fa-file-upload"></i> 订单上传</h4>
+        <h4 class="font-weight-bold mb-0 d-inline-block"><i class="fas fa-file-upload"></i> 平台订单导入</h4>
         <?php if ($locked_employee): ?>
             <span class="badge badge-success ml-2" style="font-size:.9em">
                 <i class="fas fa-user-lock"></i> 已锁定合作人员：<?php echo e($locked_employee['name']); ?>（<?php echo e($locked_employee['department']); ?>）
@@ -1353,6 +1355,7 @@ include __DIR__ . '/../includes/header.php';
         </div>
     <?php endif; ?>
 </div>
+<div class="alert alert-info py-2">此处供财务核对平台历史 / 原始订单，不作为新版项目分成入口。网站售后部代录和参与人员分配请使用 <a href="<?php echo BASE_URL; ?>/project/import.php?scope=department&amp;business=<?php echo rawurlencode('网站续费'); ?>">项目订单 · 网站售后部门订单</a>。</div>
 
 <?php if ($success || isset($_GET['upload_ok'])): ?>
     <div class="alert alert-success alert-dismissible fade show"><i class="fas fa-check-circle"></i> <?php echo e($success ?: urldecode($_GET['msg'] ?? '导入完成')); ?><button type="button" class="close" data-dismiss="alert">&times;</button></div>
@@ -1401,7 +1404,7 @@ include __DIR__ . '/../includes/header.php';
                                 <label>选择部门</label>
                                 <select name="department" id="uploadDept" class="form-control" onchange="loadEmployees('upload')">
                                     <option value="">-- 选择部门 --</option>
-                                    <?php foreach ($departments as $d): ?>
+                                    <?php foreach ($departments as $d): if ($d === '网站售后部') continue; ?>
                                         <option value="<?php echo e($d); ?>"><?php echo e($d); ?></option>
                                     <?php endforeach; ?>
                                 </select>

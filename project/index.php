@@ -2,10 +2,13 @@
 require_once __DIR__ . '/../includes/ProjectIntake.php';
 require_once __DIR__ . '/../includes/ProjectBusiness.php';
 require_once __DIR__ . '/../includes/ProjectOrderSource.php';
+require_once __DIR__ . '/../includes/ProjectDepartmentImport.php';
 $actor = ps_require_actor();
 $error = '';
 $businessCatalog = ps_business_catalog();
 $allowedBusinesses = ps_actor_businesses($actor);
+$departmentImportBusiness = '';
+foreach (['网站续费', '网站修改'] as $candidate) if (ps_department_import_allowed($actor, $candidate)) { $departmentImportBusiness = $candidate; break; }
 // 只有固定报酬、不录订单的合作人员（如售后退款部）：直接进入“我的项目报酬”
 if ($actor['role'] !== 'finance' && !$allowedBusinesses && $_SERVER['REQUEST_METHOD'] !== 'POST') { header('Location: ' . BASE_URL . '/project/payroll.php'); exit; }
 $selectedBusiness = ps_business_choice($actor, (string)($_POST['project_type'] ?? $_GET['business'] ?? ''));
@@ -242,12 +245,13 @@ if ($keyword !== '') {
 if ($filterBusiness !== '' && isset($businessCatalog[$filterBusiness])) { $where[] = 'o.project_type=?'; $params[] = $filterBusiness; }
 if ($filterState === 'open') $where[] = "o.settlement_status IN ('draft','review')";
 if ($filterState === 'approved') $where[] = "o.settlement_status IN ('approved','locked')";
-if ($actor['role'] !== 'finance') { $where[] = 'EXISTS (SELECT 1 FROM project_participants mp WHERE mp.order_id=o.id AND mp.employee_id=?)'; $params[] = $actor['employee_id']; }
+if ($actor['role'] !== 'finance') { $where[] = '(EXISTS (SELECT 1 FROM project_participants mp WHERE mp.order_id=o.id AND mp.employee_id=?) OR EXISTS (SELECT 1 FROM project_department_uploaders du WHERE du.order_id=o.id AND du.employee_id=?))'; $params[] = $actor['employee_id']; $params[] = $actor['employee_id']; }
 $sql = "SELECT o.*, COALESCE(s.price_source,'missing') price_source, COALESCE(s.payment_nickname,'') payment_nickname, r.domain_mode,
     (SELECT COUNT(*) FROM project_costs c WHERE c.order_id=o.id AND c.review_status='pending') pending_costs,
     (SELECT COALESCE(SUM(c.amount),0) FROM project_costs c WHERE c.order_id=o.id AND c.review_status='approved') approved_costs,
     (SELECT COUNT(*) FROM project_cash_movements m WHERE m.order_id=o.id AND m.review_status='pending') pending_cash,
     (SELECT COUNT(*) FROM project_participants p WHERE p.order_id=o.id AND p.commission_group='technical') tech_count,
+    EXISTS (SELECT 1 FROM project_department_orders d WHERE d.order_id=o.id) is_department_order,
     (SELECT GROUP_CONCAT(e.name ORDER BY p.commission_group DESC,p.id SEPARATOR '、') FROM project_participants p JOIN employees e ON e.id=p.employee_id WHERE p.order_id=o.id) people
     FROM project_orders o LEFT JOIN project_order_sources s ON s.order_id=o.id LEFT JOIN project_order_resources r ON r.order_id=o.id
     WHERE " . implode(' AND ', $where) . ' ORDER BY o.order_date DESC,o.id DESC LIMIT 500';
@@ -277,7 +281,7 @@ include __DIR__ . '/../includes/header.php';
 $resourceHint = function ($t) { return trim($t['name'] . ' ' . $t['specification']) . ' · ¥' . money($t['price']); };
 ?>
 <div class="project-intake-page">
-<div class="project-hero mb-3"><div><div class="project-eyebrow">项目合作结算中心 · 订单入口</div><h2><?php if ($actor['role'] === 'finance'): echo e($page_title); else: $hour = (int)date('G'); echo ($hour < 11 ? '早上好' : ($hour < 14 ? '中午好' : ($hour < 18 ? '下午好' : '晚上好'))) . '，' . e($display_name); endif; ?></h2><p><?php echo $actor['role'] === 'customer_service' ? '客服录入买家与成交信息并指定技术；技术在同一订单号补资源和成本，双方看到的是同一张结算单。' : ($actor['role'] === 'technical' ? '打开本人参与的订单补技术资料与成本；先建单时可在结算单关联客服。' : '客服与技术共用一张订单结算单。输入订单号即可从店铺 / ETMLL 流水带出买家与售价，标准成本从成本中心带入。'); ?> 实收由财务确认。</p></div><div class="project-hero-actions"><?php if ($allowedBusinesses): ?><button class="btn btn-light" type="button" id="manualOrderToggle" aria-controls="manual-order" aria-expanded="<?php echo $openEntry ? 'true' : 'false'; ?>"><i class="fas fa-pen mr-1"></i> <span><?php echo $openEntry ? '收起在线录单' : '在线录入订单'; ?></span></button><a class="btn btn-outline-light" href="<?php echo BASE_URL; ?>/project/import.php?business=<?php echo rawurlencode($selectedBusiness); ?>"><i class="fas fa-file-excel mr-1"></i> 批量导入 Excel</a><?php endif; ?><?php if ($actor['role'] === 'finance'): ?><a class="btn btn-outline-light" href="<?php echo BASE_URL; ?>/project/settings.php#cost-center">成本中心</a><?php endif; ?></div></div>
+<div class="project-hero mb-3"><div><div class="project-eyebrow">项目合作结算中心 · 订单入口</div><h2><?php if ($actor['role'] === 'finance'): echo e($page_title); else: $hour = (int)date('G'); echo ($hour < 11 ? '早上好' : ($hour < 14 ? '中午好' : ($hour < 18 ? '下午好' : '晚上好'))) . '，' . e($display_name); endif; ?></h2><p><?php echo $actor['role'] === 'customer_service' ? '客服录入买家与成交信息并指定技术；技术在同一订单号补资源和成本，双方看到的是同一张结算单。' : ($actor['role'] === 'technical' ? '打开本人参与的订单补技术资料与成本；先建单时可在结算单关联客服。' : '客服与技术共用一张订单结算单。输入订单号即可从店铺 / ETMLL 流水带出买家与售价，标准成本从成本中心带入。'); ?> 实收由财务确认。</p></div><div class="project-hero-actions"><?php if ($allowedBusinesses): ?><button class="btn btn-light" type="button" id="manualOrderToggle" aria-controls="manual-order" aria-expanded="<?php echo $openEntry ? 'true' : 'false'; ?>"><i class="fas fa-pen mr-1"></i> <span><?php echo $openEntry ? '收起在线录单' : '在线录入订单'; ?></span></button><a class="btn btn-outline-light" href="<?php echo BASE_URL; ?>/project/import.php?business=<?php echo rawurlencode($selectedBusiness); ?>"><i class="fas fa-file-excel mr-1"></i> 批量导入 Excel</a><?php endif; ?><?php if ($departmentImportBusiness): ?><a class="btn btn-outline-light" href="<?php echo BASE_URL; ?>/project/import.php?scope=department&amp;business=<?php echo rawurlencode($departmentImportBusiness); ?>"><i class="fas fa-users mr-1"></i> 网站售后部门订单</a><?php endif; ?><?php if ($actor['role'] === 'finance'): ?><a class="btn btn-outline-light" href="<?php echo BASE_URL; ?>/project/settings.php#cost-center">成本中心</a><?php endif; ?></div></div>
 <?php if ($error): ?><div class="alert alert-danger"><?php echo e($error); ?></div><?php endif; ?>
 <?php if ($createdOrder): ?><div class="alert alert-success d-flex justify-content-between align-items-center flex-wrap"><span><i class="fas fa-check-circle mr-1"></i> 订单 <strong><?php echo e($createdOrder['order_no']); ?></strong> 已保存，可以继续录入下一单。</span><a class="btn btn-sm btn-outline-success" href="<?php echo BASE_URL; ?>/project/order.php?id=<?php echo (int)$createdOrder['id']; ?>">打开刚保存的结算单</a></div><?php endif; ?>
 <?php if ($bulkResult): ?><div class="alert alert-<?php echo $bulkResult['failed'] ? 'warning' : 'success'; ?>"><strong>批量<?php echo e($bulkResult['action']); ?>：</strong>成功 <?php echo (int)$bulkResult['done']; ?> 单<?php if ($bulkResult['failed']): ?>，<?php echo count($bulkResult['failed']); ?> 单未处理：<ul class="mb-0 mt-1 small"><?php foreach (array_slice($bulkResult['failed'], 0, 30) as $failure): ?><li><?php echo e($failure); ?></li><?php endforeach; ?></ul><?php endif; ?></div><?php endif; ?>
@@ -351,7 +355,7 @@ $resourceHint = function ($t) { return trim($t['name'] . ' ' . $t['specification
   <thead><tr><?php if ($isFinance): ?><th style="width:34px"><input type="checkbox" id="bulkAll" aria-label="全选"></th><?php endif; ?><th>订单号 / 付款昵称</th><th>业务</th><th>日期</th><th>参与人</th><th class="text-right">售价</th><th class="text-right">净实收</th><th class="text-right">直接成本</th><th>待办</th><th>状态</th><th></th></tr></thead><tbody>
   <?php foreach ($orders as $order): ?><tr>
     <?php if ($isFinance): ?><td><?php if (!in_array($order['settlement_status'], ['approved','locked'], true)): ?><input type="checkbox" name="ids[]" value="<?php echo (int)$order['id']; ?>" class="bulk-item" aria-label="选择 <?php echo e($order['order_no']); ?>"><?php endif; ?></td><?php endif; ?>
-    <td><strong><?php echo e($order['order_no']); ?></strong><div class="small text-muted"><?php echo e($order['payment_nickname'] ?: ($order['customer_name'] ?: '—')); ?></div></td>
+    <td><strong><?php echo e($order['order_no']); ?></strong><?php if (!empty($order['is_department_order'])): ?> <span class="badge badge-success">部门订单</span><?php endif; ?><div class="small text-muted"><?php echo e($order['payment_nickname'] ?: ($order['customer_name'] ?: '—')); ?></div></td>
     <td><?php echo e($order['project_type']); ?><?php if ($order['order_kind'] !== ''): ?><div class="small text-muted"><?php echo e($order['order_kind']); ?></div><?php endif; ?></td>
     <td class="text-nowrap"><?php echo e($order['order_date']); ?></td>
     <td class="small"><?php echo e($order['people'] ?: '—'); ?></td>

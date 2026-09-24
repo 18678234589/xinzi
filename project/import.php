@@ -3,13 +3,26 @@ require_once __DIR__ . '/../includes/ProjectIntake.php';
 require_once __DIR__ . '/../includes/ProjectBusiness.php';
 require_once __DIR__ . '/../includes/ProjectOrderSource.php';
 require_once __DIR__ . '/../includes/ProjectAiFallback.php';
+require_once __DIR__ . '/../includes/ProjectDepartmentImport.php';
 require_once __DIR__ . '/../classes/SimpleXLSX.php';
 $actor = ps_require_actor();
 $allowedBusinesses = ps_actor_businesses($actor);
+$scope = (string)($_POST['scope'] ?? $_GET['scope'] ?? (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST' ? ($_SESSION['project_import_scope'] ?? 'personal') : 'personal'));
+$scope = $scope === 'department' ? 'department' : 'personal';
+$departmentMode = $scope === 'department';
+$departmentBusinesses = array_values(array_filter($allowedBusinesses, function ($name) use ($actor) { return ps_department_import_allowed($actor, $name); }));
 $requestedBusiness = (string)($_POST['business'] ?? $_GET['business'] ?? '');
+if ($departmentMode && $requestedBusiness === '') {
+    foreach (['网站续费', '网站修改'] as $candidate) if (in_array($candidate, $allowedBusinesses, true)) { $requestedBusiness = $candidate; break; }
+}
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && $requestedBusiness !== '' && !in_array(ps_business_normalize($requestedBusiness), $allowedBusinesses, true)) { http_response_code(403); exit('当前账户未分配此业务'); }
 $selectedBusiness = ps_business_choice($actor, $requestedBusiness);
 if (!$selectedBusiness && $_SERVER['REQUEST_METHOD'] === 'POST') { http_response_code(403); exit('当前账户未分配业务类型'); }
+if ($departmentMode && !ps_department_import_allowed($actor, $selectedBusiness)) { http_response_code(403); exit('当前账户没有此部门业务的代录权限'); }
+$departmentChoices = $departmentMode ? db()->query("SELECT id,name FROM employees WHERE department='网站售后部' ORDER BY name,id")->fetchAll() : [];
+$ruleMonth = (string)($_POST['rule_month'] ?? $_GET['rule_month'] ?? $_SESSION['project_import_rule_month'] ?? date('Y-m'));
+if (!preg_match('/^\d{4}-(0[1-9]|1[0-2])$/', $ruleMonth)) $ruleMonth = date('Y-m');
+$renewalRates = $departmentMode ? ps_department_renewal_rates($ruleMonth) : [];
 $businessDefinition = $selectedBusiness ? ps_business_catalog()[$selectedBusiness] : null;
 if (isset($_GET['download']) && $selectedBusiness && $_SERVER['REQUEST_METHOD'] === 'GET') {
     header('Content-Type: text/csv; charset=UTF-8');
@@ -28,8 +41,10 @@ $skipped = 0;
 $preview = $_SESSION['project_import_preview'] ?? [];
 $previewOwner = $_SESSION['project_import_actor'] ?? '';
 $previewBusiness = $_SESSION['project_import_business'] ?? '';
+$previewScope = $_SESSION['project_import_scope'] ?? 'personal';
+$departmentDefaults = $departmentMode ? ($_SESSION['project_import_people'] ?? []) : [];
 $actorKey = $actor['type'] . ':' . $actor['id'];
-if ($previewOwner !== $actorKey || $previewBusiness !== $selectedBusiness) $preview = [];
+if ($previewOwner !== $actorKey || $previewBusiness !== $selectedBusiness || $previewScope !== $scope) $preview = [];
 $domainTemplates = ps_intake_templates('domain');
 $serverTemplates = ps_intake_templates('server');
 $programTemplates = $selectedBusiness ? ps_intake_templates('program', $selectedBusiness) : [];
@@ -57,6 +72,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if ($action === 'preview' && count($allowedBusinesses) > 1) {
                 $detected = ps_import_business_detect($fileRow, $allowedBusinesses, $selectedBusiness, (int)($actor['employee_id'] ?? 0));
                 $selectedBusiness = $detected['business'];
+                if ($departmentMode && !ps_department_import_allowed($actor, $selectedBusiness)) throw new RuntimeException('表格识别到非网站售后业务，请选择正确业务模板后重新上传');
                 $businessDetectionNote = '已按' . $detected['reason'] . '归入“' . $selectedBusiness . '”。若不对，下方可切换业务后重新核对，无需重传表格。';
             }
             if ($fileRow['business_name'] !== $selectedBusiness) {
@@ -76,6 +92,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $usedSheets = 0;
             $totalRows = 0;
             $orderKinds = ps_business_order_kinds($selectedBusiness);
+            $departmentDefaults = $departmentMode
+                ? ps_department_import_people($actor, $selectedBusiness, $action === 'preview' ? (array)($_POST['dept_people'] ?? []) : array_keys((array)($_SESSION['project_import_people'] ?? [])))
+                : [];
             $employeesByName = ps_import_employee_index();
             $actorName = null;
             if ($actor['role'] !== 'finance') { $nameQuery = db()->prepare('SELECT name FROM employees WHERE id=?'); $nameQuery->execute([(int)$actor['employee_id']]); $actorName = $nameQuery->fetchColumn() ?: '本人'; }
@@ -86,7 +105,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $existingAccess = db()->prepare('SELECT 1 FROM project_participants WHERE order_id=? AND employee_id=? LIMIT 1');
             $existingResource = db()->prepare('SELECT domain_mode FROM project_order_resources WHERE order_id=?');
             // 一个工作簿多张分表（如“图片 / PPT / 小额”、每位客服一张）：表头能对上当前业务的分表都读取，可在预览里取消勾选。
-            $requirePeople = $actor['role'] === 'finance';
+            $requirePeople = $actor['role'] === 'finance' && !$departmentMode;
             $importColumns = ps_business_import_columns($selectedBusiness);
             $parsedSheets = [];
             foreach (ps_import_file_sheets($fileRow) as $sheetName => $raw) {
@@ -180,7 +199,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     if ($existing) {
                         if (ps_business_normalize($existing['project_type']) !== $selectedBusiness) throw new RuntimeException('该订单号已属于其他业务，请联系财务核对');
                         if (in_array($existing['settlement_status'], ['approved','locked'], true)) throw new RuntimeException('订单已审核，不能通过导入修改');
-                        if ($actor['role'] !== 'finance') {
+                        if ($departmentMode && !ps_department_import_is_order((int)$existing['id']) && $actor['role'] !== 'finance') throw new RuntimeException('同号订单不是网站售后部门订单，请由财务核对');
+                        if ($actor['role'] !== 'finance' && !$departmentMode) {
                             $existingAccess->execute([(int)$existing['id'], (int)$actor['employee_id']]);
                             if (!$existingAccess->fetchColumn()) {
                                 $record['attach_check'] = true; // 仅本人所在分成组还无人时，允许与同号订单关联。
@@ -322,7 +342,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         if (isset($record['people']['technical'][$id])) $record['people']['technical'][$id]['role'] .= '/' . $peopleLabels['backend'];
                         else $record['people']['technical'][$id] = ['id' => $id, 'role' => $peopleLabels['backend'], 'name' => $name];
                     }
-                    if ($actor['role'] !== 'finance') {
+                    if ($departmentMode) {
+                        $namedIds = array_values(array_unique(array_merge(array_keys($record['people']['customer_service']), array_keys($record['people']['technical']))));
+                        if ($namedIds) {
+                            $namedPeople = ps_department_import_people($actor, $selectedBusiness, $namedIds);
+                            $record['people'] = ['technical' => [], 'customer_service' => $namedPeople];
+                        } elseif ($departmentDefaults) $record['people'] = ['technical' => [], 'customer_service' => $departmentDefaults];
+                    }
+                    if ($actor['role'] !== 'finance' && !$departmentMode) {
                         $selfId = (int)$actor['employee_id'];
                         if (!isset($record['people']['technical'][$selfId]) && !isset($record['people']['customer_service'][$selfId])) {
                             $selfGroup = $actor['role'] === 'technical' ? 'technical' : 'customer_service';
@@ -334,8 +361,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             }
                         }
                     }
-                    if (!$cs && !$front && !$back) throw new RuntimeException('至少需要匹配一名客服或技术参与人');
-                    if ($actor['role'] !== 'finance') {
+                    if (!$record['people']['customer_service'] && !$record['people']['technical']) throw new RuntimeException($departmentMode ? '此行没有售后参与人，请在上传前选择默认参与人，或在表格填写姓名' : '至少需要匹配一名客服或技术参与人');
+                    if ($actor['role'] !== 'finance' && !$departmentMode) {
                         $group = $actor['role'] === 'technical' ? 'technical' : 'customer_service';
                         // 代写类：编辑员（客服账号）在代写订单上是“对接编辑”，本人在任一组即可
                         if (!empty($businessDefinition['import_cost']) && !isset($record['people'][$group][(int)$actor['employee_id']]) && isset($record['people']['technical'][(int)$actor['employee_id']])) $group = 'technical';
@@ -415,11 +442,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $_SESSION['project_import_preview'] = $preview;
             $_SESSION['project_import_actor'] = $actorKey;
             $_SESSION['project_import_business'] = $selectedBusiness;
+            $_SESSION['project_import_scope'] = $scope;
+            $_SESSION['project_import_people'] = $departmentDefaults;
+            $_SESSION['project_import_rule_month'] = $ruleMonth;
             $_SESSION['project_import_file'] = $fileId;
             $_SESSION['project_import_sheets'] = $sheetReport;
             $_SESSION['project_import_ai_touched'] = ps_ai_touched();
         } elseif ($action === 'commit') {
-            if (!$preview || $previewOwner !== $actorKey || $previewBusiness !== $selectedBusiness) throw new RuntimeException('预览已失效，请重新上传');
+            if (!$preview || $previewOwner !== $actorKey || $previewBusiness !== $selectedBusiness || $previewScope !== $scope) throw new RuntimeException('预览已失效，请重新上传');
             $choices = $_POST['domain_choice'] ?? [];
             $serverChoices = $_POST['server_template_id'] ?? [];
             $programChoices = $_POST['program_choice'] ?? [];
@@ -433,7 +463,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $pickedKind = trim((string)($kindChoices[$line] ?? ''));
                 if ($pickedKind !== '' && in_array($pickedKind, $commitKinds, true)) $row['order_kind'] = $pickedKind;
                 if (($row['order_kind'] ?? '') === '' && !empty($businessDefinition['kind_required'])) { $skipped++; $kindMissingLines[] = $line % 10000; continue; }
-                if ($actor['role'] !== 'finance') {
+                if ($actor['role'] !== 'finance' && !$departmentMode) {
                     $group = $actor['role'] === 'technical' ? 'technical' : 'customer_service';
                     if (!empty($businessDefinition['import_cost']) && !isset($row['people'][$group][(int)$actor['employee_id']]) && isset($row['people']['technical'][(int)$actor['employee_id']])) $group = 'technical';
                     if (!isset($row['people'][$group][(int)$actor['employee_id']])) throw new RuntimeException('第 ' . $line . ' 行不属于当前登录人员，请重新上传核对');
@@ -466,13 +496,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $existing = $existingQuery->fetch();
                     if ($existing) {
                         if (ps_business_normalize($existing['project_type']) !== $selectedBusiness || in_array($existing['settlement_status'], ['approved','locked'], true)) throw new RuntimeException('第 ' . $row['line'] . ' 行订单状态已变化，请重新预览');
+                        if ($departmentMode && !ps_department_import_is_order((int)$existing['id']) && $actor['role'] !== 'finance') throw new RuntimeException('第 ' . $row['line'] . ' 行同号订单不是网站售后部门订单');
                         if (ps_customer_intake_conflicts($existing, $row)) throw new RuntimeException('第 ' . $row['line'] . ' 行买家资料与原单不一致，请重新核对');
                         $orderId = (int)$existing['id'];
                         // 同号二次上传只补缺失的分成组；已有技术或客服不改人、不改权重。
                         $missing = [];
                         foreach (['technical', 'customer_service'] as $groupKey) if ($row['people'][$groupKey] && !ps_import_group_taken($orderId, $groupKey)) $missing[$groupKey] = array_values($row['people'][$groupKey]);
                         if ($missing) { ps_intake_participants($orderId, $missing, $selectedBusiness); ps_audit('order', $orderId, 'import_add_participants', $actor, ['line' => $row['line'], 'groups' => array_keys($missing)]); }
-                        if ($actor['role'] !== 'finance') {
+                        if ($actor['role'] !== 'finance' && !$departmentMode) {
                             $access = $pdo->prepare('SELECT 1 FROM project_participants WHERE order_id=? AND employee_id=?');
                             $access->execute([$orderId, (int)$actor['employee_id']]);
                             if (!$access->fetchColumn()) throw new RuntimeException('第 ' . $row['line'] . ' 行本人尚未关联此订单');
@@ -510,6 +541,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         if (($row['payment_reference'] ?? '') !== '') $pdo->prepare("UPDATE project_order_sources SET payment_reference=? WHERE order_id=? AND payment_reference=''")->execute([$row['payment_reference'], $orderId]);
                         if (($row['order_kind'] ?? '') !== '') $pdo->prepare("UPDATE project_orders SET order_kind=? WHERE id=? AND order_kind=''")->execute([$row['order_kind'], $orderId]);
                         ps_audit('order', $orderId, 'import_supplement', $actor, ['line' => $row['line'], 'order_no' => $row['order_no']]);
+                        if ($departmentMode) ps_department_import_record($orderId, $actor);
                         $imported++;
                         continue;
                     }
@@ -528,6 +560,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     ps_source_record($orderId, $row['contract_amount'] === '' ? 'missing' : 'manual', $row['payment_nickname'], $row['trade_status'] ?? '', $row['payment_reference'] ?? '');
                     ps_save_business_details($orderId, $selectedBusiness, $actor['role'] === 'customer_service' && $selectedBusiness === '网站模板' ? ps_business_details($selectedBusiness, []) : $row['details']);
                     ps_intake_participants($orderId, $row['people'], $selectedBusiness);
+                    if ($departmentMode) ps_department_import_record($orderId, $actor);
                     if ($businessDefinition['resources']) ps_intake_save_resources($orderId, 'excel', (int)$row['line'], $domainTemplate, $serverTemplate, is_numeric($row['ssl_used']) ? $row['ssl_used'] : null, $actor['role'] === 'customer_service' || $forcedMode === 'pending' ? 'pending' : null, $programTemplate);
                     if ($programTemplate) ps_intake_add_template_cost($orderId, $programTemplate, $actor, 'Excel 第' . $row['line'] . '行：程序套餐');
                     if ($domainTemplate) ps_intake_add_template_cost($orderId, $domainTemplate, $actor, 'Excel 第' . $row['line'] . '行：域名');
@@ -576,7 +609,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $_SESSION['project_import_pending_lines'] = array_map(function ($row) { return (int)$row['line']; }, $remaining);
                     $preview = $remaining;
                 } else {
-                    unset($_SESSION['project_import_preview'], $_SESSION['project_import_actor'], $_SESSION['project_import_business'], $_SESSION['project_import_file'], $_SESSION['project_import_sheets'], $_SESSION['project_import_ai_touched'], $_SESSION['project_import_pending_lines']);
+                    unset($_SESSION['project_import_preview'], $_SESSION['project_import_actor'], $_SESSION['project_import_business'], $_SESSION['project_import_scope'], $_SESSION['project_import_people'], $_SESSION['project_import_rule_month'], $_SESSION['project_import_file'], $_SESSION['project_import_sheets'], $_SESSION['project_import_ai_touched'], $_SESSION['project_import_pending_lines']);
                     $preview = [];
                 }
             } catch (Throwable $e) { if ($nested) $pdo->exec('ROLLBACK TO SAVEPOINT project_order_import'); else $pdo->rollBack(); throw $e; }
@@ -593,17 +626,27 @@ foreach ($preview as $previewRow) {
     elseif (!empty($previewRow['suggested_date'])) $suggestedDates[(int)$previewRow['line']] = $previewRow['suggested_date'];
     elseif (isset($lastDateBySheet[$sheetKey])) $suggestedDates[(int)$previewRow['line']] = $lastDateBySheet[$sheetKey];
 }
-$page_title = '导入项目订单';
+$page_title = $departmentMode ? '网站售后部门订单' : '导入项目订单';
 include __DIR__ . '/../includes/header.php';
 ?>
 <div class="project-intake-page">
-<div class="project-hero mb-3"><div><div class="project-eyebrow">项目合作结算中心 · 批量录入</div><h2>导入<?php echo e($selectedBusiness ?: '项目'); ?>订单</h2><p>先选业务模板，再拖入 Excel 逐行核对。已关联人员上传相同订单号时补充原单，不会重复建单；售价不直接作为实收。</p></div><div class="project-hero-actions"><a class="btn btn-light" href="<?php echo BASE_URL; ?>/project/index.php?business=<?php echo rawurlencode($selectedBusiness ?: ''); ?>">返回订单录入</a></div></div>
+<div class="project-hero mb-3"><div><div class="project-eyebrow">项目合作结算中心 · <?php echo $departmentMode ? '网站售后部门订单' : '批量录入'; ?></div><h2><?php echo $departmentMode ? '上传网站售后部门订单' : '导入' . e($selectedBusiness ?: '项目') . '订单'; ?></h2><p><?php echo $departmentMode ? '按网站续费或网站修改模板上传，表格中的参与人逐单匹配；未写姓名时可选择本批默认参与人。部门代录不要求上传人参与每一单，实收仍由财务确认。' : '先选业务模板，再拖入 Excel 逐行核对。已关联人员上传相同订单号时补充原单，不会重复建单；售价不直接作为实收。'; ?></p></div><div class="project-hero-actions"><a class="btn btn-light" href="<?php echo BASE_URL; ?>/project/index.php?business=<?php echo rawurlencode($selectedBusiness ?: ''); ?>">返回订单录入</a></div></div>
 <?php if ($error): ?><div class="alert alert-danger"><?php echo e($error); ?></div><?php endif; ?>
 <?php if ($imported): ?><div class="alert alert-success">已导入 <?php echo $imported; ?> 个订单<?php echo $skipped ? '；另有 ' . $skipped . ' 行未通过核对，未写入' : ''; ?>。<?php echo $businessDefinition['resources'] ? '已选择的标准域名/服务器成本按模板价生成；' : ''; ?>实收仍须财务确认。</div><?php endif; ?>
 <?php if (!$selectedBusiness): ?><div class="alert alert-warning">当前账户尚未分配业务，请联系财务配置。</div><?php else: ?>
-<div class="card project-form-card mb-3"><div class="card-body"><div class="project-section-title"><span class="project-step">01</span><div><h5>上传订单表</h5><p>支持 .xlsx / .xls / .csv，最多 1500 行、20 MB。技术和客服只能导入写有本人参与的订单；网站客服新单须指定接单技术。</p></div></div>
-<form method="get" class="form-inline mb-3"><label class="mr-2" for="importBusiness">业务模板</label><select id="importBusiness" name="business" class="form-control mr-2" onchange="this.form.submit()"><?php foreach ($allowedBusinesses as $businessName): ?><option value="<?php echo e($businessName); ?>" <?php echo $selectedBusiness === $businessName ? 'selected' : ''; ?>><?php echo e($businessName); ?></option><?php endforeach; ?></select><a class="btn btn-outline-success" href="?business=<?php echo rawurlencode($selectedBusiness); ?>&download=1">下载此业务 CSV 表头</a></form>
-<form method="post" enctype="multipart/form-data" id="projectUploadForm" data-legacy-xls-upload><input type="hidden" name="csrf" value="<?php echo e(ps_csrf_token()); ?>"><input type="hidden" name="action" value="preview"><input type="hidden" name="business" value="<?php echo e($selectedBusiness); ?>"><input type="file" name="parsed_file" hidden><label for="projectImportFile" id="projectDropZone" class="project-drop-zone"><i class="fas fa-cloud-upload-alt"></i><strong>拖拽 Excel 到这里，或点击选择文件</strong><span id="projectFileName">尚未选择文件</span><input type="file" id="projectImportFile" name="file" accept=".xlsx,.xls,.csv" required></label><button class="btn btn-success btn-lg mt-3" type="submit">上传并核对每一行</button><small class="d-block text-muted mt-2" data-xls-status>旧版 XLS 可直接上传，原件会保留。</small></form></div></div>
+<div class="card project-form-card mb-3"><div class="card-body"><div class="project-section-title"><span class="project-step">01</span><div><h5><?php echo $departmentMode ? '部门订单 · 批量上传' : '上传订单表'; ?></h5><p><?php echo $departmentMode ? '支持 .xlsx / .xls / .csv，最多 1500 行、20 MB；只允许网站售后部成员及财务代录。' : '支持 .xlsx / .xls / .csv，最多 1500 行、20 MB。技术和客服只能导入写有本人参与的订单；网站客服新单须指定接单技术。'; ?></p></div></div>
+<?php if ($departmentBusinesses): ?><div class="mb-3"><a class="btn btn-sm <?php echo $departmentMode ? 'btn-outline-secondary' : 'btn-success'; ?>" href="?business=<?php echo rawurlencode($departmentMode ? $selectedBusiness : ($departmentBusinesses[0] ?? '网站续费')); ?>&scope=<?php echo $departmentMode ? 'personal' : 'department'; ?>"><?php echo $departmentMode ? '返回个人订单导入' : '切换到网站售后部门订单'; ?></a></div><?php endif; ?>
+<form method="get" class="form-inline mb-3"><input type="hidden" name="scope" value="<?php echo $departmentMode ? 'department' : 'personal'; ?>"><label class="mr-2" for="importBusiness">业务模板</label><select id="importBusiness" name="business" class="form-control mr-2" onchange="this.form.submit()"><?php foreach ($departmentMode ? $departmentBusinesses : $allowedBusinesses as $businessName): ?><option value="<?php echo e($businessName); ?>" <?php echo $selectedBusiness === $businessName ? 'selected' : ''; ?>><?php echo e($businessName); ?></option><?php endforeach; ?></select><?php if ($departmentMode): ?><label class="mr-2" for="deptRuleMonth">规则月份</label><input id="deptRuleMonth" type="month" name="rule_month" class="form-control mr-2" value="<?php echo e($ruleMonth); ?>" onchange="this.form.submit() "><?php endif; ?><a class="btn btn-outline-success" href="?business=<?php echo rawurlencode($selectedBusiness); ?>&scope=<?php echo $departmentMode ? 'department' : 'personal'; ?>&download=1">下载此业务 CSV 表头</a></form>
+<form method="post" enctype="multipart/form-data" id="projectUploadForm" data-legacy-xls-upload><input type="hidden" name="csrf" value="<?php echo e(ps_csrf_token()); ?>"><input type="hidden" name="action" value="preview"><input type="hidden" name="business" value="<?php echo e($selectedBusiness); ?>"><input type="hidden" name="scope" value="<?php echo $departmentMode ? 'department' : 'personal'; ?>"><input type="hidden" name="rule_month" value="<?php echo e($ruleMonth); ?>">
+<?php if ($departmentMode): ?>
+<div class="p-3 mb-3" style="background:#f0f7f2;border:1px solid #d8eadc;border-radius:14px">
+  <strong>本批默认参与人</strong>
+  <div class="small text-muted mb-2">表格有客服 / 技术姓名时按每行姓名归属；没有姓名时由下方所选人员共同分单，逐单报酬默认等权。网站续费的部门共享比例独立按规则中心计算，选择参与人不会重复分配部门共享提成。</div>
+  <div class="d-flex flex-wrap" style="gap:8px 18px"><?php foreach ($departmentChoices as $person): ?><label class="mb-0"><input type="checkbox" name="dept_people[]" value="<?php echo (int)$person['id']; ?>" <?php echo isset($departmentDefaults[(int)$person['id']]) ? 'checked' : ''; ?>> <?php echo e($person['name']); ?><?php if (isset($renewalRates[(int)$person['id']])): ?> <small class="text-success">续费共享 <?php echo e(rtrim(rtrim(number_format($renewalRates[(int)$person['id']] * 100, 4), '0'), '.')); ?>%</small><?php endif; ?></label><?php endforeach; ?></div>
+  <div class="small text-muted mt-2">显示的是 <?php echo e($ruleMonth); ?> 生效规则；<?php if ($actor['role'] === 'finance'): ?>修改比例请到 <a href="<?php echo BASE_URL; ?>/project/rules.php">规则中心</a><?php else: ?>比例由财务在规则中心维护<?php endif; ?>。实际结算按结算月份生效规则计算。</div>
+</div>
+<?php endif; ?>
+<input type="file" name="parsed_file" hidden><label for="projectImportFile" id="projectDropZone" class="project-drop-zone"><i class="fas fa-cloud-upload-alt"></i><strong>拖拽 Excel 到这里，或点击选择文件</strong><span id="projectFileName">尚未选择文件</span><input type="file" id="projectImportFile" name="file" accept=".xlsx,.xls,.csv" required></label><button class="btn btn-success btn-lg mt-3" type="submit">上传并核对每一行</button><small class="d-block text-muted mt-2" data-xls-status>旧版 XLS 可直接上传，原件会保留。</small></form></div></div>
 <?php endif; ?>
 <?php
 $previewSheets = $preview ? array_filter($_SESSION['project_import_sheets'] ?? [], function ($i) { return !empty($i['used']); }) : [];

@@ -2,6 +2,7 @@
 require_once __DIR__ . '/auth.php';
 require_once __DIR__ . '/ProjectBusiness.php';
 require_once __DIR__ . '/ProjectSystem.php';
+require_once __DIR__ . '/ProjectDepartmentImport.php';
 
 function ps_actor()
 {
@@ -51,7 +52,7 @@ function ps_order($id, $actor)
     if ($actor['role'] !== 'finance') {
         $access = db()->prepare('SELECT 1 FROM project_participants WHERE order_id=? AND employee_id=? LIMIT 1');
         $access->execute([(int)$id, $actor['employee_id']]);
-        if (!$access->fetchColumn()) { http_response_code(403); exit('无权限查看此订单'); }
+        if (!$access->fetchColumn() && !ps_department_import_uploader_access($id, (int)$actor['employee_id'])) { http_response_code(403); exit('无权限查看此订单'); }
     }
     return $order;
 }

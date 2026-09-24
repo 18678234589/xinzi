@@ -2,7 +2,7 @@
 require_once __DIR__ . '/../includes/auth.php';
 require_login();
 
-$page_title = '店铺管理';
+$page_title = '店铺交易流水';
 $success = '';
 $error = '';
 
@@ -120,11 +120,12 @@ include __DIR__ . '/../includes/header.php';
 ?>
 
 <div class="d-flex justify-content-between align-items-center mb-3">
-    <h4 class="font-weight-bold mb-0"><i class="fas fa-store"></i> 店铺管理</h4>
+    <h4 class="font-weight-bold mb-0"><i class="fas fa-store"></i> 店铺交易流水</h4>
     <button class="btn btn-primary" data-toggle="modal" data-target="#shopModal" onclick="resetForm()">
         <i class="fas fa-plus"></i> 新增店铺
     </button>
 </div>
+<div class="alert alert-info py-2">这里供财务管理店铺及平台原始交易流水；需要录入项目、指定参与人或计算项目分成，请进入 <a href="<?php echo BASE_URL; ?>/project/index.php">项目订单</a>。</div>
 
 <?php if ($success): ?>
     <div class="alert alert-success alert-dismissible fade show"><i class="fas fa-check-circle"></i> <?php echo e($success); ?><button type="button" class="close" data-dismiss="alert">&times;</button></div>
