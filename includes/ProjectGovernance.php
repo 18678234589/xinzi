@@ -124,28 +124,42 @@ function pg_quarter_start($date = null)
     return $d->format('Y') . '-' . sprintf('%02d', $month) . '-01';
 }
 
+function pg_active_rotation($date = null)
+{
+    $date = $date ?: date('Y-m-d');
+    $q = db()->prepare('SELECT * FROM project_governance_rotations WHERE start_date<=? AND (end_date IS NULL OR end_date>=?) ORDER BY start_date DESC LIMIT 1');
+    $q->execute([$date,$date]);
+    return $q->fetch() ?: null;
+}
+
 function pg_chair_pool($quarterStart)
 {
-    if ($quarterStart >= '2026-10-01') {
+    if ($quarterStart >= '2026-09-15') {
         $rule = db()->query("SELECT reward_amount,rule_state FROM project_governance_rules WHERE rule_code='chair_pool' LIMIT 1")->fetch();
         if ($rule && $rule['rule_state'] === 'confirmed' && $rule['reward_amount'] !== null) {
-            db()->prepare("INSERT IGNORE INTO project_governance_pools (quarter_start,pool_role,opening_amount,source_note) VALUES (?,'chair',?,'按已确认的季度奖金池规则自动建立')")
+            db()->prepare("INSERT IGNORE INTO project_governance_pools (quarter_start,pool_role,opening_amount,source_note) VALUES (?,'chair',?,'按已确认的三个月任期奖金池规则自动建立')")
                 ->execute([$quarterStart,$rule['reward_amount']]);
         }
     }
     $q = db()->prepare("SELECT opening_amount,source_note FROM project_governance_pools WHERE quarter_start=? AND pool_role='chair'");
     $q->execute([$quarterStart]);
     $opening = $q->fetch();
-    $quarterEnd = (new DateTimeImmutable($quarterStart))->modify('+3 months')->format('Y-m-d');
-    $q = db()->prepare("SELECT COALESCE(SUM(r.bonus_delta),0) FROM project_governance_records r JOIN project_governance_members m ON m.employee_id=r.owner_employee_id AND m.governance_role='chair' WHERE r.review_state='approved' AND r.bonus_delta IS NOT NULL AND r.record_date>=? AND r.record_date<?");
+    $rotationQuery = db()->prepare('SELECT chair_employee_id,end_date FROM project_governance_rotations WHERE start_date=? ORDER BY id LIMIT 1');
+    $rotationQuery->execute([$quarterStart]);
+    $rotation = $rotationQuery->fetch();
+    $quarterEnd = $rotation && $rotation['end_date'] ? (new DateTimeImmutable($rotation['end_date']))->modify('+1 day')->format('Y-m-d') : (new DateTimeImmutable($quarterStart))->modify('+3 months')->format('Y-m-d');
+    $chairFilter = $rotation ? ' AND r.owner_employee_id=' . (int)$rotation['chair_employee_id'] : ' AND EXISTS (SELECT 1 FROM project_governance_members m WHERE m.employee_id=r.owner_employee_id AND m.governance_role=\'chair\')';
+    $q = db()->prepare("SELECT COALESCE(SUM(GREATEST(COALESCE(r.bonus_delta,CASE WHEN r.category='三天脑洞' THEN 100 ELSE 0 END),0)),0) AS positive,COALESCE(SUM(LEAST(COALESCE(r.bonus_delta,0),0)),0) AS negative FROM project_governance_records r WHERE r.review_state='approved' AND r.record_date>=? AND r.record_date<?" . $chairFilter);
     $q->execute([$quarterStart,$quarterEnd]);
-    $reviewed = (float)$q->fetchColumn();
-    $q = db()->prepare("SELECT COALESCE(SUM(amount),0) FROM project_governance_penalties WHERE state='applied' AND window_end>=? AND window_end<?");
+    $reviewedParts = $q->fetch();
+    $reviewed = (float)$reviewedParts['positive'] + (float)$reviewedParts['negative'];
+    $penaltyFilter = $rotation ? ' AND chair_employee_id=' . (int)$rotation['chair_employee_id'] : '';
+    $q = db()->prepare("SELECT COALESCE(SUM(amount),0) FROM project_governance_penalties WHERE state='applied' AND window_end>=? AND window_end<?" . $penaltyFilter);
     $q->execute([$quarterStart,$quarterEnd]);
     $penalties = (float)$q->fetchColumn();
     // 这是董事长目标额度的站内剩余，不是福利池余额；已获奖励和缺报扣减都不可再领取。
-    $balance = $opening ? round(max(0,min((float)$opening['opening_amount'],(float)$opening['opening_amount']-$reviewed+$penalties)),2) : null;
-    return ['opening' => $opening ? (float)$opening['opening_amount'] : null, 'source_note' => $opening['source_note'] ?? '', 'reviewed' => $reviewed, 'penalties' => $penalties, 'balance' => $balance];
+    $balance = $opening ? round(max(0,(float)$opening['opening_amount']-(float)$reviewedParts['positive']+(float)$reviewedParts['negative']+$penalties),2) : null;
+    return ['opening' => $opening ? (float)$opening['opening_amount'] : null, 'source_note' => $opening['source_note'] ?? '', 'reviewed' => $reviewed, 'approved_reward' => (float)$reviewedParts['positive'], 'reviewed_penalties' => (float)$reviewedParts['negative'], 'penalties' => $penalties, 'balance' => $balance];
 }
 
 function pg_private_dir()

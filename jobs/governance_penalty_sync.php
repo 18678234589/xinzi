@@ -8,7 +8,7 @@ echo "管理层脑洞缺报新增扣减 {$count} 笔\n";
 $notices = pg_sync_election_notices();
 echo "监委会换届提醒新增 {$notices} 条\n";
 // 首次生效为 2026-Q4。未完成评审、轮值或成员核对时保持待办，不提前转入。
-$lastQuarter = pw_quarter((new DateTimeImmutable(pg_quarter_start()))->modify('-1 day')->format('Y-m-d'));
+$lastQuarter = pw_previous_quarter(date('Y-m-d'));
 if ($lastQuarter >= pw_policy()['effective_quarter']) {
     try {
         if (pw_close_quarter($lastQuarter)) echo "福利池 {$lastQuarter} 季度结转完成\n";
