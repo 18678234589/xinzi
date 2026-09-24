@@ -4,12 +4,23 @@ if (!defined('BASE_PATH')) {
 }
 $current_admin = current_admin();
 $project_staff = null;
+$governance_nav = false;
 $department_upload_nav = (bool)$current_admin;
 $department_upload_business = '网站续费';
 if (!$current_admin && isset($_SESSION['project_user_id'])) {
-    $staffStmt = db()->prepare('SELECT u.username,u.role,e.name,e.department FROM project_users u JOIN employees e ON e.id=u.employee_id WHERE u.id=? AND u.is_active=1');
+    $staffStmt = db()->prepare('SELECT u.username,u.role,u.employee_id,e.name,e.department FROM project_users u JOIN employees e ON e.id=u.employee_id WHERE u.id=? AND u.is_active=1');
     $staffStmt->execute([(int)$_SESSION['project_user_id']]);
     $project_staff = $staffStmt->fetch();
+    if ($project_staff) {
+        try {
+            $governanceStmt = db()->prepare('SELECT 1 FROM project_governance_members WHERE employee_id=? AND is_active=1 LIMIT 1');
+            $governanceStmt->execute([(int)$project_staff['employee_id']]);
+            $governance_nav = (bool)$governanceStmt->fetchColumn();
+        } catch (PDOException $e) {
+            // 新迁移尚未执行时，普通页面仍可正常打开；新栏目保持隐藏。
+            $governance_nav = false;
+        }
+    }
     if ($project_staff && $project_staff['department'] === '网站售后部') {
         $departmentStmt = db()->prepare("SELECT business_name FROM project_user_businesses WHERE user_id=? AND business_name IN ('网站续费','网站修改') ORDER BY (business_name='网站续费') DESC LIMIT 1");
         $departmentStmt->execute([(int)$_SESSION['project_user_id']]);
@@ -42,7 +53,7 @@ $is_settle      = ($_rel === 'salaries/settle.php');
 $is_query       = ($_rel === 'salaries/query.php');
 $is_insurance   = (strpos($_rel, 'insurance/') === 0);
 $is_project     = (strpos($_rel, 'project/') === 0);
-$is_project_orders = $is_project && !in_array($_rel, ['project/dashboard.php', 'project/payroll.php', 'project/settings.php', 'project/system.php', 'project/rules.php', 'project/profile.php', 'project/files.php', 'project/refunds.php'], true);
+$is_project_orders = $is_project && !in_array($_rel, ['project/dashboard.php', 'project/payroll.php', 'project/settings.php', 'project/system.php', 'project/rules.php', 'project/profile.php', 'project/files.php', 'project/refunds.php', 'project/governance.php', 'project/governance_evidence.php'], true);
 // 合并栏目：同类页面在侧栏只占一个入口，进入后顶部页签切换。
 $nav_groups = [
     'shop' => [['/shops/index.php', 'fa-store', '店铺管理', $is_shops], ['/shops/etmll_sync.php', 'fa-sync-alt', 'ETMLL 订单同步', $is_etmll], ['/orders/index.php', 'fa-file-upload', '平台订单导入', $is_orders], ['/abnormal/index.php', 'fa-exclamation-triangle', '异常订单', $is_abnormal]],
@@ -66,6 +77,7 @@ $nav = function ($href, $icon, $label, $active) {
     <link href="<?php echo BASE_URL; ?>/assets/css/style.css" rel="stylesheet">
     <link href="<?php echo BASE_URL; ?>/assets/css/project-intake.css" rel="stylesheet">
     <link href="<?php echo BASE_URL; ?>/assets/css/theme.css" rel="stylesheet">
+    <?php if (($_rel ?? '') === 'project/governance.php' || (($_rel ?? '') === 'project/rules.php' && ($_GET['domain'] ?? $_POST['domain'] ?? '') === 'governance')): ?><link href="<?php echo BASE_URL; ?>/assets/css/governance.css" rel="stylesheet"><?php endif; ?>
     <?php if (($_rel ?? '') === 'project/dashboard.php'): ?><link href="<?php echo BASE_URL; ?>/assets/css/partner-dashboard.css" rel="stylesheet"><?php endif; ?>
     <?php if (($_rel ?? '') === 'project/dashboard.php'): ?><link href="<?php echo BASE_URL; ?>/assets/css/partner-dashboard-future.css" rel="stylesheet"><?php endif; ?>
 </head>
@@ -92,6 +104,7 @@ $nav = function ($href, $icon, $label, $active) {
     <?php echo $nav('/project/files.php', 'fa-file-excel', '我上传的表格', $_rel === 'project/files.php'); ?>
     <?php echo $nav('/project/refunds.php', 'fa-undo-alt', '退款与返现', $_rel === 'project/refunds.php'); ?>
     <?php echo $nav('/project/profile.php', 'fa-user-cog', '我的账号', $_rel === 'project/profile.php'); ?>
+    <?php if ($governance_nav): ?><div class="sidebar-project-label">管理层专属</div><?php echo $nav('/project/governance.php', 'fa-clipboard-check', '管理层激励考核', $_rel === 'project/governance.php' || ($_rel === 'project/rules.php' && ($_GET['domain'] ?? '') === 'governance')); endif; ?>
     <div class="sidebar-project-tip"><i class="fas fa-lock"></i> 这里只显示你参与或代录的订单，以及你自己的报酬。</div>
     <?php else: ?>
     <?php echo $nav('/index.php', 'fa-home', '工作台首页', $is_home); ?>

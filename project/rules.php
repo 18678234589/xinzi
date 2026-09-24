@@ -2,6 +2,10 @@
 require_once __DIR__ . '/../includes/ProjectBusiness.php';
 require_once __DIR__ . '/../includes/ProjectPresets.php';
 require_once __DIR__ . '/../includes/ProjectMonthly.php';
+if (($_GET['domain'] ?? $_POST['domain'] ?? '') === 'governance') {
+    require __DIR__ . '/governance_rules.php';
+    exit;
+}
 $actor = ps_require_finance();
 $error = '';
 $success = '';
