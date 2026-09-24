@@ -20,3 +20,13 @@ foreach (preg_split('/;\s*(?:\r?\n|$)/', file_get_contents(__DIR__ . '/20260924_
     db()->exec($statement);
 }
 echo "管理层轮值与奖金池已就绪\n";
+foreach (preg_split('/;\s*(?:\r?\n|$)/', file_get_contents(__DIR__ . '/20260924_governance_elections.sql')) as $statement) {
+    if (trim(preg_replace('/^\s*--.*$/m', '', $statement)) === '') continue;
+    db()->exec($statement);
+}
+echo "管理层换届投票已就绪\n";
+foreach (preg_split('/;\s*(?:\r?\n|$)/', file_get_contents(__DIR__ . '/20260924_welfare_pool.sql')) as $statement) {
+    if (trim(preg_replace('/^\s*--.*$/m', '', $statement)) === '') continue;
+    db()->exec($statement);
+}
+echo "全员福利池已就绪\n";

@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . '/../includes/ProjectPartnerDashboard.php';
+require_once __DIR__ . '/../includes/ProjectWelfare.php';
 $actor = ps_require_actor();
 $month = (string)($_POST['month'] ?? $_GET['month'] ?? date('Y-m', strtotime('first day of last month')));
 if (!preg_match('/^\d{4}-(0[1-9]|1[0-2])$/', $month) || $month > date('Y-m')) $month = date('Y-m', strtotime('first day of last month'));
@@ -63,6 +64,7 @@ $page_title = $actor['role'] === 'finance' ? '合作方经营看板' : '我的�
 include __DIR__ . '/../includes/header.php';
 $rateText = $summary['refund_rate'] === null ? '—' : number_format($summary['refund_rate'] * 100, 1) . '%';
 $netDelta = $summary['net'] - $previous['net'];
+$welfareBalance = pw_balance();
 ?>
 <div class="partner-dashboard">
   <section class="pd-hero">
@@ -80,6 +82,7 @@ $netDelta = $summary['net'] - $previous['net'];
     </form>
   </section>
 
+  <a class="pd-welfare-link" href="<?php echo BASE_URL; ?>/project/welfare.php"><span><i class="fas fa-heart"></i> 全员共创福利池 <small>季度结余自动汇入 · 好建议与 Bug 有回响</small></span><strong>¥<?php echo money($welfareBalance); ?></strong><i class="fas fa-arrow-right"></i></a>
   <div class="pd-note"><i class="fas fa-info-circle"></i> 以下按订单日期归属到所选月份，并按本人分单权重计算；跨岗位参与同一单最多计 100%。实收和退款为当前已审核累计金额，可能包含次月发生的收退款，不代表该月现金流水。</div>
 
   <div class="pd-section-label"><span>01 / 经营脉搏</span><small>清晰看见每一步</small></div>

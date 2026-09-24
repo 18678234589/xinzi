@@ -66,7 +66,7 @@ function pg_sync_idea_penalties()
     $policy = pg_idea_policy();
     if (!$policy) return 0;
     $amount = -$policy['penalty'];
-    $rotations = db()->query("SELECT * FROM project_governance_rotations WHERE start_date<CURDATE() ORDER BY start_date,id")->fetchAll();
+    $rotations = db()->query("SELECT r.*,g.penalty_effective_from FROM project_governance_rotations r LEFT JOIN project_governance_rotation_guard g ON g.rotation_id=r.id WHERE r.start_date<CURDATE() ORDER BY r.start_date,r.id")->fetchAll();
     $validIdea = db()->prepare("SELECT 1 FROM project_governance_records WHERE record_kind='chair' AND category='三天脑洞' AND owner_employee_id=? AND created_at>=? AND created_at<? AND review_state<>'rejected' LIMIT 1");
     $insert = db()->prepare("INSERT IGNORE INTO project_governance_penalties (rotation_id,chair_employee_id,window_start,window_end,amount) VALUES (?,?,?,?,?)");
     $today = new DateTimeImmutable('today');
@@ -78,6 +78,7 @@ function pg_sync_idea_penalties()
             $windowEnd = $windowStart->modify('+' . ($policy['days'] - 1) . ' days');
             if ($windowEnd >= $today || $windowEnd > $rotationEnd) break;
             $next = $windowEnd->modify('+1 day');
+            if ($rotation['penalty_effective_from'] && $windowStart->format('Y-m-d') < $rotation['penalty_effective_from']) { $windowStart = $next; continue; }
             $validIdea->execute([(int)$rotation['chair_employee_id'],$windowStart->format('Y-m-d 00:00:00'),$next->format('Y-m-d 00:00:00')]);
             if (!$validIdea->fetchColumn()) {
                 $insert->execute([(int)$rotation['id'],(int)$rotation['chair_employee_id'],$windowStart->format('Y-m-d'),$windowEnd->format('Y-m-d'),$amount]);
@@ -88,6 +89,30 @@ function pg_sync_idea_penalties()
             }
             $windowStart = $next;
         }
+    }
+    return $added;
+}
+
+/** 任期截止前 7 天生成一次站内提醒；轮值起点 +3 个月，即 9/15 起任到 12/14。 */
+function pg_election_schedule($startDate, $confirmedEnd = null)
+{
+    $end = $confirmedEnd ?: (new DateTimeImmutable($startDate))->modify('+3 months -1 day')->format('Y-m-d');
+    return ['end'=>$end,'reminder'=>(new DateTimeImmutable($end))->modify('-7 days')->format('Y-m-d')];
+}
+
+function pg_sync_election_notices()
+{
+    $today = date('Y-m-d');
+    $rows = db()->query("SELECT id,start_date,end_date FROM project_governance_rotations WHERE start_date<=CURDATE() ORDER BY id")->fetchAll();
+    $save = db()->prepare("INSERT IGNORE INTO project_governance_elections (rotation_id,reminder_date,deadline_date) VALUES (?,?,?)");
+    $added = 0;
+    foreach ($rows as $row) {
+        $schedule = pg_election_schedule($row['start_date'],$row['end_date']);
+        $end = $schedule['end'];
+        $reminder = $schedule['reminder'];
+        if ($reminder > $today) continue;
+        $save->execute([(int)$row['id'],$reminder,$end]);
+        $added += $save->rowCount();
     }
     return $added;
 }
@@ -118,7 +143,9 @@ function pg_chair_pool($quarterStart)
     $q = db()->prepare("SELECT COALESCE(SUM(amount),0) FROM project_governance_penalties WHERE state='applied' AND window_end>=? AND window_end<?");
     $q->execute([$quarterStart,$quarterEnd]);
     $penalties = (float)$q->fetchColumn();
-    return ['opening' => $opening ? (float)$opening['opening_amount'] : null, 'source_note' => $opening['source_note'] ?? '', 'reviewed' => $reviewed, 'penalties' => $penalties, 'balance' => $opening ? round((float)$opening['opening_amount'] + $reviewed + $penalties, 2) : null];
+    // 这是董事长目标额度的站内剩余，不是福利池余额；已获奖励和缺报扣减都不可再领取。
+    $balance = $opening ? round(max(0,min((float)$opening['opening_amount'],(float)$opening['opening_amount']-$reviewed+$penalties)),2) : null;
+    return ['opening' => $opening ? (float)$opening['opening_amount'] : null, 'source_note' => $opening['source_note'] ?? '', 'reviewed' => $reviewed, 'penalties' => $penalties, 'balance' => $balance];
 }
 
 function pg_private_dir()
