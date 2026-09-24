@@ -131,6 +131,45 @@ try {
     $conflictPreview = $_SESSION['project_import_preview'][0] ?? null;
     if (!$conflictPreview || $conflictPreview['base_valid'] || strpos($conflictPreview['error'], '售价不一致') === false) throw new RuntimeException('上传售价与原单冲突时未要求财务核对');
     fclose($conflictCsv);
+    // 部门表常见的空日期/空订单号：可在预览中补填，不必修改原 Excel 或重新上传。
+    $repairCsv = tmpfile();
+    $repairHeaders = ps_business_import_headers('小程序开发');
+    fputcsv($repairCsv, $repairHeaders);
+    $repairNos = [$no . '-REPAIR-1', $no . '-REPAIR-2', $no . '-REPAIR-3'];
+    foreach ([['2026-09-14', $repairNos[0]], ['', $repairNos[1]], ['2026-09-17', '']] as $index => [$rowDate, $rowNo]) {
+        $data = array_fill_keys($repairHeaders, '');
+        $data['日期'] = $rowDate; $data['店铺'] = $shopName; $data['业务'] = '小程序开发';
+        $data['订单编号'] = $rowNo; $data['售价'] = (string)(500 + $index * 100);
+        $data['状态(填已完成/未完成)'] = '已完成'; $data['制作技术'] = $employeeName; $data['订单类型'] = '定制';
+        fputcsv($repairCsv, array_values($data));
+    }
+    fflush($repairCsv);
+    $repairPath = stream_get_meta_data($repairCsv)['uri'];
+    $_POST = ['csrf' => ps_csrf_token(), 'action' => 'preview', 'business' => '小程序开发'];
+    $_FILES = ['file' => ['name' => 'repair.csv', 'tmp_name' => $repairPath, 'error' => UPLOAD_ERR_OK, 'size' => filesize($repairPath)]];
+    ob_start(); include __DIR__ . '/../project/import.php'; $repairHtml = ob_get_clean();
+    $repairPreview = $_SESSION['project_import_preview'] ?? [];
+    if (count($repairPreview) !== 3 || empty($repairPreview[0]['base_valid']) || !empty($repairPreview[1]['base_valid']) || !empty($repairPreview[2]['base_valid'])) throw new RuntimeException('缺日期/缺订单号行没有正确区分合格行');
+    if (strpos($repairHtml, '应用补填并重新核对') === false || strpos($repairHtml, '先导入 1 行合格订单') === false) throw new RuntimeException('预览页没有提供补填与先导入入口');
+    $repairFileId = (int)($_SESSION['project_import_file'] ?? 0);
+    $_POST = ['csrf' => ps_csrf_token(), 'action' => 'commit', 'business' => '小程序开发'];
+    $_FILES = [];
+    ob_start(); include __DIR__ . '/../project/import.php'; $partialHtml = ob_get_clean();
+    if (strpos($partialHtml, '已导入 1 个订单') === false || count($_SESSION['project_import_preview'] ?? []) !== 2) throw new RuntimeException('先导入合格行后没有保留待修正行');
+    $_POST = ['csrf' => ps_csrf_token(), 'action' => 'repair_preview', 'business' => '小程序开发', 'fix_date' => [3 => '2026-09-14'], 'fix_order_no' => [4 => $repairNos[2]]];
+    $_FILES = [];
+    ob_start(); include __DIR__ . '/../project/import.php'; ob_end_clean();
+    $repairPreview = $_SESSION['project_import_preview'] ?? [];
+    if (count($repairPreview) !== 2 || count(array_filter($repairPreview, function ($r) { return !empty($r['base_valid']); })) !== 2 || $repairPreview[0]['order_date'] !== '2026-09-14' || $repairPreview[1]['order_no'] !== $repairNos[2]) throw new RuntimeException('预览内补填没有重新核对通过');
+    $_POST = ['csrf' => ps_csrf_token(), 'action' => 'commit', 'business' => '小程序开发'];
+    ob_start(); include __DIR__ . '/../project/import.php'; ob_end_clean();
+    $repairQuery = $pdo->prepare('SELECT COUNT(*) FROM project_orders WHERE order_no IN (?,?,?)');
+    $repairQuery->execute($repairNos);
+    if ((int)$repairQuery->fetchColumn() !== 3) throw new RuntimeException('补填后未导入全部三笔订单');
+    $fileCount = $pdo->prepare('SELECT imported_count,skipped_count FROM project_import_files WHERE id=?'); $fileCount->execute([$repairFileId]);
+    $fileStats = $fileCount->fetch();
+    if ((int)$fileStats['imported_count'] !== 3 || (int)$fileStats['skipped_count'] !== 0) throw new RuntimeException('分两次导入时原始表格统计未累计');
+    fclose($repairCsv);
     if (ps_business_fallback('设计客服') !== '设计' || ps_business_fallback('定制前端') !== 'AI网站定制') throw new RuntimeException('部门默认业务匹配错误');
     $designCsv = tmpfile();
     $designHeaders = ps_business_import_headers('设计');

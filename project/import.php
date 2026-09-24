@@ -40,14 +40,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $businessDefinition = ps_require_business($actor, $selectedBusiness);
         $peopleLabels = ps_business_people_labels($selectedBusiness);
         $action = (string)($_POST['action'] ?? '');
-        if ($action === 'preview' || $action === 'repreview') {
+        if (in_array($action, ['preview', 'repreview', 'repair_preview'], true)) {
             // 原始表格先保存（财务可在“原始表格”页查看 / 下载）；重新选择工作表时直接读已保存的文件，不必重新上传。
             if ($action === 'preview') {
                 if (empty($_FILES['file']['tmp_name']) || $_FILES['file']['error'] !== UPLOAD_ERR_OK || $_FILES['file']['size'] > 20 * 1024 * 1024) throw new RuntimeException('请选择不超过 20 MB 的 XLSX、XLS 或 CSV 文件');
                 $fileId = ps_import_file_store($_FILES['file'], $selectedBusiness, $actor, $_FILES['parsed_file'] ?? null);
+                unset($_SESSION['project_import_pending_lines']);
+            } elseif ($action === 'repair_preview') {
+                if (!$preview || $previewOwner !== $actorKey || $previewBusiness !== $selectedBusiness) throw new RuntimeException('预览已失效，请重新上传');
+                $fileId = (int)($_SESSION['project_import_file'] ?? 0);
             } else $fileId = (int)($_POST['file_id'] ?? 0);
             $fileRow = ps_import_file_get($fileId, $actor);
-            $chosenSheets = $action === 'repreview' ? array_map('strval', (array)($_POST['sheets'] ?? [])) : null;
+            $chosenSheets = $action === 'repreview' ? array_map('strval', (array)($_POST['sheets'] ?? [])) : ($action === 'repair_preview' ? array_keys(array_filter($_SESSION['project_import_sheets'] ?? [], function ($entry) { return !empty($entry['used']); })) : null);
+            $fixOrderNos = $action === 'repair_preview' ? (array)($_POST['fix_order_no'] ?? []) : [];
+            $fixDates = $action === 'repair_preview' ? (array)($_POST['fix_date'] ?? []) : [];
             $sheetReport = [];
             $usedSheets = 0;
             $totalRows = 0;
@@ -138,6 +144,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $record = ['line' => $lineOffset + $index + 2, 'sheet' => $sheetName, 'layout_signature' => $layoutSignature, 'status' => '可导入', 'error' => '', 'warning' => '', 'base_valid' => true, 'people' => ['technical' => [], 'customer_service' => []], 'domain_mode' => '', 'domain_template_id' => 0];
                 try {
                     $record['order_no'] = $lookup($row, 'order_no');
+                    if ($record['order_no'] === '' && trim((string)($fixOrderNos[$record['line']] ?? '')) !== '') {
+                        $record['order_no'] = trim((string)$fixOrderNos[$record['line']]);
+                        $record['warning'] = '订单号由上传人在预览中补填，请核对原始交易记录';
+                    }
                     $exists->execute([$record['order_no']]);
                     $existing = $exists->fetch();
                     $record['existing_order_id'] = $existing ? (int)$existing['id'] : 0;
@@ -159,6 +169,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         $record['status'] = '补充已有订单';
                     }
                     $record['order_date'] = ps_import_date($lookup($row, 'order_date'));
+                    if (!$record['order_date'] && trim((string)($fixDates[$record['line']] ?? '')) !== '') {
+                        $record['order_date'] = ps_import_date($fixDates[$record['line']]);
+                        if ($record['order_date']) $record['warning'] .= ($record['warning'] ? '；' : '') . '日期由上传人在预览中确认补填';
+                    }
                     // 部门原表偶有把时间写进日期列（如 18.05、“17. 00”）：按今天建单并提示核对
                     if (!$record['order_date'] && !empty($businessDefinition['free_shop']) && $lookup($row, 'order_date') !== '' && ($lookup($row, 'order_no') !== '' && $lookup($row, 'contract_amount') !== '')) { $record['order_date'] = date('Y-m-d'); $record['warning'] = '日期“' . $lookup($row, 'order_date') . '”无法识别，已按今天建单，请核对'; }
                     $record['contract_amount'] = str_replace([',','¥','￥',' '], '', $lookup($row, 'contract_amount'));
@@ -351,7 +365,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 foreach ($sheetReport as $name => $info) $reasons[] = '“' . $name . '”' . $info['reason'];
                 throw new RuntimeException('没有与“' . $selectedBusiness . '”表头对应的工作表（' . implode('；', $reasons) . '）。请确认业务类型，或下载该业务模板对照表头');
             }
-            ps_import_file_mark($fileId, 'preview', ['sheets_used' => mb_substr(implode('、', array_keys(array_filter($sheetReport, function ($i) { return $i['used']; }))), 0, 500), 'rows_total' => count($preview)]);
+            $totalPreviewRows = count($preview);
+            $lastDateBySheet = [];
+            foreach ($preview as &$previewItem) {
+                $sheetKey = (string)($previewItem['sheet'] ?? '');
+                if (!empty($previewItem['order_date'])) $lastDateBySheet[$sheetKey] = $previewItem['order_date'];
+                elseif (isset($lastDateBySheet[$sheetKey])) $previewItem['suggested_date'] = $lastDateBySheet[$sheetKey];
+            }
+            unset($previewItem);
+            if ($action === 'repair_preview' && !empty($_SESSION['project_import_pending_lines'])) {
+                $pendingLines = array_map('intval', (array)$_SESSION['project_import_pending_lines']);
+                $preview = array_values(array_filter($preview, function ($item) use ($pendingLines) { return in_array((int)$item['line'], $pendingLines, true); }));
+            }
+            ps_import_file_mark($fileId, $fileRow['status'] === 'imported' ? 'imported' : 'preview', ['sheets_used' => mb_substr(implode('、', array_keys(array_filter($sheetReport, function ($i) { return $i['used']; }))), 0, 500), 'rows_total' => $totalPreviewRows]);
             $_SESSION['project_import_preview'] = $preview;
             $_SESSION['project_import_actor'] = $actorKey;
             $_SESSION['project_import_business'] = $selectedBusiness;
@@ -492,14 +518,35 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 if ($nested) $pdo->exec('RELEASE SAVEPOINT project_order_import');
                 else $pdo->commit();
                 ps_ai_mark_applied($_SESSION['project_import_ai_touched'] ?? []);
-                if (!empty($_SESSION['project_import_file'])) ps_import_file_mark((int)$_SESSION['project_import_file'], 'imported', ['imported_count' => $imported, 'skipped_count' => $skipped]);
-                unset($_SESSION['project_import_preview'], $_SESSION['project_import_actor'], $_SESSION['project_import_business'], $_SESSION['project_import_file'], $_SESSION['project_import_sheets'], $_SESSION['project_import_ai_touched']);
-                $preview = [];
+                $importedLines = array_map(function ($item) { return (int)$item[0]['line']; }, $ready);
+                $remaining = array_values(array_filter($preview, function ($row) use ($importedLines) { return !in_array((int)$row['line'], $importedLines, true); }));
+                if (!empty($_SESSION['project_import_file'])) {
+                    $stats = db()->prepare('SELECT imported_count FROM project_import_files WHERE id=?');
+                    $stats->execute([(int)$_SESSION['project_import_file']]);
+                    ps_import_file_mark((int)$_SESSION['project_import_file'], 'imported', ['imported_count' => (int)$stats->fetchColumn() + $imported, 'skipped_count' => count($remaining)]);
+                }
+                if ($remaining) {
+                    $_SESSION['project_import_preview'] = $remaining;
+                    $_SESSION['project_import_pending_lines'] = array_map(function ($row) { return (int)$row['line']; }, $remaining);
+                    $preview = $remaining;
+                } else {
+                    unset($_SESSION['project_import_preview'], $_SESSION['project_import_actor'], $_SESSION['project_import_business'], $_SESSION['project_import_file'], $_SESSION['project_import_sheets'], $_SESSION['project_import_ai_touched'], $_SESSION['project_import_pending_lines']);
+                    $preview = [];
+                }
             } catch (Throwable $e) { if ($nested) $pdo->exec('ROLLBACK TO SAVEPOINT project_order_import'); else $pdo->rollBack(); throw $e; }
         } else throw new RuntimeException('操作无效');
     } catch (Throwable $e) { $error = $e instanceof PDOException ? '导入发生订单号冲突或保存失败，请重新上传预览' : $e->getMessage(); }
 }
 $baseValidCount = count(array_filter($preview, function ($row) { return !empty($row['base_valid']); }));
+$invalidCount = count($preview) - $baseValidCount;
+$repairableCount = count(array_filter($preview, function ($row) { return empty($row['order_no']) || empty($row['order_date']); }));
+$suggestedDates = []; $lastDateBySheet = [];
+foreach ($preview as $previewRow) {
+    $sheetKey = (string)($previewRow['sheet'] ?? '');
+    if (!empty($previewRow['order_date'])) $lastDateBySheet[$sheetKey] = $previewRow['order_date'];
+    elseif (!empty($previewRow['suggested_date'])) $suggestedDates[(int)$previewRow['line']] = $previewRow['suggested_date'];
+    elseif (isset($lastDateBySheet[$sheetKey])) $suggestedDates[(int)$previewRow['line']] = $lastDateBySheet[$sheetKey];
+}
 $page_title = '导入项目订单';
 include __DIR__ . '/../includes/header.php';
 ?>
@@ -527,7 +574,8 @@ $previewFileId = $preview ? (int)($_SESSION['project_import_file'] ?? 0) : 0;
 <?php $previewKinds = $preview ? ps_business_order_kinds($selectedBusiness) : []; ?>
 <?php foreach ($previewSheets as $sheetName => $info): if (empty($info['ai'])) continue; ?><div class="alert alert-info"><i class="fas fa-robot mr-1"></i><?php echo count($previewSheets) > 1 ? '【' . e($sheetName) . '】' : ''; ?><?php echo e($info['ai']); ?> 请核对下方识别结果。</div><?php endforeach; ?>
 <?php if ($preview): ?>
-<form method="post" class="card project-form-card mb-3"><input type="hidden" name="csrf" value="<?php echo e(ps_csrf_token()); ?>"><input type="hidden" name="action" value="commit"><input type="hidden" name="business" value="<?php echo e($selectedBusiness); ?>"><div class="card-body pb-2"><?php if ($previewKinds): ?><div class="project-kind-bulk d-flex flex-wrap align-items-center mb-2" style="gap:8px"><span class="small text-muted">订单类型：</span><select class="form-control form-control-sm" id="kindBulk" style="width:auto" aria-label="批量设置订单类型"><option value="">未选的行全部设为…</option><?php foreach ($previewKinds as $k): ?><option value="<?php echo e($k); ?>"><?php echo e($k); ?></option><?php endforeach; ?></select><label class="small mb-0"><input type="checkbox" id="kindBulkAll"> 已选的行也改</label></div>
+<?php if ($invalidCount): ?><div class="alert alert-info"><strong><?php echo $baseValidCount; ?> 行资料已通过，<?php echo $invalidCount; ?> 行需处理。</strong>可先导入合格行，红色行不会写入订单；也可在缺失处补填后点“重新核对”。订单号必须来自真实交易记录，不会由系统自动编造。</div><?php endif; ?>
+<form method="post" class="card project-form-card mb-3"><input type="hidden" name="csrf" value="<?php echo e(ps_csrf_token()); ?>"><input type="hidden" name="business" value="<?php echo e($selectedBusiness); ?>"><div class="card-body pb-2"><?php if ($previewKinds): ?><div class="project-kind-bulk d-flex flex-wrap align-items-center mb-2" style="gap:8px"><span class="small text-muted">订单类型已自动带入，无需逐行选择；发现误判时可修改。</span><select class="form-control form-control-sm" id="kindBulk" style="width:auto" aria-label="批量修正订单类型"><option value="">批量修正类型…</option><?php foreach ($previewKinds as $k): ?><option value="<?php echo e($k); ?>"><?php echo e($k); ?></option><?php endforeach; ?></select><label class="small mb-0"><input type="checkbox" id="kindBulkAll"> 已选的行也改</label></div>
 <script>
 document.addEventListener('DOMContentLoaded', function () {
   var bulk = document.getElementById('kindBulk'); if (!bulk) return;
@@ -539,8 +587,8 @@ document.addEventListener('DOMContentLoaded', function () {
 });
 </script><?php endif; ?><div class="project-section-title"><span class="project-step">02</span><div><h5>核对预览</h5><p><?php echo $baseValidCount; ?> 行基础资料通过<?php echo $resourceSelection ? '；缺失域名规格的行请选标准模板，服务器成本可选填' : '；客服提交后由技术在同一订单确认资源与成本'; ?>。</p></div></div></div><div class="table-responsive"><table class="table project-preview-table mb-0"><thead><tr><th>行 / 订单</th><th>日期 / 售价</th><th>参与人</th><?php if ($businessDefinition['fields']): ?><th>业务信息</th><?php endif; ?><?php if ($resourceSelection && $usesProgram): ?><th>程序套餐</th><?php endif; ?><?php if ($resourceSelection): ?><th>域名选择与标准成本</th><th>服务器成本</th><?php endif; ?><th>核对结果</th></tr></thead><tbody>
 <?php foreach ($preview as $row): ?><tr class="<?php echo empty($row['base_valid']) ? 'table-danger' : ($row['status'] === '可导入' ? '' : 'table-warning'); ?>">
-<td><small><?php echo count($previewSheets) > 1 && !empty($row['sheet']) ? '【' . e($row['sheet']) . '】' : ''; ?>第 <?php echo e(implode('、', array_map(function ($l) { return (int)$l % 10000; }, $row['lines'] ?? [$row['line']]))); ?> 行</small><br><strong><?php echo e($row['order_no'] ?? '—'); ?></strong><br><small><?php echo e($row['project_type'] ?? ''); ?></small></td>
-<td><?php echo e($row['order_date'] ?? '—'); ?><br><strong>¥<?php echo e(($row['contract_amount'] ?? '') === '' ? '待补' : $row['contract_amount']); ?></strong><?php if ($previewKinds && !empty($row['base_valid'])): $currentKind = ($row['order_kind'] ?? '') !== '' ? $row['order_kind'] : ($row['kind_guess'] ?? ''); ?><br><select class="form-control form-control-sm mt-1 js-kind-choice<?php echo ($row['order_kind'] ?? '') === '' ? ' is-invalid' : ''; ?>" name="kind_choice[<?php echo (int)$row['line']; ?>]" aria-label="订单类型"><option value="">选择订单类型</option><?php foreach ($previewKinds as $k): ?><option value="<?php echo e($k); ?>" <?php echo $currentKind === $k ? 'selected' : ''; ?>><?php echo e($k); ?></option><?php endforeach; ?></select><?php if (($row['order_kind'] ?? '') === '' && !empty($row['kind_guess'])): ?><small class="text-muted"><?php echo !empty($row['kind_from_ai']) ? 'AI 建议' : '按描述猜测'; ?>，请确认</small><?php endif; ?><?php elseif (($row['order_kind'] ?? '') !== ''): ?><br><small class="text-muted"><?php echo e($row['order_kind']); ?></small><?php endif; ?></td>
+<td><small><?php echo count($previewSheets) > 1 && !empty($row['sheet']) ? '【' . e($row['sheet']) . '】' : ''; ?>第 <?php echo e(implode('、', array_map(function ($l) { return (int)$l % 10000; }, $row['lines'] ?? [$row['line']]))); ?> 行</small><br><?php if (empty($row['order_no'])): ?><input class="form-control form-control-sm mt-1" name="fix_order_no[<?php echo (int)$row['line']; ?>]" maxlength="100" placeholder="补填真实订单号" aria-label="第<?php echo (int)$row['line']; ?>行原订单号"><small class="text-danger">原表缺订单号，请查交易记录</small><?php else: ?><strong><?php echo e($row['order_no']); ?></strong><?php endif; ?><br><small><?php echo e($row['project_type'] ?? ''); ?></small></td>
+<td><?php if (empty($row['order_date'])): ?><input type="date" class="form-control form-control-sm" name="fix_date[<?php echo (int)$row['line']; ?>]" value="<?php echo e($suggestedDates[(int)$row['line']] ?? ''); ?>" aria-label="第<?php echo (int)$row['line']; ?>行订单日期"><small class="text-warning"><?php echo isset($suggestedDates[(int)$row['line']]) ? '建议上一行日期，请核对' : '请补订单日期'; ?></small><?php else: ?><?php echo e($row['order_date']); ?><?php endif; ?><br><strong>¥<?php echo e(($row['contract_amount'] ?? '') === '' ? '待补' : $row['contract_amount']); ?></strong><?php if ($previewKinds && !empty($row['base_valid'])): $currentKind = ($row['order_kind'] ?? '') !== '' ? $row['order_kind'] : ($row['kind_guess'] ?? ''); ?><br><select class="form-control form-control-sm mt-1 js-kind-choice<?php echo ($row['order_kind'] ?? '') === '' ? ' is-invalid' : ''; ?>" name="kind_choice[<?php echo (int)$row['line']; ?>]" aria-label="订单类型"><option value="">选择订单类型</option><?php foreach ($previewKinds as $k): ?><option value="<?php echo e($k); ?>" <?php echo $currentKind === $k ? 'selected' : ''; ?>><?php echo e($k); ?></option><?php endforeach; ?></select><?php if (($row['order_kind'] ?? '') === '' && !empty($row['kind_guess'])): ?><small class="text-muted"><?php echo !empty($row['kind_from_ai']) ? 'AI 建议' : '按描述猜测'; ?>，请确认</small><?php endif; ?><?php elseif (($row['order_kind'] ?? '') !== ''): ?><br><small class="text-muted"><?php echo e($row['order_kind']); ?></small><?php endif; ?></td>
 <td><small>客服：<?php echo e(implode('、', array_column($row['people']['customer_service'], 'name')) ?: '—'); ?><br>技术：<?php echo e(implode('、', array_column($row['people']['technical'], 'name')) ?: '—'); ?></small></td>
 <?php if ($businessDefinition['fields']): ?><td><small><?php foreach ($businessDefinition['fields'] as $key => $label): ?><?php echo e($label . '：' . ps_contact_for($actor, ($row['details'][$key] ?? '') ?: '—', $key === 'customer_wechat')); ?><br><?php endforeach; ?></small></td><?php endif; ?>
 <?php if ($resourceSelection && $usesProgram): ?><td><?php if (!empty($row['resource_locked'])): ?><span class="text-muted">原单已确认</span><?php elseif (!empty($row['base_valid'])): ?><select class="form-control form-control-sm" name="program_choice[<?php echo (int)$row['line']; ?>]" aria-label="第<?php echo (int)$row['line']; ?>行程序套餐"><option value="0">不使用程序套餐</option><?php foreach ($programTemplates as $t): ?><option value="<?php echo (int)$t['id']; ?>" <?php echo (int)($row['program_template_id'] ?? 0) === (int)$t['id'] ? 'selected' : ''; ?>><?php echo e($t['name'] . ' · ' . $t['specification'] . ' · ¥' . money($t['price'])); ?></option><?php endforeach; ?></select><small class="text-muted">原表：<?php echo e(($row['program_name'] ?? '') ?: '未写程序名称'); ?></small><?php else: ?>—<?php endif; ?></td><?php endif; ?>
@@ -549,7 +597,7 @@ document.addEventListener('DOMContentLoaded', function () {
 <td><?php if (!empty($row['resource_locked'])): ?>—<?php elseif (!empty($row['base_valid'])): ?><select class="form-control form-control-sm" name="server_template_id[<?php echo (int)$row['line']; ?>]"><option value="0">不自动计服务器</option><?php foreach ($serverTemplates as $t): ?><option value="<?php echo (int)$t['id']; ?>"><?php echo e(trim($t['name'] . ' ' . $t['specification']) . ' · ¥' . money($t['price'])); ?></option><?php endforeach; ?></select><?php else: ?>—<?php endif; ?></td>
 <?php endif; ?>
 <td><span class="badge badge-<?php echo empty($row['base_valid']) ? 'danger' : ($row['status'] === '可导入' ? 'success' : 'warning'); ?>"><?php echo e($row['status']); ?></span><?php if ($row['error']): ?><div class="small text-danger mt-1"><?php echo e($row['error']); ?></div><?php endif; ?><?php if ($row['warning']): ?><div class="small text-warning mt-1"><?php echo e($row['warning']); ?></div><?php endif; ?></td></tr><?php endforeach; ?>
-</tbody></table></div><div class="card-body border-top d-flex flex-wrap justify-content-between align-items-center"><small class="text-muted">只导入已核对的行；需要修正原表的行重新上传。售价不会直接变成实收<?php echo $businessDefinition['resources'] ? '，SSL 报备价不会直接入成本' : ''; ?>。</small><button class="btn btn-success btn-lg mt-2" type="submit">确认导入已核对订单</button></div></form>
+</tbody></table></div><div class="card-body border-top d-flex flex-wrap justify-content-between align-items-center" style="gap:10px"><small class="text-muted">红色行不会入账；可先处理已通过的行。售价不会直接变成实收<?php echo $businessDefinition['resources'] ? '，SSL 报备价不会直接入成本' : ''; ?>。</small><div class="d-flex flex-wrap" style="gap:8px"><?php if ($repairableCount): ?><button class="btn btn-outline-primary mt-2" type="submit" name="action" value="repair_preview">应用补填并重新核对</button><?php endif; ?><button class="btn btn-success btn-lg mt-2" type="submit" name="action" value="commit" <?php echo $baseValidCount ? '' : 'disabled'; ?>><?php echo $invalidCount ? '先导入 ' . $baseValidCount . ' 行合格订单' : '确认导入已核对订单'; ?></button></div></div></form>
 <?php endif; ?>
 </div>
 <script>
