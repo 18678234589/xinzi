@@ -22,12 +22,12 @@ function pw_bounds($quarter)
 {
     if (!preg_match('/^(20\d{2})-Q([1-4])$/', $quarter, $m)) throw new RuntimeException('季度格式不正确');
     $year = (int)$m[1];
-    return match ((int)$m[2]) {
-        1 => [($year - 1) . '-12-15', $year . '-03-15'],
-        2 => [$year . '-03-15', $year . '-06-15'],
-        3 => [$year . '-06-15', $year . '-09-15'],
-        4 => [$year . '-09-15', $year . '-12-15'],
-    };
+    switch ((int)$m[2]) {
+        case 1: return [($year - 1) . '-12-15', $year . '-03-15'];
+        case 2: return [$year . '-03-15', $year . '-06-15'];
+        case 3: return [$year . '-06-15', $year . '-09-15'];
+        default: return [$year . '-09-15', $year . '-12-15'];
+    }
 }
 
 function pw_previous_quarter($date)
