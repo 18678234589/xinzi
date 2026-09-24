@@ -42,7 +42,7 @@ $is_settle      = ($_rel === 'salaries/settle.php');
 $is_query       = ($_rel === 'salaries/query.php');
 $is_insurance   = (strpos($_rel, 'insurance/') === 0);
 $is_project     = (strpos($_rel, 'project/') === 0);
-$is_project_orders = $is_project && !in_array($_rel, ['project/payroll.php', 'project/settings.php', 'project/system.php', 'project/rules.php', 'project/profile.php', 'project/files.php', 'project/refunds.php'], true);
+$is_project_orders = $is_project && !in_array($_rel, ['project/dashboard.php', 'project/payroll.php', 'project/settings.php', 'project/system.php', 'project/rules.php', 'project/profile.php', 'project/files.php', 'project/refunds.php'], true);
 // 合并栏目：同类页面在侧栏只占一个入口，进入后顶部页签切换。
 $nav_groups = [
     'shop' => [['/shops/index.php', 'fa-store', '店铺管理', $is_shops], ['/shops/etmll_sync.php', 'fa-sync-alt', 'ETMLL 订单同步', $is_etmll], ['/orders/index.php', 'fa-file-upload', '平台订单导入', $is_orders], ['/abnormal/index.php', 'fa-exclamation-triangle', '异常订单', $is_abnormal]],
@@ -66,6 +66,7 @@ $nav = function ($href, $icon, $label, $active) {
     <link href="<?php echo BASE_URL; ?>/assets/css/style.css" rel="stylesheet">
     <link href="<?php echo BASE_URL; ?>/assets/css/project-intake.css" rel="stylesheet">
     <link href="<?php echo BASE_URL; ?>/assets/css/theme.css" rel="stylesheet">
+    <?php if (($_rel ?? '') === 'project/dashboard.php'): ?><link href="<?php echo BASE_URL; ?>/assets/css/partner-dashboard.css" rel="stylesheet"><?php endif; ?>
 </head>
 <body class="app-warm">
 <nav class="navbar navbar-expand-lg navbar-light fixed-top app-topbar">
@@ -83,6 +84,7 @@ $nav = function ($href, $icon, $label, $active) {
     <div class="sidebar-project-brand"><span class="sidebar-project-mark"><i class="fas fa-seedling"></i></span><span><strong>项目合作结算</strong><small>把每一份付出，算得清楚</small></span></div>
     <?php if ($project_staff): ?>
     <div class="sidebar-project-label">我的工作台</div>
+    <?php echo $nav('/project/dashboard.php', 'fa-chart-line', '我的经营看板', $_rel === 'project/dashboard.php'); ?>
     <?php echo $nav('/project/index.php', 'fa-folder-open', '我的项目订单', $is_project_orders); ?>
     <?php if ($department_upload_nav): echo $nav('/project/import.php?scope=department&business=' . rawurlencode($department_upload_business), 'fa-users', '部门订单上传', $_rel === 'project/import.php' && ($_GET['scope'] ?? $_POST['scope'] ?? '') === 'department'); endif; ?>
     <?php echo $nav('/project/payroll.php', 'fa-wallet', '我的项目报酬', $_rel === 'project/payroll.php'); ?>
@@ -93,6 +95,7 @@ $nav = function ($href, $icon, $label, $active) {
     <?php else: ?>
     <?php echo $nav('/index.php', 'fa-home', '工作台首页', $is_home); ?>
     <div class="sidebar-project-label">日常办公</div>
+    <?php echo $nav('/project/dashboard.php', 'fa-chart-line', '合作方经营看板', $_rel === 'project/dashboard.php'); ?>
     <?php echo $nav('/project/index.php', 'fa-folder-open', '项目订单', $is_project_orders); ?>
     <?php echo $nav('/project/import.php?scope=department&business=网站续费', 'fa-users', '网站售后部门订单', $_rel === 'project/import.php' && ($_GET['scope'] ?? $_POST['scope'] ?? '') === 'department'); ?>
     <?php echo $nav('/project/payroll.php', 'fa-wallet', '项目报酬结算', $_rel === 'project/payroll.php'); ?>
