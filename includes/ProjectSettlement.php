@@ -152,7 +152,7 @@ function money_plain($value)
  * 服务费 = 售价 × 规则服务费率（未设置时用业务默认）。规则设了“成本下限”时，直接成本取 max(实际成本, 售价 × 下限比例)，
  * 如客服核算博山定制单按售价 65% 计成本、华梦外包按实际 80%。售价低于规则最低售价时不计分成与补助；补助按人每单固定。
  */
-function ps_calc_person($rule, $income, $directCost, $contract, $weight, $businessFeeRate)
+function ps_calc_person($rule, $income, $directCost, $contract, $weight, $businessFeeRate, $costNote = '')
 {
     $mode = ($rule['calc_mode'] ?? 'pool') === 'individual' ? 'individual' : 'pool';
     $feeRate = isset($rule['service_fee_rate']) && $rule['service_fee_rate'] !== null && $rule['service_fee_rate'] !== '' ? (float)$rule['service_fee_rate'] : (float)$businessFeeRate;
@@ -168,7 +168,7 @@ function ps_calc_person($rule, $income, $directCost, $contract, $weight, $busine
     $blocked = $min > 0 && (float)$contract < $min;
     $share = $blocked ? 0.0 : max($base, 0) * $rate * ($mode === 'pool' ? (float)$weight : 1);
     $subsidy = $blocked ? 0.0 : round((float)($rule['per_order_subsidy'] ?? 0), 2);
-    $note = '(收入 ' . money_plain($income) . ' − 成本 ' . money_plain($costBasis) . ($floorApplied ? '〔售价×' . round($minCostRate * 100, 2) . '%〕' : '') . ($mode === 'individual' && (float)$weight < 1 ? '〔分摊 ' . round((float)$weight * 100, 2) . '%〕' : '') . ' − 服务费 ' . money_plain($feePart) . ') × ' . round($rate * 100, 4) . '%' . ($mode === 'pool' && (float)$weight < 1 ? ' × 权重 ' . round((float)$weight * 100, 2) . '%' : '');
+    $note = '(收入 ' . money_plain($income) . ' − 成本 ' . money_plain($costBasis) . ($costNote !== '' ? '〔' . $costNote . '〕' : '') . ($floorApplied ? '〔售价×' . round($minCostRate * 100, 2) . '%〕' : '') . ($mode === 'individual' && (float)$weight < 1 ? '〔分摊 ' . round((float)$weight * 100, 2) . '%〕' : '') . ' − 服务费 ' . money_plain($feePart) . ') × ' . round($rate * 100, 4) . '%' . ($mode === 'pool' && (float)$weight < 1 ? ' × 权重 ' . round((float)$weight * 100, 2) . '%' : '');
     if ($subsidy > 0) $note .= ' + 每单补助 ' . money_plain($subsidy);
     if ($blocked) $note = '售价低于 ¥' . money_plain($min) . '，本单不计分成';
     return ['mode' => $mode, 'fee_rate' => $feeRate, 'fee' => $fee, 'fee_part' => $feePart, 'cost_basis' => $costBasis, 'base' => $base, 'rate' => $rate, 'weight' => (float)$weight, 'share' => $share, 'subsidy' => $subsidy, 'blocked' => $blocked, 'note' => $note];
@@ -185,6 +185,20 @@ function ps_summary($order, $costs, $participants)
     }
     $approvedCost = round($approvedCost, 2);
     $pendingCost = round($pendingCost, 2);
+    // PHPweb 程序：个人提成的成本按《PHPweb程序成本区间表》随售价与岗位调整（订单毛利仍按实际成本）。
+    $phpApproved = 0.0; $phpAll = 0.0;
+    foreach ($costs as $cost) {
+        if (!ps_is_php_cost($cost)) continue;
+        if ($cost['review_status'] === 'approved') $phpApproved += (float)$cost['amount'];
+        if (in_array($cost['review_status'], ['approved', 'pending'], true)) $phpAll += (float)$cost['amount'];
+    }
+    $personCost = function ($group, $role, $withPending) use ($phpApproved, $phpAll, $approvedCost, $pendingCost, $order) {
+        $base = $withPending ? $approvedCost + $pendingCost : $approvedCost;
+        $php = $withPending ? $phpAll : $phpApproved;
+        if ($php <= 0) return [$base, ''];
+        [$adjusted, $note] = ps_php_cost_for((float)($order['contract_amount'] ?? 0), $group, $role, $php);
+        return [round($base - $php + $adjusted, 2), $note];
+    };
     $contract = (float)($order['contract_amount'] ?? 0);
     $orderKind = (string)($order['order_kind'] ?? '');
     // 业务默认店铺服务费按售价计（网站模板/环境配置/小程序 3%），AI 定制默认不扣；分成规则可按组或岗位覆盖。
@@ -199,8 +213,10 @@ function ps_summary($order, $costs, $participants)
         foreach ($people as $i => $person) {
             $rule = ps_rule_for($group, $order['project_type'], $order['order_date'], $person['role_name'] ?? '', $orderKind);
             $people[$i]['rule'] = $rule;
-            $people[$i]['calc'] = $rule ? ps_calc_person($rule, $income, $approvedCost, $contract, $person['group_weight'], $businessFeeRate) : null;
-            $people[$i]['estimated_calc'] = $rule ? ps_calc_person($rule, $income, $approvedCost + $pendingCost, $contract, $person['group_weight'], $businessFeeRate) : null;
+            [$costNow, $noteNow] = $personCost($group, $person['role_name'] ?? '', false);
+            [$costEst, $noteEst] = $personCost($group, $person['role_name'] ?? '', true);
+            $people[$i]['calc'] = $rule ? ps_calc_person($rule, $income, $costNow, $contract, $person['group_weight'], $businessFeeRate, $noteNow) : null;
+            $people[$i]['estimated_calc'] = $rule ? ps_calc_person($rule, $income, $costEst, $contract, $person['group_weight'], $businessFeeRate, $noteEst) : null;
             if (!$rule) { $missing = true; continue; }
             $pool += $people[$i]['calc']['share'];
             $estimatedPool += $people[$i]['estimated_calc']['share'];
@@ -208,8 +224,10 @@ function ps_summary($order, $costs, $participants)
         }
         if (!$people) {
             // 无参与人时仍显示该组按默认规则可形成的分成池，供财务预估。
-            $calc = $defaultRule ? ps_calc_person($defaultRule, $income, $approvedCost, $contract, 1, $businessFeeRate) : null;
-            $estimated = $defaultRule ? ps_calc_person($defaultRule, $income, $approvedCost + $pendingCost, $contract, 1, $businessFeeRate) : null;
+            [$costNow, $noteNow] = $personCost($group, '', false);
+            [$costEst, $noteEst] = $personCost($group, '', true);
+            $calc = $defaultRule ? ps_calc_person($defaultRule, $income, $costNow, $contract, 1, $businessFeeRate, $noteNow) : null;
+            $estimated = $defaultRule ? ps_calc_person($defaultRule, $income, $costEst, $contract, 1, $businessFeeRate, $noteEst) : null;
             $pool = $calc ? $calc['share'] : null;
             $estimatedPool = $estimated ? $estimated['share'] : null;
         }
@@ -482,7 +500,8 @@ function ps_post_adjustment($orderId, $actor, $refundAmount, $costDelta, $reason
         $order = $q->fetch();
         $income = round((float)$order['receipt_amount'] - (float)$order['refund_amount'], 2);
         $directCost = 0.0;
-        foreach (ps_costs((int)$orderId) as $cost) if ($cost['review_status'] === 'approved') $directCost += (float)$cost['amount'];
+        $phpCost = 0.0;
+        foreach (ps_costs((int)$orderId) as $cost) if ($cost['review_status'] === 'approved') { $directCost += (float)$cost['amount']; if (ps_is_php_cost($cost)) $phpCost += (float)$cost['amount']; }
         $businessFeeRate = ps_business_service_fee_rate($order['project_type']);
         $snapshots = $pdo->prepare('SELECT s.*,r.service_fee_rate AS r_fee,r.min_contract_amount AS r_min,r.min_cost_rate AS r_min_cost,r.id AS live_rule_id FROM project_commission_snapshots s LEFT JOIN project_commission_rules r ON r.id=s.rule_id WHERE s.order_id=? ORDER BY s.commission_group,s.id');
         $snapshots->execute([(int)$orderId]);
@@ -493,7 +512,8 @@ function ps_post_adjustment($orderId, $actor, $refundAmount, $costDelta, $reason
             // 比例、方式、补助、服务费全部取自审核快照（服务费率 = 快照服务费 ÷ 售价），规则之后被修改不影响已审核订单口径。
             $feeRate = (float)$order['contract_amount'] > 0 ? round((float)$snap['service_fee'] / (float)$order['contract_amount'], 6) : 0;
             $rule = ['id' => (int)$snap['rule_id'], 'rate' => $snap['rate'], 'calc_mode' => $snap['calc_mode'], 'service_fee_rate' => $feeRate, 'per_order_subsidy' => $snap['subsidy_amount'], 'min_contract_amount' => $snap['r_min'] ?? 0, 'min_cost_rate' => $snap['r_min_cost'] ?? null];
-            $calc = ps_calc_person($rule, $income, $directCost, $order['contract_amount'], $snap['group_weight'], $businessFeeRate);
+            [$phpAdjusted, $phpNote] = $phpCost > 0 ? ps_php_cost_for((float)$order['contract_amount'], $snap['commission_group'], (string)$snap['role_name'], $phpCost) : [0.0, ''];
+            $calc = ps_calc_person($rule, $income, round($directCost - $phpCost + $phpAdjusted, 2), $order['contract_amount'], $snap['group_weight'], $businessFeeRate, $phpNote);
             if ($income <= 0) { $calc['share'] = 0.0; $calc['subsidy'] = 0.0; }
             $groups[$snap['commission_group']][] = ['employee_id' => (int)$snap['employee_id'], 'group_weight' => $snap['group_weight'], 'rule' => $rule, 'calc' => $calc, 'snapshot' => $snap];
         }

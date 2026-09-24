@@ -166,3 +166,48 @@ function ps_ai_parse_order($text, array $businesses, array $shops, array $orderK
     if ($out['contract_amount'] !== '' && (float)$out['contract_amount'] < 0) $out['contract_amount'] = '';
     return $out;
 }
+
+/* ---------- PHPweb 程序成本区间（算提成用） ---------- */
+
+/**
+ * 《PHPweb程序成本区间表》：PHP 程序订单算提成时，成本随售价调整。
+ * 客服（及资料员）：售价低于第一档不变（按实际：空间 90 + 域名首年 80 / 次年 90）；从第一档起按档位成本。
+ * 技术：同上，售价 ≥ tech_from 时再 + tech_extra；exclude_roles 中的岗位（资料员）按客服口径。
+ * 仅影响个人提成的成本基数，订单毛利仍按实际成本。
+ */
+function ps_php_cost_default()
+{
+    return ['enabled' => true, 'bands' => [['from' => 150, 'cost' => 100], ['from' => 269, 'cost' => 150], ['from' => 400, 'cost' => 200], ['from' => 500, 'cost' => 250], ['from' => 600, 'cost' => 300], ['from' => 800, 'cost' => 400], ['from' => 1200, 'cost' => 500], ['from' => 1600, 'cost' => 600], ['from' => 2000, 'cost' => 700]], 'tech_from' => 400, 'tech_extra' => 100, 'exclude_roles' => ['资料员']];
+}
+
+function ps_php_cost_config()
+{
+    $config = ps_setting_get('php_cost_bands', null);
+    if (!is_array($config) || empty($config['bands'])) return ps_php_cost_default();
+    $bands = [];
+    foreach ($config['bands'] as $band) if (isset($band['from'], $band['cost']) && is_numeric($band['from']) && is_numeric($band['cost'])) $bands[] = ['from' => round((float)$band['from'], 2), 'cost' => round((float)$band['cost'], 2)];
+    usort($bands, function ($a, $b) { return $a['from'] <=> $b['from']; });
+    return ['enabled' => !array_key_exists('enabled', $config) || !empty($config['enabled']), 'bands' => $bands, 'tech_from' => (float)($config['tech_from'] ?? 400), 'tech_extra' => (float)($config['tech_extra'] ?? 100), 'exclude_roles' => array_values(array_filter(array_map('trim', (array)($config['exclude_roles'] ?? ['资料员']))))];
+}
+
+/** 成本行是否为 PHP 程序套餐（成本中心“程序套餐 · PHP”）。 */
+function ps_is_php_cost($cost)
+{
+    return ($cost['category'] ?? '') === 'program' && preg_match('/^PHP(\s*·|\s*$)/u', (string)($cost['item_name'] ?? ''));
+}
+
+/** 返回 [算提成用 PHP 成本, 说明]；$actual 为该单 PHP 程序实际成本。 */
+function ps_php_cost_for($contract, $group, $role, $actual)
+{
+    $config = ps_php_cost_config();
+    if (!$config['enabled'] || (float)$actual <= 0) return [(float)$actual, ''];
+    $cost = (float)$actual;
+    $label = '';
+    foreach ($config['bands'] as $band) if ((float)$contract >= $band['from']) { $cost = $band['cost']; $label = '售价≥' . money_plain($band['from']); }
+    $isTech = $group === 'technical';
+    foreach ($config['exclude_roles'] as $excluded) if ($excluded !== '' && mb_strpos((string)$role, $excluded) !== false) $isTech = false;
+    $extra = $isTech && $config['tech_extra'] > 0 && (float)$contract >= $config['tech_from'] ? $config['tech_extra'] : 0.0;
+    $cost = round($cost + $extra, 2);
+    if (abs($cost - (float)$actual) < 0.005) return [$cost, ''];
+    return [$cost, 'PHP 成本按区间表 ' . money_plain($cost) . ($label ? '（' . $label . ($extra ? '，技术 +' . money_plain($extra) : '') . '）' : ($extra ? '（技术 +' . money_plain($extra) . '）' : ''))];
+}

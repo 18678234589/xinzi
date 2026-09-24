@@ -68,6 +68,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 ->execute([$rate, $fee, $amount($_POST['subsidy'] ?? '', '每单补助'), $amount($_POST['min_contract'] ?? '', '最低售价'), $percent($_POST['min_cost_percent'] ?? '', '成本下限', true), $mode, $note, $ruleId]);
             ps_audit('rule', $ruleId, 'update', $actor, ['before' => $old, 'rate' => $rate, 'fee' => $fee, 'mode' => $mode]);
             $success = '规则已修改并立即生效（已审核订单按审核时的比例，不受影响）';
+        } elseif ($action === 'php_bands') {
+            // PHPweb 程序成本区间：保存即生效，未审核订单马上按新区间预估；已审核订单保留审核时的成本。
+            $bands = [];
+            foreach ((array)($_POST['band_from'] ?? []) as $i => $from) {
+                $from = trim((string)$from); $cost = trim((string)($_POST['band_cost'][$i] ?? ''));
+                if ($from === '' && $cost === '') continue;
+                $bands[] = ['from' => $amount($from, '售价起点'), 'cost' => $amount($cost, '成本')];
+            }
+            if (!$bands) throw new RuntimeException('至少保留一档售价区间');
+            usort($bands, function ($x, $y) { return $x['from'] <=> $y['from']; });
+            $roles = array_values(array_filter(array_map('trim', preg_split('/[,，、\s]+/u', (string)($_POST['exclude_roles'] ?? '')))));
+            $config = ['enabled' => !empty($_POST['enabled']), 'bands' => $bands, 'tech_from' => $amount($_POST['tech_from'] ?? '', '技术加价起点'), 'tech_extra' => $amount($_POST['tech_extra'] ?? '', '技术加价'), 'exclude_roles' => $roles];
+            ps_setting_set('php_cost_bands', $config, $actor['id']);
+            ps_audit('setting', 0, 'php_cost_bands', $actor, $config);
+            $success = 'PHPweb 成本区间已保存并立即生效（已审核订单不受影响）';
         } elseif ($action === 'toggle_rule') {
             $ruleId = (int)($_POST['rule_id'] ?? 0);
             db()->prepare('UPDATE project_commission_rules SET is_active=1-is_active WHERE id=?')->execute([$ruleId]);
@@ -247,6 +262,22 @@ while (count($tiers) < 7) $tiers[] = ['from' => '', 'rate' => '', 'base' => ''];
 <td class="text-nowrap"><form method="post" id="<?php echo $formId; ?>" class="d-inline"><input type="hidden" name="csrf" value="<?php echo $csrf; ?>"><input type="hidden" name="action" value="rule_update"><input type="hidden" name="rule_id" value="<?php echo (int)$r['id']; ?>"><button class="btn btn-outline-primary btn-sm">保存</button></form> <form method="post" class="d-inline"><input type="hidden" name="csrf" value="<?php echo $csrf; ?>"><input type="hidden" name="action" value="toggle_rule"><input type="hidden" name="rule_id" value="<?php echo (int)$r['id']; ?>"><button class="btn btn-outline-secondary btn-sm"><?php echo $r['is_active'] ? '停用' : '启用'; ?></button></form></td></tr><?php endforeach; ?>
 <?php if (!$rules): ?><tr><td colspan="10" class="text-center text-muted py-4">尚无分成规则，可先“一键导入”核算表口径。</td></tr><?php endif; ?>
 </tbody></table></div></div>
+
+<?php $phpCfg = ps_php_cost_config(); ?>
+<div id="php-cost" class="card mb-3"><div class="card-header d-flex justify-content-between flex-wrap" style="gap:8px"><span>PHPweb 程序成本区间（算提成时按售价调整）</span><span class="small text-muted">来自《PHPweb程序成本区间表》；只影响个人提成的成本，订单毛利仍按实际成本</span></div><div class="card-body">
+<form method="post"><input type="hidden" name="csrf" value="<?php echo $csrf; ?>"><input type="hidden" name="action" value="php_bands">
+<p class="small text-muted mb-2">客服与资料员：售价低于第一档时按实际成本（空间 90 + 域名首年 80 / 次年 90）；达到某档起点即按该档成本。技术：在此基础上，售价达到“技术加价起点”再加价。</p>
+<div class="table-responsive"><table class="table table-sm mb-2" style="max-width:560px"><thead><tr><th>售价 ≥ ¥</th><th>算提成的 PHP 成本 ¥</th></tr></thead><tbody>
+<?php foreach (array_merge($phpCfg['bands'], [['from' => '', 'cost' => ''], ['from' => '', 'cost' => '']]) as $band): ?><tr><td><input name="band_from[]" type="number" step="0.01" min="0" class="form-control form-control-sm" value="<?php echo e($band['from']); ?>" aria-label="售价起点"></td><td><input name="band_cost[]" type="number" step="0.01" min="0" class="form-control form-control-sm" value="<?php echo e($band['cost']); ?>" aria-label="成本"></td></tr><?php endforeach; ?>
+</tbody></table></div>
+<p class="small text-muted">清空一行的两个数字即删除该档；最后一档适用于更高的售价。</p>
+<div class="form-row align-items-end">
+<div class="form-group col-md-3"><label>技术加价起点：售价 ≥ ¥</label><input name="tech_from" type="number" step="0.01" min="0" class="form-control" value="<?php echo e($phpCfg['tech_from']); ?>"></div>
+<div class="form-group col-md-2"><label>技术加价 ¥</label><input name="tech_extra" type="number" step="0.01" min="0" class="form-control" value="<?php echo e($phpCfg['tech_extra']); ?>"></div>
+<div class="form-group col-md-3"><label>不加价的技术岗位</label><input name="exclude_roles" class="form-control" value="<?php echo e(implode('、', $phpCfg['exclude_roles'])); ?>" placeholder="如 资料员"></div>
+<div class="form-group col-md-2"><label class="mb-2"><input type="checkbox" name="enabled" value="1" <?php echo $phpCfg['enabled'] ? 'checked' : ''; ?>> 启用区间</label></div>
+<div class="form-group col-md-2"><button class="btn btn-success btn-block">保存区间</button></div>
+</div></form></div></div>
 
 <div id="monthly" class="card mb-3"><div class="card-header">月度规则（按月汇总计算，计入项目报酬结算中心）</div><div class="card-body">
 <div class="project-preset mb-3"><div><strong><i class="fas fa-calendar-alt mr-1"></i> 部门核算表的月度口径</strong><div class="small text-muted">模板技术超额奖金（1 万以上 × 1.5%，光君 / 孙妍 / 张强）、网站客服超额奖金（2 万以上 × 0.8%）与排名奖（500 / 300 / 200）、刘帅利润阶梯、外包前端售价阶梯、于洋环境配置主管提成（5% × 50%）、经理 / 主管补助、优站模板奖励（每个 15 元）。底薪、全勤仍在原系统结算。</div></div><form method="post" class="form-inline flex-nowrap"><input type="hidden" name="csrf" value="<?php echo $csrf; ?>"><input type="hidden" name="action" value="monthly_import"><input type="hidden" name="month" value="<?php echo e($month); ?>"><button class="btn btn-success text-nowrap" onclick="return confirm('从 <?php echo e($month); ?> 起导入核算表的月度规则？同名规则不会重复导入。')">一键导入（自 <?php echo e($month); ?> 起）</button></form></div>

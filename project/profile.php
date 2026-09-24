@@ -28,6 +28,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $new = (string)($_POST['new_password'] ?? '');
             if (!password_verify((string)($_POST['current_password'] ?? ''), $user['password_hash'])) throw new RuntimeException('当前密码不正确');
             if (strlen($new) < 8 || in_array($new, ['123456', '12345678', '123456789', '88888888', '11111111'], true)) throw new RuntimeException('新密码至少 8 位，且不能是 123456 这类简单密码');
+            if (strtolower($new) === strtolower((string)$user['username'])) throw new RuntimeException('新密码不能与登录名（默认密码）相同');
             if ($new !== (string)($_POST['confirm_password'] ?? '')) throw new RuntimeException('两次输入的新密码不一致');
             db()->prepare('UPDATE project_users SET password_hash=?,password_changed_at=NOW() WHERE id=?')->execute([password_hash($new, PASSWORD_DEFAULT), $actor['id']]);
             ps_audit('account', $actor['id'], 'change_password', $actor, []);
@@ -48,12 +49,12 @@ $csrf = e(ps_csrf_token());
 <?php if ($error): ?><div class="alert alert-danger"><?php echo e($error); ?></div><?php endif; ?>
 <?php if ($success): ?><div class="alert alert-success"><?php echo e($success); ?></div><?php endif; ?>
 <?php if (isset($_GET['bound'])): ?><div class="alert alert-success">手机号绑定成功，现在可以使用系统了。<a href="<?php echo BASE_URL; ?>/project/index.php">进入我的项目订单 →</a></div><?php endif; ?>
-<?php if (!$needPhone && empty($me['password_changed_at'])): ?><div class="alert alert-warning">你还在使用默认密码 123456，别人知道你的登录名就能看到你的订单和报酬，建议现在修改。</div><?php endif; ?>
+<?php if (!$needPhone && empty($me['password_changed_at'])): ?><div class="alert alert-warning">你还在使用默认密码（登录名 / 姓名拼音），别人知道你的登录名就能看到你的订单和报酬，建议现在修改。</div><?php endif; ?>
 
 <div class="card mb-3"><div class="card-header"><?php echo $needPhone ? '① 绑定手机号（必填）' : '修改手机号'; ?></div><div class="card-body">
 <form method="post" class="form-row align-items-end"><input type="hidden" name="csrf" value="<?php echo $csrf; ?>"><input type="hidden" name="action" value="phone">
 <div class="form-group col-md-5"><label for="phone">手机号</label><input class="form-control" id="phone" name="phone" inputmode="numeric" maxlength="11" pattern="1[3-9][0-9]{9}" required value="<?php echo e($_POST['phone'] ?? ($me['phone'] ?? '')); ?>" placeholder="11 位手机号"></div>
-<div class="form-group col-md-4"><label for="phoneCurrent">当前密码</label><input class="form-control" id="phoneCurrent" type="password" name="current_password" required autocomplete="current-password" placeholder="<?php echo empty($me['password_changed_at']) ? '默认 123456' : ''; ?>"></div>
+<div class="form-group col-md-4"><label for="phoneCurrent">当前密码</label><input class="form-control" id="phoneCurrent" type="password" name="current_password" required autocomplete="current-password" placeholder="<?php echo empty($me['password_changed_at']) ? '默认为登录名（姓名拼音）' : ''; ?>"></div>
 <div class="form-group col-md-3"><button class="btn btn-primary btn-block"><?php echo $needPhone ? '绑定并开始使用' : '保存手机号'; ?></button></div>
 </form></div></div>
 
