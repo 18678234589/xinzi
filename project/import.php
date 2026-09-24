@@ -2,6 +2,7 @@
 require_once __DIR__ . '/../includes/ProjectIntake.php';
 require_once __DIR__ . '/../includes/ProjectBusiness.php';
 require_once __DIR__ . '/../includes/ProjectOrderSource.php';
+require_once __DIR__ . '/../includes/ProjectAiFallback.php';
 require_once __DIR__ . '/../classes/SimpleXLSX.php';
 $actor = ps_require_actor();
 $allowedBusinesses = ps_actor_businesses($actor);
@@ -52,6 +53,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $totalRows = 0;
             $orderKinds = ps_business_order_kinds($selectedBusiness);
             $employeesByName = ps_import_employee_index();
+            $actorName = null;
+            if ($actor['role'] !== 'finance') { $nameQuery = db()->prepare('SELECT name FROM employees WHERE id=?'); $nameQuery->execute([(int)$actor['employee_id']]); $actorName = $nameQuery->fetchColumn() ?: '本人'; }
             $knownShops = db()->query('SELECT name FROM shops')->fetchAll(PDO::FETCH_COLUMN);
             $seen = [];
             $preview = [];
@@ -59,24 +62,75 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $existingAccess = db()->prepare('SELECT 1 FROM project_participants WHERE order_id=? AND employee_id=? LIMIT 1');
             $existingResource = db()->prepare('SELECT domain_mode FROM project_order_resources WHERE order_id=?');
             // 一个工作簿多张分表（如“图片 / PPT / 小额”、每位客服一张）：表头能对上当前业务的分表都读取，可在预览里取消勾选。
+            $requirePeople = $actor['role'] === 'finance';
+            $importColumns = ps_business_import_columns($selectedBusiness);
+            $parsedSheets = [];
             foreach (ps_import_file_sheets($fileRow) as $sheetName => $raw) {
-                $sheetName = (string)$sheetName;
                 $raw = array_values(array_filter($raw, function ($r) { return is_array($r); }));
-                if (count($raw) < 2) { $sheetReport[$sheetName] = ['used' => false, 'matchable' => false, 'reason' => '没有数据']; continue; }
-                $head = array_map(function ($v) { return trim((string)$v); }, array_shift($raw));
-                $head[0] = preg_replace('/^\xEF\xBB\xBF/', '', $head[0] ?? '');
-                // 表头按别名匹配：原 AI 定制模板、部门现有表（付款账号 / 接单日期 / 到账情况 / 程序名称…）都可直接上传。
-                try { $columnMap = ps_business_import_map($selectedBusiness, $head); } catch (RuntimeException $e) { $sheetReport[$sheetName] = ['used' => false, 'matchable' => false, 'reason' => $e->getMessage()]; continue; }
+                $head = $raw ? array_map(function ($v) { return trim((string)$v); }, array_shift($raw)) : [];
+                if ($head) $head[0] = preg_replace('/^\xEF\xBB\xBF/', '', $head[0] ?? '');
+                $entry = ['raw' => $raw, 'head' => $head, 'map' => null, 'reason' => '', 'ai' => ''];
+                if (!$raw) $entry['reason'] = '没有数据';
+                else {
+                    // 表头按别名匹配：原 AI 定制模板、部门现有表（付款账号 / 接单日期 / 到账情况 / 程序名称…）都可直接上传。
+                    try { $entry['map'] = ps_business_import_map($selectedBusiness, $head, $requirePeople); } catch (RuntimeException $e) { $entry['reason'] = $e->getMessage(); }
+                }
+                $parsedSheets[(string)$sheetName] = $entry;
+            }
+            if (!array_filter($parsedSheets, function ($e) { return $e['map'] !== null; })) {
+                // 没有一张分表能按别名识别：AI 托底（先查已存档方案），最多试数据最多的 3 张分表
+                $candidates = array_filter($parsedSheets, function ($e) { return count($e['raw']) >= 1 && $e['head']; });
+                uasort($candidates, function ($a, $b) { return count($b['raw']) <=> count($a['raw']); });
+                foreach (array_slice(array_keys($candidates), 0, 3) as $name) {
+                    $aiNote = '';
+                    $aiMap = ps_ai_import_columns($selectedBusiness, $parsedSheets[$name]['head'], array_slice($parsedSheets[$name]['raw'], 0, 5), $importColumns, $actor, $aiNote);
+                    if ($aiMap && (!$requirePeople || isset($aiMap['customer_service']) || isset($aiMap['frontend']) || isset($aiMap['backend']))) { $parsedSheets[$name]['map'] = $aiMap; $parsedSheets[$name]['ai'] = $aiNote; }
+                    elseif (!$aiMap) $parsedSheets[$name]['reason'] .= function_exists('ps_ai_ready') && ps_ai_ready() ? '；AI 也未能识别' : '';
+                }
+            }
+            foreach ($parsedSheets as $sheetName => $entry) {
+                $sheetName = (string)$sheetName;
+                $raw = $entry['raw'];
+                $head = $entry['head'];
+                if ($entry['map'] === null) { $sheetReport[$sheetName] = ['used' => false, 'matchable' => false, 'reason' => $entry['reason']]; continue; }
+                $columnMap = $entry['map'];
+                // 日期列没有表头（如第一列直接写 260901）：数据大多能识别为日期的空表头列当作日期列
+                if (!isset($columnMap['order_date'])) foreach ($head as $i => $h) {
+                    if ($h !== '' || in_array($i, $columnMap, true)) continue;
+                    $values = array_filter(array_map(function ($r) use ($i) { return trim((string)($r[$i] ?? '')); }, $raw), 'strlen');
+                    if (count($values) >= 1 && count(array_filter($values, 'ps_import_date')) >= 0.8 * count($values)) { $columnMap['order_date'] = $i; break; }
+                }
                 if ($chosenSheets !== null && !in_array($sheetName, $chosenSheets, true)) { $sheetReport[$sheetName] = ['used' => false, 'matchable' => true, 'reason' => '未勾选', 'rows' => count($raw)]; continue; }
                 // 自动识别时，“未到账 / 交易关闭 / 汇总 / 合计 / 总表”类分表默认不读，需要时勾选后重新预览
                 if ($chosenSheets === null && preg_match('/未到账|关闭|汇总|合计|总表|（总）|\(总\)/u', $sheetName)) { $sheetReport[$sheetName] = ['used' => false, 'matchable' => true, 'reason' => '默认不读取', 'rows' => count($raw)]; continue; }
                 $totalRows += count($raw);
                 if ($totalRows > 1500) throw new RuntimeException('所选工作表合计超过 1500 行，请取消部分分表后再预览');
-                $sheetReport[$sheetName] = ['used' => true, 'matchable' => true, 'rows' => count($raw)];
+                $sheetReport[$sheetName] = ['used' => true, 'matchable' => true, 'rows' => count($raw), 'ai' => $entry['ai']];
                 $lineOffset = $usedSheets * 10000;
                 $usedSheets++;
                 $lookup = function ($row, $key) use ($columnMap) { return isset($columnMap[$key]) ? trim((string)($row[$columnMap[$key]] ?? '')) : ''; };
                 $hasDomainColumn = isset($columnMap['domain_used']);
+                // 订单类型提示文字（业务描述 + 备注 + 制作要求），用于关键字猜测与 AI 建议
+                $kindHint = function ($row) use ($lookup, $selectedBusiness) {
+                    $businessText = $lookup($row, 'business');
+                    if ($businessText !== '' && ps_business_normalize($businessText) === $selectedBusiness) $businessText = '';
+                    return trim($businessText . ' ' . $lookup($row, 'contact_note') . ' ' . $lookup($row, 'detail:make_requirement'));
+                };
+                $unknownStatuses = [];
+                $unguessedHints = [];
+                foreach ($raw as $row) {
+                    $statusText = $lookup($row, 'status');
+                    if ($statusText !== '' && ps_import_delivery_status($statusText) === null) $unknownStatuses[] = $statusText;
+                    if (!empty($businessDefinition['kind_required']) && $lookup($row, 'order_kind') === '' && !in_array($lookup($row, 'contact_note'), $orderKinds, true) && $lookup($row, 'order_no') !== '') {
+                        $hint = $kindHint($row);
+                        $guessed = false;
+                        foreach (['续费', '定制', '技术服务', '维护'] as $word) if (mb_strpos($hint, $word) !== false) $guessed = true;
+                        if ($hint !== '' && !$guessed) $unguessedHints[] = $hint;
+                    }
+                }
+                $aiStatus = $unknownStatuses ? ps_ai_resolve_values('import_status', $selectedBusiness, $unknownStatuses, ['finished', 'unfinished'], '这些是订单表格“状态”列里的写法，请判断订单是否已完成交付/到账：finished = 已完成（可结算），unfinished = 未完成（进行中、未到账、退款中等）。', $actor) : [];
+                $aiKindNew = [];
+                $aiKind = $unguessedHints ? ps_ai_resolve_values('import_kind', $selectedBusiness, $unguessedHints, $orderKinds, '这些是“' . $selectedBusiness . '”订单的业务描述，请为每条选择最合适的订单类型（决定提成比例）。' . ($selectedBusiness === '小程序开发' ? '新订单 = 用现成模板新建小程序（如 v4 模板、外卖、点餐）；定制 = 按客户需求开发功能 / 系统 / 平台；续费 = 续年费；技术服务 = 小修改、维护、上架代办。' : ''), $actor, $aiKindNew) : [];
             foreach ($raw as $index => $row) {
                 if (!array_filter($row, function ($v) { return trim((string)$v) !== ''; })) continue;
                 $record = ['line' => $lineOffset + $index + 2, 'sheet' => $sheetName, 'status' => '可导入', 'error' => '', 'warning' => '', 'base_valid' => true, 'people' => ['technical' => [], 'customer_service' => []], 'domain_mode' => '', 'domain_template_id' => 0];
@@ -109,14 +163,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     if (preg_match('/^\d+\.\d{3,}$/', $record['contract_amount'])) $record['contract_amount'] = number_format((float)$record['contract_amount'], 2, '.', '');
                     $status = $lookup($row, 'status');
                     $record['delivery_status'] = ps_import_delivery_status($status);
+                    if ($record['delivery_status'] === null && isset($aiStatus[$status])) { $record['delivery_status'] = $aiStatus[$status]; $record['warning'] .= ($record['warning'] ? '；' : '') . '状态“' . $status . '”由 AI 识别为' . ($aiStatus[$status] === 'finished' ? '已完成' : '未完成'); }
                     if ($record['delivery_status'] === null) throw new RuntimeException('状态“' . $status . '”无法识别，请写已完成 / 未完成（或到账、已发货等）');
                     $record['trade_status'] = mb_strpos($status, '交易关闭') !== false ? '交易关闭' : '';
                     if ($record['trade_status'] !== '') $record['warning'] = '表格写交易关闭：请财务核对退款';
                     $sheetBusiness = $lookup($row, 'business');
-                    if ($sheetBusiness !== '' && ps_business_normalize($sheetBusiness) !== $selectedBusiness) throw new RuntimeException('表格业务与当前选中业务不一致');
+                    $record['business_text'] = '';
+                    if ($sheetBusiness !== '' && ps_business_normalize($sheetBusiness) !== $selectedBusiness) {
+                        if (isset(ps_business_catalog()[ps_business_normalize($sheetBusiness)])) throw new RuntimeException('表格写的业务是“' . $sheetBusiness . '”，与当前选中的“' . $selectedBusiness . '”不一致');
+                        $record['business_text'] = mb_substr($sheetBusiness, 0, 300); // 部门表“业务”列常写项目描述
+                    }
                     $record['project_type'] = $selectedBusiness;
                     $record['shop'] = $lookup($row, 'shop');
-                    if ($record['shop'] !== '' && empty($businessDefinition['free_shop']) && !in_array($record['shop'], $knownShops, true)) throw new RuntimeException('店铺不在店铺管理列表中，请先核对');
+                    if ($record['shop'] !== '' && empty($businessDefinition['free_shop']) && !in_array($record['shop'], $knownShops, true)) {
+                        $shopText = $record['shop'];
+                        $shopMatches = array_values(array_filter($knownShops, function ($known) use ($shopText) { return mb_strpos($known, $shopText) !== false || mb_strpos($shopText, $known) !== false; }));
+                        if (count($shopMatches) === 1) $record['shop'] = $shopMatches[0];
+                        else $record['warning'] .= ($record['warning'] ? '；' : '') . '店铺“' . $shopText . '”不在店铺列表，已按原文保存';
+                    }
                     $record['payment_nickname'] = $lookup($row, 'payment_nickname');
                     $record['contact_note'] = $lookup($row, 'contact_note');
                     // 小程序结算表的“备注”常写 新订单 / 续费 / 定制：识别为订单类型。
@@ -149,7 +213,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             $designSeen[$monthKey] = true;
                         }
                     }
-                    if ($kindText === '' && !empty($businessDefinition['kind_required'])) throw new RuntimeException('缺少订单类型（新订单 / 定制 / 续费），可在“订单类型”列或“备注”列填写');
+                    $record['kind_missing'] = false;
+                    if ($kindText === '' && !empty($businessDefinition['kind_required'])) {
+                        // 从业务描述 / 备注猜类型（续费、定制、技术服务），猜不到的在预览里选择
+                        $hint = ($record['business_text'] ?? '') . ' ' . $record['contact_note'] . ' ' . $lookup($row, 'detail:make_requirement');
+                        foreach (['续费' => '续费', '定制' => '定制', '技术服务' => '技术服务', '维护' => '技术服务'] as $word => $guess) if (in_array($guess, $orderKinds, true) && mb_strpos($hint, $word) !== false) { $record['kind_guess'] = $guess; break; }
+                        $aiHint = $kindHint($row);
+                        if (empty($record['kind_guess']) && isset($aiKind[$aiHint])) { $record['kind_guess'] = $aiKind[$aiHint]; $record['kind_from_ai'] = true; }
+                        $record['kind_missing'] = true;
+                        $record['status'] = '需选择订单类型';
+                        $record['warning'] .= ($record['warning'] ? '；' : '') . '表格没写订单类型，请在本行选择（决定分成比例和每单补助）';
+                    }
                     $record['order_kind'] = $kindText;
                     // 成本（稿费 / 杂志社费用 + 写手费用）：只对代写类业务读取；退款冲减行为负数。
                     $record['direct_cost'] = '';
@@ -185,6 +259,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     foreach ($back as $id => $name) {
                         if (isset($record['people']['technical'][$id])) $record['people']['technical'][$id]['role'] .= '/' . $peopleLabels['backend'];
                         else $record['people']['technical'][$id] = ['id' => $id, 'role' => $peopleLabels['backend'], 'name' => $name];
+                    }
+                    if ($actor['role'] !== 'finance') {
+                        $selfId = (int)$actor['employee_id'];
+                        if (!isset($record['people']['technical'][$selfId]) && !isset($record['people']['customer_service'][$selfId])) {
+                            $selfGroup = $actor['role'] === 'technical' ? 'technical' : 'customer_service';
+                            $record['people'][$selfGroup][$selfId] = ['id' => $selfId, 'role' => $selfGroup === 'technical' ? $peopleLabels['frontend'] : '客服', 'name' => $actorName ?? '本人'];
+                            if ($selfGroup === 'technical') $front[$selfId] = true; else $cs[$selfId] = true;
+                        }
                     }
                     if (!$cs && !$front && !$back) throw new RuntimeException('至少需要匹配一名客服或技术参与人');
                     if ($actor['role'] !== 'finance') {
@@ -262,10 +344,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $choices = $_POST['domain_choice'] ?? [];
             $serverChoices = $_POST['server_template_id'] ?? [];
             $programChoices = $_POST['program_choice'] ?? [];
+            $kindChoices = $_POST['kind_choice'] ?? [];
+            $commitKinds = ps_business_order_kinds($selectedBusiness);
+            $kindMissingLines = [];
             $ready = [];
             foreach ($preview as $row) {
                 if (empty($row['base_valid'])) { $skipped++; continue; }
                 $line = (int)$row['line'];
+                $pickedKind = trim((string)($kindChoices[$line] ?? ''));
+                if ($pickedKind !== '' && in_array($pickedKind, $commitKinds, true)) $row['order_kind'] = $pickedKind;
+                if (($row['order_kind'] ?? '') === '' && !empty($businessDefinition['kind_required'])) { $skipped++; $kindMissingLines[] = $line % 10000; continue; }
                 if ($actor['role'] !== 'finance') {
                     $group = $actor['role'] === 'technical' ? 'technical' : 'customer_service';
                     if (!empty($businessDefinition['import_cost']) && !isset($row['people'][$group][(int)$actor['employee_id']]) && isset($row['people']['technical'][(int)$actor['employee_id']])) $group = 'technical';
@@ -286,7 +374,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $serverTemplate = $serverId > 0 ? ps_intake_template($serverId, 'server') : null;
                 $ready[] = [$row, $domainTemplate, $serverTemplate, $programTemplate, null];
             }
-            if (!$ready) throw new RuntimeException('没有已核对可导入的订单；请先补齐域名选项');
+            if (!$ready) throw new RuntimeException($kindMissingLines ? '请先为每行选择订单类型（可用“全部设为”一次选好）' : '没有已核对可导入的订单；请先补齐域名选项');
             $pdo = db();
             $nested = $pdo->inTransaction();
             if ($nested) $pdo->exec('SAVEPOINT project_order_import');
@@ -347,6 +435,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     if (!empty($row['existing_order_id'])) throw new RuntimeException('第 ' . $row['line'] . ' 行原订单已变化，请重新预览');
                     $noteParts = [];
                     if ($row['payment_nickname'] !== '') $noteParts[] = '付款昵称：' . $row['payment_nickname'];
+                    if (($row['business_text'] ?? '') !== '') $noteParts[] = '业务说明：' . $row['business_text'];
                     if ($row['contact_note'] !== '') $noteParts[] = '客户联系方式：' . $row['contact_note'];
                     if ($programTemplate) $noteParts[] = '程序套餐：' . $programTemplate['name'] . ' ' . $programTemplate['specification'];
                     elseif ($businessDefinition['resources'] && $forcedMode !== 'pending' && $actor['role'] !== 'customer_service') $noteParts[] = $domainTemplate ? '域名：' . $domainTemplate['name'] . ' ' . $domainTemplate['specification'] : '域名：无需域名';
@@ -406,11 +495,23 @@ $previewFileId = $preview ? (int)($_SESSION['project_import_file'] ?? 0) : 0;
 <button class="btn btn-outline-primary btn-sm mt-2">重新预览所选工作表</button> <a class="btn btn-link btn-sm mt-2" href="<?php echo BASE_URL; ?>/project/files.php?view=<?php echo $previewFileId; ?>" target="_blank" rel="noopener">查看原始表格</a>
 </div></form>
 <?php endif; ?>
+<?php $previewKinds = $preview ? ps_business_order_kinds($selectedBusiness) : []; ?>
+<?php foreach ($previewSheets as $sheetName => $info): if (empty($info['ai'])) continue; ?><div class="alert alert-info"><i class="fas fa-robot mr-1"></i><?php echo count($previewSheets) > 1 ? '【' . e($sheetName) . '】' : ''; ?><?php echo e($info['ai']); ?> 请核对下方识别结果。</div><?php endforeach; ?>
 <?php if ($preview): ?>
-<form method="post" class="card project-form-card mb-3"><input type="hidden" name="csrf" value="<?php echo e(ps_csrf_token()); ?>"><input type="hidden" name="action" value="commit"><input type="hidden" name="business" value="<?php echo e($selectedBusiness); ?>"><div class="card-body pb-2"><div class="project-section-title"><span class="project-step">02</span><div><h5>核对预览</h5><p><?php echo $baseValidCount; ?> 行基础资料通过<?php echo $resourceSelection ? '；缺失域名规格的行请选标准模板，服务器成本可选填' : '；客服提交后由技术在同一订单确认资源与成本'; ?>。</p></div></div></div><div class="table-responsive"><table class="table project-preview-table mb-0"><thead><tr><th>行 / 订单</th><th>日期 / 售价</th><th>参与人</th><?php if ($businessDefinition['fields']): ?><th>业务信息</th><?php endif; ?><?php if ($resourceSelection && $usesProgram): ?><th>程序套餐</th><?php endif; ?><?php if ($resourceSelection): ?><th>域名选择与标准成本</th><th>服务器成本</th><?php endif; ?><th>核对结果</th></tr></thead><tbody>
+<form method="post" class="card project-form-card mb-3"><input type="hidden" name="csrf" value="<?php echo e(ps_csrf_token()); ?>"><input type="hidden" name="action" value="commit"><input type="hidden" name="business" value="<?php echo e($selectedBusiness); ?>"><div class="card-body pb-2"><?php if ($previewKinds): ?><div class="project-kind-bulk d-flex flex-wrap align-items-center mb-2" style="gap:8px"><span class="small text-muted">订单类型：</span><select class="form-control form-control-sm" id="kindBulk" style="width:auto" aria-label="批量设置订单类型"><option value="">未选的行全部设为…</option><?php foreach ($previewKinds as $k): ?><option value="<?php echo e($k); ?>"><?php echo e($k); ?></option><?php endforeach; ?></select><label class="small mb-0"><input type="checkbox" id="kindBulkAll"> 已选的行也改</label></div>
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+  var bulk = document.getElementById('kindBulk'); if (!bulk) return;
+  bulk.addEventListener('change', function () {
+    var all = document.getElementById('kindBulkAll').checked;
+    document.querySelectorAll('.js-kind-choice').forEach(function (sel) { if (bulk.value && (all || !sel.value)) { sel.value = bulk.value; sel.classList.remove('is-invalid'); } });
+  });
+  document.querySelectorAll('.js-kind-choice').forEach(function (sel) { sel.addEventListener('change', function () { sel.classList.toggle('is-invalid', !sel.value); }); });
+});
+</script><?php endif; ?><div class="project-section-title"><span class="project-step">02</span><div><h5>核对预览</h5><p><?php echo $baseValidCount; ?> 行基础资料通过<?php echo $resourceSelection ? '；缺失域名规格的行请选标准模板，服务器成本可选填' : '；客服提交后由技术在同一订单确认资源与成本'; ?>。</p></div></div></div><div class="table-responsive"><table class="table project-preview-table mb-0"><thead><tr><th>行 / 订单</th><th>日期 / 售价</th><th>参与人</th><?php if ($businessDefinition['fields']): ?><th>业务信息</th><?php endif; ?><?php if ($resourceSelection && $usesProgram): ?><th>程序套餐</th><?php endif; ?><?php if ($resourceSelection): ?><th>域名选择与标准成本</th><th>服务器成本</th><?php endif; ?><th>核对结果</th></tr></thead><tbody>
 <?php foreach ($preview as $row): ?><tr class="<?php echo empty($row['base_valid']) ? 'table-danger' : ($row['status'] === '可导入' ? '' : 'table-warning'); ?>">
 <td><small><?php echo count($previewSheets) > 1 && !empty($row['sheet']) ? '【' . e($row['sheet']) . '】' : ''; ?>第 <?php echo e(implode('、', array_map(function ($l) { return (int)$l % 10000; }, $row['lines'] ?? [$row['line']]))); ?> 行</small><br><strong><?php echo e($row['order_no'] ?? '—'); ?></strong><br><small><?php echo e($row['project_type'] ?? ''); ?></small></td>
-<td><?php echo e($row['order_date'] ?? '—'); ?><br><strong>¥<?php echo e(($row['contract_amount'] ?? '') === '' ? '待补' : $row['contract_amount']); ?></strong><?php if (($row['order_kind'] ?? '') !== ''): ?><br><small class="text-muted"><?php echo e($row['order_kind']); ?></small><?php endif; ?></td>
+<td><?php echo e($row['order_date'] ?? '—'); ?><br><strong>¥<?php echo e(($row['contract_amount'] ?? '') === '' ? '待补' : $row['contract_amount']); ?></strong><?php if ($previewKinds && !empty($row['base_valid'])): $currentKind = ($row['order_kind'] ?? '') !== '' ? $row['order_kind'] : ($row['kind_guess'] ?? ''); ?><br><select class="form-control form-control-sm mt-1 js-kind-choice<?php echo ($row['order_kind'] ?? '') === '' ? ' is-invalid' : ''; ?>" name="kind_choice[<?php echo (int)$row['line']; ?>]" aria-label="订单类型"><option value="">选择订单类型</option><?php foreach ($previewKinds as $k): ?><option value="<?php echo e($k); ?>" <?php echo $currentKind === $k ? 'selected' : ''; ?>><?php echo e($k); ?></option><?php endforeach; ?></select><?php if (($row['order_kind'] ?? '') === '' && !empty($row['kind_guess'])): ?><small class="text-muted"><?php echo !empty($row['kind_from_ai']) ? 'AI 建议' : '按描述猜测'; ?>，请确认</small><?php endif; ?><?php elseif (($row['order_kind'] ?? '') !== ''): ?><br><small class="text-muted"><?php echo e($row['order_kind']); ?></small><?php endif; ?></td>
 <td><small>客服：<?php echo e(implode('、', array_column($row['people']['customer_service'], 'name')) ?: '—'); ?><br>技术：<?php echo e(implode('、', array_column($row['people']['technical'], 'name')) ?: '—'); ?></small></td>
 <?php if ($businessDefinition['fields']): ?><td><small><?php foreach ($businessDefinition['fields'] as $key => $label): ?><?php echo e($label . '：' . ps_contact_for($actor, ($row['details'][$key] ?? '') ?: '—', $key === 'customer_wechat')); ?><br><?php endforeach; ?></small></td><?php endif; ?>
 <?php if ($resourceSelection && $usesProgram): ?><td><?php if (!empty($row['resource_locked'])): ?><span class="text-muted">原单已确认</span><?php elseif (!empty($row['base_valid'])): ?><select class="form-control form-control-sm" name="program_choice[<?php echo (int)$row['line']; ?>]" aria-label="第<?php echo (int)$row['line']; ?>行程序套餐"><option value="0">不使用程序套餐</option><?php foreach ($programTemplates as $t): ?><option value="<?php echo (int)$t['id']; ?>" <?php echo (int)($row['program_template_id'] ?? 0) === (int)$t['id'] ? 'selected' : ''; ?>><?php echo e($t['name'] . ' · ' . $t['specification'] . ' · ¥' . money($t['price'])); ?></option><?php endforeach; ?></select><small class="text-muted">原表：<?php echo e(($row['program_name'] ?? '') ?: '未写程序名称'); ?></small><?php else: ?>—<?php endif; ?></td><?php endif; ?>

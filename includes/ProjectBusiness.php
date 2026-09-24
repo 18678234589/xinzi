@@ -207,7 +207,7 @@ function ps_business_import_headers($business)
 }
 
 /** 表头 => 列序号映射；缺少订单编号或全部人员列时报错。 */
-function ps_business_import_map($business, $head)
+function ps_business_import_map($business, $head, $requirePeople = true)
 {
     $map = [];
     foreach (ps_business_import_columns($business) as $key => $aliases) {
@@ -217,7 +217,8 @@ function ps_business_import_map($business, $head)
         }
     }
     if (!isset($map['order_no'])) throw new RuntimeException('缺少“订单编号”列；请下载当前业务模板或在表头加“订单编号”');
-    if (!isset($map['customer_service']) && !isset($map['frontend']) && !isset($map['backend'])) throw new RuntimeException('缺少客服或技术列，无法确定参与人');
+    // 合作人员上传自己的订单时本人自动加入，表格可以没有人员列；财务上传须有人员列
+    if ($requirePeople && !isset($map['customer_service']) && !isset($map['frontend']) && !isset($map['backend'])) throw new RuntimeException('缺少客服或技术列，无法确定参与人');
     return $map;
 }
 

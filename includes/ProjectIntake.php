@@ -172,6 +172,9 @@ function ps_import_group_taken($orderId, $group)
 function ps_import_date($value)
 {
     $value = rtrim(trim((string)$value), '.。'); // 容忍手录多打的句点，如“8.30.”
+    // 紧凑写法：260901（YYMMDD）、20260901（YYYYMMDD）——须先于 Excel 序列号判断
+    if (preg_match('/^(\d{2})(\d{2})(\d{2})$/', $value, $c) && checkdate((int)$c[2], (int)$c[3], 2000 + (int)$c[1])) return sprintf('%04d-%02d-%02d', 2000 + (int)$c[1], (int)$c[2], (int)$c[3]);
+    if (preg_match('/^(20\d{2})(\d{2})(\d{2})$/', $value, $c) && checkdate((int)$c[2], (int)$c[3], (int)$c[1])) return sprintf('%04d-%02d-%02d', (int)$c[1], (int)$c[2], (int)$c[3]);
     if (is_numeric($value) && (float)$value > 30000) return gmdate('Y-m-d', ((int)$value - 25569) * 86400);
     // Excel 把 8.3 / 8.7 存成浮点，读出来是 8.300000000000001：先按两位小数还原成“月.日”。
     if (preg_match('/^\d{1,2}\.\d{3,}$/', $value) && (float)$value < 13) $value = rtrim(rtrim(number_format((float)$value, 2, '.', ''), '0'), '.');

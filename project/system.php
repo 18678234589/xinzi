@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . '/../includes/ProjectBusiness.php';
+require_once __DIR__ . '/../includes/ProjectAiFallback.php';
 $actor = ps_require_finance();
 $error = '';
 $success = '';
@@ -8,7 +9,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     ps_check_csrf();
     try {
         $action = (string)($_POST['action'] ?? '');
-        if ($action === 'my_password') {
+        if ($action === 'ai_solution') {
+            // AI 托底记录：停用后同类问题不再套用（会重新请 AI 或按系统规则处理）；删除即清除该条
+            $solutionId = (int)($_POST['solution_id'] ?? 0);
+            $op = (string)($_POST['op'] ?? '');
+            if ($op === 'delete') db()->prepare('DELETE FROM project_ai_solutions WHERE id=?')->execute([$solutionId]);
+            else db()->prepare("UPDATE project_ai_solutions SET status=IF(status='active','disabled','active') WHERE id=?")->execute([$solutionId]);
+            ps_audit('setting', $solutionId, 'ai_solution_' . ($op === 'delete' ? 'delete' : 'toggle'), $actor, []);
+            $success = $op === 'delete' ? 'AI 托底记录已删除' : 'AI 托底记录状态已切换';
+        } elseif ($action === 'my_password') {
             // 财务 / 管理员修改自己的登录密码（原系统 admins 表沿用 MD5 校验）
             $me = db()->prepare('SELECT username,password FROM admins WHERE id=?');
             $me->execute([$actor['id']]);
@@ -62,7 +71,7 @@ include __DIR__ . '/../includes/header.php';
 $csrf = e(ps_csrf_token());
 ?>
 <div class="project-intake-page">
-<div class="project-hero mb-3"><div><div class="project-eyebrow">项目合作结算中心 · 管理员</div><h2>系统设置</h2><p>管理客户联系方式的查看权限、接入 AI 助手，以及合作人员账户。只有财务 / 管理员能进入这里。</p></div><div class="project-hero-actions"><a class="btn btn-light" href="#contact">联系方式权限</a><a class="btn btn-outline-light" href="#ai">AI 接入</a><a class="btn btn-outline-light" href="<?php echo BASE_URL; ?>/project/settings.php#accounts">合作人员账户</a><a class="btn btn-outline-light" href="#my-password">我的登录密码</a></div></div>
+<div class="project-hero mb-3"><div><div class="project-eyebrow">项目合作结算中心 · 管理员</div><h2>系统设置</h2><p>管理客户联系方式的查看权限、接入 AI 助手，以及合作人员账户。只有财务 / 管理员能进入这里。</p></div><div class="project-hero-actions"><a class="btn btn-light" href="#contact">联系方式权限</a><a class="btn btn-outline-light" href="#ai">AI 接入</a><a class="btn btn-outline-light" href="<?php echo BASE_URL; ?>/project/settings.php#accounts">合作人员账户</a><a class="btn btn-outline-light" href="#ai-log">AI 托底记录</a><a class="btn btn-outline-light" href="#my-password">我的登录密码</a></div></div>
 <?php if ($error): ?><div class="alert alert-danger"><?php echo e($error); ?></div><?php endif; ?>
 <?php if ($success): ?><div class="alert alert-success"><?php echo e($success); ?></div><?php endif; ?>
 
@@ -94,6 +103,30 @@ $csrf = e(ps_csrf_token());
     <a class="dash-action" href="<?php echo BASE_URL; ?>/project/settings.php#cost-center"><i class="fas fa-layer-group"></i><span>成本中心<small>程序套餐与标准价</small></span></a>
 </div>
 </div>
+<?php
+$aiLogFilter = (string)($_GET['ai_cat'] ?? '');
+$aiLogWhere = $aiLogFilter !== '' ? ' WHERE category=' . db()->quote($aiLogFilter) : '';
+try { $aiLogs = db()->query('SELECT * FROM project_ai_solutions' . $aiLogWhere . ' ORDER BY id DESC LIMIT 200')->fetchAll(); } catch (PDOException $e) { $aiLogs = []; }
+$aiLabels = ps_ai_labels() + ['import_columns_error' => '表头识别失败', 'import_status_error' => '状态识别失败', 'import_kind_error' => '类型建议失败'];
+?>
+<div id="ai-log" class="card mb-3"><div class="card-header d-flex justify-content-between align-items-center flex-wrap" style="gap:8px"><span>AI 托底记录（系统日志）</span><span class="small text-muted">系统规则处理不了时由 AI 给出方案并存档；同类问题下次直接套用，不再调用 AI</span></div><div class="card-body">
+<form method="get" class="form-inline mb-2"><select name="ai_cat" class="form-control form-control-sm mr-2" onchange="this.form.submit()"><option value="">全部类别</option><?php foreach ($aiLabels as $key => $label): ?><option value="<?php echo e($key); ?>" <?php echo $aiLogFilter === $key ? 'selected' : ''; ?>><?php echo e($label); ?></option><?php endforeach; ?></select><noscript><button class="btn btn-sm btn-outline-primary">筛选</button></noscript></form>
+<div class="table-responsive"><table class="table table-sm mb-0 project-stack-table"><thead><tr><th>时间</th><th>类别</th><th>业务</th><th>遇到的问题</th><th>方案</th><th>已复用</th><th></th></tr></thead><tbody>
+<?php foreach ($aiLogs as $log): $solution = json_decode($log['solution_json'], true) ?: []; ?><tr class="<?php echo $log['status'] !== 'active' || $log['source'] === 'error' ? 'text-muted' : ''; ?>">
+  <td data-label="时间" class="text-nowrap small"><?php echo e(substr($log['created_at'], 0, 16)); ?></td>
+  <td data-label="类别"><?php echo e($aiLabels[$log['category']] ?? $log['category']); ?><?php echo $log['source'] === 'error' ? ' <span class="badge badge-danger">失败</span>' : ($log['status'] !== 'active' ? ' <span class="badge badge-secondary">已停用</span>' : ''); ?></td>
+  <td data-label="业务" class="small"><?php echo e($log['business_name'] ?: '—'); ?></td>
+  <td data-label="遇到的问题" class="small" style="max-width:280px"><?php echo e(mb_strimwidth($log['problem'], 0, 160, '…')); ?></td>
+  <td data-label="方案" class="small" style="max-width:320px"><?php
+    if (isset($solution['mapping'])) { $parts = []; foreach ($solution['mapping'] as $key => $header) $parts[] = $key . ' ← ' . $header; echo e(implode('；', $parts)); }
+    elseif (isset($solution['answer'])) echo e($solution['answer'] === 'finished' ? '已完成' : ($solution['answer'] === 'unfinished' ? '未完成' : $solution['answer']));
+    elseif (isset($solution['error'])) echo e('AI 调用失败：' . $solution['error']);
+    ?><?php if ($log['explanation'] !== '' && $log['source'] !== 'error'): ?><div class="text-muted"><?php echo e($log['explanation']); ?></div><?php endif; ?></td>
+  <td data-label="已复用" class="small"><?php echo (int)$log['uses']; ?> 次</td>
+  <td class="text-nowrap"><?php if ($log['source'] !== 'error'): ?><form method="post" class="d-inline"><input type="hidden" name="csrf" value="<?php echo e(ps_csrf_token()); ?>"><input type="hidden" name="action" value="ai_solution"><input type="hidden" name="solution_id" value="<?php echo (int)$log['id']; ?>"><input type="hidden" name="op" value="toggle"><button class="btn btn-sm btn-outline-secondary"><?php echo $log['status'] === 'active' ? '停用' : '启用'; ?></button></form> <?php endif; ?><form method="post" class="d-inline" onsubmit="return confirm('删除这条 AI 托底记录？')"><input type="hidden" name="csrf" value="<?php echo e(ps_csrf_token()); ?>"><input type="hidden" name="action" value="ai_solution"><input type="hidden" name="solution_id" value="<?php echo (int)$log['id']; ?>"><input type="hidden" name="op" value="delete"><button class="btn btn-sm btn-outline-danger">删除</button></form></td>
+</tr><?php endforeach; ?>
+<?php if (!$aiLogs): ?><tr><td colspan="7" class="text-center text-muted py-3">还没有 AI 托底记录。上传的表格系统识别不了时，会由 AI 给出方案并记在这里。</td></tr><?php endif; ?>
+</tbody></table></div></div></div>
 <div id="my-password" class="card mb-3"><div class="card-header">我的登录密码</div><div class="card-body">
 <p class="small text-muted">财务 / 管理员账号能看到所有人的订单与报酬，默认密码是登录名（姓名拼音），请尽快改成只有自己知道的密码。</p>
 <form method="post" class="form-row align-items-end"><input type="hidden" name="csrf" value="<?php echo e(ps_csrf_token()); ?>"><input type="hidden" name="action" value="my_password">
