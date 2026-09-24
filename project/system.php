@@ -111,7 +111,7 @@ $aiLabels = ps_ai_labels() + ['import_columns_error' => '表头识别失败', 'i
 ?>
 <div id="ai-log" class="card mb-3"><div class="card-header d-flex justify-content-between align-items-center flex-wrap" style="gap:8px"><span>AI 托底记录（系统日志）</span><span class="small text-muted">系统规则处理不了时由 AI 给出方案并存档；同类问题下次直接套用，不再调用 AI</span></div><div class="card-body">
 <form method="get" class="form-inline mb-2"><select name="ai_cat" class="form-control form-control-sm mr-2" onchange="this.form.submit()"><option value="">全部类别</option><?php foreach ($aiLabels as $key => $label): ?><option value="<?php echo e($key); ?>" <?php echo $aiLogFilter === $key ? 'selected' : ''; ?>><?php echo e($label); ?></option><?php endforeach; ?></select><noscript><button class="btn btn-sm btn-outline-primary">筛选</button></noscript></form>
-<div class="table-responsive"><table class="table table-sm mb-0 project-stack-table"><thead><tr><th>时间</th><th>类别</th><th>业务</th><th>遇到的问题</th><th>方案</th><th>已复用</th><th></th></tr></thead><tbody>
+<div class="table-responsive"><table class="table table-sm mb-0 project-stack-table"><thead><tr><th>时间</th><th>类别</th><th>业务</th><th>遇到的问题</th><th>方案</th><th>已应用</th><th>已复用</th><th></th></tr></thead><tbody>
 <?php foreach ($aiLogs as $log): $solution = json_decode($log['solution_json'], true) ?: []; ?><tr class="<?php echo $log['status'] !== 'active' || $log['source'] === 'error' ? 'text-muted' : ''; ?>">
   <td data-label="时间" class="text-nowrap small"><?php echo e(substr($log['created_at'], 0, 16)); ?></td>
   <td data-label="类别"><?php echo e($aiLabels[$log['category']] ?? $log['category']); ?><?php echo $log['source'] === 'error' ? ' <span class="badge badge-danger">失败</span>' : ($log['status'] !== 'active' ? ' <span class="badge badge-secondary">已停用</span>' : ''); ?></td>
@@ -122,10 +122,11 @@ $aiLabels = ps_ai_labels() + ['import_columns_error' => '表头识别失败', 'i
     elseif (isset($solution['answer'])) echo e($solution['answer'] === 'finished' ? '已完成' : ($solution['answer'] === 'unfinished' ? '未完成' : $solution['answer']));
     elseif (isset($solution['error'])) echo e('AI 调用失败：' . $solution['error']);
     ?><?php if ($log['explanation'] !== '' && $log['source'] !== 'error'): ?><div class="text-muted"><?php echo e($log['explanation']); ?></div><?php endif; ?></td>
+  <td data-label="已应用" class="small"><?php echo (int)($log['applied_count'] ?? 0); ?> 次<?php if (!empty($log['last_applied_at'])): ?><br><span class="text-muted"><?php echo e(substr($log['last_applied_at'], 0, 16)); ?></span><?php endif; ?></td>
   <td data-label="已复用" class="small"><?php echo (int)$log['uses']; ?> 次</td>
   <td class="text-nowrap"><?php if ($log['source'] !== 'error'): ?><form method="post" class="d-inline"><input type="hidden" name="csrf" value="<?php echo e(ps_csrf_token()); ?>"><input type="hidden" name="action" value="ai_solution"><input type="hidden" name="solution_id" value="<?php echo (int)$log['id']; ?>"><input type="hidden" name="op" value="toggle"><button class="btn btn-sm btn-outline-secondary"><?php echo $log['status'] === 'active' ? '停用' : '启用'; ?></button></form> <?php endif; ?><form method="post" class="d-inline" onsubmit="return confirm('删除这条 AI 托底记录？')"><input type="hidden" name="csrf" value="<?php echo e(ps_csrf_token()); ?>"><input type="hidden" name="action" value="ai_solution"><input type="hidden" name="solution_id" value="<?php echo (int)$log['id']; ?>"><input type="hidden" name="op" value="delete"><button class="btn btn-sm btn-outline-danger">删除</button></form></td>
 </tr><?php endforeach; ?>
-<?php if (!$aiLogs): ?><tr><td colspan="7" class="text-center text-muted py-3">还没有 AI 托底记录。上传的表格系统识别不了时，会由 AI 给出方案并记在这里。</td></tr><?php endif; ?>
+<?php if (!$aiLogs): ?><tr><td colspan="8" class="text-center text-muted py-3">还没有 AI 托底记录。上传的表格系统识别不了时，会由 AI 给出方案并记在这里。</td></tr><?php endif; ?>
 </tbody></table></div></div></div>
 <div id="my-password" class="card mb-3"><div class="card-header">我的登录密码</div><div class="card-body">
 <p class="small text-muted">财务 / 管理员账号能看到所有人的订单与报酬，默认密码是登录名（姓名拼音），请尽快改成只有自己知道的密码。</p>

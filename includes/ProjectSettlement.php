@@ -629,3 +629,66 @@ function ps_post_adjustment($orderId, $actor, $refundAmount, $costDelta, $reason
         throw $e;
     }
 }
+
+/** 财务纠正已审核订单类型：保留原快照，差额计入指定未锁定月份。 */
+function ps_reclassify_order_kind($orderId, $kind, $actor, $payrollMonth, $applyFuture = false)
+{
+    if (($actor['role'] ?? '') !== 'finance') throw new RuntimeException('仅财务可纠正订单类型');
+    $pdo = db(); $nested = $pdo->inTransaction();
+    if ($nested) $pdo->exec('SAVEPOINT project_reclassify_kind'); else $pdo->beginTransaction();
+    try {
+        $q = $pdo->prepare('SELECT * FROM project_orders WHERE id=? FOR UPDATE');
+        $q->execute([(int)$orderId]); $order = $q->fetch();
+        if (!$order) throw new RuntimeException('订单不存在');
+        $kind = ps_order_kind_valid(ps_business_normalize($order['project_type']), $kind);
+        if ($kind === '') throw new RuntimeException('请选择正确订单类型');
+        $before = (string)$order['order_kind'];
+        if ($before === $kind) throw new RuntimeException('订单类型没有变化');
+        $approved = in_array($order['settlement_status'], ['approved', 'locked'], true);
+        if ($approved) {
+            if (!preg_match('/^\d{4}-(0[1-9]|1[0-2])$/', (string)$payrollMonth)) throw new RuntimeException('请选择调整计入月份');
+            $pdo->prepare('INSERT INTO project_payroll_periods (period) VALUES (?) ON DUPLICATE KEY UPDATE period=period')->execute([$payrollMonth]);
+            $period = $pdo->prepare('SELECT status FROM project_payroll_periods WHERE period=? FOR UPDATE');
+            $period->execute([$payrollMonth]);
+            if ($period->fetchColumn() === 'locked') throw new RuntimeException($payrollMonth . ' 已锁定，请选择未锁定月份');
+            $order['order_kind'] = $kind;
+            $summary = ps_summary($order, ps_costs($orderId), ps_participants($orderId));
+            $snap = $pdo->prepare('SELECT employee_id,commission_group,SUM(commission_amount) amount FROM project_commission_snapshots WHERE order_id=? GROUP BY employee_id,commission_group');
+            $snap->execute([(int)$orderId]); $old = [];
+            foreach ($snap->fetchAll() as $s) $old[$s['commission_group'] . ':' . $s['employee_id']] = (float)$s['amount'];
+            if (!$old) throw new RuntimeException('原审核快照不存在，不能自动重算，请财务核对');
+            $prior = $pdo->prepare('SELECT commission_group,employee_id,SUM(amount) amount FROM project_commission_adjustments WHERE order_id=? GROUP BY commission_group,employee_id');
+            $prior->execute([(int)$orderId]);
+            foreach ($prior->fetchAll() as $p) $old[$p['commission_group'] . ':' . $p['employee_id']] = ($old[$p['commission_group'] . ':' . $p['employee_id']] ?? 0) + (float)$p['amount'];
+            $ins = $pdo->prepare('INSERT INTO project_commission_adjustments (order_id,employee_id,commission_group,amount,payroll_month,reason,calc_note,created_by_admin) VALUES (?,?,?,?,?,?,?,?)');
+            $reason = '财务纠正订单类型：' . ($before ?: '未分类') . ' → ' . $kind;
+            foreach ($summary['groups'] as $group => $data) {
+                if (!$data['people']) continue;
+                if ($data['missing_rule'] || abs($data['weight'] - 1.0) > 0.000001) throw new RuntimeException('新类型的分成规则或参与人权重未配置完整，不能自动重算');
+                $shares = ps_group_share_cents($data['people']);
+                foreach ($data['people'] as $i => $person) {
+                    $key = $group . ':' . $person['employee_id'];
+                    $newCents = $summary['income'] <= 0 ? 0 : $shares[$i] + (int)round($person['calc']['subsidy'] * 100);
+                    $oldCents = (int)round(($old[$key] ?? 0) * 100);
+                    $delta = $newCents - $oldCents;
+                    if ($delta) $ins->execute([(int)$orderId, $person['employee_id'], $group, $delta / 100, $payrollMonth, $reason, '按“' . $kind . '”重算 ¥' . money_plain($newCents / 100) . '，已计 ¥' . money_plain($oldCents / 100), $actor['id']]);
+                    unset($old[$key]);
+                }
+            }
+            if ($old) throw new RuntimeException('原快照参与人与当前不一致，请财务核对后再调整');
+        }
+        $pdo->prepare('UPDATE project_orders SET order_kind=?,row_version=row_version+1 WHERE id=?')->execute([$kind, (int)$orderId]);
+        if ($applyFuture) {
+            $people = $pdo->prepare('SELECT DISTINCT employee_id FROM project_participants WHERE order_id=?');
+            $people->execute([(int)$orderId]);
+            $default = $pdo->prepare("INSERT INTO project_import_kind_preferences (employee_id,business_name,layout_signature,order_kind,source) VALUES (?,?,'*',?,'finance') ON DUPLICATE KEY UPDATE order_kind=VALUES(order_kind),source='finance',confirmed_count=confirmed_count+1,updated_at=NOW()");
+            foreach ($people->fetchAll(PDO::FETCH_COLUMN) as $employeeId) $default->execute([(int)$employeeId, ps_business_normalize($order['project_type']), $kind]);
+        }
+        ps_audit('order', (int)$orderId, 'reclassify_kind', $actor, ['before' => $before, 'after' => $kind, 'month' => $approved ? $payrollMonth : null, 'future_default' => (bool)$applyFuture]);
+        if ($nested) $pdo->exec('RELEASE SAVEPOINT project_reclassify_kind'); else $pdo->commit();
+    } catch (Throwable $e) {
+        if ($nested) $pdo->exec('ROLLBACK TO SAVEPOINT project_reclassify_kind');
+        elseif ($pdo->inTransaction()) $pdo->rollBack();
+        throw $e;
+    }
+}

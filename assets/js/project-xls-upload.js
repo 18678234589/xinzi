@@ -15,7 +15,7 @@
       try {
         var workbook = window.XLSX.read(await file.arrayBuffer(), { type: 'array', cellDates: false });
         var data = window.XLSX.write(workbook, { type: 'array', bookType: 'xlsx' });
-        if (data.byteLength > 10 * 1024 * 1024) throw new Error('转换后的文件超过 10 MB，请拆分工作表上传');
+        if (data.byteLength > 25 * 1024 * 1024) throw new Error('转换后的文件超过 25 MB，请拆分工作表上传');
         var converted = new File([data], file.name.replace(/\.xls$/i, '.xlsx'), { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
         var transfer = new DataTransfer();
         transfer.items.add(converted);

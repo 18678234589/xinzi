@@ -191,6 +191,22 @@ try {
     $mpAdj = $adj->fetchAll(PDO::FETCH_KEY_PAIR);
     check_algorithm($mpAdj['customer_service'] ?? 0, -5.00, '部分退款只扣 100×5% 差额，补助保留');
 
+    // 财务将已审核的小程序新订单改为定制：原快照保留，差额记入未锁定月份。
+    $kindNo = 'ALGO-KIND-' . bin2hex(random_bytes(4));
+    $pdo->prepare("INSERT INTO project_orders (order_no,project_type,order_kind,contract_amount,order_date,delivery_status) VALUES (?,'小程序开发','新订单',2100,?,'finished')")->execute([$kindNo, $date]);
+    $kindId = (int)$pdo->lastInsertId();
+    $pdo->prepare("INSERT INTO project_participants (order_id,employee_id,commission_group,role_name,group_weight) VALUES (?,?,'technical','定制技术15',1)")->execute([$kindId, $employeeIds[0]]);
+    ps_intake_save_resources($kindId, 'manual', null, null, null, null, 'none');
+    $pdo->prepare("INSERT INTO project_cash_movements (order_id,movement_type,amount,review_status,submitted_by_type,submitted_by_id) VALUES (?,'receipt',2100,'approved','system',0)")->execute([$kindId]);
+    ps_recalculate_cash($kindId);
+    ps_approve_order($kindId, $actor, '2099-12');
+    ps_reclassify_order_kind($kindId, '定制', $actor, '2099-12', true);
+    $q = $pdo->prepare('SELECT order_kind FROM project_orders WHERE id=?'); $q->execute([$kindId]);
+    if ($q->fetchColumn() !== '定制') throw new RuntimeException('已审核订单类型未纠正');
+    $q = $pdo->prepare('SELECT SUM(amount) FROM project_commission_adjustments WHERE order_id=?'); $q->execute([$kindId]);
+    check_algorithm($q->fetchColumn(), 203.70, '已审核新订单改定制仅补分成差额');
+    if (ps_import_kind_preference($employeeIds[0], '小程序开发', 'other-layout') !== '定制') throw new RuntimeException('财务纠正未覆盖未来同类导入默认');
+
     // 12. 华梦外包：成本 = 售价 × 80%，自动通过
     $hm = null;
     foreach (ps_intake_templates('outsourcing', 'AI网站定制') as $t) if ($t['name'] === '华梦定制外包') $hm = $t;

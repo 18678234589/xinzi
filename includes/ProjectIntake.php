@@ -245,8 +245,8 @@ function ps_import_kind_preference($employeeId, $business, $layoutSignature)
 {
     if (!$employeeId || !$layoutSignature) return '';
     try {
-        $q = db()->prepare('SELECT order_kind FROM project_import_kind_preferences WHERE employee_id=? AND business_name=? AND layout_signature=?');
-        $q->execute([(int)$employeeId, $business, $layoutSignature]);
+        $q = db()->prepare('SELECT order_kind FROM project_import_kind_preferences WHERE employee_id=? AND business_name=? AND layout_signature IN (?, ?) ORDER BY (source=?) DESC, (layout_signature=?) DESC LIMIT 1');
+        $q->execute([(int)$employeeId, $business, $layoutSignature, '*', 'finance', '*']);
         $kind = (string)$q->fetchColumn();
         return in_array($kind, ps_business_order_kinds($business), true) ? $kind : '';
     } catch (PDOException $e) { return ''; }
@@ -266,7 +266,7 @@ function ps_import_file_store($file, $business, $actor, $parsedFile = null)
 {
     $ext = strtolower(pathinfo((string)$file['name'], PATHINFO_EXTENSION));
     if (!in_array($ext, ['xlsx', 'csv', 'xls'], true)) throw new RuntimeException('文件仅支持 XLSX、XLS 或 CSV');
-    if ($ext === 'xls' && (!$parsedFile || ($parsedFile['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK || strtolower(pathinfo((string)$parsedFile['name'], PATHINFO_EXTENSION)) !== 'xlsx' || (int)($parsedFile['size'] ?? 0) > 10 * 1024 * 1024)) throw new RuntimeException('旧版 XLS 转换失败或文件过大，请使用新版浏览器重试或另存为 XLSX');
+    if ($ext === 'xls' && (!$parsedFile || ($parsedFile['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK || strtolower(pathinfo((string)$parsedFile['name'], PATHINFO_EXTENSION)) !== 'xlsx' || (int)($parsedFile['size'] ?? 0) > 25 * 1024 * 1024)) throw new RuntimeException('旧版 XLS 转换失败或文件过大，请使用新版浏览器重试或另存为 XLSX');
     $stored = ps_private_store('imports', $file['tmp_name'], date('Ym') . '_' . bin2hex(random_bytes(12)) . '.' . $ext);
     $parsed = $ext === 'xls' ? ps_private_store('imports', $parsedFile['tmp_name'], date('Ym') . '_' . bin2hex(random_bytes(12)) . '.xlsx') : null;
     db()->prepare('INSERT INTO project_import_files (business_name,original_name,stored_name,parse_name,file_size,uploaded_by_type,uploaded_by_id,employee_id) VALUES (?,?,?,?,?,?,?,?)')

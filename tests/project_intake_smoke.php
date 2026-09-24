@@ -164,7 +164,7 @@ try {
     if (!$designOrder || json_decode($designOrder['details_json'], true)['design_item'] !== '品牌海报') throw new RuntimeException('设计业务专属信息未保存');
     $resourceQuery->execute([$designOrder['id']]);
     if ($resourceQuery->fetch()) throw new RuntimeException('设计业务错误创建了域名资源记录');
-    $otherEmployeeId = (int)$pdo->query('SELECT id FROM employees WHERE id<>' . $employeeId . ' ORDER BY id LIMIT 1')->fetchColumn();
+    $otherEmployeeId = (int)$pdo->query('SELECT e.id FROM employees e LEFT JOIN project_users u ON u.employee_id=e.id WHERE e.id<>' . $employeeId . ' AND u.id IS NULL ORDER BY e.id LIMIT 1')->fetchColumn();
     if (!$otherEmployeeId) throw new RuntimeException('权限测试需要第二名合作人员');
     $pdo->prepare("INSERT INTO project_users (employee_id,username,password_hash,role) VALUES (?,?,?,'technical')")
         ->execute([$otherEmployeeId, 'intake-test-' . bin2hex(random_bytes(5)), password_hash('test-password-123', PASSWORD_DEFAULT)]);

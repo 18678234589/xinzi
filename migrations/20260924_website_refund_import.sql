@@ -2,7 +2,7 @@
 CREATE TABLE IF NOT EXISTS project_refund_import_rows (
   id INT AUTO_INCREMENT PRIMARY KEY,
   fingerprint CHAR(64) NOT NULL,
-  order_id INT NOT NULL,
+  order_id INT NULL,
   order_no VARCHAR(100) NOT NULL,
   refund_date DATE NOT NULL,
   amount DECIMAL(14,2) NOT NULL,
