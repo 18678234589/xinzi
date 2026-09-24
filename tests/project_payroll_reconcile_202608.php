@@ -14,7 +14,7 @@ require_once __DIR__ . '/../includes/ProjectMonthly.php';
 
 $pdo = db();
 // 原系统考勤表通常已存在；空库时先建表（DDL 须在事务外执行）
-$pdo->exec("CREATE TABLE IF NOT EXISTS attendances (id INT AUTO_INCREMENT PRIMARY KEY, employee_id INT NOT NULL, year SMALLINT NOT NULL, month TINYINT NOT NULL, work_hours DECIMAL(6,1) NOT NULL DEFAULT 0, absent_hours DECIMAL(6,1) NOT NULL DEFAULT 0, remark VARCHAR(500) DEFAULT '', created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, UNIQUE KEY uk_emp_month (employee_id, year, month)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+$pdo->exec("CREATE TABLE IF NOT EXISTS attendances (id INT AUTO_INCREMENT PRIMARY KEY, employee_id INT NOT NULL, year SMALLINT NOT NULL, month TINYINT NOT NULL, work_hours DECIMAL(6,2) NOT NULL DEFAULT 0, absent_hours DECIMAL(6,2) NOT NULL DEFAULT 0, remark VARCHAR(500) DEFAULT '', created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, UNIQUE KEY uk_emp_month (employee_id, year, month)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
 $pdo->beginTransaction();
 $month = '2026-08';
 try {
@@ -36,7 +36,7 @@ try {
         if (!$ids) { $pdo->prepare("INSERT INTO employees (name,department,password) VALUES (?,?,'')")->execute([$name, $department]); $ids = [(int)$pdo->lastInsertId()]; }
         return $people[$name] = (int)$ids[0];
     };
-    foreach (['光君' => '网站技术', '张强' => '网站技术', '孙妍' => '网站技术', '董旭' => '网站客服', '宋倩倩' => '网站客服', '苏婷' => '网站客服', '孙湉湉' => '网站客服', '刘媛媛' => '网站售后部', '吴宁' => '督导', '刘帅' => '定制前端', '于海波' => '定制后端', '崔鑫栋' => '定制后端', '李子晖' => '网站定制', '李仁超' => '定制前端', '孙磊' => '定制前端', '纪鹏程' => '环境配置', '于洋' => '网站售后部', '翟建跃' => '运营经理部', '石凯新' => '标书小程序', '刘丹丹' => '标书小程序', '曹双双' => '标书小程序', '王宁' => '标书小程序', '王亚' => '标书小程序', '朱俊英' => '代写客服', '田悦琦' => '网站资料员', '谢文婷' => '网站资料员', '高晶晶' => '网站资料员', '对账合接客服' => '网站客服'] as $name => $department) $employee($name, $department);
+    foreach (['光君' => '网站技术', '张强' => '网站技术', '孙妍' => '网站技术', '董旭' => '网站客服', '宋倩倩' => '网站客服', '苏婷' => '网站客服', '孙湉湉' => '网站客服', '刘媛媛' => '网站售后部', '吴宁' => '督导', '刘帅' => '定制前端', '于海波' => '定制后端', '崔鑫栋' => '定制后端', '李子晖' => '网站定制', '李仁超' => '定制前端', '孙磊' => '定制前端', '纪鹏程' => '环境配置', '于洋' => '网站售后部', '翟建跃' => '运营经理部', '石凯新' => '标书小程序', '刘丹丹' => '标书小程序', '曹双双' => '标书小程序', '王宁' => '标书小程序', '王亚' => '标书小程序', '朱俊英' => '代写客服', '田悦琦' => '网站资料员', '谢文婷' => '网站资料员', '高晶晶' => '网站资料员', '姚琳' => '财务部', '孙曼' => '财务部', '刘群' => '财务部', '魏慧子' => '财务部', '王芳' => '财务部', '宋文娜' => '财务部', '对账合接客服' => '网站客服'] as $name => $department) $employee($name, $department);
     $E = function ($name) use (&$people) { return $people[$name]; };
 
     ps_apply_preset_rules($actor, '2026-07-01');
@@ -45,7 +45,7 @@ try {
 
     // 考勤（小时）：8 月满勤 26 天；苏婷 23 天、李子晖 25.77 天、吴宁 24.81 天
     $attendance = $pdo->prepare('INSERT INTO attendances (employee_id,year,month,work_hours,absent_hours) VALUES (?,2026,8,208,?) ON DUPLICATE KEY UPDATE work_hours=208,absent_hours=VALUES(absent_hours)');
-    foreach ($people as $name => $id) if (!in_array($name, ['朱俊英', '李仁超', '孙磊', '对账合接客服'], true)) $attendance->execute([$id, ['苏婷' => 24, '李子晖' => 1.84, '吴宁' => 9.52][$name] ?? 0]);
+    foreach ($people as $name => $id) if (!in_array($name, ['朱俊英', '李仁超', '孙磊', '对账合接客服'], true)) $attendance->execute([$id, ['苏婷' => 24, '李子晖' => 1.84, '吴宁' => 9.52, '孙曼' => 2.96, '刘群' => 2.96, '魏慧子' => 12, '宋文娜' => 6.96][$name] ?? 0]);
 
     $n = 0;
     $order = function ($type, $kind, $price, array $costs, array $tech, array $cs) use ($pdo, $actor, $month, &$n) {
@@ -124,7 +124,7 @@ try {
     foreach ($manual as $name => [$amount, $note]) $fill('其他业务提成（未接入系统）', $name, $amount, $note);
 
     // —— 逐人合计 vs 收入表“应发工资”
-    $expected = ['光君' => 10127.76, '张强' => 6502.62, '孙妍' => 5502.36, '董旭' => 5484.21, '宋倩倩' => 5055.21, '苏婷' => 4129.26, '孙湉湉' => 3117.91, '刘媛媛' => 3928.35, '吴宁' => 2478.60, '刘帅' => 5815.26, '于海波' => 4341.30, '崔鑫栋' => 7338.83, '李子晖' => 3830.41, '李仁超' => 4804.60, '孙磊' => 3386.75, '纪鹏程' => 3078.45, '于洋' => 6130.74, '翟建跃' => 5900.00, '石凯新' => 3222.52, '刘丹丹' => 2385.48, '曹双双' => 3037.90, '王宁' => 2343.89, '王亚' => 9203.63, '朱俊英' => 1952.65, '田悦琦' => 3500.00, '谢文婷' => 3002.33, '高晶晶' => 2502.72];
+    $expected = ['光君' => 10127.76, '张强' => 6502.62, '孙妍' => 5502.36, '董旭' => 5484.21, '宋倩倩' => 5055.21, '苏婷' => 4129.26, '孙湉湉' => 3117.91, '刘媛媛' => 3928.35, '吴宁' => 2478.60, '刘帅' => 5815.26, '于海波' => 4341.30, '崔鑫栋' => 7338.83, '李子晖' => 3830.41, '李仁超' => 4804.60, '孙磊' => 3386.75, '纪鹏程' => 3078.45, '于洋' => 6130.74, '翟建跃' => 5900.00, '石凯新' => 3222.52, '刘丹丹' => 2385.48, '曹双双' => 3037.90, '王宁' => 2343.89, '王亚' => 9203.63, '朱俊英' => 1952.65, '田悦琦' => 3500.00, '谢文婷' => 3002.33, '高晶晶' => 2502.72, '姚琳' => 4400.00, '孙曼' => 4353.13, '刘群' => 3956.83, '魏慧子' => 3810.00, '王芳' => 3600.00, '宋文娜' => 3221.70];
     $snapshotSum = $pdo->prepare('SELECT COALESCE(SUM(commission_amount),0) FROM project_commission_snapshots WHERE employee_id=? AND payroll_month=?');
     $results = ps_monthly_results($month);
     $failed = 0;

@@ -94,6 +94,14 @@ $nav = function ($href, $icon, $label, $active) {
 </div>
 
 <div class="main-content">
+<?php
+// 财务 / 管理员仍在用默认密码（= 登录名）时提醒修改
+if ($current_admin && ($_rel ?? '') !== 'project/system.php') {
+    $pwdCheck = db()->prepare('SELECT password FROM admins WHERE id=?');
+    $pwdCheck->execute([(int)$current_admin['id']]);
+    if ($pwdCheck->fetchColumn() === md5((string)$current_admin['username'])) echo '<div class="alert alert-warning">你的财务账号还在使用默认密码（登录名），它能看到所有人的订单与报酬，请<a href="' . BASE_URL . '/project/system.php#my-password">现在修改</a>。</div>';
+}
+?>
 <?php if (!$project_staff && $group_active): ?><nav class="app-tabs mb-3" aria-label="同类页面"><?php foreach ($nav_groups[$group_active] as $item): ?><a href="<?php echo BASE_URL . $item[0]; ?>" class="<?php echo $item[3] ? 'active' : ''; ?>"<?php echo $item[3] ? ' aria-current="page"' : ''; ?>><i class="fas <?php echo $item[1]; ?>"></i> <?php echo $item[2]; ?></a><?php endforeach; ?></nav><?php endif; ?>
 <script>
 (function(){
