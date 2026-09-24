@@ -16,6 +16,8 @@ $employees = db()->query('SELECT id,name,department FROM employees ORDER BY depa
 $employeesById = [];
 foreach ($employees as $employee) $employeesById[(int)$employee['id']] = $employee;
 $activeTechnicalIds = array_map('intval', db()->query("SELECT employee_id FROM project_users WHERE role='technical' AND is_active=1")->fetchAll(PDO::FETCH_COLUMN));
+// 微信代写编辑员（客服账号）在代写订单上担任“对接编辑”，可在技术 / 对接栏选到
+$activeTechnicalIds = array_values(array_unique(array_merge($activeTechnicalIds, array_map('intval', db()->query("SELECT u.employee_id FROM project_users u JOIN project_user_businesses b ON b.user_id=u.id AND b.business_name='微信代写' WHERE u.is_active=1")->fetchAll(PDO::FETCH_COLUMN)))));
 $activeCustomerServiceIds = array_map('intval', db()->query("SELECT employee_id FROM project_users WHERE role='customer_service' AND is_active=1")->fetchAll(PDO::FETCH_COLUMN));
 // 合作人员可在两栏都选到自己（身兼客服与技术的人员，如环境配置）。
 $selfEmployeeId = (int)($actor['employee_id'] ?? 0);
@@ -91,6 +93,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $business = ps_require_business($actor, $projectType);
         $peopleLabels = ps_business_people_labels($projectType);
         $orderKind = ps_order_kind_valid($projectType, $_POST['order_kind'] ?? '');
+        if ($orderKind === '' && !empty($business['default_kind'])) $orderKind = $business['default_kind'];
+        $isOffset = $orderKind === '退款冲减';
+        // 代写 / 期刊 / 微信代写 / 网站续费 / 网站修改：录单时直接填写稿费或成本（¥500 以内自动通过，超过由财务审核）
+        $directCost = !empty($business['import_cost']) ? trim((string)($_POST['direct_cost'] ?? '')) : '';
+        if ($directCost !== '' && (!preg_match($isOffset ? '/^-?\d+(?:\.\d{1,2})?$/' : '/^\d+(?:\.\d{1,2})?$/', $directCost) || abs((float)$directCost) > 999999999999.99)) throw new RuntimeException(($business['cost_label'] ?? '成本') . '须为金额，最多两位小数');
         if ($orderKind === '' && !empty($business['kind_required'])) throw new RuntimeException('请选择订单类型（新订单 / 定制 / 续费…），它决定分成比例和每单补助');
         $canChooseResources = $business['resources'] && $actor['role'] !== 'customer_service';
         $programTemplate = $canChooseResources && !empty($business['program']) && (int)($_POST['program_template_id'] ?? 0) > 0 ? ps_intake_template((int)$_POST['program_template_id'], 'program') : null;
@@ -114,12 +121,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
         $parsedDate = DateTimeImmutable::createFromFormat('!Y-m-d', $date);
         if (!$parsedDate || $parsedDate->format('Y-m-d') !== $date) throw new RuntimeException('请选择有效日期');
-        if (($contract !== '' && !preg_match('/^\d+(?:\.\d{1,2})?$/', $contract)) || !preg_match('/^\d+(?:\.\d{1,2})?$/', $receipt) || (float)$contract > 999999999999.99 || (float)$receipt > 999999999999.99) throw new RuntimeException('金额须为非负数，最多两位小数');
+        if (($contract !== '' && !preg_match($isOffset ? '/^-?\d+(?:\.\d{1,2})?$/' : '/^\d+(?:\.\d{1,2})?$/', $contract)) || !preg_match('/^\d+(?:\.\d{1,2})?$/', $receipt) || (float)$contract > 999999999999.99 || (float)$receipt > 999999999999.99) throw new RuntimeException('金额须为非负数，最多两位小数');
         $sslCost = $canChooseResources ? trim((string)($_POST['ssl_cost'] ?? '')) : '';
         if ($sslCost !== '' && (!preg_match('/^\d+(?:\.\d{1,2})?$/', $sslCost) || (float)$sslCost > 999999999999.99)) throw new RuntimeException('SSL 实际成本最多两位小数');
         $customer = trim((string)($_POST['customer_name'] ?? ''));
         $shop = trim((string)($_POST['shop'] ?? ''));
-        if ($shop !== '' && !in_array($shop, $shops, true)) throw new RuntimeException('请选择店铺列表中的店铺');
+        if ($shop !== '' && empty($business['free_shop']) && !in_array($shop, $shops, true)) throw new RuntimeException('请选择店铺列表中的店铺');
         $details = ps_business_details($projectType, $actor['role'] === 'customer_service' && $projectType === '网站模板' ? [] : ($_POST['details'] ?? []));
         if (mb_strlen($customer) > 200 || mb_strlen($shop) > 150 || mb_strlen($projectType) > 100) throw new RuntimeException('客户、店铺或业务类型过长');
         $paymentNickname = trim((string)($_POST['payment_nickname'] ?? ''));
@@ -155,6 +162,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if ($actor['role'] === 'technical' && ps_business_requires_technical($projectType)) {
             foreach ($groups['customer_service'] as $person) if ((int)$person['id'] !== $selfEmployeeId && !ps_active_employee_for_business($person['id'], 'customer_service', $projectType)) throw new RuntimeException('指定的客服未开通当前业务的有效账号，请联系财务配置');
         }
+        // 设计图片：同一客服同一客户当月已有图片单时，本单记“图片同客户”（不计 0.5 元单量）
+        if ($projectType === '设计' && $orderKind === '图片' && trim($paymentNickname . $customer) !== '') {
+            $csIds = array_keys($groups['customer_service']);
+            if ($csIds) {
+                $repeat = db()->prepare("SELECT 1 FROM project_orders o JOIN project_participants p ON p.order_id=o.id AND p.commission_group='customer_service' WHERE o.project_type='设计' AND o.order_kind='图片' AND DATE_FORMAT(o.order_date,'%Y-%m')=? AND p.employee_id IN (" . implode(',', array_map('intval', $csIds)) . ") AND REPLACE(LOWER(o.customer_name),' ','')=? LIMIT 1");
+                $repeat->execute([substr($date, 0, 7), preg_replace('/\s+/u', '', mb_strtolower($customer !== '' ? $customer : $paymentNickname))]);
+                if ($repeat->fetchColumn()) $orderKind = '图片同客户';
+            }
+        }
+        if ($customer === '' && $paymentNickname !== '') $customer = $paymentNickname;
         $noteParts = [];
         if ($paymentNickname !== '') $noteParts[] = '付款昵称：' . $paymentNickname;
         if ($contactNote !== '') $noteParts[] = '客户联系方式：' . $contactNote;
@@ -181,6 +198,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if ($outsourceTemplate) ps_intake_add_template_cost($id, $outsourceTemplate, $actor, '手动录入：外包');
         if ($domainTemplate) ps_intake_add_template_cost($id, $domainTemplate, $actor, '手动录入：域名');
         if ($serverTemplate) ps_intake_add_template_cost($id, $serverTemplate, $actor, '手动录入：服务器');
+        if ($directCost !== '' && (float)$directCost != 0) {
+            $costAmount = round((float)$directCost, 2);
+            db()->prepare("INSERT INTO project_costs (order_id,category,item_name,quantity,unit,unit_price,amount,cost_kind,is_custom,reason,review_status,submitted_by_employee) VALUES (?,'outsourcing',?,1,'项',?,?,'one_time',1,'手动录入',?,?)")
+                ->execute([$id, $business['cost_label'] ?? '成本', $costAmount, $costAmount, abs($costAmount) <= 500 ? 'approved' : 'pending', $actor['employee_id'] ?? null]);
+        }
         ps_audit('order', $id, 'create', $actor, ['order_no' => $no, 'order_kind' => $orderKind, 'program_template_id' => $programTemplate['id'] ?? null, 'domain_template_id' => $domainTemplate['id'] ?? null, 'server_template_id' => $serverTemplate['id'] ?? null, 'receipt_unconfirmed' => $actor['role'] !== 'finance']);
         ps_sync_existing_shop_order($id, $no, $shop);
         db()->commit();
@@ -267,9 +289,10 @@ $resourceHint = function ($t) { return trim($t['name'] . ' ' . $t['specification
     </div>
     <div id="intakeLookup" class="project-lookup" hidden aria-live="polite"></div>
     <div class="form-row">
-      <div class="form-group col-md-3"><label for="intakeShop">店铺（可后补）</label><select class="form-control" id="intakeShop" name="shop"><option value="">暂不确定，待上传匹配</option><?php foreach ($shops as $shopName): ?><option value="<?php echo e($shopName); ?>" <?php echo ($_POST['shop'] ?? '') === $shopName ? 'selected' : ''; ?>><?php echo e($shopName); ?></option><?php endforeach; ?></select></div>
+      <div class="form-group col-md-3"><label for="intakeShop">店铺（可后补）</label><input class="form-control" id="intakeShop" name="shop" list="intakeShopList" maxlength="150" value="<?php echo e($_POST['shop'] ?? ''); ?>" placeholder="可不填，待上传匹配" autocomplete="off"><datalist id="intakeShopList"><?php foreach ($shops as $shopName): ?><option value="<?php echo e($shopName); ?>"><?php endforeach; ?></datalist></div>
       <div class="form-group col-md-3"><label for="intakeNickname">付款昵称（可后补）</label><input class="form-control" id="intakeNickname" name="payment_nickname" maxlength="200" value="<?php echo e($_POST['payment_nickname'] ?? ''); ?>"></div>
       <div class="form-group col-md-3"><label for="intakePrice">售价（可后补）</label><div class="input-group"><div class="input-group-prepend"><span class="input-group-text">¥</span></div><input class="form-control" id="intakePrice" type="number" step="0.01" min="0" name="contract_amount" value="<?php echo e($_POST['contract_amount'] ?? ''); ?>" placeholder="待订单上传补全"></div></div>
+      <div class="form-group col-md-3" id="intakeDirectCostWrap" hidden><label for="intakeDirectCost" id="intakeDirectCostLabel">成本</label><div class="input-group"><div class="input-group-prepend"><span class="input-group-text">¥</span></div><input class="form-control" id="intakeDirectCost" type="number" step="0.01" name="direct_cost" value="<?php echo e($_POST['direct_cost'] ?? ''); ?>" placeholder="如写手稿费"></div><small class="text-muted">¥500 以内自动通过，超过由财务审核</small></div>
       <div class="form-group col-md-3"><label for="intakeTrade">店铺交易状态（可后补）</label><input class="form-control" id="intakeTrade" name="trade_status" maxlength="100" value="<?php echo e($_POST['trade_status'] ?? ''); ?>" placeholder="如交易成功"></div>
     </div>
     <div class="form-row">
@@ -355,7 +378,7 @@ $resourceHint = function ($t) { return trim($t['name'] . ' ' . $t['specification
   var resourceFields = document.getElementById('intakeResourceFields');
   if (!business) return;
   var canEditResources = <?php echo $actor['role'] === 'customer_service' ? 'false' : 'true'; ?>;
-  var catalog = <?php echo json_encode(array_map(function ($d) { return ['resources' => !empty($d['resources']), 'program' => !empty($d['program']), 'kinds' => $d['order_kinds'] ?? [], 'fee' => (float)($d['service_fee_rate'] ?? 0)]; }, $businessCatalog), JSON_UNESCAPED_UNICODE); ?>;
+  var catalog = <?php echo json_encode(array_map(function ($d) { return ['resources' => !empty($d['resources']), 'program' => !empty($d['program']), 'kinds' => $d['order_kinds'] ?? [], 'fee' => (float)($d['service_fee_rate'] ?? 0), 'defaultKind' => $d['default_kind'] ?? '', 'costLabel' => !empty($d['import_cost']) ? ($d['cost_label'] ?? '成本') : '']; }, $businessCatalog), JSON_UNESCAPED_UNICODE); ?>;
   var peopleLabels = <?php echo json_encode(array_reduce(array_keys($businessCatalog), function ($result, $name) { $result[$name] = ps_business_people_labels($name); return $result; }, []), JSON_UNESCAPED_UNICODE); ?>;
   var selectedKind = <?php echo json_encode((string)($_POST['order_kind'] ?? ''), JSON_UNESCAPED_UNICODE); ?>;
   var mode = document.getElementById('intakeDomainMode');
@@ -370,7 +393,8 @@ $resourceHint = function ($t) { return trim($t['name'] . ' ' . $t['specification
   function refreshKinds() {
     var kinds = catalog[business.value].kinds;
     kind.innerHTML = '<option value="">' + (kinds.length ? '请选择' : '—') + '</option>';
-    kinds.forEach(function (k) { var o = document.createElement('option'); o.value = k; o.textContent = k; if (k === selectedKind) o.selected = true; kind.appendChild(o); });
+    var want = selectedKind || catalog[business.value].defaultKind;
+    kinds.forEach(function (k) { var o = document.createElement('option'); o.value = k; o.textContent = k; if (k === want) o.selected = true; kind.appendChild(o); });
     document.getElementById('intakeKindWrap').hidden = !kinds.length;
   }
   function update() {
@@ -405,17 +429,26 @@ $resourceHint = function ($t) { return trim($t['name'] . ' ' . $t['specification
       picked = outsource.options[outsource.selectedIndex];
       if (outsource.value !== '0') outsourceCost = picked.dataset.mode === 'percent' ? Math.round(sale * Number(picked.dataset.price)) / 100 : Number(picked.dataset.price);
     }
-    var cost = (resources && canEditResources ? (usesDomain ? optionPrice(domain) : 0) + optionPrice(server) + (usesProgram ? optionPrice(program) : 0) : 0) + outsourceCost;
+    var directCost = document.getElementById('intakeDirectCost');
+    document.getElementById('intakeDirectCostWrap').hidden = !info.costLabel;
+    directCost.disabled = !info.costLabel;
+    document.getElementById('intakeDirectCostLabel').textContent = info.costLabel || '成本';
+    // 退款冲减：售价与稿费填负数
+    var offset = kind.value === '退款冲减';
+    price.min = offset ? '' : '0'; directCost.min = offset ? '' : '0';
+    var cost = (info.costLabel ? Number(directCost.value || 0) : 0) + (resources && canEditResources ? (usesDomain ? optionPrice(domain) : 0) + optionPrice(server) + (usesProgram ? optionPrice(program) : 0) : 0) + outsourceCost;
     var fee = Math.round(sale * info.fee * 100) / 100;
     document.getElementById('intakeCostTotal').textContent = money(cost);
     document.getElementById('intakeFeeRate').textContent = (info.fee * 100).toFixed(1).replace(/\.0$/, '') + '%';
     document.getElementById('intakeFee').textContent = money(fee);
     document.getElementById('intakeProfit').textContent = price.value === '' ? '填售价后显示' : money(sale - fee - cost);
-    document.getElementById('intakeCostHint').textContent = !resources || !canEditResources ? '成本由技术在结算单确认' : (usesProgram ? '程序套餐已含空间与域名，保存时按成本中心现价入账' : (mode.value === 'pending' ? '域名待技术确认，暂不计成本' : (usesDomain && !domain.value ? '选择域名规格后显示标准价' : '最终以保存时成本模板单价为准')));
+    document.getElementById('intakeCostHint').textContent = info.costLabel ? info.costLabel + '随订单入账（¥500 以内自动通过）' : !resources || !canEditResources ? '成本由技术在结算单确认' : (usesProgram ? '程序套餐已含空间与域名，保存时按成本中心现价入账' : (mode.value === 'pending' ? '域名待技术确认，暂不计成本' : (usesDomain && !domain.value ? '选择域名规格后显示标准价' : '最终以保存时成本模板单价为准')));
   }
   business.addEventListener('change', function () { selectedKind = ''; refreshKinds(); update(); });
   [mode, domain, server, program, document.getElementById('intakeOutsource')].forEach(function (el) { if (el) el.addEventListener('change', update); });
   price.addEventListener('input', update);
+  document.getElementById('intakeDirectCost').addEventListener('input', update);
+  kind.addEventListener('change', update);
   refreshKinds();
   update();
 

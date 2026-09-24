@@ -45,7 +45,7 @@ CREATE TABLE IF NOT EXISTS project_monthly_results (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- 固定服务费（按考勤折算）、全勤奖、手工调整；排名可按财务填写的名次。
-ALTER TABLE project_monthly_rules MODIFY rule_type ENUM('tier_rate','threshold_bonus','ranking','dept_share','fixed','per_unit','base_fee','attendance_bonus','manual','profit_pool','perf_rank') NOT NULL;
+ALTER TABLE project_monthly_rules MODIFY rule_type ENUM('tier_rate','threshold_bonus','ranking','dept_share','fixed','per_unit','base_fee','attendance_bonus','manual','profit_pool','perf_rank','order_count') NOT NULL;
 ALTER TABLE project_monthly_rules MODIFY metric ENUM('profit','sales','commission','manual') NOT NULL DEFAULT 'profit';
 -- 逐单规则：成本下限（按售价比例），如客服核算博山定制单按售价 65% 计成本。
 ALTER TABLE project_commission_rules ADD COLUMN min_cost_rate DECIMAL(7,6) NULL AFTER min_contract_amount;

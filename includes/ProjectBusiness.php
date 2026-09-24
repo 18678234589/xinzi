@@ -17,13 +17,17 @@ function ps_business_catalog()
         '小额引流' => ['departments' => [], 'resources' => false, 'requires_technical' => false, 'service_fee_rate' => 0, 'order_kinds' => [], 'fields' => ['refund_diff' => '客户退差价金额', 'service_item' => '业务说明']],
         '小程序客服' => ['departments' => ['小程序客服'], 'resources' => false, 'fields' => ['miniapp_name' => '小程序名称', 'service_item' => '服务事项'], 'legacy' => true],
         // 设计客服：PPT (售价 − 5.5% − 设计师 40%) × 5%；图片 (售价 − 3.1%) × 5% + 0.5 元/单（同一客户当月只计一单，其余记“图片同客户”）。
-        '设计' => ['departments' => ['设计客服','美工部','设计'], 'resources' => false, 'requires_technical' => false, 'service_fee_rate' => 0.031, 'order_kinds' => ['图片', '图片同客户', 'PPT'], 'kind_required' => true, 'free_shop' => true, 'fields' => ['designer_code' => '设计师', 'design_item' => '设计内容']],
+        '设计' => ['departments' => ['设计客服','美工部','设计'], 'resources' => false, 'requires_technical' => false, 'service_fee_rate' => 0.031, 'order_kinds' => ['图片', '图片同客户', 'PPT'], 'kind_required' => true, 'default_kind' => '图片', 'free_shop' => true, 'fields' => ['designer_code' => '设计师', 'design_item' => '设计内容']],
         // 代写：店铺软文代写（代写客服接单，微信代写编辑“对接建群”作为协作执行）；成本 = 写手实际稿费，服务费 5.7%。
-        '软文代写' => ['departments' => ['代写客服', '代写.客服', '代写.主管'], 'resources' => false, 'requires_technical' => false, 'service_fee_rate' => 0.057, 'order_kinds' => ['新订单', '合并单', '退款冲减'], 'import_cost' => true, 'free_shop' => true, 'fields' => ['writer_code' => '写手编号', 'writing_volume' => '字数']],
+        '软文代写' => ['departments' => ['代写客服', '代写.客服', '代写.主管'], 'resources' => false, 'requires_technical' => false, 'service_fee_rate' => 0.057, 'order_kinds' => ['新订单', '合并单', '退款冲减'], 'default_kind' => '新订单', 'cost_label' => '写手稿费', 'import_cost' => true, 'free_shop' => true, 'fields' => ['writer_code' => '写手编号', 'writing_volume' => '字数']],
         // 期刊：店铺付款扣 5.7%，微信付款扣 0.35%；代付版面费单不计单量提成。
-        '期刊' => ['departments' => [], 'resources' => false, 'requires_technical' => false, 'service_fee_rate' => 0.057, 'order_kinds' => ['店铺付款', '微信付款', '代付版面费'], 'kind_required' => true, 'import_cost' => true, 'free_shop' => true, 'fields' => ['journal_name' => '发表刊物名称', 'manuscript_ref' => '稿件编号 / 刊期']],
+        '期刊' => ['departments' => [], 'resources' => false, 'requires_technical' => false, 'service_fee_rate' => 0.057, 'order_kinds' => ['店铺付款', '微信付款', '代付版面费'], 'kind_required' => true, 'default_kind' => '店铺付款', 'cost_label' => '杂志社 / 写手费用', 'import_cost' => true, 'free_shop' => true, 'fields' => ['journal_name' => '发表刊物名称', 'manuscript_ref' => '稿件编号 / 刊期']],
+        // 网站售后部：续费（郭文娟、刘媛媛、房烁录入；每单 1 元、拍链接 0.5 元；全部续费毛利按人比例月度提成）
+        '网站续费' => ['departments' => ['网站售后续费'], 'resources' => false, 'requires_technical' => false, 'service_fee_rate' => 0.03, 'order_kinds' => ['续费', '拍链接'], 'kind_required' => true, 'default_kind' => '续费', 'cost_label' => '续费成本', 'import_cost' => true, 'fields' => ['website_url' => '网站地址', 'renew_item' => '续费项目']],
+        // 网站售后部：自己接单的修改 / 备案（(收入 − 成本) × 20%，备案修改另加 5 元/单）
+        '网站修改' => ['departments' => ['网站售后技术', '网站售后备案'], 'resources' => false, 'requires_technical' => false, 'service_fee_rate' => 0, 'order_kinds' => ['修改', '备案', '备案修改'], 'kind_required' => true, 'default_kind' => '修改', 'cost_label' => '成本', 'import_cost' => true, 'fields' => ['website_url' => '网站地址', 'service_item' => '修改 / 备案内容']],
         // 微信代写：编辑员自接单（店铺订单每单补助 3 元），部门利润池按月分配（规则中心“部门利润池分配”）。
-        '微信代写' => ['departments' => ['微信代写客服', '微信代写售后', '微信营销部经理'], 'resources' => false, 'requires_technical' => false, 'service_fee_rate' => 0, 'order_kinds' => ['店铺订单', '微信付款'], 'kind_required' => true, 'import_cost' => true, 'free_shop' => true, 'fields' => ['writer_code' => '写手编号', 'writing_volume' => '字数']],
+        '微信代写' => ['departments' => ['微信代写客服', '微信代写售后', '微信营销部经理'], 'resources' => false, 'requires_technical' => false, 'service_fee_rate' => 0, 'order_kinds' => ['店铺订单', '微信付款'], 'kind_required' => true, 'default_kind' => '店铺订单', 'cost_label' => '写手稿费', 'import_cost' => true, 'free_shop' => true, 'fields' => ['writer_code' => '写手编号', 'writing_volume' => '字数']],
     ];
 }
 

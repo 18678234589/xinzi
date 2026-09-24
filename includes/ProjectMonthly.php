@@ -35,6 +35,7 @@ function ps_monthly_types()
         'manual' => '手工调整（每月填写）',
         'profit_pool' => '部门利润池分配',
         'perf_rank' => '绩效排名固定服务费（原系统客服绩效）',
+        'order_count' => '部门单量提成（按订单数）',
     ];
 }
 
@@ -299,6 +300,20 @@ function ps_monthly_results($month, $forceLive = false)
                 [$value, $prorate] = ps_monthly_prorate($amount, $attendance[$eid] ?? null);
                 $add($eid, $rule, $value, $how . '；' . $prorate);
             }
+        } elseif ($type === 'order_count') {
+            // 主管单量提成（乔立宾 1.2 元/单）：范围内本月已审核订单中稿费（成本）> 0 的，每个订单号计 1 单（一单多写手仍计 1 单）；
+            // 未在系统录单的团队（临沂、东营、合伙团队等）单量由财务每月填写。
+            if ($rule['employee_id'] === null) continue;
+            $counted = [];
+            foreach ($snapshots as $snap) {
+                $businesses = ps_monthly_scope_businesses($rule);
+                if ($businesses !== null && !in_array(ps_business_normalize($snap['project_type']), $businesses, true)) continue;
+                if ((float)$snap['direct_cost'] > 0) $counted[(int)$snap['order_id']] = true;
+            }
+            $extra = $inputs[(int)$rule['id']][(int)$rule['employee_id']] ?? null;
+            $total = count($counted) + ($extra !== null ? (float)$extra['value'] : 0);
+            $unit = (float)($p['amount'] ?? 0);
+            $add($rule['employee_id'], $rule, $total * $unit, sprintf('系统内 %d 单%s = %s 单 × ¥%s', count($counted), $extra !== null ? ' + 未录入系统 ' . rtrim(rtrim(money_plain($extra['value']), '0'), '.') . ' 单' . ($extra['note'] !== '' ? '（' . $extra['note'] . '）' : '') : '', rtrim(rtrim(money_plain($total), '0'), '.'), money_plain($unit)));
         } elseif ($type === 'fixed') {
             if ($rule['employee_id'] === null) continue;
             $override = $inputs[(int)$rule['id']][(int)$rule['employee_id']] ?? null;
@@ -379,7 +394,7 @@ function ps_monthly_params_from_input($type, $input)
     if ($type === 'dept_share') return ['rate' => $num($input['rate'] ?? '', '比例') / 100, 'share' => $num($input['share'] ?? '100', '分配比例') / 100, 'base' => ($input['dept_base'] ?? '') === 'revenue' ? 'revenue' : 'profit', 'deduct_commissions' => !empty($input['deduct_commissions'])];
     if ($type === 'fixed') return ['amount' => $num($input['amount'] ?? '', '金额'), 'separate' => !empty($input['separate'])];
     if ($type === 'base_fee') return ['amount' => $num($input['amount'] ?? '0', '金额'), 'no_prorate' => !empty($input['no_prorate'])];
-    if ($type === 'per_unit' || $type === 'attendance_bonus') return ['amount' => $num($input['amount'] ?? '0', '金额')];
+    if ($type === 'per_unit' || $type === 'attendance_bonus' || $type === 'order_count') return ['amount' => $num($input['amount'] ?? '0', '金额')];
     if ($type === 'manual' || $type === 'perf_rank') return [];
     if ($type === 'profit_pool') {
         // 固定分成人员：每行“姓名=13%”，按姓名匹配合作人员（重名时取有项目账号者）
@@ -415,20 +430,28 @@ function ps_monthly_presets()
         ['name' => '其他业务提成（未接入系统）', 'rule_type' => 'manual', 'scope_business' => '*', 'scope_group' => '*', 'scope_role' => '*', 'employee' => null, 'metric' => 'profit', 'params' => [], 'note' => '标书、续费、代写等尚未在项目系统录单的业务提成，由财务每月填写'],
         ['name' => '微信代写部门利润池', 'rule_type' => 'profit_pool', 'scope_business' => '微信代写', 'scope_group' => 'customer_service', 'scope_role' => '*', 'employee' => null, 'metric' => 'profit', 'params' => ['deduction' => 6000, 'rate' => 0.10, 'members_share' => 0.68, 'fixed' => [['name' => '姚鹏', 'share' => 0.13], ['name' => '李雪', 'share' => 0.13]]], 'note' => '《微信代写提成比例汇总》：(四名编辑总利润 − 1000×6) × 10%；姚鹏、李雪各 13%，编辑 68% 按本人利润占比'],
         ['name' => '设计客服绩效固定服务费', 'rule_type' => 'perf_rank', 'scope_business' => '*', 'scope_group' => '*', 'scope_role' => '*', 'employee' => null, 'metric' => 'profit', 'params' => [], 'note' => '原系统客服绩效：设计客服多店绩效平均分排名，第 1/2/3 名 850/800/750，按考勤折算'],
+        ['name' => '乔立宾代写单量提成', 'rule_type' => 'order_count', 'scope_business' => '软文代写,微信代写', 'scope_group' => '*', 'scope_role' => '*', 'employee' => '乔立宾', 'metric' => 'profit', 'params' => ['amount' => 1.2], 'note' => '1.2 元/单：博山 + 博山微信（系统内已审核、稿费 > 0 的代写订单，一单多写手计 1 单）+ 临沂 / 东营 / 合伙团队等（每月填写单量）'],
+        // 网站售后部《网站售后部算法》：各人按全部网站续费毛利（收入 − 成本 − 3%）的比例提成
+        ['name' => '张宁 网站续费提成', 'rule_type' => 'dept_share', 'scope_business' => '网站续费', 'scope_group' => '*', 'scope_role' => '*', 'employee' => '张宁', 'metric' => 'profit', 'params' => ['rate' => 0.022, 'share' => 1, 'base' => 'profit', 'deduct_commissions' => false], 'note' => '(网站续费收入 − 成本 − 3%) × 2.2%'],
+        ['name' => '戴倩 网站续费提成', 'rule_type' => 'dept_share', 'scope_business' => '网站续费', 'scope_group' => '*', 'scope_role' => '*', 'employee' => '戴倩', 'metric' => 'profit', 'params' => ['rate' => 0.018, 'share' => 1, 'base' => 'profit', 'deduct_commissions' => false], 'note' => '(网站续费收入 − 成本 − 3%) × 1.8%'],
+        ['name' => '刘晓 网站续费提成', 'rule_type' => 'dept_share', 'scope_business' => '网站续费', 'scope_group' => '*', 'scope_role' => '*', 'employee' => '刘晓', 'metric' => 'profit', 'params' => ['rate' => 0.018, 'share' => 1, 'base' => 'profit', 'deduct_commissions' => false], 'note' => '(网站续费收入 − 成本 − 3%) × 1.8%'],
+        ['name' => '郭文娟 网站续费提成', 'rule_type' => 'dept_share', 'scope_business' => '网站续费', 'scope_group' => '*', 'scope_role' => '*', 'employee' => '郭文娟', 'metric' => 'profit', 'params' => ['rate' => 0.019, 'share' => 1, 'base' => 'profit', 'deduct_commissions' => false], 'note' => '(网站续费收入 − 成本 − 3%) × 1.9%'],
+        ['name' => '刘媛媛 网站续费提成', 'rule_type' => 'dept_share', 'scope_business' => '网站续费', 'scope_group' => '*', 'scope_role' => '*', 'employee' => '刘媛媛', 'metric' => 'profit', 'params' => ['rate' => 0.019, 'share' => 1, 'base' => 'profit', 'deduct_commissions' => false], 'note' => '(网站续费收入 − 成本 − 3%) × 1.9%'],
+        ['name' => '孙杰 网站续费提成', 'rule_type' => 'dept_share', 'scope_business' => '网站续费', 'scope_group' => '*', 'scope_role' => '*', 'employee' => '孙杰', 'metric' => 'profit', 'params' => ['rate' => 0.01, 'share' => 1, 'base' => 'profit', 'deduct_commissions' => false], 'note' => '(网站续费收入 − 成本 − 3%) × 1%'],
         ['name' => '其他调整', 'rule_type' => 'manual', 'scope_business' => '*', 'scope_group' => '*', 'scope_role' => '*', 'employee' => null, 'metric' => 'profit', 'params' => [], 'note' => '上月漏记、临时奖扣等，每月填写并写明原因'],
     ];
     // 固定服务费（原基本工资，按考勤折算）；网站客服为每月不同的“补单提成”，默认 0，每月在规则中心填写。
-    foreach (['光君' => 800, '张强' => 800, '孙妍' => 800, '刘帅' => 2300, '于海波' => 2300, '崔鑫栋' => 2300, '李子晖' => 2800, '纪鹏程' => 1300, '石凯新' => 2000, '刘丹丹' => 2000, '曹双双' => 800, '王宁' => 800, '王亚' => 3000, '吴宁' => 1800, '刘媛媛' => 800, '于洋' => 3800, '翟建跃' => 4800, '朱俊英' => 2300, '田悦琦' => 3300, '谢文婷' => 2800, '高晶晶' => 2300, '姚琳' => 3900, '孙曼' => 3800, '刘群' => 3500, '魏慧子' => 3800, '王芳' => 3400, '宋文娜' => 2700, '王向晖' => 800, '刘淑萍' => 800, '徐春' => 800, '乔立宾' => 5000, '韩菲菲' => 1000, '孙梦琦' => 1000, '张钰琪' => 1000, '李雪' => 1000, '姚鹏' => 1500, '刘玉霜' => 3800, '张珂' => 3300, '王红' => 3200, '周丽' => 3200, '孙承晏' => 2700, '董旭' => 0, '宋倩倩' => 0, '苏婷' => 0, '孙湉湉' => 0] as $name => $amount) {
+    foreach (['光君' => 800, '张强' => 800, '孙妍' => 800, '刘帅' => 2300, '于海波' => 2300, '崔鑫栋' => 2300, '李子晖' => 2800, '纪鹏程' => 1300, '石凯新' => 2000, '刘丹丹' => 2000, '曹双双' => 800, '王宁' => 800, '王亚' => 3000, '吴宁' => 1800, '刘媛媛' => 800, '于洋' => 3800, '翟建跃' => 4800, '朱俊英' => 2300, '田悦琦' => 3300, '谢文婷' => 2800, '高晶晶' => 2300, '姚琳' => 3900, '孙曼' => 3800, '刘群' => 3500, '魏慧子' => 3800, '王芳' => 3400, '宋文娜' => 2700, '王向晖' => 800, '刘淑萍' => 800, '徐春' => 800, '乔立宾' => 5000, '韩菲菲' => 1000, '孙梦琦' => 1000, '张钰琪' => 1000, '李雪' => 1000, '姚鹏' => 1500, '刘玉霜' => 3800, '张珂' => 3300, '王红' => 3200, '周丽' => 3200, '孙承晏' => 2700, '张宁' => 800, '戴倩' => 800, '刘晓' => 800, '郭文娟' => 800, '房烁' => 800, '孙杰' => 2300, '董旭' => 0, '宋倩倩' => 0, '苏婷' => 0, '孙湉湉' => 0] as $name => $amount) {
         $rows[] = ['name' => $name . ' 固定服务费', 'rule_type' => 'base_fee', 'scope_business' => $all, 'scope_group' => $all, 'scope_role' => $all, 'employee' => $name, 'metric' => 'profit', 'params' => ['amount' => $amount], 'note' => $amount > 0 ? '原基本工资，按考勤折算' : '网站客服补单提成，每月金额不同，请在本月试算里填写（按考勤折算）'];
     }
-    foreach (['光君' => 200, '张强' => 200, '孙妍' => 200, '刘帅' => 200, '于海波' => 200, '崔鑫栋' => 200, '李子晖' => 200, '纪鹏程' => 200, '石凯新' => 200, '刘丹丹' => 200, '曹双双' => 200, '王宁' => 200, '吴宁' => 200, '刘媛媛' => 200, '于洋' => 200, '翟建跃' => 200, '朱俊英' => 200, '田悦琦' => 200, '谢文婷' => 200, '高晶晶' => 200, '姚琳' => 200, '孙曼' => 200, '刘群' => 200, '魏慧子' => 200, '王芳' => 200, '宋文娜' => 200, '王向晖' => 200, '刘淑萍' => 200, '徐春' => 200, '韩菲菲' => 200, '孙梦琦' => 200, '张钰琪' => 200, '李雪' => 200, '姚鹏' => 200, '张欣' => 200, '穆楠' => 200, '孙静怡' => 200, '刘玉霜' => 200, '张珂' => 200, '王红' => 200, '周丽' => 200, '孙承晏' => 200, '董旭' => 100, '宋倩倩' => 100, '苏婷' => 100, '孙湉湉' => 100] as $name => $amount) {
+    foreach (['光君' => 200, '张强' => 200, '孙妍' => 200, '刘帅' => 200, '于海波' => 200, '崔鑫栋' => 200, '李子晖' => 200, '纪鹏程' => 200, '石凯新' => 200, '刘丹丹' => 200, '曹双双' => 200, '王宁' => 200, '吴宁' => 200, '刘媛媛' => 200, '于洋' => 200, '翟建跃' => 200, '朱俊英' => 200, '田悦琦' => 200, '谢文婷' => 200, '高晶晶' => 200, '姚琳' => 200, '孙曼' => 200, '刘群' => 200, '魏慧子' => 200, '王芳' => 200, '宋文娜' => 200, '王向晖' => 200, '刘淑萍' => 200, '徐春' => 200, '韩菲菲' => 200, '孙梦琦' => 200, '张钰琪' => 200, '李雪' => 200, '姚鹏' => 200, '张欣' => 200, '穆楠' => 200, '孙静怡' => 200, '刘玉霜' => 200, '张珂' => 200, '王红' => 200, '周丽' => 200, '孙承晏' => 200, '张宁' => 200, '戴倩' => 200, '刘晓' => 200, '郭文娟' => 200, '房烁' => 200, '孙杰' => 200, '董旭' => 100, '宋倩倩' => 100, '苏婷' => 100, '孙湉湉' => 100] as $name => $amount) {
         $rows[] = ['name' => $name . ' 全勤奖', 'rule_type' => 'attendance_bonus', 'scope_business' => $all, 'scope_group' => $all, 'scope_role' => $all, 'employee' => $name, 'metric' => 'profit', 'params' => ['amount' => $amount], 'note' => '请假 <4 小时全额、≥4 小时减半、≥8 小时不发'];
     }
     // 管理（收入表“管理”页）：每月固定，不按考勤折算；代扣保险等在应发之后另行处理
     foreach (['张富全' => 8000, '王桂美' => 4900, '张光萍' => 8000, '张欣源' => 8000] as $name => $amount) {
         $rows[] = ['name' => $name . ' 固定服务费', 'rule_type' => 'base_fee', 'scope_business' => $all, 'scope_group' => $all, 'scope_role' => $all, 'employee' => $name, 'metric' => 'profit', 'params' => ['amount' => $amount, 'no_prorate' => true], 'note' => '管理岗，每月固定，不按考勤折算'];
     }
-    foreach ([['孙妍', '经理补助', 100, false], ['崔鑫栋', '部门经理补助', 200, false], ['石凯新', '技术主管补助', 500, false], ['于洋', '其他补助', 2000, false], ['翟建跃', '其他补助', 900, false], ['王亚', '其他补助', 300, false], ['曹双双', '其他补助', 200, false], ['王宁', '其他补助', 200, false], ['姚琳', '其他补助', 300, false], ['孙曼', '其他补助', 400, false], ['刘群', '经理补助', 300, false], ['魏慧子', '其他补助', 200, false], ['宋文娜', '其他补助', 500, false], ['李雪', '其他补助', 300, false], ['姚鹏', '经理补助', 200, false], ['姚鹏', '其他补助', 200, false], ['姚鹏', '法人补助', 300, true], ['刘玉霜', '经理补助', 300, false], ['刘玉霜', '其他补助', 300, false], ['刘玉霜', '法人补助', 600, true], ['孙承晏', '法人补助', 400, true], ['于洋', '法人补助', 500, true], ['翟建跃', '法人补助', 200, true]] as [$name, $label, $amount, $separate]) {
+    foreach ([['孙妍', '经理补助', 100, false], ['崔鑫栋', '部门经理补助', 200, false], ['石凯新', '技术主管补助', 500, false], ['于洋', '其他补助', 2000, false], ['翟建跃', '其他补助', 900, false], ['王亚', '其他补助', 300, false], ['曹双双', '其他补助', 200, false], ['王宁', '其他补助', 200, false], ['姚琳', '其他补助', 300, false], ['孙曼', '其他补助', 400, false], ['刘群', '经理补助', 300, false], ['魏慧子', '其他补助', 200, false], ['宋文娜', '其他补助', 500, false], ['李雪', '其他补助', 300, false], ['姚鹏', '经理补助', 200, false], ['姚鹏', '其他补助', 200, false], ['姚鹏', '法人补助', 300, true], ['刘玉霜', '经理补助', 300, false], ['刘玉霜', '其他补助', 300, false], ['刘玉霜', '法人补助', 600, true], ['孙承晏', '法人补助', 400, true], ['戴倩', '保险补助', 600, false], ['于洋', '法人补助', 500, true], ['翟建跃', '法人补助', 200, true]] as [$name, $label, $amount, $separate]) {
         $rows[] = ['name' => $name . ' ' . $label, 'rule_type' => 'fixed', 'scope_business' => $all, 'scope_group' => $all, 'scope_role' => $all, 'employee' => $name, 'metric' => 'profit', 'params' => ['amount' => $amount, 'separate' => $separate], 'note' => $separate ? '由关联公司另行支付，单列展示，不计入应结算' : '收入表“经理补助 / 其他补助”'];
     }
     return $rows;
