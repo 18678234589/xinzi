@@ -63,8 +63,9 @@ try {
     $rotation = pg_active_rotation('2026-09-20');
     if ($rotation) {
         $pool = pg_chair_pool($rotation['start_date']);
-        $withoutFilter = (float)$pdo->query("SELECT COALESCE(SUM(GREATEST(bonus_delta,0)),0) FROM project_governance_records WHERE review_state='approved' AND owner_employee_id=" . (int)$rotation['chair_employee_id'] . " AND record_date>='" . $rotation['start_date'] . "'")->fetchColumn();
-        $check((int)$rotation['chair_employee_id'] !== $luan || $pool['approved_reward'] <= $withoutFilter - 300, '董事长的 bug 奖励不占用董事长目标额度');
+        // 奖金池已获奖励只含董事长考核事项（通过且金额留空的三天脑洞按 +100），不含刚登记的 ¥300 bug 奖励
+        $chairOnly = (float)$pdo->query("SELECT COALESCE(SUM(GREATEST(COALESCE(bonus_delta,CASE WHEN category='三天脑洞' THEN 100 ELSE 0 END),0)),0) FROM project_governance_records WHERE review_state='approved' AND record_kind<>'contribution' AND owner_employee_id=" . (int)$rotation['chair_employee_id'] . " AND record_date>='" . $rotation['start_date'] . "'")->fetchColumn();
+        $check((int)$rotation['chair_employee_id'] !== $luan || abs($pool['approved_reward'] - $chairOnly) < 0.001, '董事长的 bug 奖励不占用董事长目标额度（已获奖励 ¥' . money($pool['approved_reward']) . '）');
     } else echo "  （当前无轮值任期，跳过）\n";
 
     $contributionId = $id; // governance.php 内部也用 $id，include 后会被覆盖
