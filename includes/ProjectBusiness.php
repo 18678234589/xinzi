@@ -217,8 +217,6 @@ function ps_business_import_columns($business)
         $columns['direct_cost'] = array_merge($columns['direct_cost'] ?? ['成本'], ['总成本']);
         $columns['detail:website_url'] = array_merge($columns['detail:website_url'] ?? ['网站地址'], ['空间域名']);
         $columns['contact_note'] = array_merge($columns['contact_note'], ['备注1']);
-        // 售后部真实表格首列为“接单客服”，识别为客服参与人（表里写了姓名即可不选本批默认参与人）。
-        $columns['customer_service'][] = '接单客服';
         $columns['space_cost'] = ['空间成本'];
         $columns['domain_cost'] = ['域名成本'];
         $columns['domain_real_cost'] = ['域名真实成本'];
