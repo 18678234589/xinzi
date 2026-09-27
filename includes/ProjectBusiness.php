@@ -213,6 +213,8 @@ function ps_business_import_columns($business)
         $columns['direct_cost'] = array_merge($columns['direct_cost'] ?? ['成本'], ['总成本']);
         $columns['detail:website_url'] = array_merge($columns['detail:website_url'] ?? ['网站地址'], ['空间域名']);
         $columns['contact_note'] = array_merge($columns['contact_note'], ['备注1']);
+        // 售后部真实表格首列为“接单客服”，识别为客服参与人（表里写了姓名即可不选本批默认参与人）。
+        $columns['customer_service'][] = '接单客服';
         $columns['space_cost'] = ['空间成本'];
         $columns['domain_cost'] = ['域名成本'];
         $columns['domain_real_cost'] = ['域名真实成本'];
@@ -230,7 +232,7 @@ function ps_business_import_columns($business)
 function ps_business_import_headers($business)
 {
     // 网站售后部续费表按原表列序输出，中间保留一列空表头与原表一致。
-    if ($business === '网站续费') return ['拍建站', '续费年数', '程序名称', '版本', '店铺', '付费旺旺', '日期', '订单编号', '售价', '总成本', '空间成本', '域名成本', '域名真实成本', '', '空间域名', '备注1', '备注2'];
+    if ($business === '网站续费') return ['接单客服', '拍建站', '续费年数', '程序名称', '版本', '店铺', '付费旺旺', '日期', '订单编号', '售价', '总成本', '空间成本', '域名成本', '域名真实成本', '', '空间域名', '备注1', '备注2'];
     $columns = ps_business_import_columns($business);
     $order = ['order_date','shop','business','payment_nickname','order_no','contract_amount','status','contact_note','customer_service','frontend','domain_used','ssl_used','backend','resource_note','order_kind','program_name'];
     if ($business !== 'AI网站定制') $order[] = 'payment_reference'; // 原 AI 定制 14 列模板不变，额外列仍可识别。
