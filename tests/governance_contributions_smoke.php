@@ -71,6 +71,16 @@ try {
     ob_start(); include __DIR__ . '/../project/governance.php'; $html = ob_get_clean();
     $check(strpos($html, 'record-' . (int)$id) !== false, '事项台账仍显示财务录入的记录');
 
+    echo "=== 举证文件存取 ===\n";
+    $png = base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==');
+    $tmp = tempnam(sys_get_temp_dir(), 'ev');
+    file_put_contents($tmp, $png);
+    $evidencePath = pg_save_evidence_file($id, ['type' => 'admin', 'id' => $admin, 'employee_id' => null], $tmp, '测试截图.png');
+    @unlink($tmp);
+    $proof = $pdo->query('SELECT stored_name,file_size,uploaded_by_admin_id FROM project_governance_evidence WHERE record_id=' . (int)$id)->fetch();
+    $check($proof && ps_private_read('governance', $proof['stored_name']) === $png && (int)$proof['file_size'] === strlen($png) && (int)$proof['uploaded_by_admin_id'] === $admin && strpos($evidencePath, '/storage/private/governance/') !== false, '举证存入站点内私有目录（带 404 防护头）并可读回');
+    @unlink($evidencePath);
+
     echo "=== 管理层账号登录与三天脑洞 ===\n";
     $luanUser = $pdo->query('SELECT id,username,role FROM project_users WHERE employee_id=' . $luan)->fetch();
     $_SESSION = $finance + ['project_csrf' => 'test-csrf']; $_SERVER['SCRIPT_NAME'] = '/project/settings.php'; $_SERVER['REQUEST_METHOD'] = 'POST'; $_GET = [];

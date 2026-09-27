@@ -328,12 +328,13 @@ function pg_chair_pool($quarterStart)
     return ['opening' => $opening ? (float)$opening['opening_amount'] : null, 'source_note' => $opening['source_note'] ?? '', 'reviewed' => $reviewed, 'approved_reward' => (float)$reviewedParts['positive'], 'reviewed_penalties' => (float)$reviewedParts['negative'], 'penalties' => $penalties, 'balance' => $balance];
 }
 
+/** 举证文件目录：线上 open_basedir 只允许站点目录，存到 storage/private/governance（带 404 防护头，见 ps_private_store）。 */
 function pg_private_dir()
 {
-    return dirname(__DIR__, 2) . DIRECTORY_SEPARATOR . 'project_governance_private';
+    return ps_private_dir('governance');
 }
 
-/** 仅接受图片/PDF，随机落盘到站点目录外；返回新建的绝对路径供异常时回收。 */
+/** 仅接受图片/PDF，随机命名存入私有目录；返回新建文件的绝对路径供异常时回收。 */
 function pg_store_evidence($recordId, $actor, $file)
 {
     if (($file['error'] ?? UPLOAD_ERR_NO_FILE) === UPLOAD_ERR_NO_FILE) return null;
@@ -353,12 +354,10 @@ function pg_save_evidence_file($recordId, $actor, $source, $originalName, $uploa
     $mime = (new finfo(FILEINFO_MIME_TYPE))->file($source);
     $extensions = ['image/png' => 'png', 'image/jpeg' => 'jpg', 'image/webp' => 'webp', 'application/pdf' => 'pdf'];
     if (!isset($extensions[$mime])) throw new RuntimeException('举证文件只支持 PNG、JPG、WebP 或 PDF');
-    $dir = pg_private_dir();
-    if (!is_dir($dir) && !mkdir($dir, 0700, true) && !is_dir($dir)) throw new RuntimeException('举证文件目录不可写');
     $stored = bin2hex(random_bytes(20)) . '.' . $extensions[$mime];
-    $path = $dir . DIRECTORY_SEPARATOR . $stored;
-    if (!($uploaded ? move_uploaded_file($source, $path) : copy($source, $path))) throw new RuntimeException('举证文件保存失败');
-    @chmod($path, 0600);
+    ps_private_store('governance', $source, $stored);
+    $path = pg_private_dir() . '/' . $stored . '.php';
+    if ($uploaded) @unlink($source);
     $name = trim(str_replace(["\r", "\n", '/', '\\'], '', $originalName));
     if ($name === '') $name = '举证材料.' . $extensions[$mime];
     [$employeeId, $adminId] = pg_actor_columns($actor);

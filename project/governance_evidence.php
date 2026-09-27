@@ -12,13 +12,13 @@ if ($file && !$isMember && $file['record_kind'] !== 'contribution') { http_respo
 if (!$file ||!preg_match('/^[a-f0-9]{40}\.(?:png|jpg|webp|pdf)$/', $file['stored_name'])) { http_response_code(404); exit('文件不存在'); }
 $allowedMime = ['image/png', 'image/jpeg', 'image/webp', 'application/pdf'];
 if (!in_array($file['mime_type'], $allowedMime, true)) { http_response_code(404); exit('文件不存在'); }
-$path = pg_private_dir() . DIRECTORY_SEPARATOR . $file['stored_name'];
-if (!is_file($path)) { http_response_code(404); exit('文件不存在'); }
+$data = ps_private_read('governance', $file['stored_name']);
+if ($data === null) { http_response_code(404); exit('文件不存在'); }
 header('Content-Type: ' . $file['mime_type']);
 header('Content-Disposition: ' . ($file['mime_type'] === 'application/pdf' ? 'attachment' : 'inline') . '; filename="evidence"');
 header('X-Content-Type-Options: nosniff');
 header('X-Frame-Options: DENY');
 header("Content-Security-Policy: default-src 'none'; sandbox");
 header('Cache-Control: private, no-store');
-header('Content-Length: ' . filesize($path));
-readfile($path);
+header('Content-Length: ' . strlen($data));
+echo $data;
