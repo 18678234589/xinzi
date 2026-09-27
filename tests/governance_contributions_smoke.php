@@ -67,9 +67,11 @@ try {
         $check((int)$rotation['chair_employee_id'] !== $luan || $pool['approved_reward'] <= $withoutFilter - 300, '董事长的 bug 奖励不占用董事长目标额度');
     } else echo "  （当前无轮值任期，跳过）\n";
 
+    $contributionId = $id; // governance.php 内部也用 $id，include 后会被覆盖
     $_SERVER['SCRIPT_NAME'] = '/project/governance.php'; $_SERVER['REQUEST_METHOD'] = 'GET'; $_GET = ['kind' => 'contribution']; $_SESSION = ['project_user_id' => $quUser];
     ob_start(); include __DIR__ . '/../project/governance.php'; $html = ob_get_clean();
-    $check(strpos($html, 'record-' . (int)$id) !== false, '事项台账仍显示财务录入的记录');
+    $check(strpos($html, 'record-' . (int)$contributionId) !== false, '事项台账仍显示财务录入的记录');
+    $id = $contributionId;
 
     echo "=== 举证文件存取 ===\n";
     $png = base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==');
