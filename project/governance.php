@@ -122,12 +122,13 @@ foreach (array_merge($quarterRows,$penaltyStmt->fetchAll()) as $row) {
     $quarterByPerson[$id]['record_count'] += (int)$row['record_count'];
     $quarterByPerson[$id]['amount'] += (float)$row['amount'];
 }
-// 监委有效监督按团队口径：同一任务任一监委做了即计 1 次，三位监委各计 ¥50
+// 监委有效监督按团队口径：同一任务任一监委做了即计 1 次，三位监委各计“每人目标 ÷ 董事长期数”
 $teamUnits = pg_committee_team_units($quarterStart, $quarterEnd)['units'];
+$committeePlan = pg_committee_unit_plan($currentRotation);
 if ($teamUnits) foreach (db()->query("SELECT m.employee_id,e.name FROM project_governance_members m JOIN employees e ON e.id=m.employee_id WHERE m.governance_role='committee' AND m.is_active=1")->fetchAll() as $row) {
     $id = (int)$row['employee_id'];
     if (!isset($quarterByPerson[$id])) $quarterByPerson[$id] = ['owner_employee_id'=>$id,'name'=>$row['name'],'record_count'=>0,'amount'=>0];
-    $quarterByPerson[$id]['amount'] += 50 * $teamUnits;
+    $quarterByPerson[$id]['amount'] += $committeePlan['periods'] ? round($committeePlan['target'] * min($teamUnits, $committeePlan['periods']) / $committeePlan['periods'], 2) : 0;
 }
 $quarterRows = array_values($quarterByPerson);
 usort($quarterRows, static fn($a,$b) => strcmp($a['name'],$b['name']));

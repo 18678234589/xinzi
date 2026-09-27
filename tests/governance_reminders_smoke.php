@@ -99,7 +99,11 @@ try {
     $check(count($taskPenalties()) === 0, '10/18：该任务已有监委完成，三人都不扣');
     $team = pg_committee_team_units('2026-10-01', '2026-11-01');
     $check($team['units'] === 1 && in_array('task:' . $taskId, $team['keys'], true), '同一任务 A 提交 + B 评审只计 1 次');
-    $check(pw_committee_earned(1000, $team['units'], 0) == 50.0, '三位监委各得 ¥50');
+    $plan = pg_committee_unit_plan($rotation);
+    $check($plan['periods'] === $periods && abs($plan['unit'] - 1000 / $periods) < 0.01, '监委需要监督 ' . $periods . ' 次（同董事长期数），每次每人 ¥' . $plan['unit']);
+    $check(pw_committee_earned(1000, $team['units'], 0, $periods) == round(1000 / $periods, 2), '完成 1 次：三位监委各得 ¥' . round(1000 / $periods, 2));
+    $check(pw_committee_earned(1000, $periods, 0, $periods) == 1000.0 && pw_committee_earned(1000, $periods + 3, 0, $periods) == 1000.0, '监督满 ' . $periods . ' 次每人拿满 ¥1000（三人共 ¥3000），超出封顶');
+    $check(pw_committee_earned(1000, 0, 0, $periods) == 0.0, '一次都没监督：每人 0，全部转入福利池');
     $check(pg_sync_oversight_penalties('2026-10-19') === 0, '重复运行不重复扣');
     $pdo->exec("INSERT INTO project_holidays (holiday_date,name) VALUES ('2026-10-24','测试节')");
     $pdo->prepare("INSERT INTO project_governance_records (record_kind,owner_employee_id,record_date,category,description,created_by_employee_id,created_at) VALUES ('chair',?,'2026-10-20','三天脑洞','节假日任务',?,'2026-10-20 09:00:00')")->execute([$chair, $chair]);

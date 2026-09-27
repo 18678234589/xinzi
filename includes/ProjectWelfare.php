@@ -61,9 +61,14 @@ function pw_chair_earned($policy, $approvedPositive, $approvedNegative, $autoPen
     return round(max(0,min((float)$policy['chair_quarter_target'],(float)$policy['chair_duty_portion']+$innovation-abs((float)$approvedNegative)-abs((float)$autoPenalty))),2);
 }
 
-function pw_committee_earned($target, $approvedWithoutAmount, $explicitTotal)
+/**
+ * 监委本任期所得：传入 $periods（本任期董事长期数 = 监委需要监督的次数）时，每次 = 目标 ÷ 期数，监督满期数正好拿满目标；
+ * 不传时沿用每次 50 元。明确填写的奖惩金额另外计入，最终封顶目标、最低 0。
+ */
+function pw_committee_earned($target, $approvedWithoutAmount, $explicitTotal, $periods = null)
 {
-    return round(max(0,min((float)$target,(int)$approvedWithoutAmount*50+(float)$explicitTotal)),2);
+    $base = $periods === null ? (int)$approvedWithoutAmount * 50 : ((int)$periods > 0 ? (float)$target * min((int)$approvedWithoutAmount, (int)$periods) / (int)$periods : 0.0);
+    return round(max(0,min((float)$target,$base+(float)$explicitTotal)),2);
 }
 
 /** 只在季度结束、轮值完整、全部治理事项已核验时入账；重复执行不会重复转入。 */
@@ -117,15 +122,18 @@ function pw_close_quarter($quarter)
         $oversightPenalty = db()->prepare("SELECT COALESCE(SUM(amount),0) FROM project_governance_committee_penalties WHERE employee_id=? AND state='applied' AND due_date>=? AND due_date<?");
         // 团队口径：同一任务任一监委做了有效监督即计 1 次，三位监委各得 ¥50
         $team = pg_committee_team_units($from, $until);
+        // 监委需要监督的次数 = 本任期董事长期数；每次每人 = 每人目标 ÷ 期数
+        $ideaPolicy = pg_idea_policy();
+        $periods = $ideaPolicy ? count(pg_chair_term($rotation, $ideaPolicy)['windows']) : 0;
         foreach ($members as $id) {
             $q->execute([(int)$id,$from,$until]);
             $row = $q->fetch();
             $oversightPenalty->execute([(int)$id,$from,$until]);
             $memberPenalty = abs((float)$oversightPenalty->fetchColumn());
             // 有效监督按团队次数每次 ¥50（三人各得）；本人明确填写的奖惩金额另外计入，个人上限 ¥1,000。
-            $earned = max(0, pw_committee_earned($policy['committee_person_target'],$team['units'],(float)$row['delta']) - $memberPenalty);
+            $earned = max(0, pw_committee_earned($policy['committee_person_target'],$team['units'],(float)$row['delta'],$periods) - $memberPenalty);
             $committeeEarned += $earned;
-            $memberDetails[(int)$id] = ['verified_records'=>(int)$row['n'],'team_units'=>$team['units'],'oversight_penalties'=>$memberPenalty,'earned'=>round($earned,2)];
+            $memberDetails[(int)$id] = ['verified_records'=>(int)$row['n'],'team_units'=>$team['units'],'required_periods'=>$periods,'oversight_penalties'=>$memberPenalty,'earned'=>round($earned,2)];
         }
         $chairFunding = (float)$policy['chair_quarter_target'];
         $committeeFunding = count($members) * (float)$policy['committee_person_target'];

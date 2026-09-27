@@ -228,6 +228,18 @@ function pg_oversight_done_by($task)
     return (int)$q->fetchColumn();
 }
 
+/**
+ * 监委会本任期监督计划：需要监督的次数 = 董事长本任期期数，每次每人 = 每人任期目标（全员福利池规则，默认 1000）÷ 期数。
+ */
+function pg_committee_unit_plan($rotation)
+{
+    $policy = pg_idea_policy();
+    $periods = $policy && $rotation ? count(pg_chair_term($rotation, $policy)['windows']) : 0;
+    try { $target = db()->query('SELECT committee_person_target FROM project_welfare_policy WHERE id=1')->fetchColumn(); } catch (PDOException $e) { $target = false; }
+    $target = $target !== false ? (float)$target : 1000.0;
+    return ['periods' => $periods, 'target' => $target, 'unit' => $periods ? round($target / $periods, 2) : 0.0];
+}
+
 /** 兼容旧调用：团队口径下与具体监委无关。 */
 function pg_oversight_done($task, $memberId = null)
 {
