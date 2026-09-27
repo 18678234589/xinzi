@@ -256,7 +256,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     // 小程序结算表的“备注”常写 新订单 / 续费 / 定制：识别为订单类型。
                     $kindText = $lookup($row, 'order_kind');
                     if ($kindText === '' && in_array($record['contact_note'], $orderKinds, true)) { $kindText = $record['contact_note']; $record['contact_note'] = ''; }
-                    if ($kindText !== '' && !in_array($kindText, $orderKinds, true)) throw new RuntimeException('订单类型“' . $kindText . '”无效，可选：' . implode('、', $orderKinds));
+                    if ($kindText !== '' && !in_array($kindText, $orderKinds, true)) {
+                        // 网站续费表“拍建站”列常写拍下的具体内容（网站链接/小程序链接/域名等）：有值一律记为“拍链接”。
+                        if ($selectedBusiness === '网站续费') {
+                            $record['warning'] .= ($record['warning'] ? '；' : '') . '拍建站“' . $kindText . '”已按拍链接处理';
+                        $record['kind_mapped'] = true;
+                            $kindText = '拍链接';
+                        } else throw new RuntimeException('订单类型“' . $kindText . '”无效，可选：' . implode('、', $orderKinds));
+                    }
                     // 代写 / 期刊 / 微信代写按原表内容识别类型：负数行 = 退款冲减；“提成”列为 0 = 合并单；微信付款；期刊“杂志社版面费” = 代付版面费。
                     if ($kindText === '' && !empty($businessDefinition['import_cost'])) {
                         $amountText = str_replace([',','¥','￥',' '], '', $lookup($row, 'contract_amount'));
@@ -307,6 +314,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         $record['warning'] .= ($record['warning'] ? '；' : '') . '表格未写订单类型，已按' . $kindSource . '预选“' . $kindText . '”；可在本行改选，财务也可纠正';
                     }
                     $record['order_kind'] = $kindText;
+                    // 部门代录补充：同号原单建单时默认记了类型，表格明确给出拍建站时提示按表格更正。
+                    if ($departmentMode && !empty($record['kind_mapped']) && !empty($existing['order_kind']) && $existing['order_kind'] !== $kindText) $record['warning'] .= ($record['warning'] ? '；' : '') . '原单类型“' . $existing['order_kind'] . '”将按表格更正为“' . $kindText . '”';
                     // 成本（稿费 / 杂志社费用 + 写手费用）：只对代写类业务读取；退款冲减行为负数。
                     $record['direct_cost'] = '';
                     if (!empty($businessDefinition['import_cost'])) {
@@ -551,7 +560,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             } elseif (!$row['resource_locked']) throw new RuntimeException('第 ' . $row['line'] . ' 行资源已被他人确认，请重新预览');
                         }
                         if (($row['payment_reference'] ?? '') !== '') $pdo->prepare("UPDATE project_order_sources SET payment_reference=? WHERE order_id=? AND payment_reference=''")->execute([$row['payment_reference'], $orderId]);
-                        if (($row['order_kind'] ?? '') !== '') $pdo->prepare("UPDATE project_orders SET order_kind=? WHERE id=? AND order_kind=''")->execute([$row['order_kind'], $orderId]);
+                        if (($row['order_kind'] ?? '') !== '') {
+                            // 部门代录：表格拍建站列明确给出类型的行（或上传人在预览中改选的），补充时按表格更正原单类型；仅补空值的行不变。
+                            if ($departmentMode && (!empty($row['kind_mapped']) || $pickedKind !== '')) $pdo->prepare('UPDATE project_orders SET order_kind=? WHERE id=? AND order_kind<>?')->execute([$row['order_kind'], $orderId, $row['order_kind']]);
+                            else $pdo->prepare("UPDATE project_orders SET order_kind=? WHERE id=? AND order_kind=''")->execute([$row['order_kind'], $orderId]);
+                        }
                         if (!empty($row['renewal_extras'])) $pdo->prepare("UPDATE project_orders SET note=CONCAT_WS('；', NULLIF(note,''), ?) WHERE id=?")->execute([implode('；', $row['renewal_extras']), $orderId]);
                         ps_audit('order', $orderId, 'import_supplement', $actor, ['line' => $row['line'], 'order_no' => $row['order_no']]);
                         if ($departmentMode) ps_department_import_record($orderId, $actor);
