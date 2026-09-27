@@ -391,7 +391,19 @@ $resourceHint = function ($t) { return trim($t['name'] . ' ' . $t['specification
       </div>
     </div>
   </div>
-  <div class="col-md-2 mb-2"><label class="small text-muted mb-1" for="filterBusiness">业务</label><select class="form-control" name="filter_business" id="filterBusiness"><option value="">全部业务</option><?php foreach ($businessCatalog as $businessName => $definition): ?><option value="<?php echo e($businessName); ?>" <?php echo $filterBusiness === $businessName ? 'selected' : ''; ?>><?php echo e($businessName . (!empty($definition['legacy']) ? '（历史）' : '')); ?></option><?php endforeach; ?></select></div>
+  <?php
+  $filterCatalog = [];
+  if ($actor['role'] !== 'finance') {
+      foreach ($allowedBusinesses as $bName) {
+          if (isset($businessCatalog[$bName])) $filterCatalog[$bName] = $businessCatalog[$bName];
+      }
+  } else {
+      foreach ($businessCatalog as $bName => $bDef) {
+          if (empty($bDef['legacy'])) $filterCatalog[$bName] = $bDef;
+      }
+  }
+  ?>
+  <div class="col-md-2 mb-2"><label class="small text-muted mb-1" for="filterBusiness">业务</label><select class="form-control" name="filter_business" id="filterBusiness"><option value="">全部业务</option><?php foreach ($filterCatalog as $businessName => $definition): ?><option value="<?php echo e($businessName); ?>" <?php echo $filterBusiness === $businessName ? 'selected' : ''; ?>><?php echo e($businessName); ?></option><?php endforeach; ?></select></div>
   <div class="col-md-2 mb-2"><label class="small text-muted mb-1" for="filterState">状态</label><select class="form-control" name="state" id="filterState"><option value="">全部</option><option value="unfinished" <?php echo $filterState === 'unfinished' ? 'selected' : ''; ?>>交付未完成</option><option value="finished" <?php echo $filterState === 'finished' ? 'selected' : ''; ?>>交付已完成</option><option value="pending_delivery" <?php echo $filterState === 'pending_delivery' ? 'selected' : ''; ?>>待交付审核</option><option value="pending_upgrade" <?php echo $filterState === 'pending_upgrade' ? 'selected' : ''; ?>>待升级审核</option><option value="todo" <?php echo $filterState === 'todo' ? 'selected' : ''; ?>>有待办</option><option value="open" <?php echo $filterState === 'open' ? 'selected' : ''; ?>>未审核</option><option value="approved" <?php echo $filterState === 'approved' ? 'selected' : ''; ?>>已审核</option></select></div>
   <div class="col-md-3 mb-2"><label class="small text-muted mb-1" for="filterQ">搜索（订单号 / 客户 / 付款昵称）</label><input class="form-control" type="search" name="q" id="filterQ" value="<?php echo e($keyword); ?>" placeholder="输入关键字"></div>
   <div class="col-md-2 mb-2"><button class="btn btn-outline-primary btn-block">筛选</button></div>
