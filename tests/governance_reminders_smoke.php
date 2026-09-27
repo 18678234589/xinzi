@@ -49,16 +49,17 @@ try {
     $check($amount === -$term['per_miss'], '扣减额 = −¥' . $term['per_miss']);
     $pdo->prepare("INSERT INTO project_governance_records (record_kind,owner_employee_id,record_date,category,description,created_by_employee_id,created_at) VALUES ('chair',?,'2026-10-13','三天脑洞','第二期脑洞',?,'2026-10-13 10:00:00')")->execute([$chair, $chair]);
     $check(pg_sync_idea_penalties('2026-10-18') === 0, '第 2 期按时提交，不扣');
+    pg_sync_idea_penalties('2026-12-15');
+    $count = (int)$pdo->query('SELECT COUNT(*) FROM project_governance_penalties WHERE rotation_id=' . (int)$rotation['id'])->fetchColumn();
+    $check($count === $periods - 1, '任期结束：除按时提交的第 2 期外，其余 ' . ($periods - 1) . ' 期都扣');
+    // 模拟整任期一期都不交：删掉第 2 期脑洞后，该期在下次同步时补扣
     $pdo->exec("DELETE FROM project_governance_records WHERE description='第二期脑洞'");
     pg_sync_idea_penalties('2026-12-15');
-    $total = abs((float)$pdo->query('SELECT SUM(amount) FROM project_governance_penalties WHERE rotation_id=' . (int)$rotation['id'])->fetchColumn());
-    $count = (int)$pdo->query('SELECT COUNT(*) FROM project_governance_penalties WHERE rotation_id=' . (int)$rotation['id'])->fetchColumn();
-    $check($count === $periods - 1 && abs($total - $term['per_miss'] * ($periods - 1)) < 0.01, '任期结束：除第 2 期外其余各期都扣（共 ' . $count . ' 笔）');
-    $pdo->prepare('DELETE FROM project_governance_penalties WHERE rotation_id=? AND window_start=?')->execute([(int)$rotation['id'], '2026-10-11']);
-    $pdo->prepare('INSERT INTO project_governance_penalties (rotation_id,chair_employee_id,window_start,window_end,amount) VALUES (?,?,?,?,?)')->execute([(int)$rotation['id'], $chair, '2026-10-11', '2026-10-17', -$term['per_miss']]);
-    require_once __DIR__ . '/../includes/ProjectWelfare.php';
     $allMissed = abs((float)$pdo->query('SELECT SUM(amount) FROM project_governance_penalties WHERE rotation_id=' . (int)$rotation['id'])->fetchColumn());
-    $check(pw_chair_earned(pw_policy(), 100, 0, $allMissed) == 0, '整任期一期都不交：扣 ¥' . money($allMissed) . '，董事长所得为 0，全部转入福利池');
+    $count = (int)$pdo->query('SELECT COUNT(*) FROM project_governance_penalties WHERE rotation_id=' . (int)$rotation['id'])->fetchColumn();
+    $check($count === $periods && abs($allMissed - $term['pool']) < $periods * 0.01, '整任期一期都不交：' . $periods . ' 期全扣，合计 ¥' . money($allMissed) . ' = 奖金池');
+    require_once __DIR__ . '/../includes/ProjectWelfare.php';
+    $check(pw_chair_earned(pw_policy(), 100, 0, $allMissed) == 0, '董事长所得为 0，本任期额度全部转入福利池');
     $pdo->prepare('DELETE FROM project_governance_penalties WHERE rotation_id=?')->execute([(int)$rotation['id']]);
 
     echo "=== 监委会监督意见与待评审 ===\n";
