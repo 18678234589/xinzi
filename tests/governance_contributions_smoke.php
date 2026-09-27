@@ -92,7 +92,7 @@ try {
     $check($error === '' && $after['role'] === 'governance' && password_verify($luanUser['username'], $after['password_hash']) && $after['password_changed_at'] === null, '财务把栾鑫重置为默认密码（登录名），仍是管理层账号');
     $window = pg_idea_window_status();
     if ($window && (int)$window['chair_employee_id'] === $luan) {
-        $pdo->prepare("INSERT INTO project_governance_records (record_kind,owner_employee_id,record_date,category,description,created_by_employee_id) VALUES ('chair',?,CURDATE(),'三天脑洞','测试脑洞',?)")->execute([$luan, $luan]);
+        $pdo->prepare("INSERT INTO project_governance_records (record_kind,owner_employee_id,record_date,category,description,created_by_employee_id,created_at) VALUES ('chair',?,?,'三天脑洞','测试脑洞',?,?)")->execute([$luan, $window['start'], $luan, $window['start'] . ' 10:00:00']);
         $check(pg_idea_window_status()['submitted'] === true, '倒计时窗口 ' . $window['start'] . '~' . $window['end'] . '：董事长提交后显示本期已提交');
     } else echo "  （当前无栾鑫轮值窗口，跳过）\n";
     // 必须放最后：settings.php 出错时会回滚整个数据库事务（包括本测试的外层事务），之后不能再写数据
