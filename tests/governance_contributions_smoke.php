@@ -90,16 +90,17 @@ try {
     $error = ''; ob_start(); include __DIR__ . '/../project/settings.php'; ob_end_clean();
     $after = $pdo->query('SELECT role,password_hash,password_changed_at FROM project_users WHERE id=' . (int)$luanUser['id'])->fetch();
     $check($error === '' && $after['role'] === 'governance' && password_verify($luanUser['username'], $after['password_hash']) && $after['password_changed_at'] === null, '财务把栾鑫重置为默认密码（登录名），仍是管理层账号');
-    $_POST = ['csrf' => 'test-csrf', 'action' => 'account_update', 'user_id' => $luanUser['id'], 'role' => 'technical', 'business_name' => '商标'];
-    $error = ''; ob_start(); include __DIR__ . '/../project/settings.php'; ob_end_clean();
-    $check(mb_strpos($error, '管理层账号') !== false && $pdo->query('SELECT role FROM project_users WHERE id=' . (int)$luanUser['id'])->fetchColumn() === 'governance', '管理层账号不会被误改成技术');
     $window = pg_idea_window_status();
     if ($window && (int)$window['chair_employee_id'] === $luan) {
         $pdo->prepare("INSERT INTO project_governance_records (record_kind,owner_employee_id,record_date,category,description,created_by_employee_id) VALUES ('chair',?,CURDATE(),'三天脑洞','测试脑洞',?)")->execute([$luan, $luan]);
         $check(pg_idea_window_status()['submitted'] === true, '倒计时窗口 ' . $window['start'] . '~' . $window['end'] . '：董事长提交后显示本期已提交');
     } else echo "  （当前无栾鑫轮值窗口，跳过）\n";
+    // 必须放最后：settings.php 出错时会回滚整个数据库事务（包括本测试的外层事务），之后不能再写数据
+    $_POST = ['csrf' => 'test-csrf', 'action' => 'account_update', 'user_id' => $luanUser['id'], 'role' => 'technical', 'business_name' => '商标'];
+    $error = ''; ob_start(); include __DIR__ . '/../project/settings.php'; ob_end_clean();
+    $check(mb_strpos($error, '管理层账号') !== false && $pdo->query('SELECT role FROM project_users WHERE id=' . (int)$luanUser['id'])->fetchColumn() === 'governance', '管理层账号不会被误改成技术');
 
-    $pdo->rollBack();
+    if ($pdo->inTransaction()) $pdo->rollBack();
     echo "\n=== 建议 / Bug 奖励台账全部通过，测试数据已回滚 ===\n";
 } catch (Throwable $e) {
     if ($pdo->inTransaction()) $pdo->rollBack();
