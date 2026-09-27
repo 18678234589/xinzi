@@ -88,7 +88,7 @@ if (!in_array($kindFilter, ['', 'chair', 'committee', 'contribution'], true)) $k
 $where = ['1=1']; $params = [];
 if ($month !== '') { $where[] = 'r.record_date>=? AND r.record_date<?'; $params[] = $month . '-01'; $params[] = (new DateTimeImmutable($month . '-01'))->modify('+1 month')->format('Y-m-d'); }
 if ($kindFilter !== '') { $where[] = 'r.record_kind=?'; $params[] = $kindFilter; }
-$list = db()->prepare('SELECT r.*,o.name AS owner_name,v.name AS reviewer_name,c.name AS creator_name FROM project_governance_records r JOIN employees o ON o.id=r.owner_employee_id LEFT JOIN employees v ON v.id=r.reviewer_employee_id JOIN employees c ON c.id=r.created_by_employee_id WHERE ' . implode(' AND ', $where) . ' ORDER BY r.record_date DESC,r.id DESC LIMIT 150');
+$list = db()->prepare('SELECT r.*,o.name AS owner_name,v.name AS reviewer_name,COALESCE(c.name,CONCAT(\'财务 \',a.username),\'原表补录\') AS creator_name FROM project_governance_records r JOIN employees o ON o.id=r.owner_employee_id LEFT JOIN employees v ON v.id=r.reviewer_employee_id LEFT JOIN employees c ON c.id=r.created_by_employee_id LEFT JOIN admins a ON a.id=r.created_by_admin_id WHERE ' . implode(' AND ', $where) . ' ORDER BY r.record_date DESC,r.id DESC LIMIT 150');
 $list->execute($params);
 $records = $list->fetchAll();
 $evidenceByRecord = [];

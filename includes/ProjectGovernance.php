@@ -20,6 +20,42 @@ function pg_require_member()
     return [$actor, $member];
 }
 
+/**
+ * 建议 / Bug / 主动做事奖励台账：财务（管理员）与监委会成员可录入、补凭证、登记发放；其他人 403。
+ * 返回 [$actor, 显示名, 是否财务]。
+ */
+function pg_require_contribution_editor()
+{
+    $actor = ps_require_actor();
+    if (($actor['type'] ?? '') === 'admin') {
+        $q = db()->prepare('SELECT username FROM admins WHERE id=?');
+        $q->execute([(int)$actor['id']]);
+        return [$actor, '财务 ' . ($q->fetchColumn() ?: '#' . (int)$actor['id']), true];
+    }
+    $member = pg_member($actor);
+    if (!$member || $member['governance_role'] !== 'committee') { http_response_code(403); exit('仅财务与监委会可录入建议 / Bug 奖励'); }
+    return [$actor, $member['name'], false];
+}
+
+/** 录入人字段：管理员写 admin_id，合作人员写 employee_id；系统补录两者皆空。 */
+function pg_actor_columns($actor)
+{
+    if (($actor['type'] ?? '') === 'admin') return [null, (int)$actor['id']];
+    return [(int)($actor['employee_id'] ?? 0) > 0 ? (int)$actor['employee_id'] : null, null];
+}
+
+/** 多文件上传（name="evidence_files[]"）拆成单个文件数组。 */
+function pg_uploaded_files($field)
+{
+    $files = [];
+    if (!isset($field['name'])) return $files;
+    if (!is_array($field['name'])) return [$field];
+    foreach ($field['name'] as $i => $name) {
+        $files[] = ['name' => $name, 'type' => $field['type'][$i] ?? '', 'tmp_name' => $field['tmp_name'][$i] ?? '', 'error' => $field['error'][$i] ?? UPLOAD_ERR_NO_FILE, 'size' => $field['size'][$i] ?? 0];
+    }
+    return $files;
+}
+
 function pg_kind_label($kind)
 {
     return ['chair' => '轮值董事长事项', 'committee' => '监委会监督', 'contribution' => '建议 / Bug / 主动做事'][$kind] ?? '其他';
@@ -149,7 +185,7 @@ function pg_chair_pool($quarterStart)
     $rotation = $rotationQuery->fetch();
     $quarterEnd = $rotation && $rotation['end_date'] ? (new DateTimeImmutable($rotation['end_date']))->modify('+1 day')->format('Y-m-d') : (new DateTimeImmutable($quarterStart))->modify('+3 months')->format('Y-m-d');
     $chairFilter = $rotation ? ' AND r.owner_employee_id=' . (int)$rotation['chair_employee_id'] : ' AND EXISTS (SELECT 1 FROM project_governance_members m WHERE m.employee_id=r.owner_employee_id AND m.governance_role=\'chair\')';
-    $q = db()->prepare("SELECT COALESCE(SUM(GREATEST(COALESCE(r.bonus_delta,CASE WHEN r.category='三天脑洞' THEN 100 ELSE 0 END),0)),0) AS positive,COALESCE(SUM(LEAST(COALESCE(r.bonus_delta,0),0)),0) AS negative FROM project_governance_records r WHERE r.review_state='approved' AND r.record_date>=? AND r.record_date<?" . $chairFilter);
+    $q = db()->prepare("SELECT COALESCE(SUM(GREATEST(COALESCE(r.bonus_delta,CASE WHEN r.category='三天脑洞' THEN 100 ELSE 0 END),0)),0) AS positive,COALESCE(SUM(LEAST(COALESCE(r.bonus_delta,0),0)),0) AS negative FROM project_governance_records r WHERE r.review_state='approved' AND r.record_kind<>'contribution' AND r.record_date>=? AND r.record_date<?" . $chairFilter);
     $q->execute([$quarterStart,$quarterEnd]);
     $reviewedParts = $q->fetch();
     $reviewed = (float)$reviewedParts['positive'] + (float)$reviewedParts['negative'];
@@ -176,20 +212,29 @@ function pg_store_evidence($recordId, $actor, $file)
     }
     $tmp = (string)($file['tmp_name'] ?? '');
     if (!is_uploaded_file($tmp)) throw new RuntimeException('举证文件上传无效');
-    $mime = (new finfo(FILEINFO_MIME_TYPE))->file($tmp);
+    return pg_save_evidence_file($recordId, $actor, $tmp, (string)($file['name'] ?? '举证材料'), true);
+}
+
+/** 落盘并登记一个举证文件；$uploaded=false 用于历史补录（复制本地文件）。 */
+function pg_save_evidence_file($recordId, $actor, $source, $originalName, $uploaded = false)
+{
+    $size = (int)@filesize($source);
+    if ($size < 1 || $size > 8 * 1024 * 1024) throw new RuntimeException('举证文件须为不超过 8 MB 的图片或 PDF');
+    $mime = (new finfo(FILEINFO_MIME_TYPE))->file($source);
     $extensions = ['image/png' => 'png', 'image/jpeg' => 'jpg', 'image/webp' => 'webp', 'application/pdf' => 'pdf'];
     if (!isset($extensions[$mime])) throw new RuntimeException('举证文件只支持 PNG、JPG、WebP 或 PDF');
     $dir = pg_private_dir();
     if (!is_dir($dir) && !mkdir($dir, 0700, true) && !is_dir($dir)) throw new RuntimeException('举证文件目录不可写');
     $stored = bin2hex(random_bytes(20)) . '.' . $extensions[$mime];
     $path = $dir . DIRECTORY_SEPARATOR . $stored;
-    if (!move_uploaded_file($tmp, $path)) throw new RuntimeException('举证文件保存失败');
+    if (!($uploaded ? move_uploaded_file($source, $path) : copy($source, $path))) throw new RuntimeException('举证文件保存失败');
     @chmod($path, 0600);
-    $name = trim(str_replace(["\r", "\n", '/', '\\'], '', (string)($file['name'] ?? '举证材料')));
+    $name = trim(str_replace(["\r", "\n", '/', '\\'], '', $originalName));
     if ($name === '') $name = '举证材料.' . $extensions[$mime];
+    [$employeeId, $adminId] = pg_actor_columns($actor);
     try {
-        db()->prepare('INSERT INTO project_governance_evidence (record_id,original_name,stored_name,mime_type,file_size,uploaded_by_employee_id) VALUES (?,?,?,?,?,?)')
-            ->execute([$recordId, mb_substr($name, 0, 255), $stored, $mime, (int)$actor['employee_id']]);
+        db()->prepare('INSERT INTO project_governance_evidence (record_id,original_name,stored_name,mime_type,file_size,uploaded_by_employee_id,uploaded_by_admin_id) VALUES (?,?,?,?,?,?,?)')
+            ->execute([$recordId, mb_substr($name, 0, 255), $stored, $mime, $size, $employeeId, $adminId]);
     } catch (Throwable $e) {
         @unlink($path);
         throw $e;

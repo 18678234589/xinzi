@@ -61,7 +61,7 @@ $is_settle      = ($_rel === 'salaries/settle.php');
 $is_query       = ($_rel === 'salaries/query.php');
 $is_insurance   = (strpos($_rel, 'insurance/') === 0);
 $is_project     = (strpos($_rel, 'project/') === 0);
-$is_project_orders = $is_project && !in_array($_rel, ['project/dashboard.php', 'project/payroll.php', 'project/settings.php', 'project/system.php', 'project/rules.php', 'project/profile.php', 'project/files.php', 'project/refunds.php', 'project/governance.php', 'project/governance_ideas.php', 'project/governance_election.php', 'project/governance_evidence.php', 'project/welfare.php'], true);
+$is_project_orders = $is_project && !in_array($_rel, ['project/dashboard.php', 'project/payroll.php', 'project/settings.php', 'project/system.php', 'project/rules.php', 'project/profile.php', 'project/files.php', 'project/refunds.php', 'project/governance.php', 'project/governance_ideas.php', 'project/governance_election.php', 'project/governance_evidence.php', 'project/welfare.php', 'project/contributions.php'], true);
 // 合并栏目：同类页面在侧栏只占一个入口，进入后顶部页签切换。
 $nav_groups = [
     'shop' => [['/shops/index.php', 'fa-store', '店铺管理', $is_shops], ['/shops/etmll_sync.php', 'fa-sync-alt', 'ETMLL 订单同步', $is_etmll], ['/orders/index.php', 'fa-file-upload', '平台订单导入', $is_orders], ['/abnormal/index.php', 'fa-exclamation-triangle', '异常订单', $is_abnormal]],
@@ -85,7 +85,7 @@ $nav = function ($href, $icon, $label, $active) {
     <link href="<?php echo BASE_URL; ?>/assets/css/style.css" rel="stylesheet">
     <link href="<?php echo BASE_URL; ?>/assets/css/project-intake.css" rel="stylesheet">
     <link href="<?php echo BASE_URL; ?>/assets/css/theme.css" rel="stylesheet">
-    <?php if (in_array(($_rel ?? ''), ['project/governance.php','project/governance_ideas.php','project/governance_election.php'], true) || (($_rel ?? '') === 'project/rules.php' && ($_GET['domain'] ?? $_POST['domain'] ?? '') === 'governance')): ?><link href="<?php echo BASE_URL; ?>/assets/css/governance.css" rel="stylesheet"><?php endif; ?>
+    <?php if (in_array(($_rel ?? ''), ['project/governance.php','project/governance_ideas.php','project/governance_election.php','project/contributions.php'], true) || (($_rel ?? '') === 'project/rules.php' && ($_GET['domain'] ?? $_POST['domain'] ?? '') === 'governance')): ?><link href="<?php echo BASE_URL; ?>/assets/css/governance.css" rel="stylesheet"><?php endif; ?>
     <?php if (($_rel ?? '') === 'project/dashboard.php'): ?><link href="<?php echo BASE_URL; ?>/assets/css/partner-dashboard.css" rel="stylesheet"><?php endif; ?>
     <?php if (($_rel ?? '') === 'project/dashboard.php'): ?><link href="<?php echo BASE_URL; ?>/assets/css/partner-dashboard-future.css" rel="stylesheet"><?php endif; ?>
     <?php if (($_rel ?? '') === 'project/welfare.php' || (($_rel ?? '') === 'project/rules.php' && ($_GET['domain'] ?? '') === 'welfare')): ?><link href="<?php echo BASE_URL; ?>/assets/css/welfare.css" rel="stylesheet"><?php endif; ?>
@@ -111,6 +111,7 @@ $nav = function ($href, $icon, $label, $active) {
     <?php if ($governance_committee_nav): echo $nav('/project/governance_ideas.php#penalties', 'fa-shield-alt', '缺报核对与豁免', false); endif; ?>
     <?php if ($governance_committee_nav): echo $nav('/project/governance_election.php', 'fa-vote-yea', '换届投票', $_rel === 'project/governance_election.php'); endif; ?>
     <?php echo $nav('/project/governance.php', 'fa-clipboard-check', '事项与评审', $_rel === 'project/governance.php'); ?>
+    <?php if ($governance_committee_nav): echo $nav('/project/contributions.php', 'fa-bug', '建议 / Bug 奖励', $_rel === 'project/contributions.php'); endif; ?>
     <?php echo $nav('/project/rules.php?domain=governance', 'fa-book-open', '考核规则', $_rel === 'project/rules.php'); ?>
     <?php echo $nav('/project/payroll.php', 'fa-wallet', '我的项目报酬', $_rel === 'project/payroll.php'); ?>
     <?php echo $nav('/project/welfare.php', 'fa-heart', '全员福利池', $_rel === 'project/welfare.php'); ?>
@@ -125,7 +126,7 @@ $nav = function ($href, $icon, $label, $active) {
     <?php echo $nav('/project/files.php', 'fa-file-excel', '我上传的表格', $_rel === 'project/files.php'); ?>
     <?php echo $nav('/project/refunds.php', 'fa-undo-alt', '退款与返现', $_rel === 'project/refunds.php'); ?>
     <?php echo $nav('/project/profile.php', 'fa-user-cog', '我的账号', $_rel === 'project/profile.php'); ?>
-    <?php if ($governance_nav): ?><div class="sidebar-project-label">管理层专属</div><?php echo $nav('/project/governance_ideas.php', 'fa-lightbulb', '三天脑洞', $_rel === 'project/governance_ideas.php'); if ($governance_committee_nav) { echo $nav('/project/governance_ideas.php#penalties', 'fa-shield-alt', '缺报核对与豁免', false); echo $nav('/project/governance_election.php', 'fa-vote-yea', '换届投票', $_rel === 'project/governance_election.php'); } echo $nav('/project/governance.php', 'fa-clipboard-check', '事项与评审', $_rel === 'project/governance.php'); echo $nav('/project/rules.php?domain=governance', 'fa-book-open', '考核规则', $_rel === 'project/rules.php' && ($_GET['domain'] ?? '') === 'governance'); endif; ?>
+    <?php if ($governance_nav): ?><div class="sidebar-project-label">管理层专属</div><?php echo $nav('/project/governance_ideas.php', 'fa-lightbulb', '三天脑洞', $_rel === 'project/governance_ideas.php'); if ($governance_committee_nav) { echo $nav('/project/governance_ideas.php#penalties', 'fa-shield-alt', '缺报核对与豁免', false); echo $nav('/project/governance_election.php', 'fa-vote-yea', '换届投票', $_rel === 'project/governance_election.php'); echo $nav('/project/contributions.php', 'fa-bug', '建议 / Bug 奖励', $_rel === 'project/contributions.php'); } echo $nav('/project/governance.php', 'fa-clipboard-check', '事项与评审', $_rel === 'project/governance.php'); echo $nav('/project/rules.php?domain=governance', 'fa-book-open', '考核规则', $_rel === 'project/rules.php' && ($_GET['domain'] ?? '') === 'governance'); endif; ?>
     <div class="sidebar-project-tip"><i class="fas fa-lock"></i> 这里只显示你参与或代录的订单，以及你自己的报酬。</div>
     <?php endif; ?>
     <?php else: ?>
@@ -136,6 +137,7 @@ $nav = function ($href, $icon, $label, $active) {
     <?php echo $nav('/project/import.php?scope=department&business=网站续费', 'fa-users', '网站售后部门订单', $_rel === 'project/import.php' && ($_GET['scope'] ?? $_POST['scope'] ?? '') === 'department'); ?>
     <?php echo $nav('/project/payroll.php', 'fa-wallet', '项目报酬结算', $_rel === 'project/payroll.php'); ?>
     <?php echo $nav('/project/welfare.php', 'fa-heart', '全员福利池', $_rel === 'project/welfare.php'); ?>
+    <?php echo $nav('/project/contributions.php', 'fa-bug', '建议 / Bug 奖励', $_rel === 'project/contributions.php'); ?>
     <?php echo $nav('/project/files.php', 'fa-file-excel', '原始表格', $_rel === 'project/files.php'); ?>
     <?php echo $nav('/project/refunds.php', 'fa-undo-alt', '退款与返现', $_rel === 'project/refunds.php'); ?>
     <?php echo $nav('/shops/index.php', 'fa-store', '店铺交易流水', $group_active === 'shop'); ?>
