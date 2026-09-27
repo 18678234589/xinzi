@@ -5,6 +5,7 @@ $isCommittee = $member['governance_role'] === 'committee';
 $error = '';
 $chairs = db()->query("SELECT m.employee_id,e.name FROM project_governance_members m JOIN employees e ON e.id=m.employee_id WHERE m.governance_role='chair' AND m.is_active=1 ORDER BY e.id")->fetchAll();
 pg_sync_idea_penalties();
+pg_sync_reminders();
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     ps_check_csrf();
@@ -164,6 +165,7 @@ $activeRotation = pg_active_rotation();
 $quarterStart = $activeRotation['start_date'] ?? pg_quarter_start();
 $termEnd = $activeRotation['end_date'] ?? (new DateTimeImmutable($quarterStart))->modify('+3 months -1 day')->format('Y-m-d');
 $pool = pg_chair_pool($quarterStart);
+$window = pg_idea_window_status();
 $penalties = [];
 if ($isCommittee) {
     $penaltiesQuery = db()->prepare("SELECT p.*,e.name AS chair_name,w.name AS waived_by_name FROM project_governance_penalties p JOIN employees e ON e.id=p.chair_employee_id LEFT JOIN employees w ON w.id=p.waived_by_employee_id WHERE p.window_end>=? AND p.window_end<? ORDER BY p.window_end DESC,p.id DESC LIMIT 60");
@@ -187,6 +189,7 @@ include __DIR__ . '/../includes/header.php';
   <?php if (isset($_GET['rotation'])): ?><div class="alert alert-success">轮值期已登记。完整六天窗口结束后，系统会核对提交记录。</div><?php endif; ?>
   <?php if (isset($_GET['waived'])): ?><div class="alert alert-success">这笔扣减已豁免，奖金池已同步更新。</div><?php endif; ?>
   <?php if (isset($_GET['pool'])): ?><div class="alert alert-success">奖金池期初余额已保存。</div><?php endif; ?>
+  <?php if ($window && $window['counts']): $mine = (int)$window['chair_employee_id'] === (int)$actor['employee_id']; ?><div class="alert <?php echo $window['submitted'] ? 'alert-success' : ($window['days_left'] <= 2 ? 'alert-danger' : 'alert-warning'); ?>"><i class="fas fa-hourglass-half mr-1"></i>本期脑洞窗口 <?php echo e($window['start']); ?> 至 <?php echo e($window['end']); ?>（当值：<?php echo e($window['chair_name']); ?>）：<?php if ($window['submitted']): ?>本期已提交，窗口结束前还可继续记录。<?php else: ?><strong><?php echo $mine ? '你' : e($window['chair_name']); ?>本期还没有提交</strong>，还剩 <?php echo (int)$window['days_left']; ?> 天；到 <?php echo e($window['deadline']); ?><?php echo $window['deadline'] !== $window['end'] ? '（含节假日顺延）' : ''; ?> 仍无有效提交，系统自动记 −¥<?php echo money($window['penalty']); ?>。<?php endif; ?></div><?php endif; ?>
   <?php if ($isCommittee): ?><div class="alert alert-info">评审提示：脑洞通过且奖惩金额留空时，按已确认规则自动计入 +¥100；填写金额时以填写值为准，不再叠加。退回后如完整六天窗口没有其他有效提交，系统按缺报规则核对。</div><?php endif; ?>
   <div class="governance-idea-layout"><section class="governance-card governance-idea-form"><div class="governance-heading"><div><span class="governance-step">01 · 快速记录</span><h2>有个新想法？</h2><p class="governance-hint">写一句主题和想法即可。日期默认今天，执行节点与证据按需补充。</p></div><div class="governance-idea-orb"><i class="fas fa-lightbulb"></i></div></div>
     <form method="post" enctype="multipart/form-data"><input type="hidden" name="csrf" value="<?php echo e(ps_csrf_token()); ?>"><input type="hidden" name="action" value="create_idea">

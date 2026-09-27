@@ -5,6 +5,9 @@ require_once __DIR__ . '/../includes/ProjectGovernance.php';
 require_once __DIR__ . '/../includes/ProjectWelfare.php';
 $count = pg_sync_idea_penalties();
 echo "管理层脑洞缺报新增扣减 {$count} 笔\n";
+$reminders = pg_sync_reminders();
+echo "管理层督促站内信新增 {$reminders} 条
+";
 $notices = pg_sync_election_notices();
 echo "监委会换届提醒新增 {$notices} 条\n";
 // 首次生效为 2026-Q4。未完成评审、轮值或成员核对时保持待办，不提前转入。
