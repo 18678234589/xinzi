@@ -351,7 +351,7 @@ function pg_save_evidence_file($recordId, $actor, $source, $originalName, $uploa
 {
     $size = (int)@filesize($source);
     if ($size < 1 || $size > 8 * 1024 * 1024) throw new RuntimeException('举证文件须为不超过 8 MB 的图片或 PDF');
-    $mime = (new finfo(FILEINFO_MIME_TYPE))->file($source);
+    $mime = ps_detect_file_mime($source);
     $extensions = ['image/png' => 'png', 'image/jpeg' => 'jpg', 'image/webp' => 'webp', 'application/pdf' => 'pdf'];
     if (!isset($extensions[$mime])) throw new RuntimeException('举证文件只支持 PNG、JPG、WebP 或 PDF');
     $stored = bin2hex(random_bytes(20)) . '.' . $extensions[$mime];

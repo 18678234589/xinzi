@@ -412,11 +412,34 @@ function ps_private_temp_copy($kind, $name)
     return $temp;
 }
 
+/**
+ * 按文件头识别图片 / PDF 类型；线上 PHP 7.4 未装 fileinfo 扩展，不能依赖 finfo。
+ * 只识别 JPEG、PNG、WebP、PDF，其余返回 application/octet-stream。
+ */
+function ps_detect_mime($data)
+{
+    $head = substr((string)$data, 0, 16);
+    if (strncmp($head, "\x89PNG\r\n\x1a\n", 8) === 0) return 'image/png';
+    if (strncmp($head, "\xFF\xD8\xFF", 3) === 0) return 'image/jpeg';
+    if (strncmp($head, 'RIFF', 4) === 0 && substr($head, 8, 4) === 'WEBP') return 'image/webp';
+    if (strncmp($head, '%PDF-', 5) === 0) return 'application/pdf';
+    return 'application/octet-stream';
+}
+
+function ps_detect_file_mime($path)
+{
+    $fp = @fopen($path, 'rb');
+    if (!$fp) return 'application/octet-stream';
+    $head = (string)fread($fp, 16);
+    fclose($fp);
+    return ps_detect_mime($head);
+}
+
 function ps_upload_proof($field)
 {
     if (empty($_FILES[$field]['name']) || $_FILES[$field]['error'] !== UPLOAD_ERR_OK) throw new RuntimeException('请上传付款凭证');
     if ($_FILES[$field]['size'] > 5 * 1024 * 1024) throw new RuntimeException('凭证不能超过 5MB');
-    $mime = (new finfo(FILEINFO_MIME_TYPE))->file($_FILES[$field]['tmp_name']);
+    $mime = ps_detect_file_mime($_FILES[$field]['tmp_name']);
     $ext = ['image/jpeg' => 'jpg', 'image/png' => 'png', 'application/pdf' => 'pdf'][$mime] ?? null;
     if (!$ext) throw new RuntimeException('凭证仅支持 JPG、PNG 或 PDF');
     if (!is_uploaded_file($_FILES[$field]['tmp_name'])) throw new RuntimeException('凭证上传无效，请重新上传');

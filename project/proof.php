@@ -33,7 +33,7 @@ ps_order($orderId, $actor);
 $name = basename($proofPath);
 $data = ps_private_read('proofs', $name);
 if ($data === null) { http_response_code(404); exit('凭证文件不存在'); }
-$mime = (new finfo(FILEINFO_MIME_TYPE))->buffer($data);
+$mime = ps_detect_mime($data);
 if (!in_array($mime, ['image/jpeg','image/png','application/pdf'], true)) { http_response_code(404); exit('文件类型无效'); }
 header('Content-Type: ' . $mime);
 header('Content-Disposition: inline; filename="' . $displayName . '"');
