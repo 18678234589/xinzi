@@ -363,6 +363,32 @@ function ps_import_file_get($id, $actor)
     return $row;
 }
 
+/** 删除原始表格记录与私有文件：权限同查看（财务可删任何，合作人员只删本人上传的）；已导入的订单不受影响。 */
+function ps_import_file_delete($id, $actor)
+{
+    $q = db()->prepare('SELECT * FROM project_import_files WHERE id=?');
+    $q->execute([(int)$id]);
+    $row = $q->fetch();
+    if (!$row) throw new RuntimeException('原始表格不存在');
+    if ($actor['role'] !== 'finance' && ((int)$row['employee_id'] !== (int)($actor['employee_id'] ?? 0) || $row['uploaded_by_type'] !== $actor['type'])) throw new RuntimeException('只能删除本人上传的表格');
+    $pdo = db();
+    $nested = $pdo->inTransaction();
+    if ($nested) $pdo->exec('SAVEPOINT project_import_file_delete');
+    else $pdo->beginTransaction();
+    try {
+        ps_audit('import_file', (int)$row['id'], 'delete', $actor, ['original_name' => $row['original_name'], 'business_name' => $row['business_name'], 'status' => $row['status'], 'imported_count' => (int)$row['imported_count']]);
+        $pdo->prepare('DELETE FROM project_import_files WHERE id=?')->execute([(int)$row['id']]);
+        if ($nested) $pdo->exec('RELEASE SAVEPOINT project_import_file_delete');
+        else $pdo->commit();
+    } catch (Throwable $e) {
+        if ($nested) $pdo->exec('ROLLBACK TO SAVEPOINT project_import_file_delete');
+        else $pdo->rollBack();
+        throw $e;
+    }
+    ps_private_delete('imports', $row['stored_name']);
+    if (!empty($row['parse_name'])) ps_private_delete('imports', $row['parse_name']);
+}
+
 /** 解析全部工作表：['工作表名' => [[单元格...], ...]]；CSV 视为一张表。 */
 function ps_import_file_sheets($row)
 {

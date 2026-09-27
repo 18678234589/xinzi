@@ -17,6 +17,17 @@ if (isset($_GET['download'])) {
 }
 
 $error = '';
+
+// 删除误传的原始表格：POST + CSRF，删除后回到当前筛选列表
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'delete_file') {
+    ps_check_csrf();
+    try {
+        ps_import_file_delete((int)($_POST['file_id'] ?? 0), $actor);
+        header('Location: ' . BASE_URL . '/project/files.php?' . http_build_query(array_merge($_GET, ['deleted' => 1])));
+        exit;
+    } catch (Throwable $e) { $error = $e instanceof RuntimeException ? $e->getMessage() : '删除失败，请重试'; }
+}
+
 $viewFile = null;
 $sheets = [];
 if (isset($_GET['view'])) {
@@ -57,6 +68,7 @@ include __DIR__ . '/../includes/header.php';
 <div class="project-intake-page">
 <div class="project-hero mb-3"><div><div class="project-eyebrow">项目合作结算中心 · <?php echo $isFinance ? '财务' : '我的账号'; ?></div><h2><?php echo e($page_title); ?></h2><p><?php echo $isFinance ? '合作人员拖入系统的订单表格原件都在这里：按人、业务、月份筛选，在线查看每张工作表，或下载原文件核对。' : '你上传过的订单表格原件，可随时在线查看或下载。'; ?></p></div><div class="project-hero-actions"><a class="btn btn-light" href="<?php echo BASE_URL; ?>/project/import.php">上传新表格</a></div></div>
 <?php if ($error): ?><div class="alert alert-danger"><?php echo e($error); ?></div><?php endif; ?>
+<?php if (!empty($_GET['deleted'])): ?><div class="alert alert-success">原始表格已删除。</div><?php endif; ?>
 
 <?php if ($viewFile): $sheetNames = array_keys($sheets); $current = (string)($_GET['sheet'] ?? ($sheetNames[0] ?? '')); if (!isset($sheets[$current])) $current = (string)($sheetNames[0] ?? ''); $rowsToShow = $sheets[$current] ?? []; ?>
 <div class="card mb-3 project-file-view"><div class="card-header d-flex justify-content-between align-items-center flex-wrap" style="gap:8px">
@@ -98,9 +110,16 @@ include __DIR__ . '/../includes/header.php';
   <td data-label="上传时间" class="text-nowrap"><?php echo e(substr($f['created_at'], 0, 16)); ?></td>
   <td data-label="工作表" class="small"><?php echo e($f['sheets_used'] ?: '—'); ?></td>
   <td data-label="结果"><?php echo $f['status'] === 'imported' ? '<span class="badge badge-success">已导入 ' . (int)$f['imported_count'] . ' 单</span>' . ((int)$f['skipped_count'] ? ' <span class="small text-muted">跳过 ' . (int)$f['skipped_count'] . '</span>' : '') : '<span class="badge badge-secondary">仅预览</span>'; ?></td>
-  <td class="text-nowrap"><a class="btn btn-sm btn-outline-primary" href="<?php echo BASE_URL; ?>/project/files.php?<?php echo e(http_build_query(array_merge($_GET, ['view' => (int)$f['id']]))); ?>">查看</a> <a class="btn btn-sm btn-outline-secondary" href="<?php echo BASE_URL; ?>/project/files.php?download=<?php echo (int)$f['id']; ?>">下载</a></td>
+  <td class="text-nowrap"><a class="btn btn-sm btn-outline-primary" href="<?php echo BASE_URL; ?>/project/files.php?<?php echo e(http_build_query(array_merge($_GET, ['view' => (int)$f['id']]))); ?>">查看</a> <a class="btn btn-sm btn-outline-secondary" href="<?php echo BASE_URL; ?>/project/files.php?download=<?php echo (int)$f['id']; ?>">下载</a> <form method="post" class="d-inline" onsubmit="return confirmFileDelete(this, <?php echo (int)$f['imported_count']; ?>);"><input type="hidden" name="csrf" value="<?php echo e(ps_csrf_token()); ?>"><input type="hidden" name="action" value="delete_file"><input type="hidden" name="file_id" value="<?php echo (int)$f['id']; ?>"><button class="btn btn-sm btn-outline-danger" type="submit">删除</button></form></td>
 </tr><?php endforeach; ?>
 <?php if (!$files): ?><tr><td colspan="7" class="text-center text-muted py-4">还没有上传过的表格。合作人员在“拖拽上传 Excel”上传后会自动出现在这里。</td></tr><?php endif; ?>
 </tbody></table></div></div>
 </div>
+<script>
+function confirmFileDelete(form, importedCount) {
+  var message = '确定删除这张原始表格吗？删除后不可恢复。';
+  if (importedCount > 0) message = '这张表格已导入 ' + importedCount + ' 单：删除只移除原表格记录，不会撤销已导入的订单。确定删除吗？';
+  return window.confirm(message);
+}
+</script>
 <?php include __DIR__ . '/../includes/footer.php'; ?>

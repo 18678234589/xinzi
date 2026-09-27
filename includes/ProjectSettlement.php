@@ -391,6 +391,15 @@ function ps_private_read($kind, $name)
     return strpos($data, PS_PRIVATE_GUARD) === 0 ? substr($data, strlen(PS_PRIVATE_GUARD)) : null;
 }
 
+/** 删除私有文件；文件不存在时静默跳过。 */
+function ps_private_delete($kind, $name)
+{
+    $name = (string)$name;
+    if ($name === '' || strpos($name, '/') !== false) return;
+    $path = ps_private_dir($kind) . '/' . basename($name) . '.php';
+    if (is_file($path)) @unlink($path);
+}
+
 /** 私有文件复制到临时文件（供需要真实路径的解析器使用，如 xlsx 的 zip 读取），调用方负责删除。 */
 function ps_private_temp_copy($kind, $name)
 {
