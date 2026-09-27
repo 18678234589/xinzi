@@ -321,6 +321,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $record['domain_used'] = $businessDefinition['resources'] ? $lookup($row, 'domain_used') : '否';
                     $record['ssl_used'] = $businessDefinition['resources'] ? $lookup($row, 'ssl_used') : '';
                     $record['resource_note'] = $businessDefinition['resources'] ? $lookup($row, 'resource_note') : '';
+                    // 网站续费新表：空间/域名/域名真实成本不再另算订单成本（只取总成本），连同备注2 一起拼进订单备注备查。
+                    if ($selectedBusiness === '网站续费') {
+                        $renewalExtras = [];
+                        foreach (['space_cost' => '空间成本', 'domain_cost' => '域名成本', 'domain_real_cost' => '域名真实成本'] as $extraKey => $extraLabel) {
+                            $extraText = str_replace([',', '¥', '￥', ' '], '', $lookup($row, $extraKey));
+                            if ($extraText !== '' && is_numeric($extraText) && (float)$extraText != 0) $renewalExtras[] = $extraLabel . '：¥' . number_format((float)$extraText, 2, '.', '');
+                        }
+                        $remark2Text = trim($lookup($row, 'remark2'));
+                        if ($remark2Text !== '') $renewalExtras[] = '备注2：' . $remark2Text;
+                        $record['renewal_extras'] = $renewalExtras;
+                    }
                     $record['program_name'] = $usesProgram ? $lookup($row, 'program_name') : '';
                     $record['program_template_id'] = 0;
                     $record['lines'] = [$record['line']];
@@ -408,6 +419,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         if (is_numeric($record['ssl_used']) && (float)$record['ssl_used'] > 0) $target['ssl_used'] = number_format((float)(is_numeric($target['ssl_used']) ? $target['ssl_used'] : 0) + (float)$record['ssl_used'], 2, '.', '');
                         foreach (['technical', 'customer_service'] as $groupKey) foreach ($record['people'][$groupKey] as $personId => $person) $target['people'][$groupKey][$personId] = $target['people'][$groupKey][$personId] ?? $person;
                         foreach ($record['details'] as $key => $value) if ($value !== '' && ($target['details'][$key] ?? '') === '') $target['details'][$key] = $value;
+                        $target['renewal_extras'] = array_values(array_unique(array_merge($target['renewal_extras'] ?? [], $record['renewal_extras'] ?? [])));
                         foreach (['payment_nickname', 'contact_note', 'resource_note', 'order_kind', 'program_name', 'shop'] as $field) if (($target[$field] ?? '') === '' && ($record[$field] ?? '') !== '') $target[$field] = $record[$field];
                         if (!$target['program_template_id'] && $record['program_template_id']) $target['program_template_id'] = $record['program_template_id'];
                         if ($record['domain_mode'] === 'template' && $target['domain_mode'] !== 'template') { $target['domain_mode'] = 'template'; $target['domain_template_id'] = $record['domain_template_id']; $target['status'] = $record['status']; }
@@ -540,6 +552,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         }
                         if (($row['payment_reference'] ?? '') !== '') $pdo->prepare("UPDATE project_order_sources SET payment_reference=? WHERE order_id=? AND payment_reference=''")->execute([$row['payment_reference'], $orderId]);
                         if (($row['order_kind'] ?? '') !== '') $pdo->prepare("UPDATE project_orders SET order_kind=? WHERE id=? AND order_kind=''")->execute([$row['order_kind'], $orderId]);
+                        if (!empty($row['renewal_extras'])) $pdo->prepare("UPDATE project_orders SET note=CONCAT_WS('；', NULLIF(note,''), ?) WHERE id=?")->execute([implode('；', $row['renewal_extras']), $orderId]);
                         ps_audit('order', $orderId, 'import_supplement', $actor, ['line' => $row['line'], 'order_no' => $row['order_no']]);
                         if ($departmentMode) ps_department_import_record($orderId, $actor);
                         $imported++;
@@ -554,6 +567,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     elseif ($businessDefinition['resources'] && $forcedMode !== 'pending' && $actor['role'] !== 'customer_service') $noteParts[] = $domainTemplate ? '域名：' . $domainTemplate['name'] . ' ' . $domainTemplate['specification'] : '域名：无需域名';
                     if (count($row['lines'] ?? []) > 1) $noteParts[] = '合并表格第 ' . implode('、', $row['lines']) . ' 行';
                     if ($row['resource_note'] !== '') $noteParts[] = '域名/空间说明：' . $row['resource_note'];
+                    foreach ($row['renewal_extras'] ?? [] as $renewalExtra) $noteParts[] = $renewalExtra;
                     if (is_numeric($row['ssl_used']) && (float)$row['ssl_used'] > 0) $noteParts[] = 'SSL 实际成本报备：¥' . $row['ssl_used'] . '（待技术补充成本凭证）';
                     $insertOrder->execute([$row['order_no'], $row['payment_nickname'], $row['project_type'], $row['order_kind'] ?? '', $row['shop'], $row['contract_amount'] === '' ? 0 : $row['contract_amount'], $row['order_date'], $row['delivery_status'], implode('；', $noteParts), $actor['role'] === 'finance' ? $actor['id'] : null]);
                     $orderId = (int)$pdo->lastInsertId();

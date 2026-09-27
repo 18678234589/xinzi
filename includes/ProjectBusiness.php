@@ -23,7 +23,7 @@ function ps_business_catalog()
         // 期刊：店铺付款扣 5.7%，微信付款扣 0.35%；代付版面费单不计单量提成。
         '期刊' => ['departments' => [], 'resources' => false, 'requires_technical' => false, 'service_fee_rate' => 0.057, 'order_kinds' => ['店铺付款', '微信付款', '代付版面费'], 'kind_required' => true, 'default_kind' => '店铺付款', 'cost_label' => '杂志社 / 写手费用', 'import_cost' => true, 'free_shop' => true, 'fields' => ['journal_name' => '发表刊物名称', 'manuscript_ref' => '稿件编号 / 刊期']],
         // 网站售后部：续费（郭文娟、刘媛媛、房烁录入；每单 1 元、拍链接 0.5 元；全部续费毛利按人比例月度提成）
-        '网站续费' => ['departments' => ['网站售后续费'], 'resources' => false, 'requires_technical' => false, 'service_fee_rate' => 0.03, 'order_kinds' => ['续费', '拍链接'], 'kind_required' => true, 'default_kind' => '续费', 'cost_label' => '续费成本', 'import_cost' => true, 'fields' => ['website_url' => '网站地址', 'renew_item' => '续费项目']],
+        '网站续费' => ['departments' => ['网站售后续费'], 'resources' => false, 'requires_technical' => false, 'service_fee_rate' => 0.03, 'order_kinds' => ['续费', '拍链接'], 'kind_required' => true, 'default_kind' => '续费', 'cost_label' => '续费成本', 'import_cost' => true, 'fields' => ['website_url' => '网站地址', 'renew_item' => '续费项目', 'renew_years' => '续费年数', 'program_name' => '程序名称', 'version' => '版本']],
         // 网站售后部：自己接单的修改 / 备案（(收入 − 成本) × 20%，备案修改另加 5 元/单）
         '网站修改' => ['departments' => ['网站售后技术', '网站售后备案'], 'resources' => false, 'requires_technical' => false, 'service_fee_rate' => 0, 'order_kinds' => ['修改', '备案', '备案修改'], 'kind_required' => true, 'default_kind' => '修改', 'cost_label' => '成本', 'import_cost' => true, 'fields' => ['website_url' => '网站地址', 'service_item' => '修改 / 备案内容']],
         // 微信代写：编辑员自接单（店铺订单每单补助 3 元），部门利润池按月分配（规则中心“部门利润池分配”）。
@@ -206,6 +206,18 @@ function ps_business_import_columns($business)
         $columns['ssl_used'] = ['SSL证书使用（写真实成本）', 'SSL证书使用', 'SSL使用'];
         $columns['resource_note'] = ['填一下域名或者空间', '空间+域名网址', '域名或空间'];
     }
+    // 网站售后部续费表（2026-09 新模板）：拍建站=订单类型；总成本=续费成本；空间/域名/域名真实成本与备注2 单独读出拼进订单备注；备注1 即原联系方式备注。
+    if ($business === '网站续费') {
+        $columns['order_kind'] = array_merge($columns['order_kind'] ?? ['订单类型', '类型'], ['拍建站']);
+        $columns['payment_nickname'][] = '付费旺旺';
+        $columns['direct_cost'] = array_merge($columns['direct_cost'] ?? ['成本'], ['总成本']);
+        $columns['detail:website_url'] = array_merge($columns['detail:website_url'] ?? ['网站地址'], ['空间域名']);
+        $columns['contact_note'] = array_merge($columns['contact_note'], ['备注1']);
+        $columns['space_cost'] = ['空间成本'];
+        $columns['domain_cost'] = ['域名成本'];
+        $columns['domain_real_cost'] = ['域名真实成本'];
+        $columns['remark2'] = ['备注2'];
+    }
     foreach ($definition['fields'] as $key => $label) {
         if (!isset($columns['detail:' . $key])) {
             $columns['detail:' . $key] = [$label];
@@ -214,9 +226,11 @@ function ps_business_import_columns($business)
     return $columns;
 }
 
-/** 下载用表头；AI 网站定制保持原模板 14 列顺序不变。 */
+/** 下载用表头；AI 网站定制保持原模板 14 列顺序不变；网站续费对齐售后部 2026-09 新表。 */
 function ps_business_import_headers($business)
 {
+    // 网站售后部续费表按原表列序输出，中间保留一列空表头与原表一致。
+    if ($business === '网站续费') return ['拍建站', '续费年数', '程序名称', '版本', '店铺', '付费旺旺', '日期', '订单编号', '售价', '总成本', '空间成本', '域名成本', '域名真实成本', '', '空间域名', '备注1', '备注2'];
     $columns = ps_business_import_columns($business);
     $order = ['order_date','shop','business','payment_nickname','order_no','contract_amount','status','contact_note','customer_service','frontend','domain_used','ssl_used','backend','resource_note','order_kind','program_name'];
     if ($business !== 'AI网站定制') $order[] = 'payment_reference'; // 原 AI 定制 14 列模板不变，额外列仍可识别。
