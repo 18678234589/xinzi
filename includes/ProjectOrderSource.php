@@ -56,7 +56,8 @@ function ps_save_customer_intake($orderId, $input, $actor, $allowNoop = false, $
     $price = trim((string)($input['contract_amount'] ?? ''));
     if (mb_strlen($customer) > 200 || mb_strlen($shop) > 150 || mb_strlen($nickname) > 200 || mb_strlen($paymentReference) > 200 || mb_strlen($status) > 100) throw new RuntimeException('买家资料或支付流水号过长');
     if ($price !== '' && (!preg_match('/^(?:0|[1-9]\d*)(?:\.\d{1,2})?$/', $price) || (float)$price > 999999999999.99)) throw new RuntimeException('售价须为非负数，最多两位小数');
-    if ($shop !== '') {
+    // 仅在确实要写店铺字段时才校验店铺字典（与下方写入条件一致；fillOnly 下原单已有店铺不会写入，不应卡死整批导入）。
+    if ($shop !== '' && ($finance || $order['shop'] === '')) {
         $valid = db()->prepare('SELECT 1 FROM shops WHERE name=? LIMIT 1');
         $valid->execute([$shop]);
         if (!$valid->fetchColumn()) throw new RuntimeException('请选择店铺列表中的店铺');
