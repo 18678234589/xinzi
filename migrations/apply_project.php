@@ -24,6 +24,7 @@ foreach ([
     '20260927_trademark_same_customer.sql',
     '20260927_governance_contribution_entry.sql',
     '20260927_governance_reminders.sql',
+    '20260927_committee_oversight_penalties.sql',
 ] as $migration) {
     $sql = file_get_contents(__DIR__ . '/' . $migration);
     if ($sql === false) { fwrite(STDERR, "无法读取迁移文件：$migration\n"); exit(1); }

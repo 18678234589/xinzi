@@ -5,6 +5,7 @@ $isCommittee = $member['governance_role'] === 'committee';
 $error = '';
 $chairs = db()->query("SELECT m.employee_id,e.name FROM project_governance_members m JOIN employees e ON e.id=m.employee_id WHERE m.governance_role='chair' AND m.is_active=1 ORDER BY e.id")->fetchAll();
 pg_sync_idea_penalties();
+pg_sync_oversight_penalties();
 pg_sync_reminders();
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -109,6 +110,43 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             header('Location: ' . BASE_URL . '/project/governance_ideas.php?rotation=1#rotation');
             exit;
         }
+        if ($action === 'create_oversight') {
+            // 监委就某项任务提交监督意见（挂在该任务下，由其他监委核验）
+            if (!$isCommittee) throw new RuntimeException('仅监委会可提交监督意见');
+            $taskId = (int)($_POST['record_id'] ?? 0);
+            $opinion = trim((string)($_POST['description'] ?? ''));
+            if (mb_strlen($opinion) < 3 || mb_strlen($opinion) > 12000) throw new RuntimeException('监督意见请填写 3–12000 字');
+            $q = db()->prepare("SELECT id FROM project_governance_records WHERE id=? AND record_kind='chair'");
+            $q->execute([$taskId]);
+            if (!$q->fetchColumn()) throw new RuntimeException('任务不存在');
+            db()->beginTransaction();
+            db()->prepare("INSERT INTO project_governance_records (record_kind,owner_employee_id,record_date,category,description,parent_record_id,created_by_employee_id) VALUES ('committee',?,CURDATE(),'监督意见',?,?,?)")
+                ->execute([(int)$actor['employee_id'], $opinion, $taskId, (int)$actor['employee_id']]);
+            $newId = (int)db()->lastInsertId();
+            $storedPath = pg_store_evidence($newId, $actor, $_FILES['evidence_file'] ?? []);
+            ps_audit('governance_record', $newId, 'create_oversight', $actor, ['task_record_id' => $taskId]);
+            db()->commit();
+            header('Location: ' . BASE_URL . '/project/governance_ideas.php?oversight=' . $newId . '#idea-' . $taskId);
+            exit;
+        }
+        if ($action === 'waive_committee_penalty') {
+            if (!$isCommittee) throw new RuntimeException('仅监委会可豁免扣减');
+            $id = (int)($_POST['penalty_id'] ?? 0);
+            $reason = mb_substr(trim((string)($_POST['waiver_reason'] ?? '')), 0, 500);
+            if (mb_strlen($reason) < 4) throw new RuntimeException('请写明至少 4 字的豁免理由');
+            db()->beginTransaction();
+            $q = db()->prepare('SELECT id,state,employee_id,task_record_id FROM project_governance_committee_penalties WHERE id=? FOR UPDATE');
+            $q->execute([$id]);
+            $penalty = $q->fetch();
+            if (!$penalty || $penalty['state'] !== 'applied') throw new RuntimeException('该扣减已处理，请刷新页面');
+            if ((int)$penalty['employee_id'] === (int)$actor['employee_id']) throw new RuntimeException('不能豁免自己的扣减，请由其他监委处理');
+            db()->prepare("UPDATE project_governance_committee_penalties SET state='waived',waived_by_employee_id=?,waiver_reason=?,waived_at=NOW() WHERE id=?")
+                ->execute([(int)$actor['employee_id'], $reason, $id]);
+            ps_audit('governance_committee_penalty', $id, 'waive', $actor, ['employee_id' => (int)$penalty['employee_id'], 'task_record_id' => (int)$penalty['task_record_id'], 'reason' => $reason]);
+            db()->commit();
+            header('Location: ' . BASE_URL . '/project/governance_ideas.php?waived=' . $id . '#penalties');
+            exit;
+        }
         if ($action === 'waive_penalty') {
             if (!$isCommittee) throw new RuntimeException('仅监委会可豁免扣减');
             $id = (int)($_POST['penalty_id'] ?? 0);
@@ -166,6 +204,28 @@ $quarterStart = $activeRotation['start_date'] ?? pg_quarter_start();
 $termEnd = $activeRotation['end_date'] ?? (new DateTimeImmutable($quarterStart))->modify('+3 months -1 day')->format('Y-m-d');
 $pool = pg_chair_pool($quarterStart);
 $window = pg_idea_window_status();
+// 监委督战：每条董事长任务下三位监委的监督意见状态
+$oversightPolicy = pg_oversight_policy();
+$committeeNames = [];
+foreach (db()->query("SELECT m.employee_id,e.name FROM project_governance_members m JOIN employees e ON e.id=m.employee_id WHERE m.governance_role='committee' AND m.is_active=1 ORDER BY m.employee_id")->fetchAll() as $row) $committeeNames[(int)$row['employee_id']] = $row['name'];
+$oversightByIdea = [];
+if ($oversightPolicy) {
+    $penaltyState = [];
+    try { foreach (db()->query('SELECT task_record_id,employee_id,state FROM project_governance_committee_penalties')->fetchAll() as $row) $penaltyState[(int)$row['task_record_id']][(int)$row['employee_id']] = $row['state']; } catch (PDOException $e) {}
+    foreach (pg_oversight_tasks($oversightPolicy) as $task) {
+        foreach ($committeeNames as $memberId => $memberName) {
+            $oversightByIdea[(int)$task['id']][$memberId] = ['name' => $memberName, 'deadline' => $task['deadline'], 'done' => pg_oversight_done($task, $memberId), 'penalty' => $penaltyState[(int)$task['id']][$memberId] ?? null];
+        }
+    }
+}
+$committeePenalties = [];
+if ($isCommittee) {
+    try {
+        $cp = db()->prepare("SELECT p.*,e.name AS member_name,w.name AS waived_by_name,t.category,t.description AS task_description,o.name AS chair_name FROM project_governance_committee_penalties p JOIN employees e ON e.id=p.employee_id LEFT JOIN employees w ON w.id=p.waived_by_employee_id JOIN project_governance_records t ON t.id=p.task_record_id JOIN employees o ON o.id=t.owner_employee_id WHERE p.due_date>=? ORDER BY p.due_date DESC,p.id DESC LIMIT 60");
+        $cp->execute([$quarterStart]);
+        $committeePenalties = $cp->fetchAll();
+    } catch (PDOException $e) {}
+}
 $penalties = [];
 if ($isCommittee) {
     $penaltiesQuery = db()->prepare("SELECT p.*,e.name AS chair_name,w.name AS waived_by_name FROM project_governance_penalties p JOIN employees e ON e.id=p.chair_employee_id LEFT JOIN employees w ON w.id=p.waived_by_employee_id WHERE p.window_end>=? AND p.window_end<? ORDER BY p.window_end DESC,p.id DESC LIMIT 60");
@@ -185,6 +245,7 @@ include __DIR__ . '/../includes/header.php';
   <nav class="governance-tabs" aria-label="管理层栏目"><a class="active" aria-current="page" href="<?php echo BASE_URL; ?>/project/governance_ideas.php">三天脑洞</a><a href="<?php echo BASE_URL; ?>/project/governance.php">事项与评审</a><a href="<?php echo BASE_URL; ?>/project/rules.php?domain=governance">规则中心</a></nav>
   <?php if ($error): ?><div class="alert alert-danger"><?php echo e($error); ?></div><?php endif; ?>
   <?php if (isset($_GET['saved'])): ?><div class="alert alert-success">脑洞已记录，之后的进展可在事项台账继续补充。</div><?php endif; ?>
+  <?php if (isset($_GET['oversight'])): ?><div class="alert alert-success">监督意见已提交，将由其他监委核验。</div><?php endif; ?>
   <?php if (isset($_GET['reviewed'])): ?><div class="alert alert-success">评审已保存，并留下审核记录。</div><?php endif; ?>
   <?php if (isset($_GET['rotation'])): ?><div class="alert alert-success">轮值期已登记。完整六天窗口结束后，系统会核对提交记录。</div><?php endif; ?>
   <?php if (isset($_GET['waived'])): ?><div class="alert alert-success">这笔扣减已豁免，奖金池已同步更新。</div><?php endif; ?>
@@ -211,13 +272,16 @@ include __DIR__ . '/../includes/header.php';
     <?php if (!$rotations): ?><div class="governance-empty">尚未确认轮值日期，因此不会自动生成缺报扣减。</div><?php else: ?><div class="governance-rotation-list"><?php foreach ($rotations as $rotation): ?><div><strong><?php echo e($rotation['chair_name']); ?></strong><span><?php echo e($rotation['start_date']); ?> — <?php echo e($rotation['end_date'] ?: '持续轮值'); ?></span><?php if ($rotation['note']): ?><small><?php echo e($rotation['note']); ?></small><?php endif; ?><?php if ($isCommittee && !$rotation['end_date'] && $rotation['start_date'] <= date('Y-m-d')): ?><form method="post" onsubmit="return confirm('确认今天结束此轮值期？已生成的历史扣减不会自动删除。')"><input type="hidden" name="csrf" value="<?php echo e(ps_csrf_token()); ?>"><input type="hidden" name="action" value="close_rotation"><input type="hidden" name="rotation_id" value="<?php echo (int)$rotation['id']; ?>"><button class="btn btn-outline-secondary btn-sm" type="submit">今天结束</button></form><?php endif; ?></div><?php endforeach; ?></div><?php endif; ?>
   </section>
   <?php if ($isCommittee): ?><section class="governance-card" id="penalties"><div class="governance-heading"><div><span class="governance-step">自动核对</span><h2>六天缺报与豁免</h2><p class="governance-hint">按真实提交时间检查完整六天窗口；待评审脑洞先视为已提交，若后来被判无效，再生成扣减。同一窗口只记一次。</p></div></div>
-    <?php if (!$penalties): ?><div class="governance-empty">本任期暂无自动扣减。</div><?php endif; ?>
+    <?php if (!$penalties && !$committeePenalties): ?><div class="governance-empty">本任期暂无自动扣减。</div><?php endif; ?>
     <?php foreach ($penalties as $penalty): ?><div class="governance-penalty" id="penalty-<?php echo (int)$penalty['id']; ?>"><div><strong><?php echo e($penalty['chair_name']); ?></strong><small><?php echo e($penalty['window_start']); ?> 至 <?php echo e($penalty['window_end']); ?> · 六天未见有效提交</small></div><span class="governance-status <?php echo $penalty['state'] === 'waived' ? 'approved' : 'rejected'; ?>"><?php echo $penalty['state'] === 'waived' ? '已豁免' : '已扣 ¥' . money(abs((float)$penalty['amount'])); ?></span><?php if ($penalty['state'] === 'waived'): ?><small>由 <?php echo e($penalty['waived_by_name'] ?: '监委会'); ?> 豁免：<?php echo e($penalty['waiver_reason']); ?></small><?php else: ?><details class="governance-review"><summary>有合理情况？豁免这笔扣减</summary><form method="post"><input type="hidden" name="csrf" value="<?php echo e(ps_csrf_token()); ?>"><input type="hidden" name="action" value="waive_penalty"><input type="hidden" name="penalty_id" value="<?php echo (int)$penalty['id']; ?>"><label>豁免理由</label><textarea class="form-control mb-2" name="waiver_reason" rows="2" maxlength="500" required placeholder="例如：临时请假、轮值调整，附可核对依据"></textarea><button class="btn btn-success btn-sm" type="submit">确认豁免，返还奖金池</button></form></details><?php endif; ?></div><?php endforeach; ?>
+    <?php foreach ($committeePenalties as $cpen): $cpTitle = $cpen['category'] === '三天脑洞' ? strtok($cpen['task_description'], "\n") : $cpen['category']; ?><div class="governance-penalty"><div><strong><?php echo e($cpen['member_name']); ?>（监委）</strong><small><?php echo e($cpen['chair_name']); ?> 的任务「<?php echo e(mb_substr($cpTitle, 0, 30)); ?>」截止 <?php echo e($cpen['due_date']); ?> 未提交监督意见</small></div><span class="governance-status <?php echo $cpen['state'] === 'waived' ? 'approved' : 'rejected'; ?>"><?php echo $cpen['state'] === 'waived' ? '已豁免' : '已扣 ¥' . money(abs((float)$cpen['amount'])); ?></span><?php if ($cpen['state'] === 'waived'): ?><small>由 <?php echo e($cpen['waived_by_name'] ?: '监委会'); ?> 豁免：<?php echo e($cpen['waiver_reason']); ?></small><?php elseif ((int)$cpen['employee_id'] !== (int)$actor['employee_id']): ?><details class="governance-review"><summary>有合理情况？豁免这笔扣减</summary><form method="post"><input type="hidden" name="csrf" value="<?php echo e(ps_csrf_token()); ?>"><input type="hidden" name="action" value="waive_committee_penalty"><input type="hidden" name="penalty_id" value="<?php echo (int)$cpen['id']; ?>"><label>豁免理由</label><textarea class="form-control mb-2" name="waiver_reason" rows="2" maxlength="500" required placeholder="例如：请假、已线下反馈并可核对"></textarea><button class="btn btn-success btn-sm" type="submit">确认豁免</button></form></details><?php endif; ?></div><?php endforeach; ?>
   </section><?php endif; ?>
   <section class="governance-card" id="idea-list"><div class="governance-heading"><div><span class="governance-step">想法与评审</span><h2>脑洞记录</h2></div><form method="get" class="governance-filters"><select class="form-control" name="state" aria-label="评审状态"><option value="">全部状态</option><option value="pending" <?php echo $state === 'pending' ? 'selected' : ''; ?>>待评审</option><option value="approved" <?php echo $state === 'approved' ? 'selected' : ''; ?>>已通过</option><option value="rejected" <?php echo $state === 'rejected' ? 'selected' : ''; ?>>已退回</option></select><button class="btn btn-outline-success" type="submit">筛选</button></form></div>
     <?php if (!$ideas): ?><div class="governance-empty">暂无符合条件的脑洞，从上方写下第一条吧。</div><?php endif; ?>
     <?php foreach ($ideas as $idea): $parts = explode("\n", (string)$idea['description'], 2); ?><article class="governance-record governance-idea" id="idea-<?php echo (int)$idea['id']; ?>"><div class="governance-record-top"><span class="governance-status <?php echo e($idea['review_state']); ?>"><?php echo e(pg_review_label($idea['review_state'])); ?></span><small><?php echo e($idea['owner_name']); ?> · <?php echo e($idea['record_date']); ?> · #<?php echo (int)$idea['id']; ?></small></div><h3><?php echo e($parts[0]); ?></h3><p class="governance-description"><?php echo nl2br(e($parts[1] ?? '')); ?></p><?php if ($idea['due_date']): ?><div class="governance-meta">下一步计划：<?php echo e($idea['due_date']); ?></div><?php endif; ?><?php if ($idea['evidence_text']): ?><div class="governance-evidence"><strong>进展 / 结果</strong><p><?php echo nl2br(e($idea['evidence_text'])); ?></p></div><?php endif; ?><?php foreach ($proofs[(int)$idea['id']] ?? [] as $proof): ?><a class="governance-proof" href="<?php echo BASE_URL; ?>/project/governance_evidence.php?id=<?php echo (int)$proof['id']; ?>" target="_blank" rel="noopener noreferrer"><i class="fas fa-paperclip"></i> <?php echo e($proof['original_name']); ?></a><?php endforeach; ?>
       <?php if ($idea['review_state'] !== 'pending'): ?><div class="governance-result">由 <?php echo e($idea['reviewer_name'] ?: '—'); ?> 评审<?php if ($idea['review_state']==='approved'): ?> · 奖惩变动 <?php $visibleAmount=$idea['bonus_delta']===null?100.0:(float)$idea['bonus_delta']; echo $visibleAmount>=0?'+':'−'; ?>¥<?php echo money(abs($visibleAmount)); ?><?php echo $idea['bonus_delta']===null?'（有效脑洞默认）':''; ?><?php endif; ?><?php if ($idea['flow_note']): ?> · <?php echo e($idea['flow_note']); ?><?php endif; ?><?php if ($idea['review_note']): ?><p><?php echo e($idea['review_note']); ?></p><?php endif; ?></div><?php endif; ?>
+      <?php if (!empty($oversightByIdea[(int)$idea['id']])): $mineOpen = false; ?><div class="governance-meta">监委监督意见（截止 <?php echo e(reset($oversightByIdea[(int)$idea['id']])['deadline']); ?>）：<?php foreach ($oversightByIdea[(int)$idea['id']] as $memberId => $o): if ($memberId === (int)$actor['employee_id'] && !$o['done']) $mineOpen = true; ?><span class="mr-2"><?php echo e($o['name']); ?> <?php echo $o['done'] ? '✅ 已提交' : ($o['penalty'] === 'applied' ? '❌ 已扣 ¥' . money($oversightPolicy['penalty']) : ($o['penalty'] === 'waived' ? '已豁免' : '⏳ 待提交')); ?></span><?php endforeach; ?></div>
+      <?php if ($isCommittee && $mineOpen): ?><details class="governance-review" open><summary>提交我的监督意见</summary><form method="post" enctype="multipart/form-data"><input type="hidden" name="csrf" value="<?php echo e(ps_csrf_token()); ?>"><input type="hidden" name="action" value="create_oversight"><input type="hidden" name="record_id" value="<?php echo (int)$idea['id']; ?>"><textarea class="form-control mb-2" name="description" rows="2" maxlength="12000" required placeholder="进度如何、是否已催办、完成率或产出评价"></textarea><input class="form-control-file mb-2" type="file" name="evidence_file" accept=".png,.jpg,.jpeg,.webp,.pdf"><button class="btn btn-success btn-sm" type="submit">提交监督意见</button></form></details><?php endif; ?><?php endif; ?>
       <?php if (pg_can_review($member, $idea)): ?><details class="governance-review"><summary>评审这条脑洞</summary><form method="post"><input type="hidden" name="csrf" value="<?php echo e(ps_csrf_token()); ?>"><input type="hidden" name="action" value="review_idea"><input type="hidden" name="record_id" value="<?php echo (int)$idea['id']; ?>"><div class="governance-decision"><label><input type="radio" name="decision" value="approved" checked> 通过</label><label><input type="radio" name="decision" value="rejected"> 退回补充</label></div><div class="form-group"><label>评审依据 / 退回原因</label><input class="form-control" name="review_note" maxlength="500" required placeholder="一句话说明决定"></div><div class="form-row"><div class="form-group col-md-6"><label>奖惩变动（可留空）</label><input class="form-control" type="number" name="bonus_delta" step="0.01" min="-100000" max="100000" placeholder="例如：100"></div><div class="form-group col-md-6"><label>奖金池 / 流向</label><input class="form-control" name="flow_note" maxlength="255" placeholder="填写金额时必填"></div></div><button class="btn btn-success btn-sm" type="submit">确认评审</button></form></details><?php endif; ?></article><?php endforeach; ?>
   </section>
 </div>

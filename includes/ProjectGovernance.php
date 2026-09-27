@@ -166,14 +166,17 @@ function pg_sync_reminders($date = null)
     if ($window && $window['counts'] && !$window['submitted'] && $window['days_left'] <= 2) {
         $sent += pg_message($window['chair_employee_id'], 'idea_due', '三天脑洞还剩 ' . $window['days_left'] . ' 天截止', '本期窗口 ' . $window['start'] . ' 至 ' . $window['end'] . ($window['deadline'] !== $window['end'] ? '（节假日顺延至 ' . $window['deadline'] . '）' : '') . '，你还没有提交。截止仍无有效提交，系统将自动扣减 ¥' . money($window['penalty']) . '。', $link, 'idea-due:' . $window['start'] . ':' . $today);
     }
-    $committee = db()->query("SELECT employee_id FROM project_governance_members WHERE governance_role='committee' AND is_active=1")->fetchAll(PDO::FETCH_COLUMN);
-    $last = db()->prepare("SELECT MAX(DATE(created_at)) FROM project_governance_records WHERE record_kind='committee' AND owner_employee_id=? AND review_state<>'rejected'");
-    foreach ($committee as $memberId) {
-        $last->execute([(int)$memberId]);
-        $since = max((string)$last->fetchColumn(), (new DateTimeImmutable(PG_REMINDER_START))->modify('-1 day')->format('Y-m-d'));
-        $workdays = pg_workdays_between($since, $today);
-        if ($workdays >= 6) {
-            $sent += pg_message($memberId, 'oversight_due', '已 ' . $workdays . ' 个工作日未提交监督意见', '按规则监委会每 6 个工作日需要提交一次监督意见（如脑洞进度、完成率、催办结果）。你上次提交是 ' . ($since >= PG_REMINDER_START ? $since : '起算日前') . '，请在“事项与评审”里登记。', '/project/governance.php#new-record', 'oversight-due:' . $since . ':' . intdiv($workdays, 6));
+    $committee = pg_committee_members();
+    // 监委督战：董事长录入任务后 N 天内每位监委须提交监督意见；截止前 2 天（含当天）仍未提交，每天督促一次
+    $oversight = pg_oversight_policy();
+    if ($oversight) foreach (pg_oversight_tasks($oversight) as $task) {
+        if ($task['deadline'] < $today) continue;
+        $daysLeft = (int)(new DateTimeImmutable($today))->diff(new DateTimeImmutable($task['deadline']))->days + 1;
+        if ($daysLeft > 2) continue;
+        $title = $task['category'] === '三天脑洞' ? strtok($task['description'], "\n") : $task['category'];
+        foreach ($committee as $memberId) {
+            if (pg_oversight_done($task, $memberId)) continue;
+            $sent += pg_message($memberId, 'oversight_due', '监督意见还剩 ' . $daysLeft . ' 天截止', $task['owner_name'] . ' 录入的任务「' . mb_substr($title, 0, 40) . '」需要你在 ' . $task['deadline'] . ' 前提交监督意见（进度、催办或评价）。逾期未提交将自动扣减 ¥' . money($oversight['penalty']) . '。', ($task['category'] === '三天脑洞' ? '/project/governance_ideas.php#idea-' : '/project/governance.php#record-') . (int)$task['id'], 'oversight-due:' . (int)$task['id'] . ':' . $today);
         }
     }
     $pending = db()->prepare("SELECT r.id,r.owner_employee_id,r.created_by_employee_id,e.name FROM project_governance_records r JOIN employees e ON e.id=r.owner_employee_id WHERE r.record_kind='chair' AND r.category='三天脑洞' AND r.review_state='pending' AND r.created_at<?");
@@ -183,6 +186,67 @@ function pg_sync_reminders($date = null)
         $sent += pg_message($memberId, 'idea_review', $idea['name'] . ' 的三天脑洞等待评审', '有一条三天脑洞已提交超过 1 天还没有评审，请尽快给出结论（通过留空金额按 +¥100 计）。', $link . '#idea-' . (int)$idea['id'], 'idea-review:' . (int)$idea['id']);
     }
     return $sent;
+}
+
+/** 监委会督战规则（规则中心“监委会监督反馈”已确认才生效）：['days' => 7, 'penalty' => 150]。 */
+function pg_oversight_policy()
+{
+    $rule = db()->query("SELECT cadence_note,penalty_amount,rule_state FROM project_governance_rules WHERE rule_code='committee_oversight' LIMIT 1")->fetch();
+    if (!$rule || $rule['rule_state'] !== 'confirmed' || abs((float)$rule['penalty_amount']) <= 0) return null;
+    if (!preg_match('/(\d{1,2})\s*天/u', (string)$rule['cadence_note'], $m)) return null;
+    return ['days' => (int)$m[1], 'penalty' => round(abs((float)$rule['penalty_amount']), 2)];
+}
+
+/** 需要监委会提交监督意见的任务：轮值董事长本人录入、未被退回、起算日之后。附截止日（录入后 N 天，节假日顺延）。 */
+function pg_oversight_tasks($policy)
+{
+    $rows = db()->prepare("SELECT r.id,r.owner_employee_id,r.category,r.description,r.reviewer_employee_id,r.created_at,e.name AS owner_name FROM project_governance_records r JOIN employees e ON e.id=r.owner_employee_id WHERE r.record_kind='chair' AND r.created_by_employee_id=r.owner_employee_id AND r.review_state<>'rejected' AND r.created_at>=? ORDER BY r.created_at");
+    $rows->execute([PG_REMINDER_START . ' 00:00:00']);
+    $tasks = [];
+    foreach ($rows->fetchAll() as $task) {
+        $created = new DateTimeImmutable(substr($task['created_at'], 0, 10));
+        $task['deadline'] = pg_idea_deadline($created->modify('+1 day'), $created->modify('+' . $policy['days'] . ' days'))->format('Y-m-d');
+        $tasks[] = $task;
+    }
+    return $tasks;
+}
+
+/** 某监委是否已就该任务提交监督意见：截止前本人提交的监督记录（挂在该任务下或未挂任务，未被退回），或本人评审了该任务。 */
+function pg_oversight_done($task, $memberId)
+{
+    if ((int)$task['reviewer_employee_id'] === (int)$memberId) return true;
+    $q = db()->prepare("SELECT 1 FROM project_governance_records WHERE record_kind='committee' AND owner_employee_id=? AND review_state<>'rejected' AND created_at>=? AND created_at<? AND (parent_record_id IS NULL OR parent_record_id=?) LIMIT 1");
+    $q->execute([(int)$memberId, $task['created_at'], (new DateTimeImmutable($task['deadline']))->modify('+1 day')->format('Y-m-d 00:00:00'), (int)$task['id']]);
+    return (bool)$q->fetchColumn();
+}
+
+function pg_committee_members()
+{
+    return array_map('intval', db()->query("SELECT employee_id FROM project_governance_members WHERE governance_role='committee' AND is_active=1 ORDER BY employee_id")->fetchAll(PDO::FETCH_COLUMN));
+}
+
+/** 截止日已过仍未提交监督意见的监委，每项任务每人扣一次（唯一键防重）并发站内信。 */
+function pg_sync_oversight_penalties($date = null)
+{
+    $policy = pg_oversight_policy();
+    if (!$policy) return 0;
+    try { db()->query('SELECT 1 FROM project_governance_committee_penalties LIMIT 1'); } catch (PDOException $e) { return 0; }
+    $today = $date ?: date('Y-m-d');
+    $insert = db()->prepare('INSERT IGNORE INTO project_governance_committee_penalties (task_record_id,employee_id,due_date,amount) VALUES (?,?,?,?)');
+    $added = 0;
+    foreach (pg_oversight_tasks($policy) as $task) {
+        if ($task['deadline'] >= $today) continue;
+        foreach (pg_committee_members() as $memberId) {
+            if (pg_oversight_done($task, $memberId)) continue;
+            $insert->execute([(int)$task['id'], $memberId, $task['deadline'], -$policy['penalty']]);
+            if ($insert->rowCount() !== 1) continue;
+            $added++;
+            $penaltyId = (int)db()->lastInsertId();
+            ps_audit('governance_committee_penalty', $penaltyId, 'auto_apply', ['type' => 'system', 'id' => 0], ['task_record_id' => (int)$task['id'], 'employee_id' => $memberId, 'due' => $task['deadline'], 'amount' => -$policy['penalty']]);
+            pg_message($memberId, 'oversight_penalty', '未按时提交监督意见，已自动扣减 ¥' . money($policy['penalty']), $task['owner_name'] . ' 录入的任务「' . mb_substr($task['category'] === '三天脑洞' ? strtok($task['description'], "\n") : $task['category'], 0, 40) . '」截止 ' . $task['deadline'] . ' 前没有你的监督意见，已按规则从你本任期监委奖励中扣减。如有正当理由，请其他监委写明理由豁免。', '/project/governance_ideas.php#penalties', 'oversight-penalty:' . $penaltyId);
+        }
+    }
+    return $added;
 }
 
 /** 本人未读站内信数；表未迁移时为 0。 */

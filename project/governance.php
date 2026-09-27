@@ -2,6 +2,7 @@
 require_once __DIR__ . '/../includes/ProjectGovernance.php';
 [$actor, $member] = pg_require_member();
 pg_sync_idea_penalties();
+pg_sync_oversight_penalties();
 pg_sync_reminders();
 $error = '';
 $success = '';

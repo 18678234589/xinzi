@@ -5,6 +5,8 @@ require_once __DIR__ . '/../includes/ProjectGovernance.php';
 require_once __DIR__ . '/../includes/ProjectWelfare.php';
 $count = pg_sync_idea_penalties();
 echo "管理层脑洞缺报新增扣减 {$count} 笔\n";
+$oversight = pg_sync_oversight_penalties();
+echo "监委未按时提交监督意见新增扣减 {$oversight} 笔\n";
 $reminders = pg_sync_reminders();
 echo "管理层督促站内信新增 {$reminders} 条
 ";

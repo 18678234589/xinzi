@@ -74,6 +74,7 @@ function pw_close_quarter($quarter)
     [$from,$until] = pw_bounds($quarter);
     if ($until > date('Y-m-d')) throw new RuntimeException('季度尚未结束');
     pg_sync_idea_penalties();
+    pg_sync_oversight_penalties();
     db()->beginTransaction();
     try {
         $lock = db()->prepare('SELECT * FROM project_welfare_policy WHERE id=1 FOR UPDATE');
@@ -112,13 +113,17 @@ function pw_close_quarter($quarter)
         $committeeEarned = 0.0;
         $memberDetails = [];
         $q = db()->prepare("SELECT COUNT(*) AS n,COUNT(bonus_delta) AS explicit_count,COALESCE(SUM(bonus_delta),0) AS delta FROM project_governance_records WHERE owner_employee_id=? AND record_kind='committee' AND review_state='approved' AND record_date>=? AND record_date<?");
+        // 监委未按时提交监督意见的自动扣减（未豁免），从本人监委奖励中扣，最低为 0
+        $oversightPenalty = db()->prepare("SELECT COALESCE(SUM(amount),0) FROM project_governance_committee_penalties WHERE employee_id=? AND state='applied' AND due_date>=? AND due_date<?");
         foreach ($members as $id) {
             $q->execute([(int)$id,$from,$until]);
             $row = $q->fetch();
+            $oversightPenalty->execute([(int)$id,$from,$until]);
+            $memberPenalty = abs((float)$oversightPenalty->fetchColumn());
             // 原表有效监督每条 ¥50；明确填写的奖惩差额另外计入，个人上限 ¥1,000。
-            $earned = pw_committee_earned($policy['committee_person_target'],(int)$row['n']-(int)$row['explicit_count'],(float)$row['delta']);
+            $earned = max(0, pw_committee_earned($policy['committee_person_target'],(int)$row['n']-(int)$row['explicit_count'],(float)$row['delta']) - $memberPenalty);
             $committeeEarned += $earned;
-            $memberDetails[(int)$id] = ['verified_records'=>(int)$row['n'],'earned'=>round($earned,2)];
+            $memberDetails[(int)$id] = ['verified_records'=>(int)$row['n'],'oversight_penalties'=>$memberPenalty,'earned'=>round($earned,2)];
         }
         $chairFunding = (float)$policy['chair_quarter_target'];
         $committeeFunding = count($members) * (float)$policy['committee_person_target'];
