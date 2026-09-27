@@ -75,7 +75,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['bulk_action'])) {
             } elseif ($bulkAction === 'finish') {
                 if ($row['delivery_status'] === 'finished') throw new RuntimeException('已是完成状态');
                 db()->prepare("UPDATE project_orders SET delivery_status='finished',row_version=row_version+1 WHERE id=?")->execute([$orderId]);
+                // 自动通过待审的交付完成申请
+                db()->prepare("UPDATE project_order_requests SET status='approved', reviewer_id=?, reviewed_at=NOW(), review_note='批量标记交付完成时自动通过' WHERE order_id=? AND request_type='delivery_completion' AND status='pending'")
+                    ->execute([$actor['id'], $orderId]);
+
+                // 若尚未确认实收且已有售价，自动按售价确认实收，以便计算分成
+                if ((float)$row['receipt_amount'] == 0 && (float)$row['contract_amount'] > 0) {
+                    db()->prepare("INSERT INTO project_cash_movements (order_id,movement_type,amount,note,review_status,submitted_by_type,submitted_by_id,reviewed_by_admin,reviewed_at) VALUES (?,'receipt',?,'交付完成自动按售价确认实收','approved','admin',?,?,NOW())")
+                        ->execute([$orderId, $row['contract_amount'], $actor['id'], $actor['id']]);
+                    ps_recalculate_cash($orderId);
+                }
+
                 ps_audit('order', $orderId, 'bulk_finish', $actor, []);
+
+                // 标记交付完成后，立即自动计算客服提成与技术提成，自动纳入该月的工资总表
+                $targetMonth = $payrollMonth !== '' ? $payrollMonth : $month;
+                if (!preg_match('/^\d{4}-(0[1-9]|1[0-2])$/', $targetMonth)) {
+                    $targetMonth = date('Y-m');
+                }
+                try {
+                    ps_approve_order($orderId, $actor, $targetMonth);
+                } catch (Throwable $approveEx) {
+                    // 若前置条件（如域名待确认、SSL待补录）未满足，仅标记已交付完成，暂不锁定审核
+                }
             } else throw new RuntimeException('操作无效');
             db()->commit();
             $done++;
@@ -229,6 +251,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     } catch (Throwable $e) { if (db()->inTransaction()) db()->rollBack(); $error = $e instanceof PDOException ? '订单号已存在或数据保存失败' : $e->getMessage(); }
 }
 
+// 交易成功且超期无人审核的订单：自动标记为交付完成
+$autoFinishInfo = null;
+if (empty($_SESSION['ps_last_auto_finish_time']) || time() - (int)$_SESSION['ps_last_auto_finish_time'] > 60) {
+    $_SESSION['ps_last_auto_finish_time'] = time();
+    $autoRes = ps_auto_finish_trade_success_orders();
+    if ($autoRes['finished'] > 0) {
+        $autoFinishInfo = "系统已自动将 {$autoRes['finished']} 笔交易成功满 10 天且未审核的订单标记为完成" . ($autoRes['approved'] > 0 ? "（其中 {$autoRes['approved']} 笔已自动核算提成并生成快照）" : "") . "。";
+    }
+}
+
 // 列表筛选：月份 + 业务 + 待办 + 关键字（订单号/客户/付款昵称）。
 $filterBusiness = (string)($_GET['filter_business'] ?? '');
 $filterState = (string)($_GET['state'] ?? '');
@@ -245,11 +277,17 @@ if ($keyword !== '') {
 if ($filterBusiness !== '' && isset($businessCatalog[$filterBusiness])) { $where[] = 'o.project_type=?'; $params[] = $filterBusiness; }
 if ($filterState === 'open') $where[] = "o.settlement_status IN ('draft','review')";
 if ($filterState === 'approved') $where[] = "o.settlement_status IN ('approved','locked')";
+if ($filterState === 'unfinished') $where[] = "o.delivery_status='unfinished'";
+if ($filterState === 'finished') $where[] = "o.delivery_status='finished'";
+if ($filterState === 'pending_delivery') $where[] = "EXISTS (SELECT 1 FROM project_order_requests por WHERE por.order_id=o.id AND por.request_type='delivery_completion' AND por.status='pending')";
+if ($filterState === 'pending_upgrade') $where[] = "EXISTS (SELECT 1 FROM project_order_requests por WHERE por.order_id=o.id AND por.request_type='product_upgrade' AND por.status='pending')";
 if ($actor['role'] !== 'finance') { $where[] = '(EXISTS (SELECT 1 FROM project_participants mp WHERE mp.order_id=o.id AND mp.employee_id=?) OR EXISTS (SELECT 1 FROM project_department_uploaders du WHERE du.order_id=o.id AND du.employee_id=?))'; $params[] = $actor['employee_id']; $params[] = $actor['employee_id']; }
 $sql = "SELECT o.*, COALESCE(s.price_source,'missing') price_source, COALESCE(s.payment_nickname,'') payment_nickname, r.domain_mode,
     (SELECT COUNT(*) FROM project_costs c WHERE c.order_id=o.id AND c.review_status='pending') pending_costs,
     (SELECT COALESCE(SUM(c.amount),0) FROM project_costs c WHERE c.order_id=o.id AND c.review_status='approved') approved_costs,
     (SELECT COUNT(*) FROM project_cash_movements m WHERE m.order_id=o.id AND m.review_status='pending') pending_cash,
+    (SELECT COUNT(*) FROM project_order_requests por WHERE por.order_id=o.id AND por.request_type='delivery_completion' AND por.status='pending') pending_delivery_requests,
+    (SELECT COUNT(*) FROM project_order_requests por WHERE por.order_id=o.id AND por.request_type='product_upgrade' AND por.status='pending') pending_upgrade_requests,
     (SELECT COUNT(*) FROM project_participants p WHERE p.order_id=o.id AND p.commission_group='technical') tech_count,
     EXISTS (SELECT 1 FROM project_department_orders d WHERE d.order_id=o.id) is_department_order,
     (SELECT GROUP_CONCAT(e.name ORDER BY p.commission_group DESC,p.id SEPARATOR '、') FROM project_participants p JOIN employees e ON e.id=p.employee_id WHERE p.order_id=o.id) people
@@ -285,6 +323,7 @@ $resourceHint = function ($t) { return trim($t['name'] . ' ' . $t['specification
 <?php if ($error): ?><div class="alert alert-danger"><?php echo e($error); ?></div><?php endif; ?>
 <?php if ($createdOrder): ?><div class="alert alert-success d-flex justify-content-between align-items-center flex-wrap"><span><i class="fas fa-check-circle mr-1"></i> 订单 <strong><?php echo e($createdOrder['order_no']); ?></strong> 已保存，可以继续录入下一单。</span><a class="btn btn-sm btn-outline-success" href="<?php echo BASE_URL; ?>/project/order.php?id=<?php echo (int)$createdOrder['id']; ?>">打开刚保存的结算单</a></div><?php endif; ?>
 <?php if ($bulkResult): ?><div class="alert alert-<?php echo $bulkResult['failed'] ? 'warning' : 'success'; ?>"><strong>批量<?php echo e($bulkResult['action']); ?>：</strong>成功 <?php echo (int)$bulkResult['done']; ?> 单<?php if ($bulkResult['failed']): ?>，<?php echo count($bulkResult['failed']); ?> 单未处理：<ul class="mb-0 mt-1 small"><?php foreach (array_slice($bulkResult['failed'], 0, 30) as $failure): ?><li><?php echo e($failure); ?></li><?php endforeach; ?></ul><?php endif; ?></div><?php endif; ?>
+<?php if ($autoFinishInfo): ?><div class="alert alert-info"><i class="fas fa-magic mr-1"></i><?php echo e($autoFinishInfo); ?></div><?php endif; ?>
 <?php if (!$allowedBusinesses): ?><div class="alert alert-warning">当前账户尚未匹配业务类型，请联系财务在项目结算配置中分配。</div><?php endif; ?>
 <?php if ($allowedBusinesses): ?>
 <div id="manual-order" class="card project-form-card mb-4<?php echo $openEntry ? '' : ' d-none'; ?>"><div class="card-body">
@@ -342,10 +381,19 @@ $resourceHint = function ($t) { return trim($t['name'] . ' ' . $t['specification
 </div></div>
 <?php endif; ?>
 <div class="card mb-3"><div class="card-body py-3"><form method="get" class="form-row align-items-end">
-  <div class="col-md-2 mb-2"><label class="small text-muted mb-1" for="month">订单月份</label><input class="form-control" type="month" name="month" id="month" value="<?php echo e($month); ?>"></div>
+  <div class="col-md-3 mb-2">
+    <label class="small text-muted mb-1" for="month">订单月份</label>
+    <div class="input-group">
+      <input class="form-control" type="month" name="month" id="month" value="<?php echo e($month); ?>">
+      <div class="input-group-append">
+        <a class="btn btn-outline-secondary" href="?<?php echo http_build_query(array_merge($_GET, ['month' => date('Y-m', strtotime('first day of last month'))])); ?>" title="快速筛选上月">上月</a>
+        <a class="btn btn-outline-secondary" href="?<?php echo http_build_query(array_merge($_GET, ['month' => date('Y-m')])); ?>" title="快速筛选本月">本月</a>
+      </div>
+    </div>
+  </div>
   <div class="col-md-2 mb-2"><label class="small text-muted mb-1" for="filterBusiness">业务</label><select class="form-control" name="filter_business" id="filterBusiness"><option value="">全部业务</option><?php foreach ($businessCatalog as $businessName => $definition): ?><option value="<?php echo e($businessName); ?>" <?php echo $filterBusiness === $businessName ? 'selected' : ''; ?>><?php echo e($businessName . (!empty($definition['legacy']) ? '（历史）' : '')); ?></option><?php endforeach; ?></select></div>
-  <div class="col-md-2 mb-2"><label class="small text-muted mb-1" for="filterState">状态</label><select class="form-control" name="state" id="filterState"><option value="">全部</option><option value="todo" <?php echo $filterState === 'todo' ? 'selected' : ''; ?>>有待办</option><option value="open" <?php echo $filterState === 'open' ? 'selected' : ''; ?>>未审核</option><option value="approved" <?php echo $filterState === 'approved' ? 'selected' : ''; ?>>已审核</option></select></div>
-  <div class="col-md-4 mb-2"><label class="small text-muted mb-1" for="filterQ">搜索（订单号 / 客户 / 付款昵称，搜索时不限月份）</label><input class="form-control" type="search" name="q" id="filterQ" value="<?php echo e($keyword); ?>" placeholder="输入关键字"></div>
+  <div class="col-md-2 mb-2"><label class="small text-muted mb-1" for="filterState">状态</label><select class="form-control" name="state" id="filterState"><option value="">全部</option><option value="unfinished" <?php echo $filterState === 'unfinished' ? 'selected' : ''; ?>>交付未完成</option><option value="finished" <?php echo $filterState === 'finished' ? 'selected' : ''; ?>>交付已完成</option><option value="pending_delivery" <?php echo $filterState === 'pending_delivery' ? 'selected' : ''; ?>>待交付审核</option><option value="pending_upgrade" <?php echo $filterState === 'pending_upgrade' ? 'selected' : ''; ?>>待升级审核</option><option value="todo" <?php echo $filterState === 'todo' ? 'selected' : ''; ?>>有待办</option><option value="open" <?php echo $filterState === 'open' ? 'selected' : ''; ?>>未审核</option><option value="approved" <?php echo $filterState === 'approved' ? 'selected' : ''; ?>>已审核</option></select></div>
+  <div class="col-md-3 mb-2"><label class="small text-muted mb-1" for="filterQ">搜索（订单号 / 客户 / 付款昵称）</label><input class="form-control" type="search" name="q" id="filterQ" value="<?php echo e($keyword); ?>" placeholder="输入关键字"></div>
   <div class="col-md-2 mb-2"><button class="btn btn-outline-primary btn-block">筛选</button></div>
 </form></div></div>
 <?php $mine = $actor['role'] !== 'finance' ? '我参与的' : ''; ?><div class="project-totals mb-3"><div><small><?php echo $mine; ?>订单</small><strong><?php echo count($orders); ?></strong></div><div><small><?php echo $mine; ?>售价合计</small><strong>¥<?php echo money($totals['contract']); ?></strong></div><div><small>已确认净实收</small><strong>¥<?php echo money($totals['receipt']); ?></strong></div><div><small>已审核直接成本</small><strong>¥<?php echo money($totals['cost']); ?></strong></div><div class="<?php echo $totals['todo'] ? 'is-alert' : ''; ?>"><small>有待办的订单</small><strong><?php echo $totals['todo']; ?></strong></div></div>
@@ -363,7 +411,10 @@ $resourceHint = function ($t) { return trim($t['name'] . ' ' . $t['specification
     <td class="text-right">¥<?php echo money((float)$order['receipt_amount'] - (float)$order['refund_amount']); ?></td>
     <td class="text-right">¥<?php echo money($order['approved_costs']); ?></td>
     <td><?php foreach ($order['todos'] as [$text, $level]): ?><span class="badge badge-<?php echo e($level); ?> mr-1 mb-1"><?php echo e($text); ?></span><?php endforeach; ?><?php if (!$order['todos']): ?><span class="text-muted small">—</span><?php endif; ?></td>
-    <td class="text-nowrap"><?php echo e(ps_label('settlement', $order['settlement_status'])); ?></td>
+    <td class="text-nowrap">
+      <?php echo e(ps_label('settlement', $order['settlement_status'])); ?>
+      <div><?php echo $order['delivery_status'] === 'finished' ? '<span class="badge badge-success">已交付完成</span>' : '<span class="badge badge-light border">交付未完成</span>'; ?></div>
+    </td>
     <td><a class="btn btn-outline-primary btn-sm text-nowrap" href="<?php echo BASE_URL; ?>/project/order.php?id=<?php echo (int)$order['id']; ?>">打开结算单</a></td>
   </tr><?php endforeach; ?>
   <?php if (!$orders): ?><tr><td colspan="11" class="text-center text-muted py-4"><?php echo $keyword !== '' ? '没有匹配的订单' : '本月暂无可查看的项目订单'; ?></td></tr><?php endif; ?>

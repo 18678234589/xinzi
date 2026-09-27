@@ -211,3 +211,60 @@ function ps_php_cost_for($contract, $group, $role, $actual)
     if (abs($cost - (float)$actual) < 0.005) return [$cost, ''];
     return [$cost, 'PHP 成本按区间表 ' . money_plain($cost) . ($label ? '（' . $label . ($extra ? '，技术 +' . money_plain($extra) : '') . '）' : ($extra ? '（技术 +' . money_plain($extra) . '）' : ''))];
 }
+
+/* ---------- 业务与部门订单审核人配置 ---------- */
+
+/** 获取所有可指派为审核人的财务/管理员列表 */
+function ps_admin_reviewers()
+{
+    $sql = "SELECT a.id, a.username, COALESCE(e.name, a.username) AS real_name, COALESCE(e.department, '管理') AS dept
+            FROM admins a
+            LEFT JOIN employees e ON (a.username='songwenna' AND e.name='宋文娜')
+                                  OR (a.username='liuqun' AND e.name='刘群')
+                                  OR (a.username='sunman' AND e.name='孙曼')
+                                  OR (a.username='yaolin' AND e.name='姚琳')
+                                  OR (a.username='wangfang' AND e.name='王芳')
+                                  OR (a.username='weihuizi' AND e.name='魏慧子')
+                                  OR (a.username='wangguimei' AND e.name='王桂美')
+            ORDER BY a.id";
+    try {
+        return db()->query($sql)->fetchAll();
+    } catch (Throwable $e) {
+        return [];
+    }
+}
+
+/** 业务审核人映射：业务名 => 管理员登录名（如 'songwenna'）。网站类业务默认由“宋文娜”负责。 */
+function ps_business_reviewers()
+{
+    $stored = ps_setting_get('business_reviewers', []);
+    if (!is_array($stored)) $stored = [];
+    $defaultSongwenna = 'songwenna';
+    $defaults = [
+        'AI网站定制' => $defaultSongwenna,
+        '网站模板'   => $defaultSongwenna,
+        '网站续费'   => $defaultSongwenna,
+        '网站修改'   => $defaultSongwenna,
+    ];
+    return array_merge($defaults, $stored);
+}
+
+/** 获取某一业务指派的审核人用户名 */
+function ps_business_reviewer($business)
+{
+    $reviewers = ps_business_reviewers();
+    $business = ps_business_normalize($business);
+    return $reviewers[$business] ?? ($reviewers['default'] ?? 'songwenna');
+}
+
+/** 检查当前登录人员是否有权审核该业务的订单/申请 */
+function ps_actor_can_review_business($actor, $business)
+{
+    if (($actor['role'] ?? '') !== 'finance') return false;
+    $username = strtolower((string)($actor['username'] ?? ''));
+    if ($username === 'admin') return true; // 超级管理员始终有权
+    $assigned = strtolower((string)ps_business_reviewer($business));
+    if ($assigned === '' || $assigned === 'all') return true;
+    return $username === $assigned;
+}
+

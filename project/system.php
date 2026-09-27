@@ -40,6 +40,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             ps_setting_set('contact_visibility', $policy, $actor['id']);
             ps_audit('setting', 0, 'contact_visibility', $actor, $policy);
             $success = '客户联系方式权限已保存，立即生效';
+        } elseif ($action === 'reviewers') {
+            $submitted = (array)($_POST['reviewer'] ?? []);
+            $reviewers = [];
+            $validReviewers = array_map(function ($r) { return strtolower($r['username']); }, ps_admin_reviewers());
+            $validReviewers[] = 'all';
+            foreach ($submitted as $biz => $usr) {
+                $usr = strtolower(trim((string)$usr));
+                if ($usr !== '' && in_array($usr, $validReviewers, true)) {
+                    $reviewers[$biz] = $usr;
+                }
+            }
+            ps_setting_set('business_reviewers', $reviewers, $actor['id']);
+            ps_audit('setting', 0, 'business_reviewers', $actor, $reviewers);
+            $success = '业务与部门审核人配置已保存，立即生效';
+        } elseif ($action === 'auto_finish') {
+            $days = (int)($_POST['auto_finish_days'] ?? 10);
+            if ($days < 0 || $days > 365) throw new RuntimeException('超时天数须在 0 到 365 之间（0 为关闭自动标记）');
+            ps_setting_set('auto_finish_days', $days, $actor['id']);
+            ps_audit('setting', 0, 'auto_finish_days', $actor, ['days' => $days]);
+            $success = '交易成功超时自动标记完成天数已保存（' . ($days > 0 ? "满 {$days} 天自动完成" : '已关闭自动标记') . '）';
         } elseif (in_array($action, ['ai_save', 'ai_test'], true)) {
             $current = ps_ai_config();
             $baseUrl = trim((string)($_POST['base_url'] ?? ''));
@@ -71,9 +91,52 @@ include __DIR__ . '/../includes/header.php';
 $csrf = e(ps_csrf_token());
 ?>
 <div class="project-intake-page">
-<div class="project-hero mb-3"><div><div class="project-eyebrow">项目合作结算中心 · 管理员</div><h2>系统设置</h2><p>管理客户联系方式的查看权限、接入 AI 助手，以及合作人员账户。只有财务 / 管理员能进入这里。</p></div><div class="project-hero-actions"><a class="btn btn-light" href="#contact">联系方式权限</a><a class="btn btn-outline-light" href="#ai">AI 接入</a><a class="btn btn-outline-light" href="<?php echo BASE_URL; ?>/project/settings.php#accounts">合作人员账户</a><a class="btn btn-outline-light" href="#ai-log">AI 托底记录</a><a class="btn btn-outline-light" href="#my-password">我的登录密码</a></div></div>
+<div class="project-hero mb-3"><div><div class="project-eyebrow">项目合作结算中心 · 管理员</div><h2>系统设置</h2><p>管理各业务审核人分配、客户联系方式查看权限、接入 AI 助手，以及合作人员账户。只有财务 / 管理员能进入这里。</p></div><div class="project-hero-actions"><a class="btn btn-light" href="#reviewers">审核人配置</a><a class="btn btn-outline-light" href="#auto-finish">超时自动完成</a><a class="btn btn-outline-light" href="#contact">联系方式权限</a><a class="btn btn-outline-light" href="#ai">AI 接入</a><a class="btn btn-outline-light" href="<?php echo BASE_URL; ?>/project/settings.php#accounts">合作人员账户</a><a class="btn btn-outline-light" href="#ai-log">AI 托底记录</a><a class="btn btn-outline-light" href="#my-password">我的登录密码</a></div></div>
 <?php if ($error): ?><div class="alert alert-danger"><?php echo e($error); ?></div><?php endif; ?>
 <?php if ($success): ?><div class="alert alert-success"><?php echo e($success); ?></div><?php endif; ?>
+
+<div id="reviewers" class="card mb-3"><div class="card-header d-flex justify-content-between align-items-center"><span>业务与部门订单审核人配置</span><span class="small text-muted">指定各业务线的负责财务（如网站业务由宋文娜负责审核）</span></div><div class="card-body">
+<p class="text-muted small">管理员可为不同业务线指派专属负责财务。所指派的人员主要负责该业务的<strong>订单结算审核、交付完成确认以及产品升级补差审核</strong>。超级管理员（admin）始终拥有全业务审核权限。</p>
+<form method="post"><input type="hidden" name="csrf" value="<?php echo $csrf; ?>"><input type="hidden" name="action" value="reviewers">
+<div class="table-responsive"><table class="table table-sm table-hover mb-3"><thead><tr><th>业务名称</th><th>涉及部门</th><th>默认负责财务</th><th>指派负责审核人</th></tr></thead><tbody>
+<?php
+$adminReviewers = ps_admin_reviewers();
+$assignedReviewers = ps_business_reviewers();
+foreach (ps_business_catalog() as $bizName => $bizDef):
+    if (!empty($bizDef['legacy'])) continue;
+    $currentReviewer = strtolower($assignedReviewers[$bizName] ?? ($assignedReviewers['default'] ?? 'songwenna'));
+?>
+<tr>
+    <td class="font-weight-bold"><?php echo e($bizName); ?></td>
+    <td class="small text-muted"><?php echo e(implode('、', $bizDef['departments'] ?? [])); ?></td>
+    <td class="small"><?php echo in_array($bizName, ['AI网站定制','网站模板','网站续费','网站修改'], true) ? '<span class="badge badge-info">宋文娜（网站专责）</span>' : '<span class="badge badge-light">全体财务</span>'; ?></td>
+    <td style="max-width:240px">
+        <select class="form-control form-control-sm" name="reviewer[<?php echo e($bizName); ?>]">
+            <option value="all" <?php echo $currentReviewer === 'all' ? 'selected' : ''; ?>>全体财务 / 不限</option>
+            <?php foreach ($adminReviewers as $adm): $val = strtolower($adm['username']); ?>
+            <option value="<?php echo e($val); ?>" <?php echo $currentReviewer === $val ? 'selected' : ''; ?>>
+                <?php echo e($adm['real_name'] . ' (' . $adm['username'] . ($adm['dept'] ? ' · ' . $adm['dept'] : '') . ')'); ?>
+            </option>
+            <?php endforeach; ?>
+        </select>
+    </td>
+</tr>
+<?php endforeach; ?>
+</tbody></table></div>
+<button class="btn btn-primary">保存审核人配置</button></form></div></div>
+
+<?php $autoDays = (int)ps_setting_get('auto_finish_days', 10); ?>
+<div id="auto-finish" class="card mb-3"><div class="card-header d-flex justify-content-between align-items-center"><span>无人审核超时自动完成</span><span class="badge badge-info"><?php echo $autoDays > 0 ? "满 {$autoDays} 天自动完成" : '已关闭'; ?></span></div><div class="card-body">
+<p class="text-muted small">对于没有人审核的订单，系统将在订单状态为<strong>【交易成功】</strong>满指定天数后，自动将交付状态标记为已完成，自动确认实收并纳入当月项目核算提成。</p>
+<form method="post" class="form-inline"><input type="hidden" name="csrf" value="<?php echo $csrf; ?>"><input type="hidden" name="action" value="auto_finish">
+<label class="mr-2">订单交易成功满：</label>
+<div class="input-group input-group-sm mr-2" style="width:120px">
+    <input type="number" class="form-control" name="auto_finish_days" value="<?php echo $autoDays; ?>" min="0" max="365">
+    <div class="input-group-append"><span class="input-group-text">天</span></div>
+</div>
+<span class="text-muted small mr-3">（默认 10 天；设为 0 表示不自动完成）</span>
+<button class="btn btn-sm btn-primary">保存天数设置</button>
+</form></div></div>
 
 <div id="contact" class="card mb-3"><div class="card-header">客户联系方式权限</div><div class="card-body">
 <p class="text-muted small">手机号、微信号、邮箱在页面上打码显示为 <code>155***3252</code>、<code>ab***23</code>，数据库保存原文。财务 / 管理员始终看完整信息；技术与客服只能打开自己参与的订单。</p>

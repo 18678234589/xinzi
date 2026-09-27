@@ -27,3 +27,13 @@ if ($lastYear>=2026) {
         echo "全员福利 {$lastYear} 年终待核对：{$e->getMessage()}\n";
     }
 }
+
+require_once __DIR__ . '/../includes/ProjectSettlement.php';
+try {
+    $autoFinished = ps_auto_finish_trade_success_orders();
+    echo "交易成功满10天自动完成：标记完成 {$autoFinished['finished']} 笔，自动核算分成 {$autoFinished['approved']} 笔\n";
+} catch (Throwable $e) {
+    error_log('交易成功超期自动完成异常：' . $e->getMessage());
+    echo "交易成功超期自动完成异常：{$e->getMessage()}\n";
+}
+

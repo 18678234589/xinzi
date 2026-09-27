@@ -26,6 +26,8 @@ config/
 # 本地开发辅助脚本与临时文件
 dev.bat
 tunnel.bat
-config.rar
 *.local
 订单模板与成本及算法/
+.codex-remote-attachments/
+*.rar
+*.zip

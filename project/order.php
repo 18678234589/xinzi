@@ -173,6 +173,64 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if (($refundText !== '' && !preg_match('/^\d+(?:\.\d{1,2})?$/', $refundText)) || ($costText !== '' && !preg_match('/^-?\d+(?:\.\d{1,2})?$/', $costText))) throw new RuntimeException('金额最多两位小数；成本调整可为负数（冲减）');
             $created = ps_post_adjustment($id, $actor, $refundText === '' ? 0 : $refundText, $costText === '' ? 0 : $costText, (string)($_POST['reason'] ?? ''), (string)($_POST['adjust_month'] ?? ''));
             header('Location: ' . BASE_URL . '/project/order.php?id=' . $id . '&adjusted=' . count($created)); exit;
+        } elseif ($action === 'apply_delivery_completion') {
+            if ($order['delivery_status'] === 'finished') throw new RuntimeException('订单已是完成状态');
+            $proof = ps_upload_proof('delivery_proof');
+            $note = trim((string)($_POST['delivery_note'] ?? ''));
+            ps_create_order_request($id, 'delivery_completion', $actor, [
+                'proof_path' => $proof,
+                'delivery_note' => $note
+            ]);
+        } elseif ($action === 'review_delivery_completion') {
+            if (!$finance) throw new RuntimeException('无权限审核交付申请');
+            $requestId = (int)($_POST['request_id'] ?? 0);
+            $decision = (string)($_POST['decision'] ?? '');
+            $note = trim((string)($_POST['review_note'] ?? ''));
+            ps_review_order_request($requestId, $decision, $actor, $note);
+        } elseif ($action === 'apply_product_upgrade') {
+            $toTemplateId = (int)($_POST['to_template_id'] ?? 0);
+            if ($toTemplateId <= 0) throw new RuntimeException('请选择升级的目标产品');
+            $tplQuery = db()->prepare("SELECT * FROM project_cost_templates WHERE id=? AND category='program'");
+            $tplQuery->execute([$toTemplateId]);
+            $targetTpl = $tplQuery->fetch();
+            if (!$targetTpl) throw new RuntimeException('所选升级产品不存在或不可用');
+
+            $currentProgram = '基础版/未指定';
+            $resQuery = db()->prepare("SELECT r.program_template_id, t.name, t.specification FROM project_order_resources r LEFT JOIN project_cost_templates t ON t.id=r.program_template_id WHERE r.order_id=?");
+            $resQuery->execute([$id]);
+            $resRow = $resQuery->fetch();
+            if ($resRow && !empty($resRow['name'])) {
+                $currentProgram = $resRow['name'] . ($resRow['specification'] ? ' · ' . $resRow['specification'] : '');
+            } else {
+                foreach (ps_costs($id) as $c) {
+                    if ($c['category'] === 'program' && $c['review_status'] !== 'rejected') {
+                        $currentProgram = $c['item_name'];
+                        break;
+                    }
+                }
+            }
+
+            $reason = trim((string)($_POST['upgrade_reason'] ?? ''));
+            $paymentNote = trim((string)($_POST['customer_payment_note'] ?? ''));
+            $toName = $targetTpl['name'] . ($targetTpl['specification'] ? ' · ' . $targetTpl['specification'] : '');
+            ps_create_order_request($id, 'product_upgrade', $actor, [
+                'from_name' => $currentProgram,
+                'to_template_id' => $toTemplateId,
+                'to_name' => $toName,
+                'upgrade_reason' => $reason,
+                'customer_payment_note' => $paymentNote
+            ]);
+        } elseif ($action === 'review_product_upgrade') {
+            if (!$finance) throw new RuntimeException('无权限审核产品升级');
+            $requestId = (int)($_POST['request_id'] ?? 0);
+            $decision = (string)($_POST['decision'] ?? '');
+            $diffAmount = trim((string)($_POST['diff_amount'] ?? '0'));
+            $note = trim((string)($_POST['review_note'] ?? ''));
+            $proof = (!empty($_FILES['diff_proof']['name']) && $_FILES['diff_proof']['error'] === UPLOAD_ERR_OK) ? ps_upload_proof('diff_proof') : null;
+            ps_review_order_request($requestId, $decision, $actor, $note, [
+                'diff_amount' => $diffAmount,
+                'proof_path' => $proof
+            ]);
         } elseif ($action === 'approve_order') {
             if (!$finance) throw new RuntimeException('无权限');
             ps_approve_order($id, $actor, (string)($_POST['payroll_month'] ?? ''));
@@ -245,6 +303,20 @@ if ($collabOrder && $canEdit && !$counterpartCount && in_array($actor['role'], [
     $q->execute([$counterpartGroup]);
     foreach ($q->fetchAll() as $person) if (ps_active_employee_for_business($person['id'], $counterpartGroup, ps_business_normalize($order['project_type']))) $counterpartChoices[] = $person;
 }
+
+$orderRequests = ps_order_requests($id);
+$pendingDeliveryReq = ps_order_pending_request($id, 'delivery_completion');
+$pendingUpgradeReq = ps_order_pending_request($id, 'product_upgrade');
+$assignedReviewerUsername = ps_business_reviewer($order['project_type']);
+$assignedReviewerObj = null;
+foreach (ps_admin_reviewers() as $r) if (strtolower($r['username']) === strtolower($assignedReviewerUsername)) $assignedReviewerObj = $r;
+$assignedReviewerName = $assignedReviewerObj ? $assignedReviewerObj['real_name'] : $assignedReviewerUsername;
+$canReviewThisBusiness = ps_actor_can_review_business($actor, $order['project_type']);
+$upgradePrograms = db()->query("SELECT id, name, specification, price FROM project_cost_templates WHERE category='program' AND is_active=1 ORDER BY name, price")->fetchAll();
+
+if ($pendingDeliveryReq) $todos[] = ['交付凭证待审核', 'warning'];
+if ($pendingUpgradeReq) $todos[] = ['产品升级待审核', 'primary'];
+
 $page_title = '订单结算单 ' . $order['order_no'];
 include __DIR__ . '/../includes/header.php';
 ?>
@@ -257,9 +329,9 @@ include __DIR__ . '/../includes/header.php';
 <div class="alert alert-warning project-shop-alert small"><i class="fas fa-store mr-1"></i> <?php echo e($shopMatch['source']); ?>流水（<?php echo e($shopMatch['shop']); ?>）<?php if ($shopMatch['refund']): ?>显示此订单号有退款 / 交易关闭<?php echo $shopMatch['refund_amount'] > 0 ? '（¥' . money($shopMatch['refund_amount']) . '）' : ''; ?><?php echo $shopMatch['status'] !== '' ? '，状态：' . e($shopMatch['status']) : ''; ?>。<?php echo $actor['role'] === 'finance' ? '请核对后在下方登记退款。' : '请告知财务核对退款。'; ?><?php else: ?>售价 ¥<?php echo money($shopMatch['price']); ?> 与结算单售价 ¥<?php echo money($order['contract_amount']); ?> 不一致，请财务核对。<?php endif; ?></div>
 <?php endforeach; ?>
 <div class="card mb-3"><div class="card-body">
-  <div class="row"><div class="col-md-3"><small class="text-muted">客户</small><div><?php echo e($order['customer_name'] ?: '待补充'); ?></div></div><div class="col-md-3"><small class="text-muted">业务 / 订单类型</small><div><?php echo e($order['project_type']); ?><?php if ($orderKinds): ?> · <?php if ($canEdit && ($actor['role'] === 'finance' || trim((string)$order['order_kind']) === '')): ?><form method="post" class="d-inline-flex align-items-center"><input type="hidden" name="csrf" value="<?php echo e(ps_csrf_token()); ?>"><input type="hidden" name="action" value="set_order_kind"><select name="order_kind" class="form-control form-control-sm mr-1" aria-label="订单类型"><option value="">选择订单类型</option><?php foreach ($orderKinds as $kindName): ?><option value="<?php echo e($kindName); ?>" <?php echo $order['order_kind'] === $kindName ? 'selected' : ''; ?>><?php echo e($kindName); ?></option><?php endforeach; ?></select><?php if ($actor['role'] === 'finance'): ?><label class="small mb-0 mr-1"><input type="checkbox" name="apply_future" value="1" checked> 今后同类上传也按此类</label><?php endif; ?><button class="btn btn-sm btn-outline-primary">保存类型</button></form><?php else: ?><?php echo e($order['order_kind'] ?: '未填'); ?><?php endif; ?><?php endif; ?></div></div><div class="col-md-3"><small class="text-muted">状态</small><div><?php echo e(ps_label('settlement', $order['settlement_status'])); ?> / <?php echo $order['delivery_status'] === 'finished' ? '已完成' : '未完成'; ?></div></div><div class="col-md-3"><small class="text-muted">订单日期</small><div><?php echo e($order['order_date']); ?></div></div></div>
+  <div class="row"><div class="col-md-3"><small class="text-muted">客户</small><div><?php echo e($order['customer_name'] ?: '待补充'); ?></div></div><div class="col-md-3"><small class="text-muted">业务 / 订单类型</small><div><?php echo e($order['project_type']); ?><?php if ($orderKinds): ?> · <?php if ($canEdit && ($actor['role'] === 'finance' || trim((string)$order['order_kind']) === '')): ?><form method="post" class="d-inline-flex align-items-center"><input type="hidden" name="csrf" value="<?php echo e(ps_csrf_token()); ?>"><input type="hidden" name="action" value="set_order_kind"><select name="order_kind" class="form-control form-control-sm mr-1" aria-label="订单类型"><option value="">选择订单类型</option><?php foreach ($orderKinds as $kindName): ?><option value="<?php echo e($kindName); ?>" <?php echo $order['order_kind'] === $kindName ? 'selected' : ''; ?>><?php echo e($kindName); ?></option><?php endforeach; ?></select><?php if ($actor['role'] === 'finance'): ?><label class="small mb-0 mr-1"><input type="checkbox" name="apply_future" value="1" checked> 今后同类上传也按此类</label><?php endif; ?><button class="btn btn-sm btn-outline-primary">保存类型</button></form><?php else: ?><?php echo e($order['order_kind'] ?: '未填'); ?><?php endif; ?><?php endif; ?></div></div><div class="col-md-3"><small class="text-muted">状态</small><div><?php echo e(ps_label('settlement', $order['settlement_status'])); ?> / <?php echo $order['delivery_status'] === 'finished' ? '<span class="text-success font-weight-bold">已交付完成</span>' : '<span class="text-muted">交付未完成</span>'; ?></div></div><div class="col-md-3"><small class="text-muted">负责审核财务</small><div><strong><?php echo e($assignedReviewerName); ?></strong><?php if ($canReviewThisBusiness): ?> <span class="badge badge-success">由您负责</span><?php endif; ?></div></div></div>
   <?php if ($actor['role'] === 'finance' && !$canEdit && $orderKinds): ?><form method="post" class="form-inline mt-3 pt-3 border-top" onsubmit="return confirm('确认纠正订单类型？原审核快照保留，分成差额将计入所选未锁定月份。')"><input type="hidden" name="csrf" value="<?php echo e(ps_csrf_token()); ?>"><input type="hidden" name="action" value="set_order_kind"><label class="mr-2">纠正已审核订单类型</label><select name="order_kind" class="form-control form-control-sm mr-2" required><?php foreach ($orderKinds as $kindName): ?><option value="<?php echo e($kindName); ?>" <?php echo $order['order_kind'] === $kindName ? 'selected' : ''; ?>><?php echo e($kindName); ?></option><?php endforeach; ?></select><input type="month" name="adjust_month" class="form-control form-control-sm mr-2" value="<?php echo e(ps_next_open_month(date('Y-m'))); ?>" required><label class="small mr-2 mb-0"><input type="checkbox" name="apply_future" value="1" checked> 此人以后同类上传默认此类</label><button class="btn btn-sm btn-outline-primary">更换类目并重算差额</button></form><?php endif; ?>
-  <div class="row mt-3 pt-3 border-top"><div class="col-md-3"><small class="text-muted">付款昵称</small><div><?php echo e($orderSource['payment_nickname'] ?: '待上传补全'); ?></div></div><div class="col-md-3"><small class="text-muted">售价</small><div><?php echo $orderSource['price_source'] === 'missing' ? '待上传补全' : '¥' . money($order['contract_amount']); ?></div></div><div class="col-md-3"><small class="text-muted">店铺交易状态</small><div><?php echo e($orderSource['trade_status'] ?: '待上传补全'); ?></div></div><div class="col-md-3"><small class="text-muted">数据来源</small><div><?php echo $orderSource['price_source'] === 'shop_upload' ? '店铺订单上传' : ($orderSource['price_source'] === 'manual' ? '人工录入' : '待匹配'); ?></div></div></div>
+  <div class="row mt-3 pt-3 border-top"><div class="col-md-3"><small class="text-muted">付款昵称</small><div><?php echo e($orderSource['payment_nickname'] ?: '待上传补全'); ?></div></div><div class="col-md-3"><small class="text-muted">售价</small><div><?php echo $orderSource['price_source'] === 'missing' ? '待上传补全' : '¥' . money($order['contract_amount']); ?></div></div><div class="col-md-3"><small class="text-muted">店铺交易状态</small><div><?php echo e($orderSource['trade_status'] ?: '待上传补全'); ?></div></div><div class="col-md-3"><small class="text-muted">订单日期</small><div><?php echo e($order['order_date']); ?></div></div></div>
   <?php if (!empty($orderSource['payment_reference'])): ?><div class="mt-3 pt-3 border-top"><small class="text-muted">微信交易流水号 / 支付订单号</small><div><?php echo e($orderSource['payment_reference']); ?></div></div><?php endif; ?>
   <?php if ($businessDefinition && $businessDefinition['fields']): ?><div class="row mt-3 pt-3 border-top"><?php foreach ($businessDefinition['fields'] as $key => $label): ?><div class="col-md-6 mb-2"><small class="text-muted"><?php echo e($label); ?></small><div><?php echo e(ps_contact_for($actor, ($businessDetails[$key] ?? '') ?: '—', $key === 'customer_wechat')); ?></div></div><?php endforeach; ?></div><?php endif; ?>
   <?php if (trim((string)$order['note']) !== ''): ?><div class="alert alert-light border small mt-3 mb-0"><strong>订单录入信息<?php echo $businessDefinition && $businessDefinition['resources'] ? '与资源提示' : ''; ?>：</strong><?php echo nl2br(e(ps_contact_for($actor, $order['note']))); ?><?php if ($businessDefinition && $businessDefinition['resources']): ?><div class="text-muted">已选择的标准域名/服务器会显示在下方成本明细；SSL 等非标准成本仍需补录并上传凭证。</div><?php endif; ?></div><?php endif; ?>
@@ -267,6 +339,99 @@ include __DIR__ . '/../includes/header.php';
   <?php if ($sum['service_fee'] > 0): ?><div class="text-muted text-center small mt-2">直接成本已含店铺服务费：售价 ¥<?php echo money($order['contract_amount']); ?> × <?php echo round($sum['service_fee_rate'] * 100, 2); ?>% = ¥<?php echo money($sum['service_fee']); ?>；程序套餐、域名与服务器成本在下方逐项显示。个人分成按各自规则的服务费率计算，见“参与人与分成计算”。</div><?php endif; ?>
   <?php if ($actor['role'] === 'finance'): ?><div class="row text-center mt-2"><div class="col-md-6">技术项目分成池：<strong><?php echo ($canEdit && $sum['groups']['technical']['pool'] === null) ? '待配置' : '¥' . money($canEdit ? $sum['groups']['technical']['pool'] : $snapshotPool['technical']); ?></strong>（<?php echo $canEdit ? ($sum['groups']['technical']['rate'] === null ? '无规则' : money($sum['groups']['technical']['rate'] * 100) . '%') : '已审核快照'; ?>）</div><div class="col-md-6">客服项目分成池：<strong><?php echo ($canEdit && $sum['groups']['customer_service']['pool'] === null) ? '待配置' : '¥' . money($canEdit ? $sum['groups']['customer_service']['pool'] : $snapshotPool['customer_service']); ?></strong>（<?php echo $canEdit ? ($sum['groups']['customer_service']['rate'] === null ? '无规则' : money($sum['groups']['customer_service']['rate'] * 100) . '%') : '已审核快照'; ?>）</div></div><?php else: ?><div class="text-center mt-2"><?php echo $canEdit ? '本人预计项目分成' : '本人已审核项目分成'; ?>：<strong><?php echo $ownCommissionConfigured ? '¥' . money($ownCommission) : '待配置'; ?></strong></div><?php endif; ?>
 </div></div>
+
+<?php if ($pendingDeliveryReq): ?>
+<div class="card border-warning mb-3">
+  <div class="card-header bg-warning text-dark font-weight-bold d-flex justify-content-between align-items-center flex-wrap" style="gap:8px">
+    <span><i class="fas fa-clipboard-check mr-2"></i>【待审核】交付完成申请</span>
+    <span class="badge badge-light">申请人：<?php echo e($pendingDeliveryReq['applicant_name']); ?>（<?php echo e(substr($pendingDeliveryReq['created_at'], 0, 16)); ?>）</span>
+  </div>
+  <div class="card-body">
+    <div class="row">
+      <div class="col-md-7">
+        <p class="mb-2"><strong>交付说明 / 验收留言：</strong><?php echo e($pendingDeliveryReq['data']['delivery_note'] ?: '无特别说明'); ?></p>
+        <?php if (!empty($pendingDeliveryReq['data']['proof_path'])): ?>
+        <p class="mb-0"><strong>企微群交付凭证：</strong><a class="btn btn-outline-info btn-sm" href="<?php echo BASE_URL; ?>/project/proof.php?request_id=<?php echo (int)$pendingDeliveryReq['id']; ?>" target="_blank"><i class="fas fa-image mr-1"></i>查看企微群聊天/交付凭证截图</a></p>
+        <?php endif; ?>
+      </div>
+      <div class="col-md-5">
+        <small class="text-muted d-block mb-1 text-right">负责审核财务：<strong><?php echo e($assignedReviewerName); ?></strong></small>
+        <?php if ($actor['role'] === 'finance'): ?>
+          <?php if ($canReviewThisBusiness): ?>
+          <form method="post" class="mt-2 bg-light p-2 rounded border">
+            <input type="hidden" name="csrf" value="<?php echo e(ps_csrf_token()); ?>">
+            <input type="hidden" name="action" value="review_delivery_completion">
+            <input type="hidden" name="request_id" value="<?php echo (int)$pendingDeliveryReq['id']; ?>">
+            <div class="form-group mb-2">
+              <input class="form-control form-control-sm" name="review_note" placeholder="审核意见（驳回必填，通过可选填）">
+            </div>
+            <div class="text-right">
+              <button class="btn btn-success btn-sm mr-1" name="decision" value="approved" onclick="return confirm('确认通过此交付完成申请？订单交付状态将变更为已完成。')"><i class="fas fa-check mr-1"></i>通过交付完成</button>
+              <button class="btn btn-outline-danger btn-sm" name="decision" value="rejected" onclick="return confirm('确认驳回此交付申请？')"><i class="fas fa-times mr-1"></i>驳回</button>
+            </div>
+          </form>
+          <?php else: ?>
+          <div class="alert alert-secondary small p-2 mb-0 text-left">该业务指定由 <strong><?php echo e($assignedReviewerName); ?></strong> 审核，您当前无权审核此业务。</div>
+          <?php endif; ?>
+        <?php else: ?>
+        <div class="badge badge-warning p-2 d-block text-center mt-2">等待财务（<?php echo e($assignedReviewerName); ?>）核对企微群并审核</div>
+        <?php endif; ?>
+      </div>
+    </div>
+  </div>
+</div>
+<?php endif; ?>
+
+<?php if ($pendingUpgradeReq): ?>
+<div class="card border-primary mb-3">
+  <div class="card-header bg-primary text-white font-weight-bold d-flex justify-content-between align-items-center flex-wrap" style="gap:8px">
+    <span><i class="fas fa-level-up-alt mr-2"></i>【待审核】产品升级申请：<?php echo e($pendingUpgradeReq['data']['from_name'] ?? '原套餐'); ?> → <?php echo e($pendingUpgradeReq['data']['to_name'] ?? '新套餐'); ?></span>
+    <span class="badge badge-light">申请人：<?php echo e($pendingUpgradeReq['applicant_name']); ?>（<?php echo e(substr($pendingUpgradeReq['created_at'], 0, 16)); ?>）</span>
+  </div>
+  <div class="card-body">
+    <div class="row">
+      <div class="col-md-7">
+        <p class="mb-1"><strong>升级原因：</strong><?php echo e($pendingUpgradeReq['data']['upgrade_reason'] ?: '无'); ?></p>
+        <p class="mb-2"><strong>客户补款信息：</strong><?php echo e($pendingUpgradeReq['data']['customer_payment_note'] ?: '无'); ?></p>
+        <div class="alert alert-info small mb-0">
+          <i class="fas fa-info-circle mr-1"></i><strong>核查提示：</strong>请宋文娜或审核财务前往咱们后台核查客户补差价实际金额，并在右侧填写补差价成本。审核通过后将自动生成已审核的“产品升级补差成本”，并更新订单程序套餐，重新计算提成。
+        </div>
+      </div>
+      <div class="col-md-5">
+        <small class="text-muted d-block mb-1 text-right">负责审核财务：<strong><?php echo e($assignedReviewerName); ?></strong></small>
+        <?php if ($actor['role'] === 'finance'): ?>
+          <?php if ($canReviewThisBusiness): ?>
+          <form method="post" enctype="multipart/form-data" class="bg-light p-2 rounded border">
+            <input type="hidden" name="csrf" value="<?php echo e(ps_csrf_token()); ?>">
+            <input type="hidden" name="action" value="review_product_upgrade">
+            <input type="hidden" name="request_id" value="<?php echo (int)$pendingUpgradeReq['id']; ?>">
+            <div class="form-group mb-2">
+              <label class="small mb-1 font-weight-bold">后台查验补差价成本金额 ¥ <span class="text-danger">*</span></label>
+              <input type="number" step="0.01" min="0" name="diff_amount" class="form-control form-control-sm" placeholder="如 200.00" required>
+            </div>
+            <div class="form-group mb-2">
+              <label class="small mb-1">后台查验截图/补款凭证（可选）</label>
+              <input type="file" name="diff_proof" class="form-control-file small" accept=".jpg,.jpeg,.png,.pdf">
+            </div>
+            <div class="form-group mb-2">
+              <input class="form-control form-control-sm" name="review_note" placeholder="审核意见或核验说明">
+            </div>
+            <div class="text-right">
+              <button class="btn btn-primary btn-sm mr-1" name="decision" value="approved" onclick="return confirm('确认后台已查验实付补差金额并审核升级？')"><i class="fas fa-check mr-1"></i>确认升级并录入差价成本</button>
+              <button class="btn btn-outline-danger btn-sm" name="decision" value="rejected" onclick="return confirm('确认驳回此升级申请？')"><i class="fas fa-times mr-1"></i>驳回</button>
+            </div>
+          </form>
+          <?php else: ?>
+          <div class="alert alert-secondary small p-2 mb-0">该业务指定由 <strong><?php echo e($assignedReviewerName); ?></strong> 审核，您当前无权审核此业务。</div>
+          <?php endif; ?>
+        <?php else: ?>
+        <div class="badge badge-info p-2 d-block text-center mt-3">等待财务（<?php echo e($assignedReviewerName); ?>）在后台核对补差价并审核</div>
+        <?php endif; ?>
+      </div>
+    </div>
+  </div>
+</div>
+<?php endif; ?>
 
 <?php if ($actor['role'] === 'finance' && $canEdit): ?>
 <div class="card mb-3"><div class="card-header">销售/财务信息</div><div class="card-body"><form method="post" class="form-row align-items-end">
@@ -300,6 +465,63 @@ include __DIR__ . '/../includes/header.php';
 <div class="card mb-3 project-resource-pending"><div class="card-body"><h5><i class="fas fa-seedling mr-2"></i>技术提交 · 确认域名与服务器</h5><p class="text-muted mb-3">客服与技术共用此订单。技术确认后，选中的标准域名和服务器分别自动计入成本；未确认前不能审核分成。</p>
 <?php if (in_array($actor['role'], ['technical','finance'], true)): ?><form method="post" class="form-row align-items-end"><input type="hidden" name="csrf" value="<?php echo e(ps_csrf_token()); ?>"><input type="hidden" name="action" value="confirm_resources"><?php if (!empty($businessDefinition['program'])): $programOptions = ps_intake_templates('program', $order['project_type']); ?><div class="form-group col-md-12"><label>程序套餐（含空间 / 域名 / 商投，选中即按成本中心价入账）</label><select class="form-control" name="program_template_id" id="confirmProgram"><option value="0">不使用程序套餐</option><?php $lastProgram = ''; foreach ($programOptions as $programOption): if ($programOption['name'] !== $lastProgram): if ($lastProgram !== ''): ?></optgroup><?php endif; $lastProgram = $programOption['name']; ?><optgroup label="<?php echo e($programOption['name']); ?>"><?php endif; ?><option value="<?php echo (int)$programOption['id']; ?>"><?php echo e($programOption['name'] . ' · ' . $programOption['specification'] . ' · ¥' . money($programOption['price'])); ?></option><?php endforeach; if ($lastProgram !== ''): ?></optgroup><?php endif; ?></select><?php if (!$programOptions): ?><small class="text-warning">成本中心尚无程序套餐，请财务先导入《程序表记录》。</small><?php endif; ?></div><?php endif; ?><div class="form-group col-md-3"><label>域名使用</label><select class="form-control" name="domain_mode" id="confirmDomainMode" <?php echo empty($businessDefinition['program']) ? 'required' : ''; ?>><option value=""><?php echo empty($businessDefinition['program']) ? '请选择' : '套餐已含 / 请选择'; ?></option><option value="none">无需域名</option><option value="template">使用标准域名</option></select></div><div class="form-group col-md-3" id="confirmDomainTemplateWrap" hidden><label>域名标准成本</label><select class="form-control" name="domain_template_id" id="confirmDomainTemplate"><option value="">选择域名和周期</option><?php foreach (ps_intake_templates('domain') as $domainOption): ?><option value="<?php echo (int)$domainOption['id']; ?>"><?php echo e($domainOption['name'] . ' ' . $domainOption['specification'] . ' · ¥' . money($domainOption['price'])); ?></option><?php endforeach; ?></select></div><div class="form-group col-md-3"><label>服务器 / 空间</label><select class="form-control" name="server_template_id"><option value="0">无需标准服务器</option><?php foreach (ps_intake_templates('server') as $serverOption): ?><option value="<?php echo (int)$serverOption['id']; ?>"><?php echo e($serverOption['name'] . ' ' . $serverOption['specification'] . ' · ¥' . money($serverOption['price'])); ?></option><?php endforeach; ?></select></div><div class="form-group col-md-3"><button class="btn btn-success btn-block">确认并带入成本</button></div></form><?php endif; ?></div></div>
 <script>(function(){var mode=document.getElementById('confirmDomainMode'),wrap=document.getElementById('confirmDomainTemplateWrap'),template=document.getElementById('confirmDomainTemplate');if(!mode)return;mode.addEventListener('change',function(){var use=mode.value==='template';wrap.hidden=!use;template.required=use;});})();</script>
+<?php endif; ?>
+
+<?php if ($canEdit && $order['delivery_status'] !== 'finished' && !$pendingDeliveryReq && in_array($actor['role'], ['customer_service', 'technical', 'finance'], true)): ?>
+<div class="card mb-3 project-form-card">
+  <div class="card-body">
+    <h5><i class="fas fa-tasks mr-2 text-success"></i>申请标记交付完成 · 上传交付凭证</h5>
+    <p class="text-muted small">发货不等于网站订单已完成。次月核算需前往各个企业微信群查看聊天记录并核实交付后，在此上传企业微信群验收聊天截图或交付凭证，提交财务审核（负责审核财务：<strong><?php echo e($assignedReviewerName); ?></strong>）。</p>
+    <form method="post" enctype="multipart/form-data" class="form-row align-items-end">
+      <input type="hidden" name="csrf" value="<?php echo e(ps_csrf_token()); ?>">
+      <input type="hidden" name="action" value="apply_delivery_completion">
+      <div class="form-group col-md-5">
+        <label>企微群交付/验收凭证截图 <span class="text-danger">*</span>（JPG/PNG/PDF ≤5MB）</label>
+        <input type="file" name="delivery_proof" class="form-control-file" accept=".jpg,.jpeg,.png,.pdf" required>
+      </div>
+      <div class="form-group col-md-5">
+        <label>交付说明 / 企微群验收情况</label>
+        <input type="text" name="delivery_note" class="form-control" placeholder="如：已核验企业微信群，客户已验收通过并上线" maxlength="300">
+      </div>
+      <div class="form-group col-md-2">
+        <button class="btn btn-outline-success btn-block"><i class="fas fa-upload mr-1"></i>提交交付申请</button>
+      </div>
+    </form>
+  </div>
+</div>
+<?php endif; ?>
+
+<?php if ($canEdit && $upgradePrograms && !$pendingUpgradeReq && in_array($actor['role'], ['customer_service', 'technical', 'finance'], true)): ?>
+<div class="card mb-3 project-form-card">
+  <div class="card-body">
+    <h5><i class="fas fa-arrow-circle-up mr-2 text-primary"></i>申请产品升级（如 JSP 展中升级 JSP 展高）</h5>
+    <p class="text-muted small">客户开了几个月中途想升级版本时在此申请。提交后由负责财务（<strong><?php echo e($assignedReviewerName); ?></strong>）前往后台核查客户实际补差价金额并录入差价成本，审核通过后系统自动根据成本中心规则变更成本并重新核算提成。</p>
+    <form method="post" class="form-row align-items-end">
+      <input type="hidden" name="csrf" value="<?php echo e(ps_csrf_token()); ?>">
+      <input type="hidden" name="action" value="apply_product_upgrade">
+      <div class="form-group col-md-4">
+        <label>申请升级的目标程序套餐 <span class="text-danger">*</span></label>
+        <select name="to_template_id" class="form-control" required>
+          <option value="">请选择目标程序套餐</option>
+          <?php foreach ($upgradePrograms as $prog): ?>
+          <option value="<?php echo (int)$prog['id']; ?>"><?php echo e($prog['name'] . ($prog['specification'] ? ' · ' . $prog['specification'] : '') . ' · 标价 ¥' . money($prog['price'])); ?></option>
+          <?php endforeach; ?>
+        </select>
+      </div>
+      <div class="form-group col-md-3">
+        <label>客户补款说明 / 微信流水</label>
+        <input type="text" name="customer_payment_note" class="form-control" placeholder="如：客户微信补款 200 元" maxlength="200">
+      </div>
+      <div class="form-group col-md-3">
+        <label>升级原因 / 客户要求</label>
+        <input type="text" name="upgrade_reason" class="form-control" placeholder="如：客户增加展示功能升级展高" maxlength="300">
+      </div>
+      <div class="form-group col-md-2">
+        <button class="btn btn-outline-primary btn-block"><i class="fas fa-paper-plane mr-1"></i>提交升级申请</button>
+      </div>
+    </form>
+  </div>
+</div>
 <?php endif; ?>
 
 <div class="card mb-3"><div class="card-header d-flex justify-content-between"><span>收款与退款记录</span><span class="text-muted">已审核实收 ¥<?php echo money($order['receipt_amount']); ?> · 已审核退款 ¥<?php echo money($order['refund_amount']); ?></span></div>
@@ -371,5 +593,75 @@ if ($actor['role'] !== 'finance') $adjustments = array_values(array_filter($adju
 </form><small class="text-muted">系统按审核时的比例重算：全额退款会收回分成和每单补助；部分退款或成本变化只调整差额。默认计入下一个未锁定月份。</small></div><?php endif; ?>
 </div>
 <?php endif; ?>
+
+<?php if ($orderRequests): ?>
+<div class="card mb-3">
+  <div class="card-header d-flex justify-content-between align-items-center">
+    <span><i class="fas fa-history mr-1"></i>交付与产品升级申请记录</span>
+    <span class="small text-muted">共 <?php echo count($orderRequests); ?> 条记录</span>
+  </div>
+  <div class="table-responsive">
+    <table class="table table-sm mb-0">
+      <thead>
+        <tr>
+          <th>申请时间</th>
+          <th>类型</th>
+          <th>申请人</th>
+          <th>申请内容 / 凭证</th>
+          <th>状态</th>
+          <th>审核人</th>
+          <th>审核时间</th>
+          <th>审核备注</th>
+        </tr>
+      </thead>
+      <tbody>
+        <?php foreach ($orderRequests as $req):
+          $rData = $req['data'];
+          $isDelivery = $req['request_type'] === 'delivery_completion';
+        ?>
+        <tr>
+          <td class="small text-muted"><?php echo e($req['created_at']); ?></td>
+          <td>
+            <?php if ($isDelivery): ?>
+              <span class="badge badge-success">交付完成申请</span>
+            <?php else: ?>
+              <span class="badge badge-primary">产品升级申请</span>
+            <?php endif; ?>
+          </td>
+          <td><?php echo e($req['applicant_name']); ?></td>
+          <td class="small">
+            <?php if ($isDelivery): ?>
+              <?php echo e($rData['delivery_note'] ?: '交付完成申请'); ?>
+              <?php if (!empty($rData['proof_path'])): ?>
+                <div><a href="<?php echo BASE_URL; ?>/project/proof.php?request_id=<?php echo (int)$req['id']; ?>" target="_blank"><i class="fas fa-image mr-1"></i>查看企微群凭证</a></div>
+              <?php endif; ?>
+            <?php else: ?>
+              <div><strong><?php echo e($rData['from_name'] ?? ''); ?></strong> → <strong><?php echo e($rData['to_name'] ?? ''); ?></strong></div>
+              <?php if (!empty($rData['customer_payment_note'])): ?><div class="text-muted">客户补款：<?php echo e($rData['customer_payment_note']); ?></div><?php endif; ?>
+              <?php if (!empty($rData['upgrade_reason'])): ?><div class="text-muted">原因：<?php echo e($rData['upgrade_reason']); ?></div><?php endif; ?>
+            <?php endif; ?>
+          </td>
+          <td>
+            <?php if ($req['status'] === 'pending'): ?>
+              <span class="badge badge-warning">待审核</span>
+            <?php elseif ($req['status'] === 'approved'): ?>
+              <span class="badge badge-success">已通过</span>
+            <?php else: ?>
+              <span class="badge badge-danger">已驳回</span>
+            <?php endif; ?>
+          </td>
+          <td><?php echo e($req['reviewer_name'] ?: ($req['reviewer_username'] ?: '—')); ?></td>
+          <td class="small text-muted"><?php echo e($req['reviewed_at'] ?: '—'); ?></td>
+          <td class="small">
+            <?php echo e($req['review_note'] ?: '—'); ?>
+          </td>
+        </tr>
+        <?php endforeach; ?>
+      </tbody>
+    </table>
+  </div>
+</div>
+<?php endif; ?>
+
 <?php if ($actor['role'] === 'finance' && $canEdit): ?><form method="post" class="form-inline justify-content-end mb-4"><input type="hidden" name="csrf" value="<?php echo e(ps_csrf_token()); ?>"><input type="hidden" name="action" value="approve_order"><label class="mr-2" for="payrollMonth">项目分成归属月份</label><input id="payrollMonth" type="month" name="payroll_month" class="form-control mr-2" value="<?php echo date('Y-m'); ?>" required><button class="btn btn-primary" onclick="return confirm('确认收入、成本、参与人和归属月份均已核对？审核后本订单将锁定编辑。')">审核并生成项目分成</button></form><?php endif; ?>
 <?php include __DIR__ . '/../includes/footer.php'; ?>

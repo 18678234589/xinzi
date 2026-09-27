@@ -199,6 +199,8 @@ function ps_business_import_columns($business)
         $columns['detail:trademark_name'] = ['商标名称', '商标'];
         $columns['detail:trademark_count'] = ['商标个数', '数量', '件数'];
         $columns['detail:service_type'] = ['网报类型', '网报加急', '业务类型'];
+        // 客服原表“设计”列：网报加急空一格时件数会落在这里，导入时由 ps_trademark_fix_row 归位
+        $columns['trademark_extra'] = ['设计'];
     }
     if (!empty($definition['program'])) $columns['program_name'] = ['程序名称', '程序套餐'];
     if ($definition['resources']) {
@@ -258,11 +260,16 @@ function ps_business_import_map($business, $head, $requirePeople = true)
     return $map;
 }
 
-/** 表格里的交付/到账状态统一为项目交付状态；无法识别时返回 null。 */
-function ps_import_delivery_status($text)
+/** 表格里的交付/到账状态统一为项目交付状态；无法识别时返回 null。
+ * 网站定制/网站模板类业务：下单3天发货仅为电商平台履约，并不等于网站完工；必须由核算人员次月查验企微群后确认，因此“发货/已发货”作为 unfinished（未完成）。
+ */
+function ps_import_delivery_status($text, $business = '')
 {
     $text = trim((string)$text);
     if ($text === '') return 'unfinished';
+    if (ps_is_website_order($business) && (in_array($text, ['已发货', '发货'], true) || preg_match('/^(发货|已发货)\d*(?:\.\d+)?$/u', $text))) {
+        return 'unfinished';
+    }
     if (in_array($text, ['已完成','完成','已发货','已交','到账','已到账','交易成功','售后返','发货'], true)) return 'finished';
     // 设计总表常见“到账5”“发货15”（状态后跟补差金额）
     if (preg_match('/^(到账|已到账|发货|已发货)\d+(?:\.\d+)?$/u', $text)) return 'finished';

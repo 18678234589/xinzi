@@ -169,6 +169,64 @@ function ps_import_group_taken($orderId, $group)
     return (bool)$q->fetchColumn();
 }
 
+/**
+ * 商标订单的资料专员、提交专员分别上传同一单：技术组按岗位区分，同岗位已有人时不再追加。
+ * 返回可加入的岗位名；本人已在单上或同岗位已有人时返回 null。
+ */
+function ps_trademark_technical_role_open($orderId, $employeeId, $fallbackRole)
+{
+    $role = ps_employee_default_role($employeeId, '商标', 'technical') ?? (string)$fallbackRole;
+    $q = db()->prepare("SELECT employee_id,role_name FROM project_participants WHERE order_id=? AND commission_group='technical'");
+    $q->execute([(int)$orderId]);
+    foreach ($q->fetchAll() as $p) if ((int)$p['employee_id'] === (int)$employeeId || $p['role_name'] === $role) return null;
+    return $role;
+}
+
+/** 追加一名商标技术参与人，并把技术组权重重新均分（审核要求组内合计 100%；商标技术按件计，权重不影响金额）。调用方负责事务。 */
+function ps_trademark_add_technical($orderId, $employeeId, $role)
+{
+    db()->prepare("INSERT INTO project_participants (order_id,employee_id,commission_group,role_name,group_weight) VALUES (?,?,'technical',?,0)")->execute([(int)$orderId, (int)$employeeId, $role]);
+    $q = db()->prepare("SELECT id FROM project_participants WHERE order_id=? AND commission_group='technical' ORDER BY id");
+    $q->execute([(int)$orderId]);
+    $ids = $q->fetchAll(PDO::FETCH_COLUMN);
+    $base = intdiv(1000000, count($ids));
+    $update = db()->prepare('UPDATE project_participants SET group_weight=? WHERE id=?');
+    foreach ($ids as $i => $id) $update->execute([($i === count($ids) - 1 ? 1000000 - $base * (count($ids) - 1) : $base) / 1000000, (int)$id]);
+}
+
+/**
+ * 商标部原表整理：日期与店铺互换（“美呀美 | 46236”）、网报加急空一格使件数落到“设计”列、网报加急列写“8.10发货”、
+ * 日期带“晚 / 上午”等字样时按内容归位；合计 / 底薪 / 提成等汇总行返回 null，不当作订单。
+ */
+function ps_trademark_fix_row($row, $map)
+{
+    $get = function ($key) use (&$row, $map) { return isset($map[$key]) ? trim((string)($row[$map[$key]] ?? '')) : ''; };
+    $orderNo = $get('order_no');
+    if (!preg_match('/^[A-Za-z0-9_-]{8,}$/', $orderNo) && $get('payment_reference') === '') {
+        if ($orderNo !== '' && !ps_import_date($get('order_date')) && !ps_import_date($get('shop'))) return null;
+        if (preg_match('/合计|总计|底薪|全勤|提成|单价|出勤|请假/u', implode(' ', array_map('strval', $row)))) return null;
+    }
+    if (isset($map['order_date'], $map['shop']) && !ps_import_date($get('order_date')) && $get('shop') !== '' && ps_import_date($get('shop'))) {
+        [$row[$map['order_date']], $row[$map['shop']]] = [$row[$map['shop']], $row[$map['order_date']]];
+    }
+    if (isset($map['order_date']) && preg_match('/^(\d{4}[.\/-]\d{1,2}[.\/-]\d{1,2})\s*(?:早上|上午|中午|下午|晚上|早|晚)$/u', $get('order_date'), $m)) $row[$map['order_date']] = $m[1];
+    if (isset($map['detail:trademark_count'])) {
+        $count = '';
+        $texts = [];
+        $shipNotes = [];
+        foreach (['detail:service_type', 'detail:trademark_count', 'trademark_extra'] as $key) {
+            $value = $get($key);
+            if ($value === '') continue;
+            if (is_numeric($value)) { if ($count === '' && $key !== 'detail:service_type') $count = $value; continue; }
+            if (preg_match('/^\d{1,2}[.\/月]\d{1,2}日?\s*(?:已)?发货$/u', $value)) $shipNotes[] = $value; else $texts[] = $value;
+        }
+        $row[$map['detail:trademark_count']] = $count;
+        if (isset($map['detail:service_type'])) $row[$map['detail:service_type']] = implode(' ', $texts ?: $shipNotes);
+        if (isset($map['trademark_extra'])) $row[$map['trademark_extra']] = '';
+    }
+    return $row;
+}
+
 function ps_import_date($value)
 {
     $value = rtrim(trim((string)$value), '.。'); // 容忍手录多打的句点，如“8.30.”

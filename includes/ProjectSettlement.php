@@ -196,6 +196,20 @@ function ps_calc_person($rule, $income, $directCost, $contract, $weight, $busine
     return ['mode' => $mode, 'fee_rate' => $feeRate, 'fee' => $fee, 'fee_part' => $feePart, 'cost_basis' => $costBasis, 'base' => $base, 'rate' => $rate, 'weight' => (float)$weight, 'share' => $share, 'subsidy' => $subsidy, 'blocked' => $blocked, 'note' => $note];
 }
 
+/**
+ * 商标资料专员 / 提交专员按件计：每单补助（规则里的每件单价）× 商标个数。
+ * 原表“商标个数”留空的行（如 10 元小额单）不计件，与部门核算表合计口径一致。
+ */
+function ps_trademark_piece_calc($calc, $count)
+{
+    if (!$calc || $calc['blocked'] || $calc['subsidy'] <= 0) return $calc;
+    $unit = $calc['subsidy'];
+    $pieces = $count === null ? 0.0 : (float)$count;
+    $calc['subsidy'] = round($unit * $pieces, 2);
+    $calc['note'] .= $pieces > 0 ? '（每件 × 商标 ' . rtrim(rtrim(number_format($pieces, 2, '.', ''), '0'), '.') . ' 件 = ' . money_plain($calc['subsidy']) . '）' : '（未填商标个数，不计件）';
+    return $calc;
+}
+
 function ps_summary($order, $costs, $participants)
 {
     $income = round((float)$order['receipt_amount'] - (float)$order['refund_amount'], 2);
@@ -226,7 +240,7 @@ function ps_summary($order, $costs, $participants)
     // 业务默认店铺服务费按售价计（网站模板/环境配置/小程序 3%），AI 定制默认不扣；分成规则可按组或岗位覆盖。
     $businessFeeRate = ps_business_service_fee_rate($order['project_type']);
     $serviceFee = round($contract * $businessFeeRate, 2);
-    $trademarkCount = 1;
+    $trademarkCount = null;
     if ($order['project_type'] === '商标') {
         static $orderDetailStmt = null;
         if ($orderDetailStmt === null) {
@@ -236,7 +250,7 @@ function ps_summary($order, $costs, $participants)
         $detailsRaw = $orderDetailStmt->fetchColumn();
         if ($detailsRaw) {
             $detailsJson = json_decode($detailsRaw, true);
-            if (isset($detailsJson['trademark_count']) && is_numeric($detailsJson['trademark_count']) && (float)$detailsJson['trademark_count'] > 0) {
+            if (isset($detailsJson['trademark_count']) && is_numeric($detailsJson['trademark_count']) && (float)$detailsJson['trademark_count'] >= 0) {
                 $trademarkCount = (float)$detailsJson['trademark_count'];
             }
         }
@@ -254,15 +268,9 @@ function ps_summary($order, $costs, $participants)
             [$costEst, $noteEst] = $personCost($group, $person['role_name'] ?? '', true);
             $people[$i]['calc'] = $rule ? ps_calc_person($rule, $income, $costNow, $contract, $person['group_weight'], $businessFeeRate, $noteNow) : null;
             $people[$i]['estimated_calc'] = $rule ? ps_calc_person($rule, $income, $costEst, $contract, $person['group_weight'], $businessFeeRate, $noteEst) : null;
-            if ($order['project_type'] === '商标' && $group === 'technical' && $trademarkCount > 1) {
-                if ($people[$i]['calc'] && $people[$i]['calc']['subsidy'] > 0) {
-                    $people[$i]['calc']['subsidy'] = round($people[$i]['calc']['subsidy'] * $trademarkCount, 2);
-                    $people[$i]['calc']['note'] .= '（商标' . $trademarkCount . '件）';
-                }
-                if ($people[$i]['estimated_calc'] && $people[$i]['estimated_calc']['subsidy'] > 0) {
-                    $people[$i]['estimated_calc']['subsidy'] = round($people[$i]['estimated_calc']['subsidy'] * $trademarkCount, 2);
-                    $people[$i]['estimated_calc']['note'] .= '（商标' . $trademarkCount . '件）';
-                }
+            if ($order['project_type'] === '商标' && $group === 'technical') {
+                $people[$i]['calc'] = ps_trademark_piece_calc($people[$i]['calc'], $trademarkCount);
+                $people[$i]['estimated_calc'] = ps_trademark_piece_calc($people[$i]['estimated_calc'], $trademarkCount);
             }
             if (!$rule) { $missing = true; continue; }
             $pool += $people[$i]['calc']['share'];
@@ -275,15 +283,9 @@ function ps_summary($order, $costs, $participants)
             [$costEst, $noteEst] = $personCost($group, '', true);
             $calc = $defaultRule ? ps_calc_person($defaultRule, $income, $costNow, $contract, 1, $businessFeeRate, $noteNow) : null;
             $estimated = $defaultRule ? ps_calc_person($defaultRule, $income, $costEst, $contract, 1, $businessFeeRate, $noteEst) : null;
-            if ($order['project_type'] === '商标' && $group === 'technical' && $trademarkCount > 1) {
-                if ($calc && $calc['subsidy'] > 0) {
-                    $calc['subsidy'] = round($calc['subsidy'] * $trademarkCount, 2);
-                    $calc['note'] .= '（商标' . $trademarkCount . '件）';
-                }
-                if ($estimated && $estimated['subsidy'] > 0) {
-                    $estimated['subsidy'] = round($estimated['subsidy'] * $trademarkCount, 2);
-                    $estimated['note'] .= '（商标' . $trademarkCount . '件）';
-                }
+            if ($order['project_type'] === '商标' && $group === 'technical') {
+                $calc = ps_trademark_piece_calc($calc, $trademarkCount);
+                $estimated = ps_trademark_piece_calc($estimated, $trademarkCount);
             }
             $pool = $calc ? $calc['share'] : null;
             $estimatedPool = $estimated ? $estimated['share'] : null;
@@ -518,6 +520,8 @@ function ps_order_todos($row)
     if (ps_business_requires_technical($row['project_type']) && (int)($row['tech_count'] ?? 1) === 0) $todos[] = ['未指定技术', 'danger'];
     if ((int)($row['pending_costs'] ?? 0) > 0) $todos[] = ['成本待审 ' . (int)$row['pending_costs'], 'info'];
     if ((int)($row['pending_cash'] ?? 0) > 0) $todos[] = ['收退款待审 ' . (int)$row['pending_cash'], 'info'];
+    if ((int)($row['pending_delivery_requests'] ?? 0) > 0) $todos[] = ['交付待审', 'warning'];
+    if ((int)($row['pending_upgrade_requests'] ?? 0) > 0) $todos[] = ['升级待审', 'primary'];
     if ((float)($row['receipt_amount'] ?? 0) <= 0) $todos[] = ['实收未确认', 'secondary'];
     if (($row['delivery_status'] ?? '') !== 'finished') $todos[] = ['交付未完成', 'secondary'];
     return $todos;
@@ -712,3 +716,278 @@ function ps_reclassify_order_kind($orderId, $kind, $actor, $payrollMonth, $apply
         throw $e;
     }
 }
+
+/* ---------- 订单交付凭证申请与产品升级补差申请 ---------- */
+
+function ps_order_requests($orderId)
+{
+    $sql = "SELECT r.*, a.username AS reviewer_username,
+            COALESCE(e.name, a.username) AS reviewer_name
+            FROM project_order_requests r
+            LEFT JOIN admins a ON a.id=r.reviewer_id
+            LEFT JOIN employees e ON (a.username='songwenna' AND e.name='宋文娜')
+                                  OR (a.username='liuqun' AND e.name='刘群')
+                                  OR (a.username='sunman' AND e.name='孙曼')
+                                  OR (a.username='yaolin' AND e.name='姚琳')
+                                  OR (a.username='wangfang' AND e.name='王芳')
+                                  OR (a.username='weihuizi' AND e.name='魏慧子')
+                                  OR (a.username='wangguimei' AND e.name='王桂美')
+            WHERE r.order_id=? ORDER BY r.id DESC";
+    $q = db()->prepare($sql);
+    $q->execute([(int)$orderId]);
+    $list = $q->fetchAll();
+    foreach ($list as $i => $row) {
+        $list[$i]['data'] = json_decode((string)$row['data_json'], true) ?: [];
+    }
+    return $list;
+}
+
+function ps_order_pending_request($orderId, $type = null)
+{
+    if ($type) {
+        $q = db()->prepare("SELECT * FROM project_order_requests WHERE order_id=? AND request_type=? AND status='pending' ORDER BY id DESC LIMIT 1");
+        $q->execute([(int)$orderId, $type]);
+    } else {
+        $q = db()->prepare("SELECT * FROM project_order_requests WHERE order_id=? AND status='pending' ORDER BY id DESC LIMIT 1");
+        $q->execute([(int)$orderId]);
+    }
+    $row = $q->fetch();
+    if ($row) {
+        $row['data'] = json_decode((string)$row['data_json'], true) ?: [];
+        return $row;
+    }
+    return null;
+}
+
+function ps_create_order_request($orderId, $type, $actor, array $data)
+{
+    if (!in_array($type, ['delivery_completion', 'product_upgrade'], true)) {
+        throw new RuntimeException('申请类型无效');
+    }
+    $existing = ps_order_pending_request($orderId, $type);
+    if ($existing) {
+        throw new RuntimeException('该订单已有待审核的同类申请，请勿重复提交');
+    }
+
+    $applicantType = $actor['type'];
+    $applicantId = (int)($actor['employee_id'] ?? $actor['id']);
+    $applicantName = (string)($actor['username'] ?? '');
+    if (!empty($actor['employee_id'])) {
+        $nameQuery = db()->prepare('SELECT name FROM employees WHERE id=?');
+        $nameQuery->execute([(int)$actor['employee_id']]);
+        $applicantName = (string)($nameQuery->fetchColumn() ?: $applicantName);
+    }
+
+    $q = db()->prepare("INSERT INTO project_order_requests (order_id, request_type, status, applicant_type, applicant_id, applicant_name, data_json) VALUES (?, ?, 'pending', ?, ?, ?, ?)");
+    $q->execute([
+        (int)$orderId,
+        $type,
+        $applicantType,
+        $applicantId,
+        $applicantName,
+        json_encode($data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)
+    ]);
+    $requestId = (int)db()->lastInsertId();
+    ps_audit('order', (int)$orderId, 'apply_' . $type, $actor, ['request_id' => $requestId] + $data);
+    return $requestId;
+}
+
+function ps_review_order_request($requestId, $decision, $actor, $reviewNote, array $extraData = [])
+{
+    if (($actor['role'] ?? '') !== 'finance') throw new RuntimeException('仅财务或审核人可审核');
+    if (!in_array($decision, ['approved', 'rejected'], true)) throw new RuntimeException('审核决定无效');
+
+    $pdo = db();
+    $nested = $pdo->inTransaction();
+    if ($nested) $pdo->exec('SAVEPOINT project_review_order_req');
+    else $pdo->beginTransaction();
+
+    try {
+        $q = $pdo->prepare('SELECT * FROM project_order_requests WHERE id=? FOR UPDATE');
+        $q->execute([(int)$requestId]);
+        $req = $q->fetch();
+        if (!$req || $req['status'] !== 'pending') throw new RuntimeException('申请不存在或已被处理');
+
+        $orderId = (int)$req['order_id'];
+        $orderQuery = $pdo->prepare('SELECT * FROM project_orders WHERE id=? FOR UPDATE');
+        $orderQuery->execute([$orderId]);
+        $order = $orderQuery->fetch();
+        if (!$order) throw new RuntimeException('对应订单不存在');
+
+        $reqData = json_decode((string)$req['data_json'], true) ?: [];
+
+        if ($decision === 'approved') {
+            if ($req['request_type'] === 'delivery_completion') {
+                $pdo->prepare("UPDATE project_orders SET delivery_status='finished', row_version=row_version+1 WHERE id=?")->execute([$orderId]);
+                ps_audit('order', $orderId, 'approve_delivery_completion', $actor, ['request_id' => $requestId, 'note' => $reviewNote]);
+            } elseif ($req['request_type'] === 'product_upgrade') {
+                $diffAmount = isset($extraData['diff_amount']) ? round((float)$extraData['diff_amount'], 2) : 0.0;
+                if ($diffAmount < 0) throw new RuntimeException('补差金额不能为负数');
+
+                $toTemplateId = (int)($reqData['to_template_id'] ?? 0);
+                $fromName = (string)($reqData['from_name'] ?? '原程序');
+                $toName = (string)($reqData['to_name'] ?? '新程序');
+
+                $costName = '产品升级补差成本（' . $fromName . ' → ' . $toName . '）';
+                $costReason = '后台查验实付补差成本' . ($reviewNote ? '：' . $reviewNote : '');
+                $proofPath = !empty($extraData['proof_path']) ? (string)$extraData['proof_path'] : null;
+
+                $costStmt = $pdo->prepare("INSERT INTO project_costs (order_id, template_id, template_version, category, item_name, quantity, unit, unit_price, amount, supplier_amount, cost_kind, is_custom, reason, proof_path, review_status, submitted_by_employee, reviewed_by_admin, review_note) VALUES (?, ?, 1, 'program', ?, 1, '项', ?, ?, ?, 'one_time', 1, ?, ?, 'approved', ?, ?, ?)");
+                $costStmt->execute([
+                    $orderId,
+                    $toTemplateId ?: null,
+                    $costName,
+                    $diffAmount,
+                    $diffAmount,
+                    $diffAmount,
+                    $costReason,
+                    $proofPath,
+                    $actor['employee_id'] ?? null,
+                    $actor['id'],
+                    '产品升级自动审核入账'
+                ]);
+
+                if ($toTemplateId > 0) {
+                    $pdo->prepare("UPDATE project_order_resources SET program_template_id=? WHERE order_id=?")->execute([$toTemplateId, $orderId]);
+                }
+
+                ps_audit('order', $orderId, 'approve_product_upgrade', $actor, [
+                    'request_id' => $requestId,
+                    'diff_amount' => $diffAmount,
+                    'from_name' => $fromName,
+                    'to_name' => $toName,
+                    'note' => $reviewNote
+                ]);
+            }
+        } else {
+            ps_audit('order', $orderId, 'reject_' . $req['request_type'], $actor, ['request_id' => $requestId, 'note' => $reviewNote]);
+        }
+
+        $upd = $pdo->prepare("UPDATE project_order_requests SET status=?, reviewer_id=?, reviewed_at=NOW(), review_note=? WHERE id=?");
+        $upd->execute([$decision, $actor['id'], $reviewNote, (int)$requestId]);
+
+        if ($nested) $pdo->exec('RELEASE SAVEPOINT project_review_order_req');
+        else $pdo->commit();
+
+        return true;
+    } catch (Throwable $e) {
+        if ($nested) $pdo->exec('ROLLBACK TO SAVEPOINT project_review_order_req');
+        elseif ($pdo->inTransaction()) $pdo->rollBack();
+        throw $e;
+    }
+}
+
+/**
+ * 自动将交易成功满 N 天（默认 10 天）且未审核的订单标记为交付完成
+ * @param int|null $days 超时天数，默认从系统设置读取（默认10天）
+ * @return array ['finished' => int, 'approved' => int, 'orders' => array]
+ */
+function ps_auto_finish_trade_success_orders($days = null)
+{
+    $pdo = db();
+    if ($days === null) {
+        $days = (int)ps_setting_get('auto_finish_days', 10);
+    }
+    if ($days <= 0) return ['finished' => 0, 'approved' => 0, 'orders' => []];
+
+    $sql = "SELECT o.id, o.order_no, o.order_date, o.contract_amount, o.receipt_amount, o.project_type, o.created_at,
+                   s.trade_status, s.synced_at
+            FROM project_orders o
+            JOIN project_order_sources s ON s.order_id = o.id
+            WHERE o.delivery_status = 'unfinished'
+              AND o.settlement_status IN ('draft', 'review')
+              AND s.trade_status LIKE '%交易成功%'
+              AND (
+                  DATEDIFF(CURDATE(), o.order_date) >= ?
+                  OR o.created_at <= DATE_SUB(NOW(), INTERVAL ? DAY)
+                  OR (s.synced_at IS NOT NULL AND s.synced_at <= DATE_SUB(NOW(), INTERVAL ? DAY))
+              )
+            ORDER BY o.order_date ASC, o.id ASC
+            LIMIT 200";
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute([$days, $days, $days]);
+    $candidates = $stmt->fetchAll();
+
+    if (!$candidates) return ['finished' => 0, 'approved' => 0, 'orders' => []];
+
+    $systemActor = ['id' => 0, 'username' => 'system', 'role' => 'finance', 'type' => 'system'];
+    $finishedCount = 0;
+    $approvedCount = 0;
+    $processed = [];
+
+    foreach ($candidates as $row) {
+        $orderId = (int)$row['id'];
+        $nested = $pdo->inTransaction();
+        if ($nested) $pdo->exec("SAVEPOINT ps_auto_finish_{$orderId}");
+        else $pdo->beginTransaction();
+
+        try {
+            // 1. 标记交付完成
+            $upd = $pdo->prepare("UPDATE project_orders SET delivery_status='finished', row_version=row_version+1 WHERE id=? AND delivery_status='unfinished'");
+            $upd->execute([$orderId]);
+            if ($upd->rowCount() === 0) {
+                if ($nested) $pdo->exec("RELEASE SAVEPOINT ps_auto_finish_{$orderId}");
+                else $pdo->commit();
+                continue;
+            }
+
+            // 2. 自动通过该订单待审的交付申请
+            $pdo->prepare("UPDATE project_order_requests SET status='approved', reviewer_id=NULL, reviewed_at=NOW(), review_note='交易成功满{$days}天系统自动标记完成' WHERE order_id=? AND request_type='delivery_completion' AND status='pending'")
+                ->execute([$orderId]);
+
+            // 3. 若尚未确认实收且已有售价，自动按售价确认实收
+            if ((float)$row['receipt_amount'] == 0 && (float)$row['contract_amount'] > 0) {
+                $pdo->prepare("INSERT INTO project_cash_movements (order_id, movement_type, amount, note, review_status, submitted_by_type, submitted_by_id, reviewed_at) VALUES (?, 'receipt', ?, '交易成功自动按售价确认实收', 'approved', 'system', 0, NOW())")
+                    ->execute([$orderId, $row['contract_amount']]);
+                ps_recalculate_cash($orderId);
+            }
+
+            ps_audit('order', $orderId, 'auto_finish_trade_success', $systemActor, [
+                'days' => $days,
+                'trade_status' => $row['trade_status'],
+                'order_date' => $row['order_date']
+            ]);
+
+            $finishedCount++;
+            $wasApproved = false;
+
+            // 4. 尝试自动核算并生成分成快照
+            $targetMonth = substr($row['order_date'], 0, 7);
+            if (!preg_match('/^\d{4}-(0[1-9]|1[0-2])$/', $targetMonth)) {
+                $targetMonth = date('Y-m');
+            }
+            try {
+                $lockCheck = $pdo->prepare("SELECT status FROM project_payroll_periods WHERE period=?");
+                $lockCheck->execute([$targetMonth]);
+                if ($lockCheck->fetchColumn() === 'locked') {
+                    $targetMonth = ps_next_open_month($targetMonth);
+                }
+                ps_approve_order($orderId, $systemActor, $targetMonth);
+                $approvedCount++;
+                $wasApproved = true;
+            } catch (Throwable $e) {
+                // 前置条件未满足（如定制技术未选、资源未确认），保留交付已完成状态
+            }
+
+            if ($nested) $pdo->exec("RELEASE SAVEPOINT ps_auto_finish_{$orderId}");
+            else $pdo->commit();
+
+            $processed[] = [
+                'id' => $orderId,
+                'order_no' => $row['order_no'],
+                'approved' => $wasApproved
+            ];
+        } catch (Throwable $e) {
+            if ($nested) $pdo->exec("ROLLBACK TO SAVEPOINT ps_auto_finish_{$orderId}");
+            elseif ($pdo->inTransaction()) $pdo->rollBack();
+            error_log("自动完成订单 #{$orderId} 失败: " . $e->getMessage());
+        }
+    }
+
+    return [
+        'finished' => $finishedCount,
+        'approved' => $approvedCount,
+        'orders' => $processed
+    ];
+}
+

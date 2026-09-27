@@ -146,6 +146,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $values = array_filter(array_map(function ($r) use ($i) { return trim((string)($r[$i] ?? '')); }, $raw), 'strlen');
                     if (count($values) >= 1 && count(array_filter($values, 'ps_import_date')) >= 0.8 * count($values)) { $columnMap['order_date'] = $i; break; }
                 }
+                if ($selectedBusiness === '商标') {
+                    // 商标原表的错位行归位、汇总行（合计 / 底薪 / 提成）跳过；保留原下标以对应 Excel 行号
+                    $fixedRows = [];
+                    foreach ($raw as $rawIndex => $rawRow) { $fixedRow = ps_trademark_fix_row($rawRow, $columnMap); if ($fixedRow !== null) $fixedRows[$rawIndex] = $fixedRow; }
+                    $raw = $fixedRows;
+                }
                 if ($chosenSheets !== null && !in_array($sheetName, $chosenSheets, true)) { $sheetReport[$sheetName] = ['used' => false, 'matchable' => true, 'reason' => '未勾选', 'rows' => count($raw)]; continue; }
                 // 自动识别时，“未到账 / 交易关闭 / 汇总 / 合计 / 总表”类分表默认不读，需要时勾选后重新预览
                 if ($chosenSheets === null && preg_match('/未到账|关闭|汇总|合计|总表|（总）|\(总\)/u', $sheetName)) { $sheetReport[$sheetName] = ['used' => false, 'matchable' => true, 'reason' => '默认不读取', 'rows' => count($raw)]; continue; }
@@ -166,7 +172,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $unguessedHints = [];
                 foreach ($raw as $row) {
                     $statusText = $lookup($row, 'status');
-                    if ($statusText !== '' && ps_import_delivery_status($statusText) === null) $unknownStatuses[] = $statusText;
+                    if ($statusText !== '' && ps_import_delivery_status($statusText, $selectedBusiness) === null) $unknownStatuses[] = $statusText;
                     if (!$preferredKind && !empty($businessDefinition['kind_required']) && $lookup($row, 'order_kind') === '' && !in_array($lookup($row, 'contact_note'), $orderKinds, true) && $lookup($row, 'order_no') !== '') {
                         $hint = $kindHint($row);
                         $guessed = false;
@@ -232,7 +238,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $record['contract_amount'] = str_replace([',','¥','￥',' '], '', $lookup($row, 'contract_amount'));
                     if (preg_match('/^\d+\.\d{3,}$/', $record['contract_amount'])) $record['contract_amount'] = number_format((float)$record['contract_amount'], 2, '.', '');
                     $status = $lookup($row, 'status');
-                    $record['delivery_status'] = ps_import_delivery_status($status);
+                    $record['delivery_status'] = ps_import_delivery_status($status, $selectedBusiness);
                     if ($record['delivery_status'] === null && isset($aiStatus[$status])) { $record['delivery_status'] = $aiStatus[$status]; $record['warning'] .= ($record['warning'] ? '；' : '') . '状态“' . $status . '”由 AI 识别为' . ($aiStatus[$status] === 'finished' ? '已完成' : '未完成'); }
                     if ($record['delivery_status'] === null) throw new RuntimeException('状态“' . $status . '”无法识别，请写已完成 / 未完成（或到账、已发货等）');
                     $record['trade_status'] = mb_strpos($status, '交易关闭') !== false ? '交易关闭' : '';
@@ -299,6 +305,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         } elseif ($kindText === '') {
                             $kindText = '普通订单';
                         }
+                        // “小额”分表没有状态列：返款已完成，按已完成计
+                        if ($kindText === '小额返款' && !isset($columnMap['status'])) $record['delivery_status'] = 'finished';
                     }
                     $record['kind_missing'] = false;
                     if ($kindText === '' && !empty($businessDefinition['kind_required'])) {
@@ -376,7 +384,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             // 没有填写本组人员时可由上传人接单；若表格明确写了别人，不能擅自把订单据为己有。
                             $groupHasNamedPerson = $selfGroup === 'technical' ? (bool)($front || $back) : (bool)$cs;
                             if (!$groupHasNamedPerson) {
-                                $record['people'][$selfGroup][$selfId] = ['id' => $selfId, 'role' => $selfGroup === 'technical' ? $peopleLabels['frontend'] : '客服', 'name' => $actorName ?? '本人'];
+                                $record['people'][$selfGroup][$selfId] = ['id' => $selfId, 'role' => ps_employee_default_role($selfId, $selectedBusiness, $selfGroup) ?? ($selfGroup === 'technical' ? $peopleLabels['frontend'] : '客服'), 'name' => $actorName ?? '本人'];
                                 if ($selfGroup === 'technical') $front[$selfId] = true; else $cs[$selfId] = true;
                             }
                         }
@@ -387,7 +395,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         // 代写类：编辑员（客服账号）在代写订单上是“对接编辑”，本人在任一组即可
                         if (!empty($businessDefinition['import_cost']) && !isset($record['people'][$group][(int)$actor['employee_id']]) && isset($record['people']['technical'][(int)$actor['employee_id']])) $group = 'technical';
                         if (!isset($record['people'][$group][(int)$actor['employee_id']])) throw new RuntimeException('此行未写本人为' . ($group === 'technical' ? '技术' : '客服') . '，不可导入他人订单');
-                        if (!empty($record['attach_check']) && ps_import_group_taken((int)$record['existing_order_id'], $group)) throw new RuntimeException('该订单号已存在且已有' . ($group === 'technical' ? '对接编辑 / 技术' : '客服') . '，本人尚未被关联；请由财务核对');
+                        // 商标：资料专员、提交专员各自上传同一单，技术组按岗位区分，同岗位无人即可加入
+                        $trademarkRoleOpen = function () use ($selectedBusiness, $group, $record, $actor) { return $selectedBusiness === '商标' && $group === 'technical' && ps_trademark_technical_role_open((int)$record['existing_order_id'], (int)$actor['employee_id'], $record['people']['technical'][(int)$actor['employee_id']]['role']) !== null; };
+                        if (!empty($record['attach_check']) && ps_import_group_taken((int)$record['existing_order_id'], $group) && !$trademarkRoleOpen()) throw new RuntimeException('该订单号已存在且已有' . ($group === 'technical' ? '对接编辑 / 技术' : '客服') . '，本人尚未被关联；请由财务核对');
                     }
                     if (!$existing && $actor['role'] === 'customer_service' && ps_business_requires_technical($selectedBusiness)) {
                         if (!$record['people']['technical']) throw new RuntimeException('客服导入新订单须指定接单技术');
@@ -524,6 +534,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         $missing = [];
                         foreach (['technical', 'customer_service'] as $groupKey) if ($row['people'][$groupKey] && !ps_import_group_taken($orderId, $groupKey)) $missing[$groupKey] = array_values($row['people'][$groupKey]);
                         if ($missing) { ps_intake_participants($orderId, $missing, $selectedBusiness); ps_audit('order', $orderId, 'import_add_participants', $actor, ['line' => $row['line'], 'groups' => array_keys($missing)]); }
+                        // 商标：技术组已有资料专员时，提交专员（或反之）上传同一单按岗位加入
+                        if ($selectedBusiness === '商标' && !isset($missing['technical']) && $actor['role'] === 'technical' && isset($row['people']['technical'][(int)$actor['employee_id']])) {
+                            $openRole = ps_trademark_technical_role_open($orderId, (int)$actor['employee_id'], $row['people']['technical'][(int)$actor['employee_id']]['role']);
+                            if ($openRole !== null) { ps_trademark_add_technical($orderId, (int)$actor['employee_id'], $openRole); ps_audit('order', $orderId, 'import_add_participants', $actor, ['line' => $row['line'], 'groups' => ['technical'], 'role' => $openRole]); }
+                        }
+                        // 商标：客服表标注的新客户 / 小额返款以客服为准，覆盖资料专员先建单时的“普通订单”
+                        if ($selectedBusiness === '商标' && in_array($actor['role'], ['customer_service', 'finance'], true) && in_array($row['order_kind'] ?? '', ['新客户', '小额返款'], true)) {
+                            $kindUpdate = $pdo->prepare("UPDATE project_orders SET order_kind=? WHERE id=? AND order_kind='普通订单'");
+                            $kindUpdate->execute([$row['order_kind'], $orderId]);
+                            if ($kindUpdate->rowCount()) ps_audit('order', $orderId, 'import_order_kind', $actor, ['line' => $row['line'], 'from' => '普通订单', 'to' => $row['order_kind']]);
+                        }
                         if ($actor['role'] !== 'finance' && !$departmentMode) {
                             $access = $pdo->prepare('SELECT 1 FROM project_participants WHERE order_id=? AND employee_id=?');
                             $access->execute([$orderId, (int)$actor['employee_id']]);
