@@ -305,6 +305,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         } elseif ($kindText === '') {
                             $kindText = '普通订单';
                         }
+                        // 单量补助按当月去重客户：同一客服同一客户（旺旺）当月第二单起记“同客户”（照常提成、不计单量）。
+                        // 资料 / 提交专员表的旺旺写群名，不参与判断，由客服上传时更正。
+                        $tmDate = ps_import_date($lookup($row, 'order_date'));
+                        $tmCustomer = preg_replace('/[\s\x{3000}\x{00A0}]+/u', '', mb_strtolower($lookup($row, 'payment_nickname')));
+                        $tmService = $lookup($row, 'customer_service') !== '' ? $lookup($row, 'customer_service') : (string)$actorName;
+                        if (in_array($kindText, ['普通订单', '新客户'], true) && $actor['role'] !== 'technical' && $tmDate && $tmCustomer !== '' && $tmService !== '') {
+                            $tmKey = substr($tmDate, 0, 7) . '|' . $tmService . '|' . $tmCustomer;
+                            $tmRepeat = $tmRepeat ?? db()->prepare("SELECT 1 FROM project_orders o JOIN project_participants p ON p.order_id=o.id AND p.commission_group='customer_service' JOIN employees e ON e.id=p.employee_id WHERE o.project_type='商标' AND o.order_kind IN ('普通订单','新客户') AND DATE_FORMAT(o.order_date,'%Y-%m')=? AND e.name=? AND REPLACE(LOWER(o.customer_name),' ','')=? AND o.order_no<>? LIMIT 1");
+                            $tmRepeat->execute([substr($tmDate, 0, 7), $tmService, $tmCustomer, $lookup($row, 'order_no')]);
+                            if (isset($trademarkSeen[$tmKey]) || $tmRepeat->fetchColumn()) $kindText = '同客户';
+                            $trademarkSeen[$tmKey] = true;
+                        }
                         // “小额”分表没有状态列：返款已完成，按已完成计
                         if ($kindText === '小额返款' && !isset($columnMap['status'])) $record['delivery_status'] = 'finished';
                     }
@@ -359,6 +371,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     if ($record['order_no'] === '' || strlen($record['order_no']) > 100 || !$record['order_date'] || ($record['contract_amount'] !== '' && !preg_match(($record['order_kind'] === '退款冲减' ? '/^-?' : '/^') . '\d+(?:\.\d{1,2})?$/', $record['contract_amount'])) || (float)$record['contract_amount'] > 999999999999.99) throw new RuntimeException(!$record['order_date'] ? '日期无法识别' : ($record['order_no'] === '' ? '缺少店铺订单号或支付流水号' : '订单号或售价无效'));
                     if ($existing) {
                         $conflicts = ps_customer_intake_conflicts($existing, $record);
+                        // 商标资料 / 提交专员表的旺旺写群名、店铺写法不同，且不回写原单：只核对售价
+                        if ($selectedBusiness === '商标' && $actor['role'] === 'technical') $conflicts = array_values(array_intersect($conflicts, ['售价']));
                         if ($conflicts) throw new RuntimeException('原单与上传表的' . implode('、', $conflicts) . '不一致，请由财务核对');
                     }
                     $cs = ps_import_names($lookup($row, 'customer_service'), $employeesByName, $selectedBusiness);
@@ -528,7 +542,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     if ($existing) {
                         if (ps_business_normalize($existing['project_type']) !== $selectedBusiness || in_array($existing['settlement_status'], ['approved','locked'], true)) throw new RuntimeException('第 ' . $row['line'] . ' 行订单状态已变化，请重新预览');
                         if ($departmentMode && !ps_department_import_is_order((int)$existing['id']) && $actor['role'] !== 'finance') throw new RuntimeException('第 ' . $row['line'] . ' 行同号订单不是网站售后部门订单');
-                        if (ps_customer_intake_conflicts($existing, $row)) throw new RuntimeException('第 ' . $row['line'] . ' 行买家资料与原单不一致，请重新核对');
+                        if (array_intersect(ps_customer_intake_conflicts($existing, $row), $selectedBusiness === '商标' && $actor['role'] === 'technical' ? ['售价'] : ['店铺', '售价', '付款昵称', '支付流水号'])) throw new RuntimeException('第 ' . $row['line'] . ' 行买家资料与原单不一致，请重新核对');
                         $orderId = (int)$existing['id'];
                         // 同号二次上传只补缺失的分成组；已有技术或客服不改人、不改权重。
                         $missing = [];
@@ -539,8 +553,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             $openRole = ps_trademark_technical_role_open($orderId, (int)$actor['employee_id'], $row['people']['technical'][(int)$actor['employee_id']]['role']);
                             if ($openRole !== null) { ps_trademark_add_technical($orderId, (int)$actor['employee_id'], $openRole); ps_audit('order', $orderId, 'import_add_participants', $actor, ['line' => $row['line'], 'groups' => ['technical'], 'role' => $openRole]); }
                         }
-                        // 商标：客服表标注的新客户 / 小额返款以客服为准，覆盖资料专员先建单时的“普通订单”
-                        if ($selectedBusiness === '商标' && in_array($actor['role'], ['customer_service', 'finance'], true) && in_array($row['order_kind'] ?? '', ['新客户', '小额返款'], true)) {
+                        // 商标：客服表标注的新客户 / 同客户 / 小额返款以客服为准，覆盖资料专员先建单时的“普通订单”
+                        if ($selectedBusiness === '商标' && in_array($actor['role'], ['customer_service', 'finance'], true) && in_array($row['order_kind'] ?? '', ['新客户', '同客户', '小额返款'], true)) {
                             $kindUpdate = $pdo->prepare("UPDATE project_orders SET order_kind=? WHERE id=? AND order_kind='普通订单'");
                             $kindUpdate->execute([$row['order_kind'], $orderId]);
                             if ($kindUpdate->rowCount()) ps_audit('order', $orderId, 'import_order_kind', $actor, ['line' => $row['line'], 'from' => '普通订单', 'to' => $row['order_kind']]);
@@ -560,6 +574,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             $details = json_decode((string)($q->fetchColumn() ?: '{}'), true) ?: [];
                             $detailsChanged = false;
                             foreach ($row['details'] as $key => $value) if ($value !== '' && trim((string)($details[$key] ?? '')) === '') { $details[$key] = $value; $detailsChanged = true; }
+                            // 商标资料 / 提交专员按件计：以专员表的“商标个数”为准（客服表“数量”可能不同）
+                            $tmCount = (string)($row['details']['trademark_count'] ?? '');
+                            if ($selectedBusiness === '商标' && $actor['role'] === 'technical' && is_numeric($tmCount) && (string)($details['trademark_count'] ?? '') !== $tmCount) {
+                                ps_audit('order', $orderId, 'import_trademark_count', $actor, ['line' => $row['line'], 'from' => $details['trademark_count'] ?? '', 'to' => $tmCount]);
+                                $details['trademark_count'] = $tmCount; $detailsChanged = true;
+                            }
                             if ($detailsChanged) {
                                 $pdo->prepare('INSERT INTO project_order_details (order_id,business_name,details_json) VALUES (?,?,?) ON DUPLICATE KEY UPDATE details_json=VALUES(details_json)')
                                     ->execute([$orderId, $selectedBusiness, json_encode($details, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR)]);

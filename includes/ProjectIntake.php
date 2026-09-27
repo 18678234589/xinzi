@@ -201,15 +201,16 @@ function ps_trademark_add_technical($orderId, $employeeId, $role)
 function ps_trademark_fix_row($row, $map)
 {
     $get = function ($key) use (&$row, $map) { return isset($map[$key]) ? trim((string)($row[$map[$key]] ?? '')) : ''; };
+    if (isset($map['order_date']) && preg_match('/^(\d{4}[.\/-]\d{1,2}[.\/-]\d{1,2})\s*(?:早上|上午|中午|下午|晚上|早|晚)$/u', $get('order_date'), $m)) $row[$map['order_date']] = $m[1];
     $orderNo = $get('order_no');
-    if (!preg_match('/^[A-Za-z0-9_-]{8,}$/', $orderNo) && $get('payment_reference') === '') {
+    // 订单号可带前缀（如“致2026081303”）：含 6 位以上连续数字即视为订单行
+    if (!preg_match('/^[A-Za-z0-9_-]{8,}$/', $orderNo) && !preg_match('/\d{6,}/', $orderNo) && $get('payment_reference') === '') {
         if ($orderNo !== '' && !ps_import_date($get('order_date')) && !ps_import_date($get('shop'))) return null;
         if (preg_match('/合计|总计|底薪|全勤|提成|单价|出勤|请假/u', implode(' ', array_map('strval', $row)))) return null;
     }
     if (isset($map['order_date'], $map['shop']) && !ps_import_date($get('order_date')) && $get('shop') !== '' && ps_import_date($get('shop'))) {
         [$row[$map['order_date']], $row[$map['shop']]] = [$row[$map['shop']], $row[$map['order_date']]];
     }
-    if (isset($map['order_date']) && preg_match('/^(\d{4}[.\/-]\d{1,2}[.\/-]\d{1,2})\s*(?:早上|上午|中午|下午|晚上|早|晚)$/u', $get('order_date'), $m)) $row[$map['order_date']] = $m[1];
     if (isset($map['detail:trademark_count'])) {
         $count = '';
         $texts = [];
