@@ -26,6 +26,7 @@ foreach ([
     '20260927_governance_reminders.sql',
     '20260927_committee_oversight_penalties.sql',
     '20260927_chair_idea_workdays.sql',
+    '20260927_committee_team_credit.sql',
 ] as $migration) {
     $sql = file_get_contents(__DIR__ . '/' . $migration);
     if ($sql === false) { fwrite(STDERR, "无法读取迁移文件：$migration\n"); exit(1); }

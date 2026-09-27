@@ -115,15 +115,17 @@ function pw_close_quarter($quarter)
         $q = db()->prepare("SELECT COUNT(*) AS n,COUNT(bonus_delta) AS explicit_count,COALESCE(SUM(bonus_delta),0) AS delta FROM project_governance_records WHERE owner_employee_id=? AND record_kind='committee' AND review_state='approved' AND record_date>=? AND record_date<?");
         // 监委未按时提交监督意见的自动扣减（未豁免），从本人监委奖励中扣，最低为 0
         $oversightPenalty = db()->prepare("SELECT COALESCE(SUM(amount),0) FROM project_governance_committee_penalties WHERE employee_id=? AND state='applied' AND due_date>=? AND due_date<?");
+        // 团队口径：同一任务任一监委做了有效监督即计 1 次，三位监委各得 ¥50
+        $team = pg_committee_team_units($from, $until);
         foreach ($members as $id) {
             $q->execute([(int)$id,$from,$until]);
             $row = $q->fetch();
             $oversightPenalty->execute([(int)$id,$from,$until]);
             $memberPenalty = abs((float)$oversightPenalty->fetchColumn());
-            // 原表有效监督每条 ¥50；明确填写的奖惩差额另外计入，个人上限 ¥1,000。
-            $earned = max(0, pw_committee_earned($policy['committee_person_target'],(int)$row['n']-(int)$row['explicit_count'],(float)$row['delta']) - $memberPenalty);
+            // 有效监督按团队次数每次 ¥50（三人各得）；本人明确填写的奖惩金额另外计入，个人上限 ¥1,000。
+            $earned = max(0, pw_committee_earned($policy['committee_person_target'],$team['units'],(float)$row['delta']) - $memberPenalty);
             $committeeEarned += $earned;
-            $memberDetails[(int)$id] = ['verified_records'=>(int)$row['n'],'oversight_penalties'=>$memberPenalty,'earned'=>round($earned,2)];
+            $memberDetails[(int)$id] = ['verified_records'=>(int)$row['n'],'team_units'=>$team['units'],'oversight_penalties'=>$memberPenalty,'earned'=>round($earned,2)];
         }
         $chairFunding = (float)$policy['chair_quarter_target'];
         $committeeFunding = count($members) * (float)$policy['committee_person_target'];

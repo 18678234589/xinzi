@@ -214,13 +214,44 @@ function pg_oversight_tasks($policy)
     return $tasks;
 }
 
-/** 某监委是否已就该任务提交监督意见：截止前本人提交的监督记录（挂在该任务下或未挂任务，未被退回），或本人评审了该任务。 */
-function pg_oversight_done($task, $memberId)
+/**
+ * 监委会是否已就该任务完成监督（团队口径：任一监委做了即算全体完成）：该监委评审了该任务，
+ * 或截止前提交了监督记录（挂在该任务下或未挂任务，未被退回）。返回完成者员工 ID，未完成返回 0。
+ */
+function pg_oversight_done_by($task)
 {
-    if ((int)$task['reviewer_employee_id'] === (int)$memberId) return true;
-    $q = db()->prepare("SELECT 1 FROM project_governance_records WHERE record_kind='committee' AND owner_employee_id=? AND review_state<>'rejected' AND created_at>=? AND created_at<? AND (parent_record_id IS NULL OR parent_record_id=?) LIMIT 1");
-    $q->execute([(int)$memberId, $task['created_at'], (new DateTimeImmutable($task['deadline']))->modify('+1 day')->format('Y-m-d 00:00:00'), (int)$task['id']]);
-    return (bool)$q->fetchColumn();
+    $members = pg_committee_members();
+    if ((int)$task['reviewer_employee_id'] > 0 && in_array((int)$task['reviewer_employee_id'], $members, true)) return (int)$task['reviewer_employee_id'];
+    if (!$members) return 0;
+    $q = db()->prepare("SELECT owner_employee_id FROM project_governance_records WHERE record_kind='committee' AND owner_employee_id IN (" . implode(',', $members) . ") AND review_state<>'rejected' AND created_at>=? AND created_at<? AND (parent_record_id IS NULL OR parent_record_id=?) ORDER BY created_at LIMIT 1");
+    $q->execute([$task['created_at'], (new DateTimeImmutable($task['deadline']))->modify('+1 day')->format('Y-m-d 00:00:00'), (int)$task['id']]);
+    return (int)$q->fetchColumn();
+}
+
+/** 兼容旧调用：团队口径下与具体监委无关。 */
+function pg_oversight_done($task, $memberId = null)
+{
+    return pg_oversight_done_by($task) > 0;
+}
+
+/**
+ * 监委会团队监督计分（本任期 [$from, $until)）：每项任务只要有一位监委做了有效监督（评审了该董事长任务，或提交并核验通过监督记录）
+ * 就计 1 次，同一任务多人提交只计 1 次；未挂任务的监督记录每条计 1 次。每次三位监委各得 50 元。
+ * 返回 ['units' => 次数, 'keys' => [...]]。填写了明确金额的监督记录不在此计，按原方式只计给本人。
+ */
+function pg_committee_team_units($from, $until)
+{
+    $members = pg_committee_members();
+    if (!$members) return ['units' => 0, 'keys' => []];
+    $in = implode(',', $members);
+    $keys = [];
+    $q = db()->prepare("SELECT id,parent_record_id FROM project_governance_records WHERE record_kind='committee' AND review_state='approved' AND bonus_delta IS NULL AND owner_employee_id IN ($in) AND record_date>=? AND record_date<?");
+    $q->execute([$from, $until]);
+    foreach ($q->fetchAll() as $r) $keys[$r['parent_record_id'] ? 'task:' . (int)$r['parent_record_id'] : 'record:' . (int)$r['id']] = true;
+    $q = db()->prepare("SELECT id FROM project_governance_records WHERE record_kind='chair' AND review_state IN ('approved','rejected') AND reviewer_employee_id IN ($in) AND record_date>=? AND record_date<?");
+    $q->execute([$from, $until]);
+    foreach ($q->fetchAll(PDO::FETCH_COLUMN) as $id) $keys['task:' . (int)$id] = true;
+    return ['units' => count($keys), 'keys' => array_keys($keys)];
 }
 
 function pg_committee_members()

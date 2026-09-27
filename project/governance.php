@@ -107,7 +107,7 @@ $quarterStart = $currentRotation['start_date'] ?? pg_quarter_start();
 $quarterEnd = $currentRotation && $currentRotation['end_date']
     ? (new DateTimeImmutable($currentRotation['end_date']))->modify('+1 day')->format('Y-m-d')
     : (new DateTimeImmutable($quarterStart))->modify('+3 months')->format('Y-m-d');
-$quarterStmt = db()->prepare("SELECT r.owner_employee_id,e.name,COUNT(*) AS record_count,COALESCE(SUM(COALESCE(r.bonus_delta,CASE WHEN r.record_kind='chair' AND r.category='三天脑洞' THEN 100 WHEN r.record_kind='committee' THEN 50 ELSE 0 END)),0) AS amount FROM project_governance_records r JOIN employees e ON e.id=r.owner_employee_id WHERE r.review_state='approved' AND r.record_date>=? AND r.record_date<? GROUP BY r.owner_employee_id,e.name ORDER BY e.name");
+$quarterStmt = db()->prepare("SELECT r.owner_employee_id,e.name,COUNT(*) AS record_count,COALESCE(SUM(COALESCE(r.bonus_delta,CASE WHEN r.record_kind='chair' AND r.category='三天脑洞' THEN 100 WHEN r.record_kind='committee' THEN 0 ELSE 0 END)),0) AS amount FROM project_governance_records r JOIN employees e ON e.id=r.owner_employee_id WHERE r.review_state='approved' AND r.record_date>=? AND r.record_date<? GROUP BY r.owner_employee_id,e.name ORDER BY e.name");
 $quarterStmt->execute([$quarterStart, $quarterEnd]);
 $quarterRows = $quarterStmt->fetchAll();
 $penaltySql = "SELECT p.chair_employee_id AS owner_employee_id,e.name,COUNT(*) AS record_count,COALESCE(SUM(p.amount),0) AS amount FROM project_governance_penalties p JOIN employees e ON e.id=p.chair_employee_id WHERE p.state='applied' AND p.window_end>=? AND p.window_end<?";
@@ -121,6 +121,13 @@ foreach (array_merge($quarterRows,$penaltyStmt->fetchAll()) as $row) {
     if (!isset($quarterByPerson[$id])) $quarterByPerson[$id] = ['owner_employee_id'=>$id,'name'=>$row['name'],'record_count'=>0,'amount'=>0];
     $quarterByPerson[$id]['record_count'] += (int)$row['record_count'];
     $quarterByPerson[$id]['amount'] += (float)$row['amount'];
+}
+// 监委有效监督按团队口径：同一任务任一监委做了即计 1 次，三位监委各计 ¥50
+$teamUnits = pg_committee_team_units($quarterStart, $quarterEnd)['units'];
+if ($teamUnits) foreach (db()->query("SELECT m.employee_id,e.name FROM project_governance_members m JOIN employees e ON e.id=m.employee_id WHERE m.governance_role='committee' AND m.is_active=1")->fetchAll() as $row) {
+    $id = (int)$row['employee_id'];
+    if (!isset($quarterByPerson[$id])) $quarterByPerson[$id] = ['owner_employee_id'=>$id,'name'=>$row['name'],'record_count'=>0,'amount'=>0];
+    $quarterByPerson[$id]['amount'] += 50 * $teamUnits;
 }
 $quarterRows = array_values($quarterByPerson);
 usort($quarterRows, static fn($a,$b) => strcmp($a['name'],$b['name']));
