@@ -100,6 +100,7 @@ try {
     $team = pg_committee_team_units('2026-10-01', '2026-11-01');
     $check($team['units'] === 1 && in_array('task:' . $taskId, $team['keys'], true), '同一任务 A 提交 + B 评审只计 1 次');
     $plan = pg_committee_unit_plan($rotation);
+    $periods = count(pg_chair_term($rotation, pg_idea_policy())['windows']); // 本段测试删过节假日，期数按当前重算
     $check($plan['periods'] === $periods && abs($plan['unit'] - 1000 / $periods) < 0.01, '监委需要监督 ' . $periods . ' 次（同董事长期数），每次每人 ¥' . $plan['unit']);
     $check(pw_committee_earned(1000, $team['units'], 0, $periods) == round(1000 / $periods, 2), '完成 1 次：三位监委各得 ¥' . round(1000 / $periods, 2));
     $check(pw_committee_earned(1000, $periods, 0, $periods) == 1000.0 && pw_committee_earned(1000, $periods + 3, 0, $periods) == 1000.0, '监督满 ' . $periods . ' 次每人拿满 ¥1000（三人共 ¥3000），超出封顶');
