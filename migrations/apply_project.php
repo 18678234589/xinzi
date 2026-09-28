@@ -32,6 +32,7 @@ foreach ([
     '20260928_fengchao_welfare_opening.sql',
     '20260928_bid_business.sql',
     '20260928_wechat_writing_standard.sql',
+    '20260928_custom_site_cs_bonus.sql',
 ] as $migration) {
     $sql = file_get_contents(__DIR__ . '/' . $migration);
     if ($sql === false) { fwrite(STDERR, "无法读取迁移文件：$migration\n"); exit(1); }
