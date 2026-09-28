@@ -17,6 +17,7 @@
  *                    当月可填写金额覆盖默认值（如网站客服每月不同的“补单提成”）
  *   attendance_bonus 全勤奖：请假 <4 小时全额、≥4 小时减半、≥8 小时不发；无考勤记录不发；当月可填写金额覆盖（如申请在家上班 0 元）
  *   manual           手工调整：当月逐人填写（上月漏记、未接入系统的业务提成等）
+ *   sales_package    营业额阶梯薪酬：按月营业额落档，底薪（按考勤折算）+ 营业额 × 比例 + 单量补助 + 老客户找回加成 − 好评率罚款（平面设计）
  * 固定补助可标记“另行支付”（如法人补助），单列展示、不计入应结算金额。
  */
 require_once __DIR__ . '/ProjectSettlement.php';
@@ -36,6 +37,7 @@ function ps_monthly_types()
         'profit_pool' => '部门利润池分配',
         'perf_rank' => '绩效排名固定服务费（原系统客服绩效）',
         'order_count' => '部门单量提成（按订单数）',
+        'sales_package' => '营业额阶梯薪酬（底薪 + 提成 + 单量）',
     ];
 }
 
@@ -72,7 +74,7 @@ function ps_monthly_snapshot_matches($rule, $snap)
 
 function ps_monthly_snapshots($month)
 {
-    $q = db()->prepare('SELECT s.*,o.project_type,o.order_no FROM project_commission_snapshots s JOIN project_orders o ON o.id=s.order_id WHERE s.payroll_month=? ORDER BY s.id');
+    $q = db()->prepare('SELECT s.*,o.project_type,o.order_no,o.order_kind FROM project_commission_snapshots s JOIN project_orders o ON o.id=s.order_id WHERE s.payroll_month=? ORDER BY s.id');
     $q->execute([$month]);
     return $q->fetchAll();
 }
@@ -132,6 +134,38 @@ function ps_monthly_pick_tier($tiers, $value)
     $picked = null;
     foreach ($tiers as $tier) if ($value >= (float)$tier['from']) $picked = $tier;
     return $picked;
+}
+
+/**
+ * 营业额阶梯薪酬（平面设计阎泸琪）：按当月营业额落档（≤ 上限取第一档，超过最高档按最高档），
+ * 该档底薪 + 营业额 × 该档比例 + 单量补助（单笔 ≥ 门槛每单 big 元，< 门槛每单 small 元）
+ * + 老客户找回订单收入 × returning_rate + 好评率低于 review_min% 扣 review_penalty 元（好评率由财务每月填写，未填不扣）。
+ * $orders = [['income' => 金额, 'returning' => bool], ...]；$base 由调用方按考勤折算。纯函数，便于核对。
+ * 返回 ['revenue','tier','base','items' => [[名称, 金额, 说明], ...]]（底薪单列在 base，不在 items）。
+ */
+function ps_sales_package_calc($params, $orders, $reviewRate = null)
+{
+    $tiers = $params['tiers'] ?? [];
+    usort($tiers, function ($a, $b) { return (float)$a['upto'] <=> (float)$b['upto']; });
+    $revenue = round(array_sum(array_map(function ($o) { return (float)$o['income']; }, $orders)), 2);
+    $tier = null;
+    foreach ($tiers as $candidate) if ($revenue <= (float)$candidate['upto']) { $tier = $candidate; break; }
+    if (!$tier && $tiers) $tier = end($tiers);
+    if (!$tier) return ['revenue' => $revenue, 'tier' => null, 'base' => 0.0, 'items' => []];
+    $threshold = (float)($params['big_threshold'] ?? 50);
+    $big = count(array_filter($orders, function ($o) use ($threshold) { return (float)$o['income'] >= $threshold; }));
+    $small = count(array_filter($orders, function ($o) use ($threshold) { return (float)$o['income'] > 0 && (float)$o['income'] < $threshold; }));
+    $tierText = '月营业额 ¥' . money_plain($revenue) . ' 落在“≤¥' . money_plain($tier['upto']) . '”档';
+    $items = [];
+    if ((float)$tier['rate'] > 0) $items[] = ['营业额提成', $revenue * (float)$tier['rate'], $tierText . '：¥' . money_plain($revenue) . ' × ' . round((float)$tier['rate'] * 100, 4) . '%'];
+    $perOrder = $big * (float)$tier['big'] + $small * (float)$tier['small'];
+    if ($perOrder > 0) $items[] = ['单量补助', $perOrder, sprintf('≥¥%s 的 %d 单 × ¥%s + <¥%s 的 %d 单 × ¥%s', money_plain($threshold), $big, money_plain($tier['big']), money_plain($threshold), $small, money_plain($tier['small']))];
+    $returning = round(array_sum(array_map(function ($o) { return !empty($o['returning']) ? (float)$o['income'] : 0.0; }, $orders)), 2);
+    $returningRate = (float)($params['returning_rate'] ?? 0);
+    if ($returning > 0 && $returningRate > 0) $items[] = ['老客户找回', $returning * $returningRate, '老客户找回订单收入 ¥' . money_plain($returning) . ' × ' . round($returningRate * 100, 4) . '%'];
+    $reviewMin = (float)($params['review_min'] ?? 0);
+    if ($reviewRate !== null && $reviewMin > 0 && (float)$reviewRate < $reviewMin) $items[] = ['好评率罚款', -(float)($params['review_penalty'] ?? 0), '本月好评率 ' . rtrim(rtrim(number_format((float)$reviewRate, 2, '.', ''), '0'), '.') . '% 低于 ' . rtrim(rtrim(number_format($reviewMin, 2, '.', ''), '0'), '.') . '%'];
+    return ['revenue' => $revenue, 'tier' => $tier, 'base' => (float)$tier['base'], 'tier_text' => $tierText, 'items' => $items];
 }
 
 /**
@@ -345,6 +379,21 @@ function ps_monthly_results($month, $forceLive = false)
                 if ($rule['employee_id'] !== null && (int)$rule['employee_id'] !== $eid) continue;
                 $add($eid, $rule, (float)$input['value'], $input['note'] !== '' ? $input['note'] : '财务填写');
             }
+        } elseif ($type === 'sales_package') {
+            // 营业额阶梯薪酬：没有订单也照发第一档保底（按考勤折算）
+            if ($rule['employee_id'] === null) continue;
+            $eid = (int)$rule['employee_id'];
+            $orders = [];
+            foreach ($snapshots as $snap) {
+                if (!ps_monthly_snapshot_matches($rule, $snap) || (int)$snap['employee_id'] !== $eid) continue;
+                $orders[(int)$snap['order_id']] = ['income' => (float)$snap['income_amount'], 'returning' => ($snap['order_kind'] ?? '') === '老客户找回'];
+            }
+            $review = $inputs[(int)$rule['id']][$eid] ?? null;
+            $calc = ps_sales_package_calc($p, array_values($orders), $review !== null ? (float)$review['value'] : null);
+            if (!$calc['tier']) continue;
+            [$baseValue, $prorate] = ps_monthly_prorate($calc['base'], $attendance[$eid] ?? null);
+            $add($eid, ['name' => $rule['name'] . ' · 底薪'] + $rule, $baseValue, $calc['tier_text'] . '（' . count($orders) . ' 单），该档' . ((float)$calc['tier']['rate'] > 0 ? '底薪' : '保底') . ' ¥' . money_plain($calc['base']) . '；' . $prorate . ($review === null && !empty($p['review_min']) ? '；本月好评率未填写，暂不扣罚' : ''));
+            foreach ($calc['items'] as [$label, $amount, $detail]) $add($eid, ['name' => $rule['name'] . ' · ' . $label] + $rule, $amount, $detail);
         } elseif ($type === 'per_unit') {
             $unit = (float)($p['amount'] ?? 0);
             foreach ($inputs[(int)$rule['id']] ?? [] as $eid => $input) {
@@ -395,6 +444,18 @@ function ps_monthly_params_from_input($type, $input)
     if ($type === 'fixed') return ['amount' => $num($input['amount'] ?? '', '金额'), 'separate' => !empty($input['separate'])];
     if ($type === 'base_fee') return ['amount' => $num($input['amount'] ?? '0', '金额'), 'no_prorate' => !empty($input['no_prorate'])];
     if ($type === 'per_unit' || $type === 'attendance_bonus' || $type === 'order_count') return ['amount' => $num($input['amount'] ?? '0', '金额')];
+    if ($type === 'sales_package') {
+        // 每行“营业额上限,底薪,比例%,≥门槛每单,<门槛每单”，如 6000,2100,5,2,0.5
+        $tiers = [];
+        foreach (array_filter(array_map('trim', preg_split('/[\r\n]+/', (string)($input['package_tiers'] ?? ''))), 'strlen') as $line) {
+            $cells = array_map('trim', preg_split('/[,，\s]+/u', $line));
+            if (count($cells) !== 5) throw new RuntimeException('阶梯每行填 5 个数：营业额上限,底薪,比例%,≥门槛每单,<门槛每单');
+            $tiers[] = ['upto' => $num($cells[0], '营业额上限'), 'base' => $num($cells[1], '底薪'), 'rate' => $num($cells[2], '比例') / 100, 'big' => $num($cells[3], '大单每单金额'), 'small' => $num($cells[4], '小单每单金额')];
+        }
+        if (!$tiers) throw new RuntimeException('请至少填写一档');
+        usort($tiers, function ($a, $b) { return $a['upto'] <=> $b['upto']; });
+        return ['tiers' => $tiers, 'big_threshold' => $num($input['big_threshold'] ?? '50', '大单门槛'), 'returning_rate' => $num($input['returning_rate'] ?? '0', '老客户找回比例') / 100, 'review_min' => $num($input['review_min'] ?? '0', '好评率门槛'), 'review_penalty' => $num($input['review_penalty'] ?? '0', '好评率罚款')];
+    }
     if ($type === 'manual' || $type === 'perf_rank') return [];
     if ($type === 'profit_pool') {
         // 固定分成人员：每行“姓名=13%”，按姓名匹配合作人员（重名时取有项目账号者）
@@ -438,6 +499,9 @@ function ps_monthly_presets()
         ['name' => '郭文娟 网站续费提成', 'rule_type' => 'dept_share', 'scope_business' => '网站续费', 'scope_group' => '*', 'scope_role' => '*', 'employee' => '郭文娟', 'metric' => 'profit', 'params' => ['rate' => 0.019, 'share' => 1, 'base' => 'profit', 'deduct_commissions' => false], 'note' => '(网站续费收入 − 成本 − 3%) × 1.9%'],
         ['name' => '刘媛媛 网站续费提成', 'rule_type' => 'dept_share', 'scope_business' => '网站续费', 'scope_group' => '*', 'scope_role' => '*', 'employee' => '刘媛媛', 'metric' => 'profit', 'params' => ['rate' => 0.019, 'share' => 1, 'base' => 'profit', 'deduct_commissions' => false], 'note' => '(网站续费收入 − 成本 − 3%) × 1.9%'],
         ['name' => '孙杰 网站续费提成', 'rule_type' => 'dept_share', 'scope_business' => '网站续费', 'scope_group' => '*', 'scope_role' => '*', 'employee' => '孙杰', 'metric' => 'profit', 'params' => ['rate' => 0.01, 'share' => 1, 'base' => 'profit', 'deduct_commissions' => false], 'note' => '(网站续费收入 − 成本 − 3%) × 1%'],
+        // 平面设计（阎泸琪）：按月营业额阶梯结算，另有全勤奖 200
+        ['name' => '阎泸琪 营业额阶梯薪酬', 'rule_type' => 'sales_package', 'scope_business' => '平面设计', 'scope_group' => '*', 'scope_role' => '*', 'employee' => '阎泸琪', 'metric' => 'sales', 'params' => ['tiers' => [['upto' => 3000, 'base' => 1800, 'rate' => 0, 'big' => 0, 'small' => 0], ['upto' => 6000, 'base' => 2100, 'rate' => 0.05, 'big' => 2, 'small' => 0.5], ['upto' => 9000, 'base' => 2300, 'rate' => 0.08, 'big' => 3, 'small' => 0.5], ['upto' => 12000, 'base' => 3300, 'rate' => 0.1, 'big' => 5, 'small' => 0.5], ['upto' => 15000, 'base' => 4800, 'rate' => 0.1, 'big' => 5, 'small' => 0.5]], 'big_threshold' => 50, 'returning_rate' => 0.1, 'review_min' => 10, 'review_penalty' => 100], 'note' => '平面设计：按月营业额落档，底薪按考勤折算；老客户找回 +10%；好评率每月填写，低于 10% 扣 100'],
+        ['name' => '阎泸琪 全勤奖', 'rule_type' => 'attendance_bonus', 'scope_business' => '*', 'scope_group' => '*', 'scope_role' => '*', 'employee' => '阎泸琪', 'metric' => 'profit', 'params' => ['amount' => 200], 'note' => '请假 <4 小时全额、≥4 小时减半、≥8 小时不发'],
         ['name' => '其他调整', 'rule_type' => 'manual', 'scope_business' => '*', 'scope_group' => '*', 'scope_role' => '*', 'employee' => null, 'metric' => 'profit', 'params' => [], 'note' => '上月漏记、临时奖扣等，每月填写并写明原因'],
     ];
     // 固定服务费（原基本工资，按考勤折算）；网站客服为每月不同的“补单提成”，默认 0，每月在规则中心填写。

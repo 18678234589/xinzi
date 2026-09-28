@@ -146,6 +146,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $values = array_filter(array_map(function ($r) use ($i) { return trim((string)($r[$i] ?? '')); }, $raw), 'strlen');
                     if (count($values) >= 1 && count(array_filter($values, 'ps_import_date')) >= 0.8 * count($values)) { $columnMap['order_date'] = $i; break; }
                 }
+                // 平面设计原表的到账状态列没有表头：数据大多是“到账 / 发货”等状态的空表头列当作状态列
+                if ($selectedBusiness === '平面设计' && !isset($columnMap['status'])) foreach ($head as $i => $h) {
+                    if ($h !== '' || in_array($i, $columnMap, true)) continue;
+                    $values = array_filter(array_map(function ($r) use ($i) { return trim((string)($r[$i] ?? '')); }, $raw), 'strlen');
+                    if (count($values) >= 1 && count(array_filter($values, function ($v) { return ps_import_delivery_status($v) !== null; })) >= 0.8 * count($values)) { $columnMap['status'] = $i; break; }
+                }
                 if ($selectedBusiness === '商标') {
                     // 商标原表的错位行归位、汇总行（合计 / 底薪 / 提成）跳过；保留原下标以对应 Excel 行号
                     $fixedRows = [];
@@ -295,6 +301,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             if (isset($designSeen[$monthKey]) || $designRepeat->fetchColumn()) $kindText = '图片同客户';
                             $designSeen[$monthKey] = true;
                         }
+                    }
+                    // 平面设计：原表“老客户”列有内容（不是否 / 无）即老客户找回，其余为新订单
+                    if ($selectedBusiness === '平面设计') {
+                        $marker = $lookup($row, 'returning_marker');
+                        $kindText = $marker !== '' && !in_array($marker, ['否', '无', '0', '不是'], true) ? '老客户找回' : '新订单';
                     }
                     // 商标业务识别订单类型：小额分表或包含小额 -> 小额返款；备注或类型含“新客” -> 新客户；其余 -> 普通订单。
                     if ($selectedBusiness === '商标') {
