@@ -215,7 +215,7 @@ try {
     check_algorithm($hmAmount, 3040, '华梦外包 3800 × 80%');
     if (ps_template_cost_status($hm, $hmAmount) !== 'approved') throw new RuntimeException('外包比例成本应按成本中心价自动通过');
     $hmOrder = ps_summary($order('AI网站定制', 3800, 3800), [$approved(3040)], [['employee_id' => 1, 'commission_group' => 'customer_service', 'group_weight' => 1, 'role_name' => '客服']]);
-    check_algorithm(algorithm_person($hmOrder, 'customer_service'), 64.60, '华梦单客服 (3800−3040−3%)×10%');
+    check_algorithm(algorithm_person($hmOrder, 'customer_service'), 74.60, '华梦单客服 (3800−3040−3%)×10% + 每单补助 10');
 
     // 13. 重名：两位“孙湉湉”，按已开通账号且能做当前业务的那位唯一确定
     $index = ['孙湉湉' => [['id' => 101, 'name' => '孙湉湉', 'department' => '客服', 'has_account' => 0, 'businesses' => []], ['id' => 102, 'name' => '孙湉湉', 'department' => '网站客服', 'has_account' => 1, 'businesses' => ['网站模板', 'AI网站定制']]]];
