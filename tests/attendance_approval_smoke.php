@@ -11,6 +11,7 @@ try {
     $rule = $pdo->query("SELECT r.id,r.employee_id,r.params_json FROM project_monthly_rules r JOIN employees e ON e.id=r.employee_id WHERE r.rule_type='attendance_bonus' AND r.is_active=1 AND e.name='冯超' LIMIT 1")->fetch();
     $check((bool)$rule, '冯超有全勤奖规则');
     $eid = (int)$rule['employee_id'];
+    $targetRuleId = (int)$rule['id']; $targetEmployeeId = $eid; // rules.php 被 include 后会覆盖 $rule / $eid
     $pdo->prepare('DELETE FROM project_monthly_inputs WHERE payroll_month=? AND rule_id=?')->execute([$month, (int)$rule['id']]);
     $bonus = function () use ($month, $eid, $rule) { foreach (ps_monthly_results($month, true) as $r) if ((int)$r['employee_id'] === $eid && (int)$r['rule_id'] === (int)$rule['id']) return $r; return null; };
     $check($bonus() === null, '未批准：全勤奖默认不发（即使考勤满勤）');
@@ -28,7 +29,7 @@ try {
     $check($row && (float)$row['amount'] === 200.0 && strpos($row['detail'], '财务批准') !== false, '批准后计入全勤奖 ¥200（' . ($row['detail'] ?? '') . '）');
     $check(strpos($html, 'attendance-approval') !== false && strpos($html, '已批准 ¥200.00') !== false, '审批表显示“已批准 ¥200”');
 
-    $_POST = ['csrf' => 'test-csrf', 'action' => 'monthly_input_delete', 'month' => $month, 'rule_id' => (int)$rule['id'], 'employee_id' => $eid];
+    $_POST = ['csrf' => 'test-csrf', 'action' => 'monthly_input_delete', 'month' => $month, 'rule_id' => $targetRuleId, 'employee_id' => $targetEmployeeId];
     $error = ''; ob_start(); include __DIR__ . '/../project/rules.php'; ob_end_clean();
     $check($error === '' && $bonus() === null, '撤销后恢复为不发');
 
