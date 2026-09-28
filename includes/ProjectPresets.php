@@ -57,13 +57,15 @@ function ps_preset_rules()
 {
     $r = function ($group, $type, $role, $kind, $mode, $rate, $fee, $subsidy = 0, $min = 0, $note = '', $minCost = null, $extra = []) {
         return ['commission_group' => $group, 'project_type' => $type, 'role_name' => $role, 'order_kind' => $kind, 'calc_mode' => $mode, 'rate' => $rate, 'service_fee_rate' => $fee, 'per_order_subsidy' => $subsidy, 'min_contract_amount' => $min, 'note' => $note, 'min_cost_rate' => $minCost,
-            'allow_negative' => !empty($extra['allow_negative']) ? 1 : 0, 'low_profit_threshold' => $extra['low_threshold'] ?? null, 'low_profit_subsidy' => $extra['low_subsidy'] ?? null, 'min_from' => $extra['min_from'] ?? null];
+            'allow_negative' => !empty($extra['allow_negative']) ? 1 : 0, 'low_profit_threshold' => $extra['low_threshold'] ?? null, 'low_profit_subsidy' => $extra['low_subsidy'] ?? null, 'min_from' => $extra['min_from'] ?? null, 'until' => $extra['until'] ?? null];
     };
     $neg = ['allow_negative' => true];
     return [
         $r('technical', '网站模板', '*', '*', 'pool', 0.13, 0.03, 0, 0, '模板技术：(售价−空间域名−3%服务费)×13%'),
         $r('technical', '网站模板', '资料员', '*', 'pool', 0.10, 0.03, 0, 0, '资料员：×10%'),
         $r('customer_service', '网站模板', '*', '*', 'pool', 0.08, 0.03, 0, 0, '模板客服 8%；两名客服各 50% 即各 4%'),
+        // AI网站定制客服：8 月及以前无每单补助；2026-09-01 起每单 10 元
+        $r('customer_service', 'AI网站定制', '*', '*', 'pool', 0.10, 0.03, 0, 0, '定制客服 10%（两人合接各 5%）；博山定制成本按售价 65% 计，华梦外包按实际 80%', 0.65, ['until' => '2026-08-31']),
         $r('customer_service', 'AI网站定制', '*', '*', 'pool', 0.10, 0.03, 10, 0, '定制客服 10%（两人合接各 5%）+ 每单补助 10 元；博山定制成本按售价 65% 计，华梦外包按实际 80%', 0.65, ['min_from' => '2026-09-01']),
         $r('technical', 'AI网站定制', '前端', '*', 'individual', 0.13, 0.06, 0, 0, '内部前端：(售价−6%服务费−域名−SSL)×档位比例（按月利润 5%~15%，8 月档 13%）'),
         $r('technical', 'AI网站定制', '外包前端', '*', 'individual', 0.20, 0, 0, 0, '外包前端不扣服务费；按售价档 15%/20%/25%'),
@@ -134,8 +136,10 @@ function ps_preset_template_exists($row)
 
 function ps_preset_rule_exists($row)
 {
-    $q = db()->prepare("SELECT rate,calc_mode,service_fee_rate,per_order_subsidy,min_contract_amount,min_cost_rate,allow_negative,low_profit_threshold,low_profit_subsidy FROM project_commission_rules WHERE commission_group=? AND project_type=? AND role_name=? AND order_kind=? AND is_active=1 ORDER BY effective_from DESC,id DESC LIMIT 1");
-    $q->execute([$row['commission_group'], $row['project_type'], $row['role_name'], $row['order_kind']]);
+    // 分时段口径：有“最早生效”的按该日生效的规则比较，有“截止”的按截止日生效的规则比较，否则比较最新版本
+    $asOf = $row['min_from'] ?? ($row['until'] ?? '9999-12-31');
+    $q = db()->prepare("SELECT rate,calc_mode,service_fee_rate,per_order_subsidy,min_contract_amount,min_cost_rate,allow_negative,low_profit_threshold,low_profit_subsidy FROM project_commission_rules WHERE commission_group=? AND project_type=? AND role_name=? AND order_kind=? AND is_active=1 AND effective_from<=? ORDER BY effective_from DESC,id DESC LIMIT 1");
+    $q->execute([$row['commission_group'], $row['project_type'], $row['role_name'], $row['order_kind'], $asOf]);
     $current = $q->fetch();
     if (!$current) return 'new';
     $same = abs((float)$current['rate'] - $row['rate']) < 0.0000005 && $current['calc_mode'] === $row['calc_mode']
@@ -167,6 +171,7 @@ function ps_apply_preset_rules($actor, $effectiveFrom = '2026-09-01')
     $insert = db()->prepare('INSERT INTO project_commission_rules (commission_group,project_type,role_name,order_kind,calc_mode,rate,service_fee_rate,per_order_subsidy,min_contract_amount,min_cost_rate,allow_negative,low_profit_threshold,low_profit_subsidy,note,effective_from) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)');
     $added = 0;
     foreach (ps_preset_rules() as $row) {
+        if (!empty($row['until']) && $effectiveFrom > $row['until']) continue; // 旧口径不早于截止日才导入
         if (ps_preset_rule_exists($row) === 'same') continue;
         $insert->execute([$row['commission_group'], $row['project_type'], $row['role_name'], $row['order_kind'], $row['calc_mode'], $row['rate'], $row['service_fee_rate'], $row['per_order_subsidy'], $row['min_contract_amount'], $row['min_cost_rate'] ?? null, $row['allow_negative'] ?? 0, $row['low_profit_threshold'] ?? null, $row['low_profit_subsidy'] ?? null, $row['note'], max($effectiveFrom, (string)($row['min_from'] ?? ''))]);
         $added++;
