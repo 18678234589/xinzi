@@ -331,6 +331,17 @@ function ps_monthly_results($month, $forceLive = false)
                 $ratio = $m['portion'] / $total;
                 $add($eid, $rule, $pool * $membersShare * $ratio, $poolText . sprintf('；成员分配 %s%% × 本人毛利占比 %s%%（¥%s / ¥%s）', round($membersShare * 100, 4), round($ratio * 100, 2), money_plain($m['portion']), money_plain($total)));
             }
+            // 利润奖励（微信代写核算标准）：部门总利润超过起点后，每增加一档，部门每人（固定分成人员 + 当月有业绩的成员）奖固定金额，封顶
+            $milestone = $p['milestone'] ?? null;
+            if ($milestone && (float)($milestone['step'] ?? 0) > 0 && $total > (float)$milestone['from']) {
+                $steps = (int)floor(($total - (float)$milestone['from']) / (float)$milestone['step'] + 1e-9);
+                $bonus = min($steps * (float)$milestone['amount'], (float)($milestone['cap'] ?? INF));
+                if ($bonus > 0) {
+                    $recipients = array_unique(array_merge($fixedIds, array_keys(array_filter($people, function ($m) { return $m['portion'] > 0; }))));
+                    $bonusRule = ['name' => $rule['name'] . ' · 利润奖励'] + $rule;
+                    foreach ($recipients as $eid) $add($eid, $bonusRule, $bonus, sprintf('部门总利润 ¥%s 超过 ¥%s 满 %d 个 ¥%s，每人 %d × ¥%s = ¥%s（封顶 ¥%s）', money_plain($total), money_plain($milestone['from']), $steps, money_plain($milestone['step']), $steps, money_plain($milestone['amount']), money_plain($bonus), money_plain($milestone['cap'] ?? 0)));
+                }
+            }
         } elseif ($type === 'perf_rank') {
             // 设计客服：原系统“客服绩效”按多店绩效平均分排名，前三名 850 / 800 / 750（财务照常上传绩效数据）；
             // 结果按考勤折算（同固定服务费）；本月可填写金额覆盖（如绩效数据未上传）。
@@ -478,7 +489,10 @@ function ps_monthly_params_from_input($type, $input)
             if (!$id) throw new RuntimeException('找不到合作人员“' . trim($m[1]) . '”');
             $fixed[] = ['employee_id' => (int)$id, 'name' => trim($m[1]), 'share' => round((float)$m[2] / 100, 6)];
         }
-        return ['deduction' => $num($input['deduction'] ?? '0', '扣除额'), 'rate' => $num($input['rate'] ?? '', '比例') / 100, 'members_share' => $num($input['members_share'] ?? '', '成员分配比例') / 100, 'fixed' => $fixed];
+        $params = ['deduction' => $num($input['deduction'] ?? '0', '扣除额'), 'rate' => $num($input['rate'] ?? '', '比例') / 100, 'members_share' => $num($input['members_share'] ?? '', '成员分配比例') / 100, 'fixed' => $fixed];
+        // 利润奖励（可选）：部门总利润超过起点后每增加一档，每人奖固定金额，封顶
+        if (trim((string)($input['milestone_from'] ?? '')) !== '') $params['milestone'] = ['from' => $num($input['milestone_from'], '利润奖励起点'), 'step' => $num($input['milestone_step'] ?? '', '每档利润'), 'amount' => $num($input['milestone_amount'] ?? '', '每档每人奖励'), 'cap' => $num($input['milestone_cap'] ?? '', '每人封顶')];
+        return $params;
     }
     throw new RuntimeException('规则类型无效');
 }
@@ -499,7 +513,7 @@ function ps_monthly_presets()
         ['name' => '环境配置主管提成', 'rule_type' => 'dept_share', 'scope_business' => '环境配置', 'scope_group' => '*', 'scope_role' => '*', 'employee' => '于洋', 'metric' => 'profit', 'params' => ['rate' => 0.05, 'share' => 0.5, 'base' => 'revenue', 'deduct_commissions' => true], 'note' => '于洋（网站售后部主管）：(环境配置收入 − 3% 服务费 − 部门客服/技术提成 − 员工底薪等其他费用) × 5% × 50%'],
         ['name' => '优站模板奖励', 'rule_type' => 'per_unit', 'scope_business' => '*', 'scope_group' => '*', 'scope_role' => '*', 'employee' => null, 'metric' => 'profit', 'params' => ['amount' => 15], 'note' => '每做一个优站模板奖励 15 元（8 月李仁超 75、李子晖 195、崔鑫栋 30）'],
         ['name' => '其他业务提成（未接入系统）', 'rule_type' => 'manual', 'scope_business' => '*', 'scope_group' => '*', 'scope_role' => '*', 'employee' => null, 'metric' => 'profit', 'params' => [], 'note' => '标书、续费、代写等尚未在项目系统录单的业务提成，由财务每月填写'],
-        ['name' => '微信代写部门利润池', 'rule_type' => 'profit_pool', 'scope_business' => '微信代写', 'scope_group' => 'customer_service', 'scope_role' => '*', 'employee' => null, 'metric' => 'profit', 'params' => ['deduction' => 6000, 'rate' => 0.10, 'members_share' => 0.68, 'fixed' => [['name' => '姚鹏', 'share' => 0.13], ['name' => '李雪', 'share' => 0.13]]], 'note' => '《微信代写提成比例汇总》：(四名编辑总利润 − 1000×6) × 10%；姚鹏、李雪各 13%，编辑 68% 按本人利润占比'],
+        ['name' => '微信代写部门利润池', 'rule_type' => 'profit_pool', 'scope_business' => '微信代写', 'scope_group' => 'customer_service', 'scope_role' => '*', 'employee' => null, 'metric' => 'profit', 'params' => ['deduction' => 6000, 'rate' => 0.10, 'members_share' => 0.68, 'fixed' => [['name' => '姚鹏', 'share' => 0.13], ['name' => '李雪', 'share' => 0.13]], 'milestone' => ['from' => 60000, 'step' => 10000, 'amount' => 100, 'cap' => 1300]], 'note' => '《微信代写提成比例汇总》：(四名编辑总利润 − 1000×6) × 10%；姚鹏、李雪各 13%，编辑 68% 按本人利润占比'],
         ['name' => '设计客服绩效固定服务费', 'rule_type' => 'perf_rank', 'scope_business' => '*', 'scope_group' => '*', 'scope_role' => '*', 'employee' => null, 'metric' => 'profit', 'params' => [], 'note' => '原系统客服绩效：设计客服多店绩效平均分排名，第 1/2/3 名 850/800/750，按考勤折算'],
         ['name' => '乔立宾代写单量提成', 'rule_type' => 'order_count', 'scope_business' => '软文代写,微信代写', 'scope_group' => '*', 'scope_role' => '*', 'employee' => '乔立宾', 'metric' => 'profit', 'params' => ['amount' => 1.2], 'note' => '1.2 元/单：博山 + 博山微信（系统内已审核、稿费 > 0 的代写订单，一单多写手计 1 单）+ 临沂 / 东营 / 合伙团队等（每月填写单量）'],
         // 网站售后部《网站售后部算法》：各人按全部网站续费毛利（收入 − 成本 − 3%）的比例提成
