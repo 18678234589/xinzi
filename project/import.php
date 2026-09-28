@@ -152,6 +152,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $values = array_filter(array_map(function ($r) use ($i) { return trim((string)($r[$i] ?? '')); }, $raw), 'strlen');
                     if (count($values) >= 1 && count(array_filter($values, function ($v) { return ps_import_delivery_status($v) !== null; })) >= 0.8 * count($values)) { $columnMap['status'] = $i; break; }
                 }
+                if ($selectedBusiness === '标书') {
+                    // 标书原表：同一订单多位设计师的续行（无订单号、无售价，佣金已计入主行成本）与底部汇总行不当订单；保留原下标对应 Excel 行号
+                    $raw = array_filter($raw, function ($r) use ($columnMap) { $get = function ($k) use ($r, $columnMap) { return isset($columnMap[$k]) ? trim((string)($r[$columnMap[$k]] ?? '')) : ''; }; return preg_match('/\d{5,}/', $get('order_no')) || ($get('contract_amount') !== '' && ps_import_date($get('order_date'))); });
+                }
                 if ($selectedBusiness === '商标') {
                     // 商标原表的错位行归位、汇总行（合计 / 底薪 / 提成）跳过；保留原下标以对应 Excel 行号
                     $fixedRows = [];

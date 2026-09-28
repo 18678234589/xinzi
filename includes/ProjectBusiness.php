@@ -30,6 +30,8 @@ function ps_business_catalog()
         '微信代写' => ['departments' => ['微信代写客服', '微信代写售后', '微信营销部经理'], 'resources' => false, 'requires_technical' => false, 'service_fee_rate' => 0, 'order_kinds' => ['店铺订单', '微信付款'], 'kind_required' => true, 'default_kind' => '店铺订单', 'cost_label' => '写手稿费', 'import_cost' => true, 'free_shop' => true, 'fields' => ['writer_code' => '写手编号', 'writing_volume' => '字数']],
         // 商标部：普通订单 (售价 − 成本 − 1%服务费) × 12% + 3元/单；新客户订单 + 6元/单；同一客服同一客户当月第二单起记“同客户”（照常提成、不计单量）；小额返款订单 3元/单；资料专员与提交专员每件 2.2 元。
         '商标' => ['departments' => ['商标', '商标部'], 'resources' => false, 'requires_technical' => false, 'service_fee_rate' => 0.01, 'order_kinds' => ['普通订单', '新客户', '同客户', '小额返款'], 'kind_required' => true, 'default_kind' => '普通订单', 'cost_label' => '成本', 'import_cost' => true, 'free_shop' => true, 'fields' => ['trademark_name' => '商标名称', 'trademark_count' => '商标个数', 'service_type' => '网报类型']],
+        // 标书（曹双双、王宁兼标书客服）：(售价 − 成本 − 售价 × 3% 服务费) × 10%；成本 = 设计师佣金合计，随表导入。
+        '标书' => ['departments' => ['标书'], 'resources' => false, 'requires_technical' => false, 'service_fee_rate' => 0.03, 'order_kinds' => [], 'cost_label' => '设计师佣金', 'import_cost' => true, 'free_shop' => true, 'fields' => ['designer' => '设计师 / 技术昵称']],
         // 平面设计（阎泸琪）：逐单不计提成，按月营业额阶梯结算（规则中心“营业额阶梯薪酬”）；原表“老客户”列有内容记为老客户找回（+10%）。
         '平面设计' => ['departments' => ['平面设计'], 'resources' => false, 'requires_technical' => false, 'service_fee_rate' => 0, 'order_kinds' => ['新订单', '老客户找回'], 'kind_required' => true, 'default_kind' => '新订单', 'free_shop' => true, 'fields' => ['design_item' => '设计内容']],
     ];
@@ -55,7 +57,7 @@ function ps_business_fallback($department)
 function ps_business_normalize($name)
 {
     $name = trim((string)$name);
-    return ['AI开发定制' => 'AI网站定制', 'AI网站开发定制' => 'AI网站定制', '网站定制' => 'AI网站定制', '网站技术服务' => 'AI网站定制', '网站模板技术' => '网站模板', '服务器配置' => '环境配置', '小程序' => '小程序开发', '小程序商城' => '小程序开发', '小程序引流' => '小额引流', '代写客服' => '软文代写', '代写' => '软文代写', '软文' => '软文代写', '期刊发表' => '期刊', '商标部' => '商标', '商标注册' => '商标', '网站客服' => '网站模板', '小程序客服' => '小程序开发'][$name] ?? $name;
+    return ['AI开发定制' => 'AI网站定制', 'AI网站开发定制' => 'AI网站定制', '网站定制' => 'AI网站定制', '网站技术服务' => 'AI网站定制', '网站模板技术' => '网站模板', '服务器配置' => '环境配置', '小程序' => '小程序开发', '小程序商城' => '小程序开发', '小程序引流' => '小额引流', '代写客服' => '软文代写', '代写' => '软文代写', '软文' => '软文代写', '期刊发表' => '期刊', '商标部' => '商标', '商标注册' => '商标', '标书制作' => '标书', '标书业务' => '标书', '网站客服' => '网站模板', '小程序客服' => '小程序开发'][$name] ?? $name;
 }
 
 function ps_is_website_order($business)
@@ -206,6 +208,7 @@ function ps_business_import_columns($business)
         // 客服原表“设计”列：网报加急空一格时件数会落在这里，导入时由 ps_trademark_fix_row 归位
         $columns['trademark_extra'] = ['设计'];
     }
+    if ($business === '标书') $columns['detail:designer'] = ['技术昵称', '设计师', '设计师 / 技术昵称'];
     if ($business === '平面设计') {
         $columns['detail:design_item'] = ['内容', '设计内容'];
         $columns['returning_marker'] = ['老客户'];
@@ -293,5 +296,6 @@ function ps_business_people_labels($business)
     if ($business === '软文代写') return ['frontend' => '对接编辑', 'backend' => '协作执行'];
     if ($business === '商标') return ['frontend' => '资料专员', 'backend' => '提交专员'];
     if ($business === '平面设计') return ['frontend' => '平面设计', 'backend' => '协作设计'];
+    if ($business === '标书') return ['frontend' => '标书设计', 'backend' => '协作设计'];
     return ['frontend' => '项目执行', 'backend' => '协作执行'];
 }
