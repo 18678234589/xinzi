@@ -57,14 +57,14 @@ function ps_preset_rules()
 {
     $r = function ($group, $type, $role, $kind, $mode, $rate, $fee, $subsidy = 0, $min = 0, $note = '', $minCost = null, $extra = []) {
         return ['commission_group' => $group, 'project_type' => $type, 'role_name' => $role, 'order_kind' => $kind, 'calc_mode' => $mode, 'rate' => $rate, 'service_fee_rate' => $fee, 'per_order_subsidy' => $subsidy, 'min_contract_amount' => $min, 'note' => $note, 'min_cost_rate' => $minCost,
-            'allow_negative' => !empty($extra['allow_negative']) ? 1 : 0, 'low_profit_threshold' => $extra['low_threshold'] ?? null, 'low_profit_subsidy' => $extra['low_subsidy'] ?? null];
+            'allow_negative' => !empty($extra['allow_negative']) ? 1 : 0, 'low_profit_threshold' => $extra['low_threshold'] ?? null, 'low_profit_subsidy' => $extra['low_subsidy'] ?? null, 'min_from' => $extra['min_from'] ?? null];
     };
     $neg = ['allow_negative' => true];
     return [
         $r('technical', '网站模板', '*', '*', 'pool', 0.13, 0.03, 0, 0, '模板技术：(售价−空间域名−3%服务费)×13%'),
         $r('technical', '网站模板', '资料员', '*', 'pool', 0.10, 0.03, 0, 0, '资料员：×10%'),
         $r('customer_service', '网站模板', '*', '*', 'pool', 0.08, 0.03, 0, 0, '模板客服 8%；两名客服各 50% 即各 4%'),
-        $r('customer_service', 'AI网站定制', '*', '*', 'pool', 0.10, 0.03, 10, 0, '定制客服 10%（两人合接各 5%）+ 每单补助 10 元；博山定制成本按售价 65% 计，华梦外包按实际 80%', 0.65),
+        $r('customer_service', 'AI网站定制', '*', '*', 'pool', 0.10, 0.03, 10, 0, '定制客服 10%（两人合接各 5%）+ 每单补助 10 元；博山定制成本按售价 65% 计，华梦外包按实际 80%', 0.65, ['min_from' => '2026-09-01']),
         $r('technical', 'AI网站定制', '前端', '*', 'individual', 0.13, 0.06, 0, 0, '内部前端：(售价−6%服务费−域名−SSL)×档位比例（按月利润 5%~15%，8 月档 13%）'),
         $r('technical', 'AI网站定制', '外包前端', '*', 'individual', 0.20, 0, 0, 0, '外包前端不扣服务费；按售价档 15%/20%/25%'),
         $r('technical', 'AI网站定制', '后端', '*', 'individual', 0.10, 0.06, 0, 0, '后端：(售价−6%−域名−SSL)×10%；域名/SSL 与前端各担 50%'),
@@ -168,7 +168,7 @@ function ps_apply_preset_rules($actor, $effectiveFrom = '2026-09-01')
     $added = 0;
     foreach (ps_preset_rules() as $row) {
         if (ps_preset_rule_exists($row) === 'same') continue;
-        $insert->execute([$row['commission_group'], $row['project_type'], $row['role_name'], $row['order_kind'], $row['calc_mode'], $row['rate'], $row['service_fee_rate'], $row['per_order_subsidy'], $row['min_contract_amount'], $row['min_cost_rate'] ?? null, $row['allow_negative'] ?? 0, $row['low_profit_threshold'] ?? null, $row['low_profit_subsidy'] ?? null, $row['note'], $effectiveFrom]);
+        $insert->execute([$row['commission_group'], $row['project_type'], $row['role_name'], $row['order_kind'], $row['calc_mode'], $row['rate'], $row['service_fee_rate'], $row['per_order_subsidy'], $row['min_contract_amount'], $row['min_cost_rate'] ?? null, $row['allow_negative'] ?? 0, $row['low_profit_threshold'] ?? null, $row['low_profit_subsidy'] ?? null, $row['note'], max($effectiveFrom, (string)($row['min_from'] ?? ''))]);
         $added++;
     }
     ps_audit('rule', 0, 'import_preset', $actor, ['added' => $added, 'effective_from' => $effectiveFrom]);

@@ -507,7 +507,7 @@ function ps_monthly_presets()
     $rows = [
         ['name' => '模板技术超额奖金', 'rule_type' => 'threshold_bonus', 'scope_business' => '网站模板', 'scope_group' => 'technical', 'scope_role' => '模板技术', 'employee' => null, 'metric' => 'profit', 'params' => ['threshold' => 10000, 'rate' => 0.015], 'note' => '光君 / 孙妍 / 张强：毛利超过 1 万的部分 × 1.5%'],
         ['name' => '网站客服超额奖金', 'rule_type' => 'threshold_bonus', 'scope_business' => '网站模板,AI网站定制', 'scope_group' => 'customer_service', 'scope_role' => '*', 'employee' => null, 'metric' => 'profit', 'params' => ['threshold' => 20000, 'rate' => 0.008], 'note' => '毛利超过 2 万的部分 × 0.8%（合接订单按整单毛利计入）'],
-        ['name' => '定制客服月度第一名奖', 'rule_type' => 'ranking', 'scope_business' => 'AI网站定制', 'scope_group' => 'customer_service', 'scope_role' => '*', 'employee' => null, 'metric' => 'profit', 'params' => ['awards' => [500]], 'note' => 'AI网站定制客服按当月毛利排名，第一名奖励 500 元'],
+        ['name' => '定制客服月度第一名奖', 'rule_type' => 'ranking', 'scope_business' => 'AI网站定制', 'scope_group' => 'customer_service', 'scope_role' => '*', 'employee' => null, 'metric' => 'profit', 'params' => ['awards' => [500]], 'note' => 'AI网站定制客服按当月毛利排名，第一名奖励 500 元', 'from' => '2026-09'],
         ['name' => '网站客服排名奖', 'rule_type' => 'ranking', 'scope_business' => '网站模板,AI网站定制', 'scope_group' => 'customer_service', 'scope_role' => '*', 'employee' => null, 'metric' => 'manual', 'params' => ['awards' => [500, 300, 200]], 'note' => '第一 500、第二 300、第三 200；名次按客服考核每月在规则中心填写'],
         ['name' => '定制内部前端阶梯', 'rule_type' => 'tier_rate', 'scope_business' => 'AI网站定制', 'scope_group' => 'technical', 'scope_role' => '前端', 'employee' => null, 'metric' => 'profit', 'params' => ['tiers' => [['from' => 0, 'rate' => 0.05, 'base' => '2000'], ['from' => 10000, 'rate' => 0.07, 'base' => '2000'], ['from' => 15000, 'rate' => 0.09, 'base' => '2500'], ['from' => 20000, 'rate' => 0.12, 'base' => '2500'], ['from' => 25000, 'rate' => 0.13, 'base' => '2500'], ['from' => 30000, 'rate' => 0.14, 'base' => '2500'], ['from' => 35000, 'rate' => 0.15, 'base' => '2500']]], 'note' => '刘帅：按月利润落档，全部业绩统一按该档比例'],
         ['name' => '外包前端阶梯', 'rule_type' => 'tier_rate', 'scope_business' => 'AI网站定制', 'scope_group' => 'technical', 'scope_role' => '外包前端', 'employee' => null, 'metric' => 'sales', 'params' => ['tiers' => [['from' => 0, 'rate' => 0.15, 'base' => ''], ['from' => 10000, 'rate' => 0.20, 'base' => ''], ['from' => 30000, 'rate' => 0.25, 'base' => '']]], 'note' => '李仁超 / 孙磊：按月售价 1 万以下 15%、1–3 万 20%、3 万以上 25%'],
@@ -581,7 +581,7 @@ function ps_monthly_apply_presets($actor, $month)
                 $row['params']['fixed'][$i]['employee_id'] = (int)$memberIds[0];
             }
         }
-        $insert->execute([$row['name'], $row['rule_type'], $row['scope_business'], $row['scope_group'], $row['scope_role'], $employeeId, $row['metric'], json_encode($row['params'], JSON_UNESCAPED_UNICODE), $month, $row['note'], $actor['id']]);
+        $insert->execute([$row['name'], $row['rule_type'], $row['scope_business'], $row['scope_group'], $row['scope_role'], $employeeId, $row['metric'], json_encode($row['params'], JSON_UNESCAPED_UNICODE), max($month, (string)($row['from'] ?? '')), $row['note'], $actor['id']]);
         $added++;
     }
     ps_audit('monthly_rule', 0, 'import_preset', $actor, ['added' => $added, 'skipped' => $skipped]);
