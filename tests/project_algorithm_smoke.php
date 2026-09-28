@@ -69,7 +69,7 @@ try {
     ]);
     check_algorithm(algorithm_person($custom, 'technical', 0), 139.49, '定制前端 (1200−6%−55)×13%');
     check_algorithm(algorithm_person($custom, 'technical', 1), 107.30, '定制后端 (1200−6%−55)×10%');
-    check_algorithm(algorithm_person($custom, 'customer_service'), 38.40, '定制客服：博山定制成本按售价 65%，(1200−780−3%)×10%');
+    check_algorithm(algorithm_person($custom, 'customer_service'), 48.40, '定制客服：博山定制成本按售价 65%，(1200−780−3%)×10% + 每单补助 10（2026-09 起）');
     $outsourced = ps_summary($order('AI网站定制', 1200, 1200), [$approved(80)], [['employee_id' => 1, 'commission_group' => 'technical', 'group_weight' => 1, 'role_name' => '外包前端']]);
     check_algorithm(algorithm_person($outsourced, 'technical'), 224.00, '外包前端不扣服务费 20%');
 
