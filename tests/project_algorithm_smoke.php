@@ -31,7 +31,7 @@ try {
     if ($added !== count(ps_preset_cost_templates())) throw new RuntimeException('程序表模板未全部导入：' . $added);
     if (ps_apply_preset_templates($actor) !== 0) throw new RuntimeException('程序表模板重复导入');
     $rulesAdded = ps_apply_preset_rules($actor, '2026-09-01');
-    if ($rulesAdded !== count(ps_preset_rules())) throw new RuntimeException('核算规则未全部导入：' . $rulesAdded);
+    if ($rulesAdded !== count(array_filter(ps_preset_rules(), function ($r) { return empty($r['until']) || '2026-09-01' <= $r['until']; }))) /* 截止在 9 月前的旧口径不导入 */ throw new RuntimeException('核算规则未全部导入：' . $rulesAdded);
     if (ps_apply_preset_rules($actor, '2026-09-01') !== 0) throw new RuntimeException('核算规则重复导入');
 
     // 2. 程序名称匹配套餐（部门表“程序名称”列）
