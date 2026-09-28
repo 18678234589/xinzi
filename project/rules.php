@@ -56,8 +56,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $mode = ($_POST['calc_mode'] ?? '') === 'individual' ? 'individual' : 'pool';
             $note = trim((string)($_POST['note'] ?? ''));
             if (mb_strlen($role) > 80 || mb_strlen($note) > 200) throw new RuntimeException('岗位或说明过长');
-            db()->prepare('INSERT INTO project_commission_rules (commission_group,project_type,role_name,order_kind,calc_mode,rate,service_fee_rate,per_order_subsidy,min_contract_amount,min_cost_rate,note,effective_from) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)')
-                ->execute([$group, $type, $role, $kind, $mode, $rate, $fee, $amount($_POST['subsidy'] ?? '', '每单补助'), $amount($_POST['min_contract'] ?? '', '最低售价'), $percent($_POST['min_cost_percent'] ?? '', '成本下限', true), $note, $date]);
+            $subsidyOnly = trim((string)($_POST['subsidy_employee_ids'] ?? ''));
+            if ($subsidyOnly !== '' && !preg_match('/^[\d]+(?:[\s,，、]+[\d]+)*$/', $subsidyOnly)) throw new RuntimeException('补助限定员工只填员工ID，用逗号分隔');
+            $subsidyOnly = implode(',', array_filter(array_map('intval', preg_split('/[^\d]+/', $subsidyOnly))));
+            db()->prepare('INSERT INTO project_commission_rules (commission_group,project_type,role_name,order_kind,calc_mode,rate,service_fee_rate,per_order_subsidy,min_contract_amount,min_cost_rate,note,effective_from,subsidy_employee_ids) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)')
+                ->execute([$group, $type, $role, $kind, $mode, $rate, $fee, $amount($_POST['subsidy'] ?? '', '每单补助'), $amount($_POST['min_contract'] ?? '', '最低售价'), $percent($_POST['min_cost_percent'] ?? '', '成本下限', true), $note, $date, $subsidyOnly !== '' ? $subsidyOnly : null]);
             ps_audit('rule', (int)db()->lastInsertId(), 'create', $actor, ['group' => $group, 'rate' => $rate, 'project_type' => $type, 'role' => $role, 'kind' => $kind, 'mode' => $mode, 'fee' => $fee]);
             $success = '逐单分成规则已添加，未审核订单立即按新规则预估';
         } elseif ($action === 'rule_update') {
@@ -68,12 +71,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $mode = ($_POST['calc_mode'] ?? '') === 'individual' ? 'individual' : 'pool';
             $note = trim((string)($_POST['note'] ?? ''));
             if (mb_strlen($note) > 200) throw new RuntimeException('说明过长');
-            $before = db()->prepare('SELECT rate,service_fee_rate,per_order_subsidy,min_contract_amount,calc_mode FROM project_commission_rules WHERE id=?');
+            $subsidyOnly = trim((string)($_POST['subsidy_employee_ids'] ?? ''));
+            if ($subsidyOnly !== '' && !preg_match('/^[\d]+(?:[\s,，、]+[\d]+)*$/', $subsidyOnly)) throw new RuntimeException('补助限定员工只填员工ID，用逗号分隔');
+            $subsidyOnly = implode(',', array_filter(array_map('intval', preg_split('/[^\d]+/', $subsidyOnly))));
+            $before = db()->prepare('SELECT rate,service_fee_rate,per_order_subsidy,min_contract_amount,calc_mode,subsidy_employee_ids FROM project_commission_rules WHERE id=?');
             $before->execute([$ruleId]);
             $old = $before->fetch();
             if (!$old) throw new RuntimeException('规则不存在');
-            db()->prepare('UPDATE project_commission_rules SET rate=?,service_fee_rate=?,per_order_subsidy=?,min_contract_amount=?,min_cost_rate=?,calc_mode=?,note=? WHERE id=?')
-                ->execute([$rate, $fee, $amount($_POST['subsidy'] ?? '', '每单补助'), $amount($_POST['min_contract'] ?? '', '最低售价'), $percent($_POST['min_cost_percent'] ?? '', '成本下限', true), $mode, $note, $ruleId]);
+            db()->prepare('UPDATE project_commission_rules SET rate=?,service_fee_rate=?,per_order_subsidy=?,min_contract_amount=?,min_cost_rate=?,calc_mode=?,note=?,subsidy_employee_ids=? WHERE id=?')
+                ->execute([$rate, $fee, $amount($_POST['subsidy'] ?? '', '每单补助'), $amount($_POST['min_contract'] ?? '', '最低售价'), $percent($_POST['min_cost_percent'] ?? '', '成本下限', true), $mode, $note, $subsidyOnly !== '' ? $subsidyOnly : null, $ruleId]);
             ps_audit('rule', $ruleId, 'update', $actor, ['before' => $old, 'rate' => $rate, 'fee' => $fee, 'mode' => $mode]);
             $success = '规则已修改并立即生效（已审核订单按审核时的比例，不受影响）';
         } elseif ($action === 'php_bands') {
@@ -276,12 +282,13 @@ while (count($tiers) < 7) $tiers[] = ['from' => '', 'rate' => '', 'base' => ''];
 <div class="form-group col-md-2"><label>分成比例 %</label><input type="number" step="0.0001" min="0" max="100" name="rate_percent" class="form-control" required></div>
 <div class="form-group col-md-2"><label>服务费率 %</label><input type="number" step="0.0001" min="0" max="100" name="fee_percent" class="form-control" placeholder="留空 = 业务默认"></div>
 <div class="form-group col-md-2"><label>每单补助 ¥</label><input type="number" step="0.01" min="0" name="subsidy" class="form-control" placeholder="0"></div>
+<div class="form-group col-md-2"><label>补助限定员工 ID</label><input name="subsidy_employee_ids" class="form-control" placeholder="留空=所有参与人；如 15,16"></div>
 <div class="form-group col-md-2"><label>最低售价 ¥</label><input type="number" step="0.01" min="0" name="min_contract" class="form-control" placeholder="低于此价不计"></div>
 <div class="form-group col-md-2"><label>成本下限 %（按售价）</label><input type="number" step="0.01" min="0" max="100" name="min_cost_percent" class="form-control" placeholder="如 65"></div>
 <div class="form-group col-md-2"><label>说明</label><input name="note" maxlength="200" class="form-control"></div>
 <div class="form-group col-md-2"><button class="btn btn-primary btn-block">添加</button></div></form></details>
 <div class="small text-muted">匹配顺序：具体业务 &gt; 全部业务，指定岗位 &gt; 全部岗位，指定订单类型 &gt; 全部类型。组池：max(收入 − 直接成本 − 售价×服务费率, 0) × 比例 × 组内权重；个人独立：max(收入 − 直接成本×本人权重 − 售价×服务费率, 0) × 比例。</div></div>
-<div class="table-responsive"><table class="table table-sm mb-0 project-rule-table"><thead><tr><th>业务 · 组别</th><th>岗位 / 订单类型</th><th>方式</th><th>比例 %</th><th>服务费 %</th><th>补助 ¥</th><th>最低售价 ¥</th><th>成本下限 %</th><th>说明</th><th></th></tr></thead><tbody>
+<div class="table-responsive"><table class="table table-sm mb-0 project-rule-table"><thead><tr><th>业务 · 组别</th><th>岗位 / 订单类型</th><th>方式</th><th>比例 %</th><th>服务费 %</th><th>补助 ¥</th><th>补助限定</th><th>最低售价 ¥</th><th>成本下限 %</th><th>说明</th><th></th></tr></thead><tbody>
 <?php foreach ($rules as $r): $formId = 'rule' . (int)$r['id']; ?><tr class="<?php echo $r['is_active'] ? '' : 'text-muted'; ?>">
 <td><?php echo e($r['project_type'] === '*' ? '全部业务' : $r['project_type']); ?><div class="small text-muted"><?php echo e(ps_label('group', $r['commission_group'])); ?> · <?php echo e($r['effective_from']); ?> 起<?php echo $r['is_active'] ? '' : ' · 已停用'; ?></div></td>
 <td><?php echo e($r['role_name'] === '*' ? '全部岗位' : $r['role_name']); ?><div class="small text-muted"><?php echo e($r['order_kind'] === '*' ? '全部类型' : $r['order_kind']); ?></div></td>
@@ -289,11 +296,12 @@ while (count($tiers) < 7) $tiers[] = ['from' => '', 'rate' => '', 'base' => ''];
 <td><input form="<?php echo $formId; ?>" name="rate_percent" type="number" step="0.0001" min="0" max="100" class="form-control form-control-sm" style="width:84px" value="<?php echo e(rtrim(rtrim(number_format($r['rate'] * 100, 4, '.', ''), '0'), '.')); ?>"></td>
 <td><input form="<?php echo $formId; ?>" name="fee_percent" type="number" step="0.0001" min="0" max="100" class="form-control form-control-sm" style="width:84px" value="<?php echo $r['service_fee_rate'] === null ? '' : e(rtrim(rtrim(number_format($r['service_fee_rate'] * 100, 4, '.', ''), '0'), '.')); ?>" placeholder="默认"></td>
 <td><input form="<?php echo $formId; ?>" name="subsidy" type="number" step="0.01" min="0" class="form-control form-control-sm" style="width:80px" value="<?php echo (float)$r['per_order_subsidy'] > 0 ? e($r['per_order_subsidy']) : ''; ?>"></td>
+<td><input form="<?php echo $formId; ?>" name="subsidy_employee_ids" class="form-control form-control-sm" style="width:90px" value="<?php echo e((string)($r['subsidy_employee_ids'] ?? '')); ?>" placeholder="全员"></td>
 <td><input form="<?php echo $formId; ?>" name="min_contract" type="number" step="0.01" min="0" class="form-control form-control-sm" style="width:80px" value="<?php echo (float)$r['min_contract_amount'] > 0 ? e($r['min_contract_amount']) : ''; ?>"></td>
 <td><input form="<?php echo $formId; ?>" name="min_cost_percent" type="number" step="0.01" min="0" max="100" class="form-control form-control-sm" style="width:72px" value="<?php echo $r['min_cost_rate'] === null ? '' : e(rtrim(rtrim(number_format($r['min_cost_rate'] * 100, 2, '.', ''), '0'), '.')); ?>"></td>
 <td><input form="<?php echo $formId; ?>" name="note" maxlength="200" class="form-control form-control-sm" value="<?php echo e($r['note']); ?>"></td>
 <td class="text-nowrap"><form method="post" id="<?php echo $formId; ?>" class="d-inline"><input type="hidden" name="csrf" value="<?php echo $csrf; ?>"><input type="hidden" name="action" value="rule_update"><input type="hidden" name="rule_id" value="<?php echo (int)$r['id']; ?>"><button class="btn btn-outline-primary btn-sm">保存</button></form> <form method="post" class="d-inline"><input type="hidden" name="csrf" value="<?php echo $csrf; ?>"><input type="hidden" name="action" value="toggle_rule"><input type="hidden" name="rule_id" value="<?php echo (int)$r['id']; ?>"><button class="btn btn-outline-secondary btn-sm"><?php echo $r['is_active'] ? '停用' : '启用'; ?></button></form></td></tr><?php endforeach; ?>
-<?php if (!$rules): ?><tr><td colspan="10" class="text-center text-muted py-4">尚无分成规则，可先“一键导入”核算表口径。</td></tr><?php endif; ?>
+<?php if (!$rules): ?><tr><td colspan="11" class="text-center text-muted py-4">尚无分成规则，可先“一键导入”核算表口径。</td></tr><?php endif; ?>
 </tbody></table></div></div>
 
 <?php $phpCfg = ps_php_cost_config(); ?>
