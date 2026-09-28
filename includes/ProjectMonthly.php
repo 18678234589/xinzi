@@ -15,7 +15,7 @@
  *   per_unit         计件奖励：当月件数 × 单价，件数由财务在规则中心填写（优站模板每个 15 元）
  *   base_fee         固定服务费（原“基本工资”）：按考勤折算——请假 ≤4 天：金额 − 金额/30 × 请假天数；>4 天：金额/30 × 实际出勤天数；
  *                    当月可填写金额覆盖默认值（如网站客服每月不同的“补单提成”）
- *   attendance_bonus 全勤奖：请假 <4 小时全额、≥4 小时减半、≥8 小时不发；无考勤记录不发；当月可填写金额覆盖（如申请在家上班 0 元）
+ *   attendance_bonus 全勤奖：默认不发，财务在规则中心“全勤奖审批”批准后按批准金额计入（考勤仅作建议：请假 <4 小时全额、≥4 小时减半、≥8 小时不发）
  *   manual           手工调整：当月逐人填写（上月漏记、未接入系统的业务提成等）
  *   sales_package    营业额阶梯薪酬：按月营业额落档，底薪（按考勤折算）+ 营业额 × 比例 + 单量补助 + 老客户找回加成 − 好评率罚款（平面设计）
  * 固定补助可标记“另行支付”（如法人补助），单列展示、不计入应结算金额。
@@ -117,6 +117,20 @@ function ps_monthly_prorate($amount, $attendance)
     if ($leave <= 4) return [round($amount - $amount / 30 * $leave, 2), sprintf('请假 %s 天：%s − %s/30 × %s', rtrim(rtrim(number_format($leave, 2, '.', ''), '0'), '.'), money_plain($amount), money_plain($amount), rtrim(rtrim(number_format($leave, 2, '.', ''), '0'), '.'))];
     $actual = max(round($attendance['work'] / 8, 2) - $leave, 0);
     return [round($amount / 30 * $actual, 2), sprintf('请假超过 4 天，按实际出勤 %s 天：%s/30 × %s', rtrim(rtrim(number_format($actual, 2, '.', ''), '0'), '.'), money_plain($amount), rtrim(rtrim(number_format($actual, 2, '.', ''), '0'), '.'))];
+}
+
+/**
+ * 全勤奖审批建议（仅供财务参考，不自动发放）：请假 <4 小时全额、≥4 小时减半、≥8 小时不发；无考勤记录提示核对。
+ * 返回 [建议金额, 说明]。
+ */
+function ps_attendance_suggestion($full, $attendance)
+{
+    if (!$attendance) return [0.0, '无考勤记录，请核对'];
+    $hours = (float)$attendance['absent'];
+    $text = $hours <= 0 ? '满勤' : '请假 ' . rtrim(rtrim(number_format($hours, 1, '.', ''), '0'), '.') . ' 小时';
+    if ($hours < 4) return [(float)$full, $text . ($hours > 0 ? '（<4 小时不扣）' : '')];
+    if ($hours < 8) return [round((float)$full / 2, 2), $text . '（≥4 小时减半）'];
+    return [0.0, $text . '（≥8 小时不发）'];
 }
 
 function ps_monthly_inputs($month)
@@ -366,13 +380,9 @@ function ps_monthly_results($month, $forceLive = false)
             if ($rule['employee_id'] === null) continue;
             $eid = (int)$rule['employee_id'];
             $override = $inputs[(int)$rule['id']][$eid] ?? null;
-            $full = (float)($p['amount'] ?? 0);
-            if ($override !== null) { $add($eid, $rule, (float)$override['value'], '本月填写 ¥' . money_plain($override['value']) . ($override['note'] !== '' ? '（' . $override['note'] . '）' : '')); continue; }
-            $att = $attendance[$eid] ?? null;
-            if (!$att) continue; // 无考勤记录不发全勤奖（与原系统一致）
-            $hours = $att['absent'];
-            $value = $hours < 4 ? $full : ($hours < 8 ? $full / 2 : 0);
-            $add($eid, $rule, $value, $hours <= 0 ? '满勤' : sprintf('请假 %s 小时：%s', rtrim(rtrim(number_format($hours, 1, '.', ''), '0'), '.'), $hours < 4 ? '不扣' : ($hours < 8 ? '减半' : '不发')));
+            // 全勤奖默认不发：只有财务在规则中心“全勤奖审批”批准（写入本月金额）后才计入；考勤只作为审批建议。
+            if ($override === null) continue;
+            $add($eid, $rule, (float)$override['value'], '财务批准 ¥' . money_plain($override['value']) . ($override['note'] !== '' ? '（' . $override['note'] . '）' : ''));
         } elseif ($type === 'manual') {
             foreach ($inputs[(int)$rule['id']] ?? [] as $eid => $input) {
                 if ($eid === 0) continue;
