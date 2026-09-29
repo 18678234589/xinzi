@@ -486,6 +486,11 @@ function ps_import_headerless_map($rows, $knownShops, $employeesByName)
         if ($key === null) foreach (['customer_service', 'frontend', 'backend'] as $candidate) if (!isset($map[$candidate])) { $key = $candidate; break; }
         if ($key !== null && !isset($map[$key])) $map[$key] = $i;
     }
+    // 客服列后紧跟一列中文短名、但不在名单里（如负责传资料的同事）：当作技术列，导入时按“非合作人员”提示后忽略
+    if (isset($map['customer_service']) && !isset($map['frontend'])) {
+        $next = $map['customer_service'] + 1;
+        if (!empty($columns[$next]) && $free($next) && $share($next, function ($v) { return (bool)preg_match('/^\p{Han}{2,4}$/u', $v); }) >= 0.6) $map['frontend'] = $next;
+    }
     $pick('status', function ($v) { return $v !== '' && ps_import_delivery_status($v) !== null; });
     // 付款昵称：订单号前最近的一个未识别的文字列（淘宝表常见顺序：日期、店铺、付款账号、订单编号）
     for ($i = $map['order_no'] - 1; $i >= 0; $i--) if ($columns[$i] && $free($i)) { if ($share($i, function ($v) { return !is_numeric($v); }) >= 0.6) $map['payment_nickname'] = $i; break; }

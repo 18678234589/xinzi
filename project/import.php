@@ -230,6 +230,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     }
                 } else { $prevFullRow = $row; $prevFullLine = $rowLine; }
                 $record = ['line' => $rowLine, 'sheet' => $sheetName, 'layout_signature' => $layoutSignature, 'business_signature' => ps_import_business_signature($head, $sheetName), 'status' => '可导入', 'error' => '', 'warning' => '', 'base_valid' => true, 'people' => ['technical' => [], 'customer_service' => []], 'domain_mode' => '', 'domain_template_id' => 0];
+                $record['amount_from_shop'] = $continuationOf && $amountCell === '' && $lookup($row, 'contract_amount') !== '';
                 if ($continuationOf) $record['warning'] = '此行只写了订单号：日期、店铺、客服、技术等沿用第 ' . ($continuationOf % 10000) . ' 行' . ($amountCell === '' ? ($lookup($row, 'contract_amount') !== '' ? '，售价按店铺流水带入' : '，售价待补（财务核对）') : '');
                 try {
                     $record['order_no'] = $lookup($row, 'order_no');
@@ -530,7 +531,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         $target['status'] = '需处理';
                         $target['error'] = trim(($target['error'] ?? '') . '；同号第 ' . $record['line'] . ' 行：' . ($record['error'] ?: '所在订单有错误'), '；');
                     } else {
-                        if ($record['contract_amount'] !== '') $target['contract_amount'] = number_format((float)$target['contract_amount'] + (float)$record['contract_amount'], 2, '.', '');
+                        // 按店铺流水带入的售价是整单价：同号重复出现时不再累加
+                        if ($record['contract_amount'] !== '' && empty($record['amount_from_shop'])) $target['contract_amount'] = number_format((float)$target['contract_amount'] + (float)$record['contract_amount'], 2, '.', '');
                         if (($record['direct_cost'] ?? '') !== '') $target['direct_cost'] = number_format((float)($target['direct_cost'] ?? 0) + (float)$record['direct_cost'], 2, '.', '');
                         if (is_numeric($record['ssl_used']) && (float)$record['ssl_used'] > 0) $target['ssl_used'] = number_format((float)(is_numeric($target['ssl_used']) ? $target['ssl_used'] : 0) + (float)$record['ssl_used'], 2, '.', '');
                         foreach (['technical', 'customer_service'] as $groupKey) foreach ($record['people'][$groupKey] as $personId => $person) $target['people'][$groupKey][$personId] = $target['people'][$groupKey][$personId] ?? $person;

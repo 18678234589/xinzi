@@ -27,6 +27,10 @@ try {
     $headers = ps_business_import_headers('小程序开发');
     $example = ps_business_import_example_row('小程序开发', $headers);
     $check(count($example) === count($headers) && ps_import_row_is_example($example) && $example[array_search('售价', $headers, true)] === '350', '下载模板附带示例行：' . implode(' | ', array_map(function ($h, $v) { return $h . '=' . $v; }, $headers, $example)));
+    $hlIndex = ['苏测试' => [['id' => 9, 'role' => 'customer_service']]];
+    $hlMap = ps_import_headerless_map([['', '1.05', '美呀美', '忧郁牛仔8', '4990829581958279832', '664', '资料上传', '苏测试', '刘洋', '0']], ['美呀美旗舰店'], $hlIndex);
+    $check(($hlMap['customer_service'] ?? null) === 7 && ($hlMap['frontend'] ?? null) === 8, '无表头：客服列后一列中文短名（刘洋，不在名单）当作技术列，导入时按非合作人员忽略');
+
     $user = $pdo->query("SELECT u.id,u.employee_id,u.role FROM project_users u JOIN employees e ON e.id=u.employee_id WHERE e.name='翟建跃' AND u.is_active=1")->fetch();
     $actor = ['type' => 'employee', 'id' => (int)$user['id'], 'employee_id' => (int)$user['employee_id'], 'role' => $user['role']];
     $pdo->prepare("INSERT INTO project_orders (order_no,customer_name,project_type,order_kind,shop,contract_amount,order_date,delivery_status,settlement_status,note) VALUES ('REPLAY-TEST-003','nick_c','小程序开发','续费','美呀美',100,'2026-09-03','finished','approved','测试')")->execute();
