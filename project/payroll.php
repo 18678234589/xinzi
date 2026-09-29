@@ -163,6 +163,9 @@ foreach ($monthlyItems as $item) {
     $slip[isset($slip[$item['rule_type']]) ? $item['rule_type'] : 'other'] += (float)$item['amount'];
 }
 $hasFullSlip = $slip['base_fee'] > 0 || $slip['attendance_bonus'] > 0;
+// 全勤奖须财务批准：未批准时卡片注明“待财务批准”
+$attendancePending = null;
+foreach ($monthlyItems as $item) if ($item['rule_type'] === 'attendance_bonus' && (float)$item['amount'] == 0 && strpos((string)$item['detail'], '待财务批准') === 0) $attendancePending = $item['detail'];
 $total = $totalCents / 100;
 $technicalTotal = 0.0;
 $customerServiceTotal = 0.0;
@@ -231,7 +234,7 @@ include __DIR__ . '/../includes/header.php';
 <div class="card mb-3 project-slip"><div class="card-header d-flex justify-content-between flex-wrap"><span>项目报酬结算单 · <?php echo e($selectedEmployee['name']); ?> · <?php echo e($month); ?></span><span class="text-muted small"><?php echo $period['status'] === 'locked' ? '已锁定' : '实时计算，锁月后冻结'; ?></span></div><div class="card-body">
 <div class="project-slip-grid">
 <div><small>固定服务费（按考勤）</small><strong>¥<?php echo money($slip['base_fee']); ?></strong></div>
-<div><small>全勤奖</small><strong>¥<?php echo money($slip['attendance_bonus']); ?></strong></div>
+<div><small>全勤奖</small><strong>¥<?php echo money($slip['attendance_bonus']); ?></strong><?php if ($attendancePending): ?><span class="d-block small text-warning" title="<?php echo e($attendancePending); ?>">待财务批准</span><?php endif; ?></div>
 <div><small>项目分成（逐单）</small><strong>¥<?php echo money($orderShare); ?></strong></div>
 <div><small>月度奖励与补助</small><strong>¥<?php echo money($slip['other']); ?></strong></div>
 <?php if (abs($adjustShare) > 0.004): ?><div><small>售后调整</small><strong>¥<?php echo money($adjustShare); ?></strong></div><?php endif; ?>

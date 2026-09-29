@@ -247,9 +247,13 @@ function ps_business_import_headers($business)
     $columns = ps_business_import_columns($business);
     $order = ['order_date','shop','business','payment_nickname','order_no','contract_amount','status','contact_note','customer_service','frontend','domain_used','ssl_used','backend','resource_note','order_kind','program_name'];
     if ($business !== 'AI网站定制') $order[] = 'payment_reference'; // 原 AI 定制 14 列模板不变，额外列仍可识别。
+    // 精简模板：订单类型会自动识别；协作技术仅定制前后端需要；名称 / 制作要求 / 客户微信等由“业务”“备注”“付款昵称”自动补全。
+    // 这些列写了仍会识别，只是不再放进下载模板，避免重复填写。
+    $optional = ['order_kind', 'detail:miniapp_name', 'detail:make_requirement', 'detail:customer_wechat', 'detail:service_item', 'detail:design_item', 'detail:renew_item'];
+    if ($business !== 'AI网站定制') $optional[] = 'backend';
     $headers = [];
-    foreach ($order as $key) if (isset($columns[$key])) $headers[] = $columns[$key][0];
-    foreach ($columns as $key => $aliases) if (strpos($key, 'detail:') === 0) $headers[] = $aliases[0];
+    foreach ($order as $key) if (isset($columns[$key]) && !in_array($key, $optional, true)) $headers[] = $columns[$key][0];
+    foreach ($columns as $key => $aliases) if (strpos($key, 'detail:') === 0 && !in_array($key, $optional, true)) $headers[] = $aliases[0];
     return $headers;
 }
 

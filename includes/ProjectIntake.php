@@ -279,6 +279,42 @@ function ps_import_names($value, $employeesByName, $business = null)
     return $out;
 }
 
+/**
+ * 宽松解析人员列（用于制作技术 / 协作技术）：不在人员名单中的写法（常见是把项目名称填进了技术列）不拦截整行，
+ * 放进 $unknown 由调用方提示并忽略；重名等真正需要区分的人员问题仍抛出。
+ */
+function ps_import_names_lenient($value, $employeesByName, $business, &$unknown)
+{
+    $out = [];
+    foreach (preg_split('/[,，、\/]+/u', trim((string)$value)) as $token) {
+        if (trim($token) === '') continue;
+        try {
+            $out += ps_import_names($token, $employeesByName, $business);
+        } catch (RuntimeException $e) {
+            if (mb_strpos($e->getMessage(), '不在人员名单中') === false) throw $e;
+            $unknown[] = trim($token);
+        }
+    }
+    return $out;
+}
+
+/**
+ * 业务说明字段自动补全：表格没填的，用前面已有的信息补上，避免重复填写——
+ * 名称 / 内容类字段取“业务”列描述（或技术列里误填的项目名），客户微信取备注或付款昵称。只补空字段。
+ */
+function ps_import_autofill_details($details, $businessText, $contactNote, $paymentNickname, $fallbackName = '')
+{
+    $description = trim((string)$businessText) !== '' ? trim((string)$businessText) : trim((string)$fallbackName);
+    foreach (['miniapp_name', 'service_item', 'make_requirement', 'design_item', 'renew_item'] as $key) {
+        if (array_key_exists($key, $details) && trim((string)$details[$key]) === '' && $description !== '') $details[$key] = mb_substr($description, 0, 300);
+    }
+    if (array_key_exists('customer_wechat', $details) && trim((string)$details['customer_wechat']) === '') {
+        $contact = trim((string)$contactNote) !== '' ? trim((string)$contactNote) : trim((string)$paymentNickname);
+        if ($contact !== '') $details['customer_wechat'] = mb_substr($contact, 0, 300);
+    }
+    return $details;
+}
+
 /** 导入用的姓名索引：附带部门、是否开通项目账号及账号可做的业务，供重名判断。 */
 function ps_import_employee_index()
 {

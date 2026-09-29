@@ -391,8 +391,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         if ($conflicts) throw new RuntimeException('原单与上传表的' . implode('、', $conflicts) . '不一致，请由财务核对');
                     }
                     $cs = ps_import_names($lookup($row, 'customer_service'), $employeesByName, $selectedBusiness);
-                    $front = ps_import_names($lookup($row, 'frontend'), $employeesByName, $selectedBusiness);
-                    $back = ps_import_names($lookup($row, 'backend'), $employeesByName, $selectedBusiness);
+                    // 技术列写的不是合作人员（常见是把项目名称填进了“制作技术”）：不拦整行，提示后忽略；客服列仍严格校验
+                    $unknownTech = [];
+                    $front = ps_import_names_lenient($lookup($row, 'frontend'), $employeesByName, $selectedBusiness, $unknownTech);
+                    $back = ps_import_names_lenient($lookup($row, 'backend'), $employeesByName, $selectedBusiness, $unknownTech);
+                    if ($unknownTech) $record['warning'] .= ($record['warning'] ? '；' : '') . '技术列写的“' . implode('、', $unknownTech) . '”不是合作人员，已忽略' . ($actor['role'] === 'technical' ? '，由本人作为技术' : '') . '；如需指定技术请填姓名';
+                    // 前面已有的信息自动补全业务说明（小程序名称 / 制作要求 / 客户微信等），表格可不再重复填写
+                    $record['details'] = ps_import_autofill_details($record['details'], $record['business_text'] ?? '', $record['contact_note'], $record['payment_nickname'], $unknownTech ? implode('、', $unknownTech) : '');
                     foreach ($cs as $id => $name) $record['people']['customer_service'][$id] = ['id' => $id, 'role' => '客服', 'name' => $name];
                     foreach ($front as $id => $name) $record['people']['technical'][$id] = ['id' => $id, 'role' => $peopleLabels['frontend'], 'name' => $name];
                     foreach ($back as $id => $name) {

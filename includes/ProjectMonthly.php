@@ -221,10 +221,10 @@ function ps_monthly_results($month, $forceLive = false)
     $metricLabels = ps_monthly_metrics();
     $attendance = ps_monthly_attendance($month);
     $results = [];
-    $add = function ($employeeId, $rule, $amount, $detail) use (&$results, &$rounding) {
+    $add = function ($employeeId, $rule, $amount, $detail, $keepZero = false) use (&$results, &$rounding) {
         $exact = (float)$amount;
         $amount = round($amount, 2);
-        if (abs($amount) < 0.005) return;
+        if (abs($amount) < 0.005 && !$keepZero) return; // 0 元行只保留需要提示状态的（如全勤奖待批准）
         // 超额奖金、阶梯差额与逐单分成合计后统一四舍五入（核算表“总提成”口径）
         if (in_array($rule['rule_type'], ['threshold_bonus', 'tier_rate'], true)) {
             $eid = (int)$employeeId;
@@ -392,7 +392,12 @@ function ps_monthly_results($month, $forceLive = false)
             $eid = (int)$rule['employee_id'];
             $override = $inputs[(int)$rule['id']][$eid] ?? null;
             // 全勤奖默认不发：只有财务在规则中心“全勤奖审批”批准（写入本月金额）后才计入；考勤只作为审批建议。
-            if ($override === null) continue;
+            if ($override === null) {
+                // 未批准：显示 0 元与考勤建议，让本人和财务都看得到“待财务批准”，而不是看起来漏算
+                [$suggest, $suggestText] = ps_attendance_suggestion((float)($p['amount'] ?? 0), $attendance[$eid] ?? null);
+                $add($eid, $rule, 0, '待财务批准（本月' . $suggestText . '，建议 ¥' . money_plain($suggest) . '）', true);
+                continue;
+            }
             $add($eid, $rule, (float)$override['value'], '财务批准 ¥' . money_plain($override['value']) . ($override['note'] !== '' ? '（' . $override['note'] . '）' : ''));
         } elseif ($type === 'manual') {
             foreach ($inputs[(int)$rule['id']] ?? [] as $eid => $input) {
