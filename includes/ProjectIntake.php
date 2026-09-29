@@ -262,13 +262,21 @@ function ps_import_date($value)
 function ps_import_names($value, $employeesByName, $business = null)
 {
     $out = [];
+    $names = [];
     foreach (preg_split('/[,，、\/]+/u', trim((string)$value)) as $name) {
         $name = trim(preg_replace('/^(软件开发部|外包)/u', '', trim($name)));
+        // 两个姓名连写没加分隔（如“朱俊英王宁”）：能完整拆成名单里的姓名时按多人处理
+        $parts = !isset($employeesByName[$name]) ? ps_import_split_joined_names($name, $employeesByName) : null;
+        foreach ($parts ?: [$name] as $part) $names[] = $part;
+    }
+    foreach ($names as $name) {
         if ($name === '' || $name === '无') continue;
         $candidates = $employeesByName[$name] ?? [];
         if (count($candidates) > 1 && $business !== null) {
             $narrowed = array_values(array_filter($candidates, function ($emp) use ($business) { return !empty($emp['has_account']) && in_array(ps_business_normalize($business), $emp['businesses'] ?? [], true); }));
             if (count($narrowed) !== 1) $narrowed = array_values(array_filter($candidates, function ($emp) use ($business) { return ps_business_fallback($emp['department'] ?? '') === ps_business_normalize($business) || (ps_business_fallback($emp['department'] ?? '') === '网站客服' && ps_is_website_order($business)); }));
+            // 仍不能确定时：只有一位开通了有效项目账号的（另一位多为离职或早期重复录入的档案），取这一位
+            if (count($narrowed) !== 1) $narrowed = array_values(array_filter($candidates, function ($emp) { return !empty($emp['has_account']); }));
             if (count($narrowed) === 1) $candidates = $narrowed;
         }
         if (!$candidates) throw new RuntimeException('合作人员“' . $name . '”不在人员名单中，请先在“人员与考勤”里添加');
@@ -277,6 +285,25 @@ function ps_import_names($value, $employeesByName, $business = null)
         $out[$id] = $name;
     }
     return $out;
+}
+
+/** 连写姓名拆分：整段能恰好拆成 2 个以上名单内姓名时返回拆分结果，否则 null。 */
+function ps_import_split_joined_names($text, $employeesByName)
+{
+    $length = mb_strlen($text);
+    if ($length < 4 || $length > 16 || !preg_match('/^\p{Han}+$/u', $text)) return null;
+    $walk = function ($offset) use (&$walk, $text, $length, $employeesByName) {
+        if ($offset === $length) return [];
+        for ($size = min(4, $length - $offset); $size >= 2; $size--) {
+            $part = mb_substr($text, $offset, $size);
+            if (!isset($employeesByName[$part])) continue;
+            $rest = $walk($offset + $size);
+            if ($rest !== null) return array_merge([$part], $rest);
+        }
+        return null;
+    };
+    $parts = $walk(0);
+    return $parts && count($parts) >= 2 ? $parts : null;
 }
 
 /**
@@ -313,6 +340,103 @@ function ps_import_autofill_details($details, $businessText, $contactNote, $paym
         if ($contact !== '') $details['customer_wechat'] = mb_substr($contact, 0, 300);
     }
     return $details;
+}
+
+/**
+ * 因填写问题导致无法识别时的“怎么改”指引：返回 ['key','title','how','example']；非填写问题（需财务核对等）返回 null。
+ * 用于预览页弹窗与红色行下的提示，让上传人一眼看懂该怎么填。
+ */
+function ps_import_fix_guide($message, $business = '')
+{
+    $message = (string)$message;
+    $kinds = $business ? ps_business_order_kinds($business) : [];
+    $guides = [
+        ['/日期无法识别|日期“.*”无法识别/u', 'date', '日期写法无法识别', '“日期”列写订单日期即可，支持 年-月-日、月.日、X月X日、8 位数字；不要写时间、星期或文字。没有日期的行可在预览里直接补填。', '2026-09-01　9.1　9月1日　20260901'],
+        ['/^状态“/u', 'status', '状态写法无法识别', '“状态”列写 已完成 或 未完成；也可写 到账、已发货、交易关闭。空着按未完成处理。', '已完成　未完成　到账'],
+        ['/缺少店铺订单号或支付流水号/u', 'order_no', '缺少订单号', '“订单编号”列填店铺（淘宝等）订单号；微信 / 对公收款没有订单号的，在“微信交易流水号”列填账单里的交易单号，二选一即可。也可在预览里直接补填。', '3316440471002001958　或　4200001234202609011234567890'],
+        ['/订单号或售价无效/u', 'amount', '售价或订单号写法不对', '“售价”列只写数字（最多两位小数），不要带“元”、文字或写两个金额；订单号不超过 100 个字符。', '350　1280.50'],
+        ['/不在人员名单中/u', 'person', '姓名对不上人员名单', '“客服”“技术”列只写系统里登记的姓名，多人用“、”隔开；不要写昵称、工号、项目名或把两人名字连在一起。名单里确实没有的人请联系财务添加。', '王宁　王宁、朱俊英'],
+        ['/位重名/u', 'duplicate', '姓名有重名', '系统里有同名的人，无法确定是哪一位。请联系财务在人员管理里区分（如加部门后缀），再按区分后的姓名填写。', '王宁（标书）'],
+        ['/须指定接单技术/u', 'tech_missing', '没写接单技术', '客服上传新订单时，“技术”列须写接单技术的姓名。', '石凯新'],
+        ['/还没有开通项目账号/u', 'tech_account', '技术还没开通账号', '表格里写的技术还没有项目账号，请联系财务开通后重新上传；或确认技术姓名是否写对。', ''],
+        ['/SSL 真实成本无效/u', 'ssl', 'SSL 成本写法不对', '“SSL证书使用”列写真实成本数字（只写数字，不带“元”）；没用证书写 0 或 无。', '0　无　68'],
+        ['/表格写的业务是/u', 'business', '业务选错了', '“业务”列写的业务和当前选择的业务模板不一致：请在页面上方切换到对应业务后再上传，或把“业务”列改成具体项目描述。', '小程序商城搭建（写做什么，不写别的业务名）'],
+        ['/订单类型“.*”无效/u', 'kind', '订单类型写法不对', '“订单类型”列只能写：' . implode('、', $kinds) . '。不确定可留空，系统会按描述自动预选。', implode('　', array_slice($kinds, 0, 3))],
+        ['/缺少“订单编号”或“微信交易流水号”列|没有与“.*”表头对应的工作表|缺少客服或技术列/u', 'header', '表头对不上', '表格第 1 行须是表头，至少要有“订单编号”（或“微信交易流水号”）、“日期”、“售价”列；财务上传还要有“客服”或“技术”列。最省事：下载下方模板，把数据按列粘贴进去再上传。', '日期 | 店铺 | 付款昵称 | 订单编号 | 售价 | 状态 | 客服 | 技术'],
+    ];
+    foreach ($guides as [$pattern, $key, $title, $how, $example]) if (preg_match($pattern, $message)) return ['key' => $key, 'title' => $title, 'how' => $how, 'example' => $example];
+    return null;
+}
+
+/** 模板示例行：每列给一个正确写法；订单号以“示例”开头，上传时自动跳过，忘删也不会入账。 */
+function ps_business_import_example_row($business, $headers)
+{
+    $columns = ps_business_import_columns($business);
+    $kinds = ps_business_order_kinds($business);
+    $samples = ['order_date' => '2026-09-01', 'shop' => '美呀美旗舰店', 'business' => '写具体做什么，如 小程序商城搭建', 'payment_nickname' => 'tb12345678', 'payment_reference' => '', 'order_no' => '示例-3316440471002001958（本行可删，上传时自动跳过）', 'contract_amount' => '350', 'status' => '已完成', 'contact_note' => '13800000000', 'customer_service' => '王宁', 'frontend' => '石凯新', 'backend' => '', 'order_kind' => $kinds[0] ?? '', 'program_name' => '森动中级版', 'domain_used' => '否', 'ssl_used' => '0', 'resource_note' => 'www.example.com', 'direct_cost' => '120', 'direct_cost2' => '0'];
+    $row = [];
+    foreach ($headers as $label) {
+        $value = '';
+        foreach ($columns as $key => $aliases) if (in_array($label, $aliases, true)) { $value = $samples[$key] ?? (strpos($key, 'detail:') === 0 ? '按实际填写' : ''); break; }
+        $row[] = $value;
+    }
+    return $row;
+}
+
+/** 模板示例行（任一单元格以“示例”开头）：导入时跳过。 */
+function ps_import_row_is_example($row)
+{
+    foreach ((array)$row as $cell) if (mb_strpos(trim((string)$cell), '示例') === 0) return true;
+    return false;
+}
+
+/** 首行像数据而不是表头（含订单号样式的长数字串）：用于识别没有表头、直接从第 1 行写订单的表格。 */
+function ps_import_row_is_data($row)
+{
+    foreach ((array)$row as $cell) if (preg_match('/^[A-Za-z0-9-]{12,}$/', trim((string)$cell)) && preg_match_all('/\d/', (string)$cell) >= 10) return true;
+    return false;
+}
+
+/**
+ * 没有表头的表格：按各列内容识别列含义（订单号 / 日期 / 店铺 / 售价 / 手机 / 客服 / 技术 / 付款昵称 / 状态）。
+ * 识别不出订单号列，或日期、售价都识别不出时返回 null。
+ */
+function ps_import_headerless_map($rows, $knownShops, $employeesByName)
+{
+    $rows = array_slice(array_values(array_filter($rows, 'is_array')), 0, 50);
+    $width = $rows ? max(array_map('count', $rows)) : 0;
+    $columns = [];
+    for ($i = 0; $i < $width; $i++) $columns[$i] = array_values(array_filter(array_map(function ($r) use ($i) { return trim((string)($r[$i] ?? '')); }, $rows), 'strlen'));
+    $share = function ($i, $test) use ($columns) { $values = $columns[$i]; if (!$values) return 0; return count(array_filter($values, $test)) / count($values); };
+    $map = [];
+    $free = function ($i) use (&$map) { return !in_array($i, $map, true); };
+    $pick = function ($key, $test, $after = -1) use ($columns, $share, $free, &$map) {
+        foreach ($columns as $i => $values) if ($i > $after && $values && $free($i) && $share($i, $test) >= 0.6) { $map[$key] = $i; return; }
+    };
+    $pick('order_no', function ($v) { return preg_match('/^[A-Za-z0-9-]{12,}$/', $v) && preg_match_all('/\d/', $v) >= 10; });
+    if (!isset($map['order_no'])) return null;
+    $pick('order_date', function ($v) { return (preg_match('/^\d{1,4}([.\/-]\d{1,2}){1,2}\.?$/', $v) || mb_strpos($v, '月') !== false || (is_numeric($v) && $v > 40000 && $v < 60000)) && ps_import_date($v); });
+    $pick('contact_note', function ($v) { return (bool)preg_match('/^1[3-9]\d{9}$/', $v); });
+    $pick('contract_amount', function ($v) { return is_numeric(str_replace([',', '¥', '￥'], '', $v)) && (float)str_replace([',', '¥', '￥'], '', $v) < 1000000; }, $map['order_no']);
+    $pick('shop', function ($v) use ($knownShops) { foreach ($knownShops as $shop) if ($v === $shop || mb_strpos($shop, $v) !== false || mb_strpos($v, $shop) !== false) return true; return false; });
+    // 人员列：姓名都在人员名单中；按账号角色区分客服列与技术列，角色不明时先客服后技术
+    $isName = function ($v) use ($employeesByName) { foreach (preg_split('/[,，、\/]+/u', $v) as $n) if (!isset($employeesByName[trim($n)])) return false; return true; };
+    $peopleColumns = [];
+    foreach ($columns as $i => $values) if ($values && $free($i) && $share($i, $isName) >= 0.6) $peopleColumns[] = $i;
+    foreach ($peopleColumns as $i) {
+        $roles = [];
+        foreach ($columns[$i] as $v) foreach (preg_split('/[,，、\/]+/u', $v) as $n) foreach ($employeesByName[trim($n)] ?? [] as $emp) if (!empty($emp['role'])) $roles[$emp['role']] = ($roles[$emp['role']] ?? 0) + 1;
+        arsort($roles);
+        $role = key($roles);
+        $key = $role === 'technical' ? (isset($map['frontend']) ? 'backend' : 'frontend') : ($role === 'customer_service' && !isset($map['customer_service']) ? 'customer_service' : null);
+        if ($key === null) foreach (['customer_service', 'frontend', 'backend'] as $candidate) if (!isset($map[$candidate])) { $key = $candidate; break; }
+        if ($key !== null && !isset($map[$key])) $map[$key] = $i;
+    }
+    $pick('status', function ($v) { return $v !== '' && ps_import_delivery_status($v) !== null; });
+    // 付款昵称：订单号前最近的一个未识别的文字列（淘宝表常见顺序：日期、店铺、付款账号、订单编号）
+    for ($i = $map['order_no'] - 1; $i >= 0; $i--) if ($columns[$i] && $free($i)) { if ($share($i, function ($v) { return !is_numeric($v); }) >= 0.6) $map['payment_nickname'] = $i; break; }
+    if (!isset($map['order_date']) && !isset($map['contract_amount'])) return null;
+    return $map;
 }
 
 /** 导入用的姓名索引：附带部门、是否开通项目账号及账号可做的业务，供重名判断。 */

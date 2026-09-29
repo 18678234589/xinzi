@@ -258,7 +258,7 @@ try {
     $_FILES = ['file' => ['name' => 'test.csv', 'tmp_name' => $csvPath, 'error' => UPLOAD_ERR_OK, 'size' => filesize($csvPath)]];
     ob_start(); include __DIR__ . '/../project/import.php'; ob_end_clean();
     $staffPreview = $_SESSION['project_import_preview'][0] ?? null;
-    if (!$staffPreview || !empty($staffPreview['base_valid']) || (strpos($staffPreview['error'], '未写本人') === false && strpos($staffPreview['error'], '本人尚未被关联') === false)) throw new RuntimeException('技术错误地可导入他人订单');
+    if (!$staffPreview || !empty($staffPreview['base_valid']) || (strpos($staffPreview['error'], '未写本人') === false && strpos($staffPreview['error'], '不是本人') === false && strpos($staffPreview['error'], '本人尚未被关联') === false)) throw new RuntimeException('技术错误地可导入他人订单');
     unset($_SESSION['project_user_id'], $_SESSION['project_import_preview'], $_SESSION['project_import_actor'], $_SESSION['project_import_business']);
     fclose($csv);
     fclose($designCsv);

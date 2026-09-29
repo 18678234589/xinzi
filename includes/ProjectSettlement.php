@@ -372,8 +372,7 @@ function ps_technical_reconciliation_summary($rows)
  * 线上 PHP 的 open_basedir 只允许站点目录和 /tmp，不能写到站点目录外；为防止被直接下载，
  * 每个文件都存成 .php、以“返回 404 并退出”的 PHP 代码开头——即使路径被猜到，Web 服务器也只会执行它返回 404。
  */
-const PS_PRIVATE_GUARD = "<?php http_response_code(404); exit; ?>
-";
+const PS_PRIVATE_GUARD = "<?php http_response_code(404); exit; ?>\n"; // 用转义写，不受源码换行符（LF / CRLF）影响
 
 function ps_private_dir($kind)
 {
@@ -399,7 +398,8 @@ function ps_private_read($kind, $name)
     $path = ps_private_dir($kind) . '/' . basename($name) . '.php';
     if (!is_file($path)) return null;
     $data = file_get_contents($path);
-    return strpos($data, PS_PRIVATE_GUARD) === 0 ? substr($data, strlen(PS_PRIVATE_GUARD)) : null;
+    // 兼容早期以 CRLF 源码写入的防护头（末尾多一个回车符），否则这些文件会被误判为“已不存在”
+    return preg_match('/^<\?php http_response_code\(404\); exit; \?>\r?\n/', $data, $m) ? substr($data, strlen($m[0])) : null;
 }
 
 /** 删除私有文件；文件不存在时静默跳过。 */
