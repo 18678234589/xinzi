@@ -21,7 +21,8 @@ if (!$current_admin && isset($_SESSION['project_user_id'])) {
             $governance_role = $governanceStmt->fetchColumn();
             $governance_nav = (bool)$governance_role;
             $governance_committee_nav = $governance_role === 'committee';
-            if ($governance_nav) { try { $unreadStmt = db()->prepare('SELECT COUNT(*) FROM project_messages WHERE employee_id=? AND read_at IS NULL'); $unreadStmt->execute([(int)$project_staff['employee_id']]); $unread_messages = (int)$unreadStmt->fetchColumn(); } catch (PDOException $e) { $unread_messages = 0; } }
+            // 未读站内信：所有合作人员都统计（上传待补全等通知也走站内信）
+            { try { $unreadStmt = db()->prepare('SELECT COUNT(*) FROM project_messages WHERE employee_id=? AND read_at IS NULL'); $unreadStmt->execute([(int)$project_staff['employee_id']]); $unread_messages = (int)$unreadStmt->fetchColumn(); } catch (PDOException $e) { $unread_messages = 0; } }
             if ($governance_committee_nav) {
                 $governance_election_due = (int)db()->query("SELECT COUNT(*) FROM project_governance_rotations r LEFT JOIN project_governance_elections el ON el.rotation_id=r.id WHERE COALESCE(r.end_date,DATE_SUB(DATE_ADD(r.start_date,INTERVAL 3 MONTH),INTERVAL 1 DAY))<=DATE_ADD(CURDATE(),INTERVAL 7 DAY) AND (el.id IS NULL OR el.status<>'closed')")->fetchColumn();
             }
@@ -127,6 +128,7 @@ $nav = function ($href, $icon, $label, $active) {
     <?php echo $nav('/project/payroll.php', 'fa-wallet', '我的项目报酬', $_rel === 'project/payroll.php'); ?>
     <?php echo $nav('/project/welfare.php', 'fa-heart', '全员福利池', $_rel === 'project/welfare.php'); ?>
     <?php echo $nav('/project/files.php', 'fa-file-excel', '我上传的表格', $_rel === 'project/files.php'); ?>
+    <?php if (!$governance_nav): echo $nav('/project/messages.php', 'fa-envelope', '我的站内信' . ($unread_messages ? '（' . $unread_messages . '）' : ''), $_rel === 'project/messages.php'); endif; ?>
     <?php echo $nav('/project/refunds.php', 'fa-undo-alt', '退款与返现', $_rel === 'project/refunds.php'); ?>
     <?php echo $nav('/project/profile.php', 'fa-user-cog', '我的账号', $_rel === 'project/profile.php'); ?>
     <?php if ($governance_nav): ?><div class="sidebar-project-label">管理层专属</div><?php echo $nav('/project/governance_ideas.php', 'fa-lightbulb', '三天脑洞', $_rel === 'project/governance_ideas.php'); echo $nav('/project/messages.php', 'fa-envelope', '我的站内信' . ($unread_messages ? '（' . $unread_messages . '）' : ''), $_rel === 'project/messages.php'); if ($governance_committee_nav) { echo $nav('/project/governance_ideas.php#penalties', 'fa-shield-alt', '缺报核对与豁免', false); echo $nav('/project/governance_election.php', 'fa-vote-yea', '换届投票', $_rel === 'project/governance_election.php'); echo $nav('/project/contributions.php', 'fa-bug', '建议 / Bug 奖励', $_rel === 'project/contributions.php'); echo $nav('/project/holidays.php', 'fa-calendar-day', '法定节假日', $_rel === 'project/holidays.php'); } echo $nav('/project/governance.php', 'fa-clipboard-check', '事项与评审', $_rel === 'project/governance.php'); echo $nav('/project/rules.php?domain=governance', 'fa-book-open', '考核规则', $_rel === 'project/rules.php' && ($_GET['domain'] ?? '') === 'governance'); endif; ?>
@@ -162,7 +164,8 @@ $nav = function ($href, $icon, $label, $active) {
 </div>
 
 <div class="main-content">
-<?php if ($unread_messages && ($_rel ?? '') !== 'project/messages.php'): ?><div class="alert alert-warning mb-3"><i class="fas fa-envelope mr-1"></i> 你有 <?php echo (int)$unread_messages; ?> 条未读督促站内信，<a href="<?php echo BASE_URL; ?>/project/messages.php" class="alert-link">点此查看并处理</a>。</div><?php endif; ?>
+<?php if ($unread_messages && ($_rel ?? '') !== 'project/messages.php'): ?><div class="alert alert-warning mb-3"><i class="fas fa-envelope mr-1"></i> 你有 <?php echo (int)$unread_messages; ?> 条未读站内信，<a href="<?php echo BASE_URL; ?>/project/messages.php" class="alert-link">点此查看并处理</a>。</div><?php endif; ?>
+<?php include __DIR__ . '/import_followup_modal.php'; ?>
 <?php if ($governance_committee_nav && $governance_election_due): ?><div class="alert alert-warning mb-3"><i class="fas fa-vote-yea mr-1"></i> 本届轮值即将结束，请监委会<a href="<?php echo BASE_URL; ?>/project/governance_election.php" class="alert-link">发起或完成换届投票</a>。</div><?php endif; ?>
 <?php
 // 财务 / 管理员仍在用默认密码（= 登录名）时提醒修改
