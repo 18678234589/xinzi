@@ -173,7 +173,10 @@ function pv_parse_paste($text, array $categories, $actor)
                 . "请识别出每一个独立的登录条目，输出 JSON：{\"items\":[{\"category\":\"\",\"name\":\"\",\"url\":\"\",\"host\":\"\",\"account\":\"\",\"password\":\"\",\"notes\":\"\"}]}\n"
                 . "category 只能从这些里选：" . implode('、', $categories) . "；name 写简短名称（如“腾讯云主账号”“官网服务器”）；url 为登录网址；host 为 IP / 域名与端口；account 为登录账号；password 为密码（通常就是占位符）；notes 放其它有用信息（如到期时间、安全入口、数据库名、端口、手机号），没有就留空。没有的字段留空字符串，不要编造。只输出 JSON。\n\n"
                 . $masked;
-            $data = ps_ai_json(ps_ai_chat([['role' => 'system', 'content' => '你是严谨的信息整理助手，只输出 JSON。'], ['role' => 'user', 'content' => $prompt]], 3000));
+            $messages = [['role' => 'system', 'content' => '你是严谨的信息整理助手，只输出 JSON。'], ['role' => 'user', 'content' => $prompt]];
+            // 网络偶发（DNS / 连接超时）时自动重试一次
+            try { $reply = ps_ai_chat($messages, 3000); } catch (RuntimeException $e) { if (mb_strpos($e->getMessage(), '无法连接') === false) throw $e; $reply = ps_ai_chat($messages, 3000); }
+            $data = ps_ai_json($reply);
             $items = is_array($data['items'] ?? null) ? $data['items'] : null;
             if ($items === null) throw new RuntimeException('AI 未返回条目');
         } catch (RuntimeException $e) {
