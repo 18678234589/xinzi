@@ -20,13 +20,19 @@ function ps_require_actor()
     if (!$actor) { header('Location: ' . BASE_URL . '/login.php'); exit; }
     if ($actor['type'] === 'employee' && $actor['role'] === 'governance') {
         $script = basename($_SERVER['SCRIPT_NAME'] ?? '');
-        $allowed = ['profile.php', 'governance.php', 'governance_ideas.php', 'governance_election.php', 'governance_rules.php', 'governance_evidence.php', 'payroll.php', 'welfare.php', 'contributions.php', 'messages.php', 'holidays.php'];
+        $allowed = ['profile.php', 'governance.php', 'governance_ideas.php', 'governance_election.php', 'governance_rules.php', 'governance_evidence.php', 'payroll.php', 'welfare.php', 'contributions.php', 'messages.php', 'holidays.php', 'vault.php'];
         if ($script === 'rules.php' && ($_GET['domain'] ?? $_POST['domain'] ?? '') === 'governance') $allowed[] = 'rules.php';
         if ($script === 'rules.php' && ($_GET['domain'] ?? $_POST['domain'] ?? '') === 'welfare') $allowed[] = 'rules.php';
         if (!in_array($script, $allowed, true)) { http_response_code(403); exit('此账号仅可访问管理层事项与本人结算'); }
         if ($script !== 'profile.php' && empty($actor['password_changed_at']) && PHP_SAPI !== 'cli') {
             header('Location: ' . BASE_URL . '/project/profile.php?password=1'); exit;
         }
+    }
+    // 平台信息专用账号：只能进入平台信息、我的账号、站内信；初始密码须先修改
+    if ($actor['type'] === 'employee' && $actor['role'] === 'vault') {
+        $script = basename($_SERVER['SCRIPT_NAME'] ?? '');
+        if (!in_array($script, ['profile.php', 'vault.php', 'messages.php'], true)) { header('Location: ' . BASE_URL . '/project/vault.php'); exit; }
+        if ($script !== 'profile.php' && empty($actor['password_changed_at']) && PHP_SAPI !== 'cli') { header('Location: ' . BASE_URL . '/project/profile.php?password=1'); exit; }
     }
     // 合作人员首次登录须先绑定手机号（之后可用手机号登录），绑定前只能进入“我的账号”。
     if ($actor['type'] === 'employee' && array_key_exists('phone', $actor) && empty($actor['phone']) && basename($_SERVER['SCRIPT_NAME'] ?? '') !== 'profile.php' && PHP_SAPI !== 'cli') {

@@ -467,6 +467,8 @@ include __DIR__ . '/../includes/header.php';
 <script>(function(){var mode=document.getElementById('confirmDomainMode'),wrap=document.getElementById('confirmDomainTemplateWrap'),template=document.getElementById('confirmDomainTemplate');if(!mode)return;mode.addEventListener('change',function(){var use=mode.value==='template';wrap.hidden=!use;template.required=use;});})();</script>
 <?php endif; ?>
 
+<?php include __DIR__ . '/../includes/order_credentials_card.php'; ?>
+
 <?php if ($canEdit && $order['delivery_status'] !== 'finished' && !$pendingDeliveryReq && in_array($actor['role'], ['customer_service', 'technical', 'finance'], true)): ?>
 <div class="card mb-3 project-form-card">
   <div class="card-body">

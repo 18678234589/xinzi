@@ -40,8 +40,13 @@ if (!$current_admin && isset($_SESSION['project_user_id'])) {
         if ($assignedDepartmentBusiness) $department_upload_business = $assignedDepartmentBusiness;
     }
 }
+// 平台与服务器信息：仅白名单（股东、管理、admin、服务器维护）可见
+$vault_nav = false;
+if ($current_admin || $project_staff) {
+    try { require_once __DIR__ . '/ProjectVault.php'; $vault_nav = pv_can_access(ps_actor()); } catch (Throwable $e) { $vault_nav = false; }
+}
 $display_name = $current_admin['username'] ?? ($project_staff['name'] ?? ($project_staff['username'] ?? ''));
-$display_role = $current_admin ? '财务 / 管理员' : (($project_staff['role'] ?? '') === 'governance' ? '管理层' : (($project_staff['role'] ?? '') === 'technical' ? '技术' : '客服'));
+$display_role = $current_admin ? '财务 / 管理员' : (($project_staff['role'] ?? '') === 'governance' ? '管理层' : (($project_staff['role'] ?? '') === 'vault' ? '管理' : (($project_staff['role'] ?? '') === 'technical' ? '技术' : '客服')));
 
 // 计算当前脚本相对站点根的路径，用于侧边栏高亮判断
 $_script = $_SERVER['SCRIPT_NAME'] ?? '';
@@ -64,7 +69,7 @@ $is_settle      = ($_rel === 'salaries/settle.php');
 $is_query       = ($_rel === 'salaries/query.php');
 $is_insurance   = (strpos($_rel, 'insurance/') === 0);
 $is_project     = (strpos($_rel, 'project/') === 0);
-$is_project_orders = $is_project && !in_array($_rel, ['project/dashboard.php', 'project/payroll.php', 'project/settings.php', 'project/system.php', 'project/rules.php', 'project/profile.php', 'project/files.php', 'project/refunds.php', 'project/governance.php', 'project/governance_ideas.php', 'project/governance_election.php', 'project/governance_evidence.php', 'project/welfare.php', 'project/contributions.php', 'project/messages.php', 'project/holidays.php'], true);
+$is_project_orders = $is_project && !in_array($_rel, ['project/dashboard.php', 'project/payroll.php', 'project/settings.php', 'project/system.php', 'project/rules.php', 'project/profile.php', 'project/files.php', 'project/refunds.php', 'project/governance.php', 'project/governance_ideas.php', 'project/governance_election.php', 'project/governance_evidence.php', 'project/welfare.php', 'project/contributions.php', 'project/messages.php', 'project/holidays.php', 'project/vault.php'], true);
 // 合并栏目：同类页面在侧栏只占一个入口，进入后顶部页签切换。
 $nav_groups = [
     'shop' => [['/shops/index.php', 'fa-store', '店铺管理', $is_shops], ['/shops/etmll_sync.php', 'fa-sync-alt', 'ETMLL 订单同步', $is_etmll], ['/orders/index.php', 'fa-file-upload', '平台订单导入', $is_orders], ['/abnormal/index.php', 'fa-exclamation-triangle', '异常订单', $is_abnormal]],
@@ -96,7 +101,7 @@ $nav = function ($href, $icon, $label, $active) {
 <body class="app-warm<?php echo ($_rel ?? '') === 'project/dashboard.php' ? ' pd-shell' : ''; ?>">
 <nav class="navbar navbar-expand-lg navbar-light fixed-top app-topbar">
     <button class="app-menu-btn d-lg-none" type="button" id="sidebarToggle" aria-label="打开菜单"><i class="fas fa-bars"></i></button>
-    <a class="navbar-brand" href="<?php echo BASE_URL; ?><?php echo ($project_staff['role'] ?? '') === 'governance' ? '/project/governance_ideas.php' : ($project_staff ? '/project/index.php' : '/index.php'); ?>"><span class="app-brand-mark"><i class="fas fa-seedling"></i></span> 项目合作结算中心</a>
+    <a class="navbar-brand" href="<?php echo BASE_URL; ?><?php echo ($project_staff['role'] ?? '') === 'governance' ? '/project/governance_ideas.php' : (($project_staff['role'] ?? '') === 'vault' ? '/project/vault.php' : ($project_staff ? '/project/index.php' : '/index.php')); ?>"><span class="app-brand-mark"><i class="fas fa-seedling"></i></span> 项目合作结算中心</a>
     <div class="ml-auto d-flex align-items-center">
         <span class="app-user mr-3"><span class="app-user-avatar" aria-hidden="true"><?php echo e(mb_substr($display_name, 0, 1)); ?></span><span class="d-none d-sm-inline"><strong><?php echo e($display_name); ?></strong><small><?php echo e($display_role); ?></small></span></span>
         <a href="<?php echo BASE_URL; ?>/logout.php" class="btn btn-sm app-logout"><i class="fas fa-sign-out-alt"></i> 退出</a>
@@ -108,7 +113,12 @@ $nav = function ($href, $icon, $label, $active) {
 <div class="sidebar sidebar-project">
     <div class="sidebar-project-brand"><span class="sidebar-project-mark"><i class="fas fa-seedling"></i></span><span><strong>项目合作结算</strong><small>把每一份付出，算得清楚</small></span></div>
     <?php if ($project_staff): ?>
-    <?php if ($project_staff['role'] === 'governance'): ?>
+    <?php if ($project_staff['role'] === 'vault'): ?>
+    <div class="sidebar-project-label">管理</div>
+    <?php echo $nav('/project/vault.php', 'fa-key', '平台与服务器信息', $_rel === 'project/vault.php'); ?>
+    <?php echo $nav('/project/messages.php', 'fa-envelope', '我的站内信' . ($unread_messages ? '（' . $unread_messages . '）' : ''), $_rel === 'project/messages.php'); ?>
+    <?php echo $nav('/project/profile.php', 'fa-user-cog', '我的账号', $_rel === 'project/profile.php'); ?>
+    <?php elseif ($project_staff['role'] === 'governance'): ?>
     <div class="sidebar-project-label">管理层工作台</div>
     <?php echo $nav('/project/governance_ideas.php', 'fa-lightbulb', '三天脑洞', $_rel === 'project/governance_ideas.php'); ?>
     <?php echo $nav('/project/messages.php', 'fa-envelope', '我的站内信' . ($unread_messages ? '（' . $unread_messages . '）' : ''), $_rel === 'project/messages.php'); ?>
@@ -117,6 +127,7 @@ $nav = function ($href, $icon, $label, $active) {
     <?php echo $nav('/project/governance.php', 'fa-clipboard-check', '事项与评审', $_rel === 'project/governance.php'); ?>
     <?php if ($governance_committee_nav): echo $nav('/project/contributions.php', 'fa-bug', '建议 / Bug 奖励', $_rel === 'project/contributions.php'); echo $nav('/project/holidays.php', 'fa-calendar-day', '法定节假日', $_rel === 'project/holidays.php'); endif; ?>
     <?php echo $nav('/project/rules.php?domain=governance', 'fa-book-open', '考核规则', $_rel === 'project/rules.php'); ?>
+    <?php if ($vault_nav): echo $nav('/project/vault.php', 'fa-key', '平台与服务器信息', $_rel === 'project/vault.php'); endif; ?>
     <?php echo $nav('/project/payroll.php', 'fa-wallet', '我的项目报酬', $_rel === 'project/payroll.php'); ?>
     <?php echo $nav('/project/welfare.php', 'fa-heart', '全员福利池', $_rel === 'project/welfare.php'); ?>
     <?php echo $nav('/project/profile.php', 'fa-user-cog', '我的账号', $_rel === 'project/profile.php'); ?>
@@ -128,6 +139,7 @@ $nav = function ($href, $icon, $label, $active) {
     <?php echo $nav('/project/payroll.php', 'fa-wallet', '我的项目报酬', $_rel === 'project/payroll.php'); ?>
     <?php echo $nav('/project/welfare.php', 'fa-heart', '全员福利池', $_rel === 'project/welfare.php'); ?>
     <?php echo $nav('/project/files.php', 'fa-file-excel', '我上传的表格', $_rel === 'project/files.php'); ?>
+    <?php if ($vault_nav): echo $nav('/project/vault.php', 'fa-key', '平台与服务器信息', $_rel === 'project/vault.php'); endif; ?>
     <?php if (!$governance_nav): echo $nav('/project/messages.php', 'fa-envelope', '我的站内信' . ($unread_messages ? '（' . $unread_messages . '）' : ''), $_rel === 'project/messages.php'); endif; ?>
     <?php echo $nav('/project/refunds.php', 'fa-undo-alt', '退款与返现', $_rel === 'project/refunds.php'); ?>
     <?php echo $nav('/project/profile.php', 'fa-user-cog', '我的账号', $_rel === 'project/profile.php'); ?>
@@ -153,6 +165,7 @@ $nav = function ($href, $icon, $label, $active) {
     <?php echo $nav('/project/settings.php#cost-center', 'fa-layer-group', '成本中心与账户', $_rel === 'project/settings.php'); ?>
     <?php echo $nav('/salaries/settle.php', 'fa-calculator', '原系统结算', $group_active === 'legacy'); ?>
     <?php echo $nav('/project/system.php', 'fa-sliders-h', '系统设置', $_rel === 'project/system.php'); ?>
+    <?php if ($vault_nav): echo $nav('/project/vault.php', 'fa-key', '平台与服务器信息', $_rel === 'project/vault.php'); endif; ?>
     <?php endif; ?>
     <div class="sidebar-project-footer">
         <a class="sidebar-project-token" href="https://token.laibangwo.com/" target="_blank" rel="noopener noreferrer" aria-label="Token 工作台">
