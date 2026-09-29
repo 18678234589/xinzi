@@ -22,7 +22,9 @@ function ps_customer_intake_conflicts($existing, $input)
     $price = trim((string)($input['contract_amount'] ?? ''));
     $nickname = trim((string)($input['payment_nickname'] ?? ''));
     $paymentReference = trim((string)($input['payment_reference'] ?? ''));
-    if ($shop !== '' && (string)($existing['shop'] ?? '') !== '' && $shop !== (string)$existing['shop']) $conflicts[] = '店铺';
+    // 店铺简称与全称视为同一家（如“美呀美”与“美呀美旗舰店”），避免补传同号订单被误判冲突
+    $existingShop = (string)($existing['shop'] ?? '');
+    if ($shop !== '' && $existingShop !== '' && $shop !== $existingShop && mb_strpos($shop, $existingShop) === false && mb_strpos($existingShop, $shop) === false) $conflicts[] = '店铺';
     $priceSource = $existing['price_source'] ?? ((float)($existing['contract_amount'] ?? 0) > 0 ? 'manual' : 'missing');
     if ($price !== '' && $priceSource !== 'missing' && (int)round((float)$price * 100) !== (int)round((float)$existing['contract_amount'] * 100)) $conflicts[] = '售价';
     if ($nickname !== '' && (string)($existing['payment_nickname'] ?? '') !== '' && $nickname !== (string)$existing['payment_nickname']) $conflicts[] = '付款昵称';

@@ -218,18 +218,17 @@ try {
     if (ps_business_fallback('设计客服') !== '设计' || ps_business_fallback('定制前端') !== 'AI网站定制') throw new RuntimeException('部门默认业务匹配错误');
     $designCsv = tmpfile();
     $designHeaders = ps_business_import_headers('设计');
-    if (in_array('域名使用（写是/否）', $designHeaders, true) || !in_array('设计内容', $designHeaders, true)) throw new RuntimeException('设计业务模板字段错误');
+    if (in_array('域名使用（写是/否）', $designHeaders, true) || in_array('设计内容', $designHeaders, true) || !in_array('业务', $designHeaders, true)) throw new RuntimeException('设计业务模板字段错误（设计内容由“业务”列自动补全，不再放进模板）');
     fputcsv($designCsv, $designHeaders);
     $designNo = $no . '-DESIGN';
     $designData = array_fill_keys($designHeaders, '');
     $designData['日期'] = date('Y-m-d');
     $designData['店铺'] = $shopName;
-    $designData['业务'] = '设计';
+    $designData['业务'] = '品牌海报'; // 设计内容写在“业务”列，导入自动补全
     $designData['订单编号'] = $designNo;
     $designData['售价'] = '350';
     $designData['状态(填已完成/未完成)'] = '已完成';
     $designData['客服'] = $employeeName;
-    $designData['设计内容'] = '品牌海报';
     $designData['交付文件 / 规格'] = 'PNG';
     fputcsv($designCsv, array_values($designData));
     fflush($designCsv);
