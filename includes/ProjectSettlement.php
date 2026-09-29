@@ -268,6 +268,15 @@ function ps_summary($order, $costs, $participants)
             [$costEst, $noteEst] = $personCost($group, $person['role_name'] ?? '', true);
             $people[$i]['calc'] = $rule ? ps_calc_person($rule, $income, $costNow, $contract, $person['group_weight'], $businessFeeRate, $noteNow) : null;
             $people[$i]['estimated_calc'] = $rule ? ps_calc_person($rule, $income, $costEst, $contract, $person['group_weight'], $businessFeeRate, $noteEst) : null;
+            // 规则限定“每单补助只发给指定员工”（subsidy_employee_ids，逗号分隔，留空 = 所有参与人）：不在名单内则取消补助。
+            $subsidyOnly = array_filter(array_map('intval', preg_split('/[^\d]+/', (string)($rule['subsidy_employee_ids'] ?? ''))));
+            if ($rule && $subsidyOnly && !in_array((int)($person['employee_id'] ?? 0), $subsidyOnly, true)) {
+                foreach (['calc', 'estimated_calc'] as $ck) {
+                    if (!$people[$i][$ck]) continue;
+                    $people[$i][$ck]['subsidy'] = 0.0;
+                    $people[$i][$ck]['note'] = preg_replace('/\s*\+ 每单补助.*$/u', '', (string)$people[$i][$ck]['note']);
+                }
+            }
             if ($order['project_type'] === '商标' && $group === 'technical') {
                 $people[$i]['calc'] = ps_trademark_piece_calc($people[$i]['calc'], $trademarkCount);
                 $people[$i]['estimated_calc'] = ps_trademark_piece_calc($people[$i]['estimated_calc'], $trademarkCount);
