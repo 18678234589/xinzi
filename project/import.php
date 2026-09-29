@@ -222,7 +222,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     if ($existing) {
                         if (ps_business_normalize($existing['project_type']) !== $selectedBusiness) throw new RuntimeException('该订单号已属于其他业务，请联系财务核对');
                         if (in_array($existing['settlement_status'], ['approved','locked'], true)) { $record['skip_status'] = '已导入过'; throw new RuntimeException('此单已导入并经财务审核，本次自动跳过；如需更改请联系财务'); }
-                        if ($departmentMode && !ps_department_import_is_order((int)$existing['id']) && $actor['role'] !== 'finance') throw new RuntimeException('同号订单不是网站售后部门订单，请由财务核对');
+                        if ($departmentMode && !ps_department_import_is_order((int)$existing['id']) && $actor['role'] !== 'finance') {
+                            // 本人之前用个人上传导入过的同一单：视为已导入，自动跳过，不当成错误
+                            $existingAccess->execute([(int)$existing['id'], (int)$actor['employee_id']]);
+                            if ($existingAccess->fetchColumn()) { $record['skip_status'] = '已导入过'; throw new RuntimeException('此单本人已导入过（个人订单），本次自动跳过'); }
+                            throw new RuntimeException('同号订单不是网站售后部门订单，请由财务核对');
+                        }
                         if ($actor['role'] !== 'finance' && !$departmentMode) {
                             $existingAccess->execute([(int)$existing['id'], (int)$actor['employee_id']]);
                             if (!$existingAccess->fetchColumn()) {
@@ -375,6 +380,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     }
                     $record['domain_used'] = $businessDefinition['resources'] ? $lookup($row, 'domain_used') : '否';
                     $record['ssl_used'] = $businessDefinition['resources'] ? $lookup($row, 'ssl_used') : '';
+                    // 常见写法“30元”“¥30”：去掉单位按金额识别
+                    if (preg_match('/^[¥￥]?\s*(\d+(?:\.\d{1,2})?)\s*元?$/u', $record['ssl_used'], $sslMatch)) $record['ssl_used'] = $sslMatch[1];
                     $record['resource_note'] = $businessDefinition['resources'] ? $lookup($row, 'resource_note') : '';
                     // 网站续费新表：空间/域名/域名真实成本不再另算订单成本（只取总成本），连同备注2 一起拼进订单备注备查。
                     if ($selectedBusiness === '网站续费') {
