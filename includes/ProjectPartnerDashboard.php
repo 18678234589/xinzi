@@ -1,6 +1,28 @@
 <?php
 require_once __DIR__ . '/ProjectSettlement.php';
 
+/** 看板与项目订单共用业务归类，历史别名和“其他业务”的数量也能对应。 */
+function ps_partner_business_bucket($business): string
+{
+    $business = ps_business_normalize((string)$business);
+    return isset(ps_business_catalog()[$business]) ? $business : '其他业务';
+}
+
+function ps_partner_orders_url(int $employeeId, string $month, string $business = ''): string
+{
+    ps_partner_month_bounds($month);
+    if ($employeeId < 1) throw new InvalidArgumentException('合作人员编号无效');
+    $query = ['employee_id' => $employeeId, 'month' => $month, 'date_basis' => 'order_date', 'participating' => 1];
+    if ($business !== '') $query['filter_business'] = $business;
+    return BASE_URL . '/project/index.php?' . http_build_query($query);
+}
+
+/** 财务可选择参与人，合作人员传入任何人员编号都只能筛选本人。 */
+function ps_partner_list_employee_id(array $actor, $requested): int
+{
+    return $actor['role'] === 'finance' ? max(0, (int)$requested) : (int)$actor['employee_id'];
+}
+
 /** 只按订单归属月统计；分单权重用于归属金额，同一人跨岗位参与同单最多计 100%。 */
 function ps_partner_orders(int $employeeId, string $from, string $until): array
 {
@@ -37,8 +59,7 @@ function ps_partner_summary(array $rows): array
         $s['contract'] += $contract;
         $s['receipts'] += $receipt;
         $s['refunds'] += $refund;
-        $business = ps_business_normalize((string)$row['project_type']);
-        if (!isset($catalog[$business])) $business = '其他业务';
+        $business = ps_partner_business_bucket($row['project_type']);
         if (!isset($s['businesses'][$business])) $s['businesses'][$business] = ['orders' => 0, 'net' => 0.0, 'refunds' => 0.0];
         $s['businesses'][$business]['orders']++;
         $s['businesses'][$business]['net'] += $receipt - $refund;

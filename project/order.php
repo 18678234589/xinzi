@@ -2,6 +2,7 @@
 require_once __DIR__ . '/../includes/ProjectBusiness.php';
 require_once __DIR__ . '/../includes/ProjectIntake.php';
 require_once __DIR__ . '/../includes/ProjectOrderSource.php';
+require_once __DIR__ . '/../includes/commission_explain.php';
 $actor = ps_require_actor();
 $id = (int)($_GET['id'] ?? 0);
 $order = ps_order($id, $actor);
@@ -13,7 +14,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     try {
         $action = (string)($_POST['action'] ?? '');
         $finance = $actor['role'] === 'finance';
-        if (!in_array($action, ['approve_order', 'post_adjustment', 'set_order_kind'], true)) {
+        if (!in_array($action, ['approve_order', 'post_adjustment', 'set_order_kind', 'submit_commission_correction'], true)) {
             db()->beginTransaction();
             $lock = db()->prepare('SELECT settlement_status FROM project_orders WHERE id=? FOR UPDATE');
             $lock->execute([$id]);
@@ -231,6 +232,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 'diff_amount' => $diffAmount,
                 'proof_path' => $proof
             ]);
+        } elseif ($action === 'submit_commission_correction') {
+            // 已审核订单也允许提交更正；这里只记录申请并通知财务/管理员，不改任何金额。
+            $tEmp = (int)($_POST['target_employee_id'] ?? 0);
+            $tGroup = (string)($_POST['target_group'] ?? '');
+            $shown = null; $detail = [];
+            $orderRow = ps_order($id, $actor);
+            if (in_array($orderRow['settlement_status'], ['approved', 'locked'], true)) {
+                $sq = db()->prepare('SELECT * FROM project_commission_snapshots WHERE order_id=? AND employee_id=? AND commission_group=? ORDER BY id DESC LIMIT 1');
+                $sq->execute([$id, $tEmp, $tGroup]);
+                if ($snap = $sq->fetch()) { $shown = round((float)$snap['commission_amount'] + (float)$snap['subsidy_amount'], 2); $detail = ['source' => 'snapshot', 'snapshot' => $snap]; }
+            } else {
+                $sumNow = ps_summary($orderRow, ps_costs($id), ps_participants($id));
+                foreach ($sumNow['groups'][$tGroup]['people'] ?? [] as $pp) if ((int)$pp['employee_id'] === $tEmp) {
+                    if ($pp['calc']) { $shown = round($pp['calc']['share'] + $pp['calc']['subsidy'], 2); }
+                    $detail = ['source' => 'live', 'calc' => $pp['calc'], 'estimated' => $pp['estimated_calc'], 'receipt' => $orderRow['receipt_amount'], 'refund' => $orderRow['refund_amount'], 'contract' => $orderRow['contract_amount']];
+                }
+            }
+            ps_corr_submit($id, $actor, $tEmp, $tGroup, $_POST['reason'] ?? '', $_POST['expected_amount'] ?? '', $shown, $detail);
+            header('Location: ' . BASE_URL . '/project/order.php?id=' . $id . '&corr=1'); exit;
         } elseif ($action === 'approve_order') {
             if (!$finance) throw new RuntimeException('无权限');
             ps_approve_order($id, $actor, (string)($_POST['payroll_month'] ?? ''));
@@ -323,6 +343,7 @@ include __DIR__ . '/../includes/header.php';
 <div class="d-flex justify-content-between align-items-center mb-3"><h4 class="mb-0">订单结算单 <small class="text-muted"><?php echo e($order['order_no']); ?></small></h4><a class="btn btn-outline-secondary btn-sm" href="<?php echo BASE_URL; ?>/project/index.php">返回订单</a></div>
 <?php if ($error): ?><div class="alert alert-danger"><?php echo e($error); ?></div><?php endif; ?>
 <?php if (isset($_GET['saved'])): ?><div class="alert alert-success">已保存</div><?php endif; ?>
+<?php if (isset($_GET['corr'])): ?><div class="alert alert-success">更正申请已提交，财务和管理员会在“更正申请”里看到，处理结果会回复到你的站内信。</div><?php endif; ?>
 <?php if (isset($_GET['adjusted'])): ?><div class="alert alert-success">售后调整已登记，生成 <?php echo (int)$_GET['adjusted']; ?> 条分成调整（金额无变化的人员不生成）。</div><?php endif; ?>
 <?php if ($todos): ?><div class="project-todo-bar mb-3"><strong><i class="fas fa-list-check mr-1"></i>待办</strong><?php foreach ($todos as [$todoText, $todoLevel]): ?><span class="badge badge-<?php echo e($todoLevel); ?>"><?php echo e($todoText); ?></span><?php endforeach; ?></div><?php endif; ?>
 <?php foreach ($shopMatches as $shopMatch): if (!$shopMatch['refund'] && ($order['shop'] === '' || $shopMatch['shop'] === $order['shop']) && ($shopMatch['price'] === null || $orderSource['price_source'] === 'missing' || abs((float)$shopMatch['price'] - (float)$order['contract_amount']) < 0.005)) continue; if ($order['shop'] !== '' && $shopMatch['shop'] !== $order['shop']) continue; ?>
@@ -572,9 +593,14 @@ include __DIR__ . '/../includes/header.php';
 <div class="card mb-3"><div class="card-header d-flex justify-content-between flex-wrap"><span>参与人与分成计算</span><span class="text-muted small">按“业务 › 岗位 › 订单类型”匹配成本中心的分成规则；组池模式按组内权重分摊，独立模式按权重分摊直接成本</span></div><div class="table-responsive"><table class="table mb-0"><thead><tr><th>分成组</th><th>合作人员</th><th>岗位</th><th>组内权重</th><th>匹配规则</th><th class="text-right"><?php echo $canEdit ? '预计分成（含补助）' : '已审核分成（含补助）'; ?></th><?php if ($actor['role'] === 'finance'): ?><th>操作</th><?php endif; ?></tr></thead><tbody>
 <?php foreach ($people as $person): if ($actor['role'] !== 'finance' && (int)$person['employee_id'] !== $actor['employee_id']) continue; $snapshotKey = $person['commission_group'] . ':' . $person['employee_id']; $calcPerson = $personLookup[$snapshotKey] ?? null; $calc = $calcPerson['calc'] ?? null; $snapshot = $snapshotByPerson[$snapshotKey] ?? null; ?><tr><td><?php echo e(ps_label('group', $person['commission_group'])); ?></td><td><?php echo e($person['name'] . ' · ' . $person['department']); ?></td><td><?php echo e($person['role_name'] ?: '—'); ?></td><td><?php echo money($person['group_weight'] * 100); ?>%</td>
 <td class="small"><?php if (!$canEdit && $snapshot): ?><?php echo e(ps_label('mode', $snapshot['calc_mode'])); ?> · <?php echo money($snapshot['rate'] * 100); ?>%<div class="project-calc-note"><?php echo e($snapshot['calc_note']); ?></div><?php elseif ($calc): ?><?php echo e(ps_label('mode', $calc['mode'])); ?> · <?php echo round($calc['rate'] * 100, 4); ?>% · 服务费 <?php echo round($calc['fee_rate'] * 100, 2); ?>%<?php if ($calcPerson['rule']['note'] ?? ''): ?><div class="text-muted"><?php echo e($calcPerson['rule']['note']); ?></div><?php endif; ?><div class="project-calc-note"><?php echo e($calc['note']); ?></div><?php else: ?><span class="text-danger">未匹配到规则</span><?php if ($actor['role'] === 'finance'): ?> · <a href="<?php echo BASE_URL; ?>/project/settings.php#rules">去配置</a><?php endif; ?><?php endif; ?></td>
-<td class="text-right text-nowrap"><?php if (!$canEdit): ?>¥<?php echo money($snapshot['commission_amount'] ?? 0); ?><?php if ((float)($snapshot['subsidy_amount'] ?? 0) > 0): ?><div class="small text-muted">含补助 ¥<?php echo money($snapshot['subsidy_amount']); ?></div><?php endif; ?><?php elseif ($calc): $estimated = $calcPerson['estimated_calc']; ?>¥<?php echo money(round($calc['share'] + $calc['subsidy'], 2)); ?><?php if ($calc['subsidy'] > 0): ?><div class="small text-muted">含补助 ¥<?php echo money($calc['subsidy']); ?></div><?php endif; ?><?php if (abs($estimated['share'] - $calc['share']) > 0.004): ?><div class="small text-muted">待审成本通过后 ¥<?php echo money(round($estimated['share'] + $estimated['subsidy'], 2)); ?></div><?php endif; ?><?php else: ?>待配置<?php endif; ?></td>
+<td class="text-right text-nowrap"><?php $modalId = 'calcModal' . (int)$person['id']; ?><a href="#" class="calc-amount-link" data-toggle="modal" data-target="#<?php echo $modalId; ?>" title="点击查看计算过程"><?php if (!$canEdit): ?>¥<?php echo money($snapshot['commission_amount'] ?? 0); ?><?php if ((float)($snapshot['subsidy_amount'] ?? 0) > 0): ?><div class="small text-muted">含补助 ¥<?php echo money($snapshot['subsidy_amount']); ?></div><?php endif; ?><?php elseif ($calc): $estimated = $calcPerson['estimated_calc']; ?>¥<?php echo money(round($calc['share'] + $calc['subsidy'], 2)); ?><?php if ($calc['subsidy'] > 0): ?><div class="small text-muted">含补助 ¥<?php echo money($calc['subsidy']); ?></div><?php endif; ?><?php if (abs($estimated['share'] - $calc['share']) > 0.004): ?><div class="small text-muted"><?php echo !empty($estimated['income_estimated']) ? '按售价预估' : '待审成本通过后'; ?> ¥<?php echo money(round($estimated['share'] + $estimated['subsidy'], 2)); ?></div><?php endif; ?><?php else: ?>待配置<?php endif; ?></a><div class="small"><a href="#" data-toggle="modal" data-target="#<?php echo $modalId; ?>"><i class="fas fa-calculator"></i> 计算过程</a></div></td>
 <?php if ($actor['role'] === 'finance'): ?><td><?php if ($canEdit): ?><form method="post"><input type="hidden" name="csrf" value="<?php echo e(ps_csrf_token()); ?>"><input type="hidden" name="action" value="remove_participant"><input type="hidden" name="participant_id" value="<?php echo (int)$person['id']; ?>"><button class="btn btn-outline-danger btn-sm">移除</button></form><?php endif; ?></td><?php endif; ?></tr><?php endforeach; ?>
 <?php if (!$people): ?><tr><td colspan="7" class="text-center text-muted">尚无参与人</td></tr><?php endif; ?></tbody></table></div>
+<?php $commissionCorrections = ps_corr_for_order($id); foreach ($people as $person): if ($actor['role'] !== 'finance' && (int)$person['employee_id'] !== $actor['employee_id']) continue; $mk = $person['commission_group'] . ':' . $person['employee_id']; $mp = $personLookup[$mk] ?? null; echo ps_render_calc_modal('calcModal' . (int)$person['id'], $person + ['rule' => $mp['rule'] ?? null], $order, $mp['calc'] ?? null, $mp['estimated_calc'] ?? null, $snapshotByPerson[$mk] ?? null, $id, $commissionCorrections, true); endforeach; ?>
+<script>
+// 卡片带毛玻璃样式（backdrop-filter / overflow:hidden），弹窗留在卡片里会被灰色遮罩盖住、点不动；挂到 body 下才正常。
+(function () { document.querySelectorAll('.calc-modal').forEach(function (m) { document.body.appendChild(m); }); })();
+</script>
 <?php if ($actor['role'] === 'finance' && $canEdit): ?><div class="card-body border-top"><form method="post" class="form-row align-items-end"><input type="hidden" name="csrf" value="<?php echo e(ps_csrf_token()); ?>"><input type="hidden" name="action" value="add_participant"><div class="form-group col-md-4"><label>合作人员</label><select name="employee_id" class="form-control" required><option value="">选择合作人员</option><?php foreach ($employees as $emp): ?><option value="<?php echo (int)$emp['id']; ?>"><?php echo e($emp['name'] . ' · ' . $emp['department'] . ' · ID ' . $emp['id']); ?></option><?php endforeach; ?></select></div><div class="form-group col-md-2"><label>组别</label><select name="commission_group" class="form-control"><option value="technical">技术</option><option value="customer_service">客服</option></select></div><div class="form-group col-md-2"><label>岗位</label><input name="role_name" class="form-control" list="projectRoleNames" placeholder="留空用默认岗位"><datalist id="projectRoleNames"><?php foreach (['前端','外包前端','后端','售后','模板技术','资料员','技术','客服','定制客服','定制技术'] as $roleOption): ?><option value="<?php echo e($roleOption); ?>"><?php endforeach; ?></datalist></div><div class="form-group col-md-2"><label>组内权重 %</label><input name="group_weight" class="form-control" type="number" min="0.0001" max="100" step="0.0001" value="100"></div><div class="form-group col-md-2"><button class="btn btn-outline-primary btn-block">添加/更新</button></div></form><small class="text-muted">技术组、客服组各自合计 100%；重复添加同一合作人员可更新其权重。</small></div><?php endif; ?>
 </div>
 <?php

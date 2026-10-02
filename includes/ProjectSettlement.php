@@ -31,7 +31,7 @@ function ps_require_actor()
     // 平台信息专用账号：只能进入平台信息、我的账号、站内信；初始密码须先修改
     if ($actor['type'] === 'employee' && $actor['role'] === 'vault') {
         $script = basename($_SERVER['SCRIPT_NAME'] ?? '');
-        if (!in_array($script, ['profile.php', 'vault.php', 'messages.php'], true)) { header('Location: ' . BASE_URL . '/project/vault.php'); exit; }
+        if (!in_array($script, ['profile.php', 'vault.php', 'messages.php', 'dup_feedback.php'], true)) { header('Location: ' . BASE_URL . '/project/vault.php'); exit; }
         if ($script !== 'profile.php' && empty($actor['password_changed_at']) && PHP_SAPI !== 'cli') { header('Location: ' . BASE_URL . '/project/profile.php?password=1'); exit; }
     }
     // 合作人员首次登录须先绑定手机号（之后可用手机号登录），绑定前只能进入“我的账号”。
@@ -130,6 +130,7 @@ function ps_rule_for($group, $projectType, $orderDate, $role = '', $orderKind = 
 {
     static $cache = [];
     if ($projectType === '网站定制') $projectType = 'AI网站定制';
+    $orderKind = ps_role_rule_order_kind($projectType, $group, $role, $orderKind);
     $key = $group . '|' . $projectType . '|' . $orderDate;
     if (!isset($cache[$key])) {
         $q = db()->prepare("SELECT * FROM project_commission_rules WHERE commission_group=? AND project_type IN (?, '*') AND effective_from<=? AND is_active=1 ORDER BY effective_from DESC, id DESC");
@@ -150,6 +151,16 @@ function ps_rule_for($group, $projectType, $orderDate, $role = '', $orderKind = 
         if ($score > $bestScore) { $best = $rule; $bestScore = $score; } // 候选按生效日期倒序，同分取最新版本。
     }
     return $best;
+}
+
+/** 定制岗位由已分配的岗位确定算法，不能因 AI 猜成“技术服务/新订单”掉到通用 5% 档。 */
+function ps_role_rule_order_kind($projectType, $group, $role, $orderKind)
+{
+    if ($projectType !== '小程序开发' || $orderKind === '续费') return $orderKind;
+    $roles = ps_role_keys($role);
+    if ($group === 'technical' && array_intersect($roles, ['定制技术15', '定制技术', '定制技术30'])) return '定制';
+    if ($group === 'customer_service' && in_array('定制客服', $roles, true)) return '定制';
+    return $orderKind;
 }
 
 function ps_rule($group, $projectType, $orderDate)
@@ -199,7 +210,10 @@ function ps_calc_person($rule, $income, $directCost, $contract, $weight, $busine
     $note = '(收入 ' . money_plain($income) . ' − 成本 ' . money_plain($costBasis) . ($costNote !== '' ? '〔' . $costNote . '〕' : '') . ($floorApplied ? '〔售价×' . round($minCostRate * 100, 2) . '%〕' : '') . ($mode === 'individual' && (float)$weight < 1 ? '〔分摊 ' . round((float)$weight * 100, 2) . '%〕' : '') . ' − 服务费 ' . money_plain($feePart) . ') × ' . round($rate * 100, 4) . '%' . ($mode === 'pool' && (float)$weight < 1 ? ' × 权重 ' . round((float)$weight * 100, 2) . '%' : '');
     if ($subsidy > 0) $note .= ' + 每单补助 ' . money_plain($subsidy) . ($lowApplied ? '（售价 − 成本 ' . money_plain($orderProfit) . ' 低于 ' . money_plain($lowThreshold) . '）' : '');
     if ($blocked) $note = '售价低于 ¥' . money_plain($min) . '，本单不计分成';
-    return ['mode' => $mode, 'fee_rate' => $feeRate, 'fee' => $fee, 'fee_part' => $feePart, 'cost_basis' => $costBasis, 'base' => $base, 'rate' => $rate, 'weight' => (float)$weight, 'share' => $share, 'subsidy' => $subsidy, 'blocked' => $blocked, 'note' => $note];
+    return ['mode' => $mode, 'fee_rate' => $feeRate, 'fee' => $fee, 'fee_part' => $feePart, 'cost_basis' => $costBasis, 'base' => $base, 'rate' => $rate, 'weight' => (float)$weight, 'share' => $share, 'subsidy' => $subsidy, 'blocked' => $blocked, 'note' => $note,
+        // 计算过程弹窗用：把每一步的输入原样带出
+        'income' => round((float)$income, 2), 'contract' => round((float)$contract, 2), 'raw_cost' => round((float)$directCost, 2), 'min_cost_rate' => $minCostRate, 'floor_applied' => $floorApplied,
+        'min_contract' => $min, 'allow_negative' => $allowNegative, 'low_applied' => $lowApplied, 'low_threshold' => $lowThreshold, 'order_profit' => $orderProfit, 'income_estimated' => false];
 }
 
 /**
@@ -242,6 +256,13 @@ function ps_summary($order, $costs, $participants)
         return [round($base - $php + $adjusted, 2), $note];
     };
     $contract = (float)($order['contract_amount'] ?? 0);
+    // 预计分成：尚未录入任何收款时，收入按售价（扣退款）预估，便于财务提前看到大概金额；已核算的分成仍按实收。
+    $estimatedByContract = (float)$order['receipt_amount'] <= 0 && $contract > 0;
+    $estIncome = $estimatedByContract ? max(round($contract - (float)$order['refund_amount'], 2), 0.0) : $income;
+    $estMark = function ($calc) use ($estimatedByContract) {
+        if ($calc && $estimatedByContract) { $calc['note'] .= '〔收入按售价预估，尚未录入收款〕'; $calc['income_estimated'] = true; }
+        return $calc;
+    };
     $orderKind = (string)($order['order_kind'] ?? '');
     // 业务默认店铺服务费按售价计（网站模板/环境配置/小程序 3%），AI 定制默认不扣；分成规则可按组或岗位覆盖。
     $businessFeeRate = ps_business_service_fee_rate($order['project_type']);
@@ -273,7 +294,7 @@ function ps_summary($order, $costs, $participants)
             [$costNow, $noteNow] = $personCost($group, $person['role_name'] ?? '', false);
             [$costEst, $noteEst] = $personCost($group, $person['role_name'] ?? '', true);
             $people[$i]['calc'] = $rule ? ps_calc_person($rule, $income, $costNow, $contract, $person['group_weight'], $businessFeeRate, $noteNow) : null;
-            $people[$i]['estimated_calc'] = $rule ? ps_calc_person($rule, $income, $costEst, $contract, $person['group_weight'], $businessFeeRate, $noteEst) : null;
+            $people[$i]['estimated_calc'] = $rule ? $estMark(ps_calc_person($rule, $estIncome, $costEst, $contract, $person['group_weight'], $businessFeeRate, $noteEst)) : null;
             // 规则限定“每单补助只发给指定员工”（subsidy_employee_ids，逗号分隔，留空 = 所有参与人）：不在名单内则取消补助。
             $subsidyOnly = array_filter(array_map('intval', preg_split('/[^\d]+/', (string)($rule['subsidy_employee_ids'] ?? ''))));
             if ($rule && $subsidyOnly && !in_array((int)($person['employee_id'] ?? 0), $subsidyOnly, true)) {
@@ -297,7 +318,7 @@ function ps_summary($order, $costs, $participants)
             [$costNow, $noteNow] = $personCost($group, '', false);
             [$costEst, $noteEst] = $personCost($group, '', true);
             $calc = $defaultRule ? ps_calc_person($defaultRule, $income, $costNow, $contract, 1, $businessFeeRate, $noteNow) : null;
-            $estimated = $defaultRule ? ps_calc_person($defaultRule, $income, $costEst, $contract, 1, $businessFeeRate, $noteEst) : null;
+            $estimated = $defaultRule ? $estMark(ps_calc_person($defaultRule, $estIncome, $costEst, $contract, 1, $businessFeeRate, $noteEst)) : null;
             if ($order['project_type'] === '商标' && $group === 'technical') {
                 $calc = ps_trademark_piece_calc($calc, $trademarkCount);
                 $estimated = ps_trademark_piece_calc($estimated, $trademarkCount);
@@ -1028,4 +1049,3 @@ function ps_auto_finish_trade_success_orders($days = null)
         'orders' => $processed
     ];
 }
-

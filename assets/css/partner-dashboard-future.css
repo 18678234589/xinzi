@@ -332,6 +332,12 @@ body.pd-shell::before {
 .pd-business-track i { display: block; width: var(--pd-fill); height: 100%; border-radius: inherit; background: linear-gradient(90deg, #48cdb7, #80b8e5); transform-origin: left; animation: pd-bar-grow 1.15s cubic-bezier(.22, 1, .36, 1) both; }
 .pd-business:nth-child(2) .pd-business-track i { animation-delay: .1s; }
 .pd-business:nth-child(3) .pd-business-track i { animation-delay: .2s; }
+.pd-order-count-link { color: inherit; text-decoration: none; border-bottom: 1px dashed currentColor; cursor: pointer; }
+.pd-order-count-link:hover { color: inherit; text-decoration: none; border-bottom-style: solid; }
+.pd-business.pd-business-link { color: inherit; text-decoration: none; border-radius: 8px; }
+.pd-business-link:hover { background: rgba(72, 205, 183, .07); }
+.pd-business-link:hover small { color: #207e79; }
+.pd-order-count-link:focus-visible, .pd-business-link:focus-visible { outline: 2px solid #207e79; outline-offset: 4px; border-radius: 4px; }
 .pd-alert { border-color: #e5eeee; }
 .pd-alert:hover { color: #087e7c; }
 .pd-insight { border-color: rgba(137, 193, 190, .62); background: linear-gradient(135deg, rgba(255,255,255,.95), rgba(248,251,255,.92)); }

@@ -69,7 +69,7 @@ $is_settle      = ($_rel === 'salaries/settle.php');
 $is_query       = ($_rel === 'salaries/query.php');
 $is_insurance   = (strpos($_rel, 'insurance/') === 0);
 $is_project     = (strpos($_rel, 'project/') === 0);
-$is_project_orders = $is_project && !in_array($_rel, ['project/dashboard.php', 'project/payroll.php', 'project/settings.php', 'project/system.php', 'project/rules.php', 'project/profile.php', 'project/files.php', 'project/refunds.php', 'project/governance.php', 'project/governance_ideas.php', 'project/governance_election.php', 'project/governance_evidence.php', 'project/welfare.php', 'project/contributions.php', 'project/messages.php', 'project/holidays.php', 'project/vault.php'], true);
+$is_project_orders = $is_project && !in_array($_rel, ['project/dashboard.php', 'project/payroll.php', 'project/settings.php', 'project/system.php', 'project/rules.php', 'project/profile.php', 'project/files.php', 'project/refunds.php', 'project/governance.php', 'project/governance_ideas.php', 'project/governance_election.php', 'project/governance_evidence.php', 'project/welfare.php', 'project/contributions.php', 'project/messages.php', 'project/holidays.php', 'project/vault.php', 'project/corrections.php', 'project/dup_feedback.php'], true);
 // 合并栏目：同类页面在侧栏只占一个入口，进入后顶部页签切换。
 $nav_groups = [
     'shop' => [['/shops/index.php', 'fa-store', '店铺管理', $is_shops], ['/shops/etmll_sync.php', 'fa-sync-alt', 'ETMLL 订单同步', $is_etmll], ['/orders/index.php', 'fa-file-upload', '平台订单导入', $is_orders], ['/abnormal/index.php', 'fa-exclamation-triangle', '异常订单', $is_abnormal]],
@@ -103,6 +103,7 @@ $nav = function ($href, $icon, $label, $active) {
     <button class="app-menu-btn d-lg-none" type="button" id="sidebarToggle" aria-label="打开菜单"><i class="fas fa-bars"></i></button>
     <a class="navbar-brand" href="<?php echo BASE_URL; ?><?php echo ($project_staff['role'] ?? '') === 'governance' ? '/project/governance_ideas.php' : (($project_staff['role'] ?? '') === 'vault' ? '/project/vault.php' : ($project_staff ? '/project/index.php' : '/index.php')); ?>"><span class="app-brand-mark"><i class="fas fa-seedling"></i></span> 项目合作结算中心</a>
     <div class="ml-auto d-flex align-items-center">
+        <?php if ($project_staff || $current_admin) { $bellCount = $project_staff ? (int)$unread_messages : (function () { try { require_once __DIR__ . '/commission_explain.php'; require_once __DIR__ . '/dup_feedback.php'; return ps_corr_pending_count() + (pd_is_dedicated_finance(ps_actor() ?: []) ? pd_answered_count() : 0); } catch (Throwable $e) { return 0; } })(); $bellHref = BASE_URL . ($project_staff ? '/project/messages.php' : '/project/corrections.php'); ?><a class="app-bell mr-3" href="<?php echo $bellHref; ?>" title="<?php echo $project_staff ? '消息通知' : '待处理的更正申请与重复订单号说明'; ?>" aria-label="消息通知"><i class="fas fa-bell"></i><?php if ($bellCount > 0): ?><span class="app-bell-badge"><?php echo $bellCount > 99 ? '99+' : $bellCount; ?></span><?php endif; ?></a><?php } ?>
         <span class="app-user mr-3"><span class="app-user-avatar" aria-hidden="true"><?php echo e(mb_substr($display_name, 0, 1)); ?></span><span class="d-none d-sm-inline"><strong><?php echo e($display_name); ?></strong><small><?php echo e($display_role); ?></small></span></span>
         <a href="<?php echo BASE_URL; ?>/logout.php" class="btn btn-sm app-logout"><i class="fas fa-sign-out-alt"></i> 退出</a>
     </div>
@@ -162,6 +163,8 @@ $nav = function ($href, $icon, $label, $active) {
     <?php echo $nav('/employees/index.php', 'fa-users', '人员与考勤', $group_active === 'people'); ?>
     <div class="sidebar-project-label">财务与配置</div>
     <?php echo $nav('/project/rules.php', 'fa-percent', '规则中心', $_rel === 'project/rules.php'); ?>
+    <?php if ($current_admin) { require_once __DIR__ . '/commission_explain.php'; $corrPending = ps_corr_pending_count(); echo $nav('/project/corrections.php', 'fa-flag', '分成更正申请' . ($corrPending ? '（' . $corrPending . '）' : ''), $_rel === 'project/corrections.php'); } ?>
+    <?php if ($current_admin) { require_once __DIR__ . '/dup_feedback.php'; if (pd_is_dedicated_finance(ps_actor() ?: [])) { $dupPending = pd_answered_count(); echo $nav('/project/dup_feedback.php', 'fa-clone', '订单号重复说明' . ($dupPending ? '（' . $dupPending . '）' : ''), $_rel === 'project/dup_feedback.php'); } } ?>
     <?php echo $nav('/project/settings.php#cost-center', 'fa-layer-group', '成本中心与账户', $_rel === 'project/settings.php'); ?>
     <?php echo $nav('/salaries/settle.php', 'fa-calculator', '原系统结算', $group_active === 'legacy'); ?>
     <?php echo $nav('/project/system.php', 'fa-sliders-h', '系统设置', $_rel === 'project/system.php'); ?>

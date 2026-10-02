@@ -254,6 +254,30 @@ function pv_order_credentials($orderId)
     return $q->fetchAll();
 }
 
+/**
+ * 订单列表搜索：按项目账号的类型/说明/地址/账号/备注匹配，返回 [order_id => 命中说明]。
+ * 密码不参与搜索；备注是密文，需在 PHP 里解密后匹配。
+ */
+function pv_search_order_hits($keyword)
+{
+    $keyword = trim((string)$keyword);
+    if ($keyword === '') return [];
+    $rows = db()->query('SELECT order_id, kind, label, url, account, notes_enc FROM project_order_credentials WHERE deleted_at IS NULL')->fetchAll();
+    $hits = [];
+    foreach ($rows as $row) {
+        $oid = (int)$row['order_id'];
+        if (isset($hits[$oid])) continue;
+        $fields = ['类型' => $row['kind'], '说明' => $row['label'], '地址/IP' => $row['url'], '账号' => $row['account']];
+        $found = '';
+        foreach ($fields as $name => $value) {
+            if ($value !== '' && mb_stripos((string)$value, $keyword) !== false) { $found = $name . '：' . $value; break; }
+        }
+        if ($found === '' && $row['notes_enc'] !== '' && mb_stripos(pv_decrypt($row['notes_enc']), $keyword) !== false) $found = '备注';
+        if ($found !== '') $hits[$oid] = $found;
+    }
+    return $hits;
+}
+
 function pv_order_credential_save($orderId, $data, $actor)
 {
     $kind = in_array($data['kind'] ?? '', PV_ORDER_KINDS, true) ? $data['kind'] : '其他';

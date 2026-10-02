@@ -2,6 +2,7 @@
 // 原始表格：合作人员 / 财务上传的订单表格原件。财务看全部，合作人员只看本人上传的；可在线查看各工作表、下载原文件。
 require_once __DIR__ . '/../includes/ProjectIntake.php';
 require_once __DIR__ . '/../includes/ProjectBusiness.php';
+require_once __DIR__ . '/../includes/ProjectImportResult.php';
 $actor = ps_require_actor();
 $isFinance = $actor['role'] === 'finance';
 
@@ -55,6 +56,12 @@ if ($keyword !== '') { $where[] = '(f.original_name LIKE ? OR e.name LIKE ? OR u
 $q = db()->prepare('SELECT f.*,e.name AS employee_name,e.department,u.username FROM project_import_files f LEFT JOIN employees e ON e.id=f.employee_id LEFT JOIN project_users u ON u.employee_id=f.employee_id WHERE ' . implode(' AND ', $where) . ' ORDER BY f.id DESC LIMIT 300');
 $q->execute($params);
 $files = $q->fetchAll();
+$resultReports = [];
+$reportIds = array_map('intval', array_column($files, 'id'));
+if ($reportIds) foreach (db()->query("SELECT entity_id,details_json FROM project_audit_logs WHERE entity_type='import_file' AND action='import_result' AND entity_id IN (" . implode(',', $reportIds) . ') ORDER BY id DESC') as $r) {
+    if (!isset($resultReports[(int)$r['entity_id']])) $resultReports[(int)$r['entity_id']] = json_decode($r['details_json'], true) ?: [];
+}
+$pendingFiles = count(array_filter($files, function ($f) use ($resultReports) { return $f['status'] === 'preview' || !empty($resultReports[(int)$f['id']]['pending']) || (empty($resultReports[(int)$f['id']]) && (int)$f['skipped_count'] > 0); }));
 $uploaders = $isFinance ? db()->query('SELECT DISTINCT e.id,e.name,e.department FROM project_import_files f JOIN employees e ON e.id=f.employee_id ORDER BY e.department,e.name')->fetchAll() : [];
 $businesses = array_keys(array_filter(ps_business_catalog(), function ($d) { return empty($d['legacy']); }));
 $admins = [];
@@ -69,10 +76,11 @@ include __DIR__ . '/../includes/header.php';
 <div class="project-hero mb-3"><div><div class="project-eyebrow">项目合作结算中心 · <?php echo $isFinance ? '财务' : '我的账号'; ?></div><h2><?php echo e($page_title); ?></h2><p><?php echo $isFinance ? '合作人员拖入系统的订单表格原件都在这里：按人、业务、月份筛选，在线查看每张工作表，或下载原文件核对。' : '你上传过的订单表格原件，可随时在线查看或下载。'; ?></p></div><div class="project-hero-actions"><a class="btn btn-light" href="<?php echo BASE_URL; ?>/project/import.php">上传新表格</a></div></div>
 <?php if ($error): ?><div class="alert alert-danger"><?php echo e($error); ?></div><?php endif; ?>
 <?php if (!empty($_GET['deleted'])): ?><div class="alert alert-success">原始表格已删除。</div><?php endif; ?>
+<div class="alert alert-<?php echo $pendingFiles ? 'warning' : 'info'; ?>">上传时间不等于订单日期；上传完成后，请看这里的导入回执。<?php if ($pendingFiles): ?>当前列表有 <strong><?php echo $pendingFiles; ?> 份</strong>表格待导入或补全，点“继续导入”即可读取已保存原件，无需重传。<?php else: ?>已核对表格可点“对应订单”，直接查看本人有权限的订单，不受月份影响。<?php endif; ?></div>
 
-<?php if ($viewFile): $sheetNames = array_keys($sheets); $current = (string)($_GET['sheet'] ?? ($sheetNames[0] ?? '')); if (!isset($sheets[$current])) $current = (string)($sheetNames[0] ?? ''); $rowsToShow = $sheets[$current] ?? []; ?>
+<?php if ($viewFile): $viewReport = ps_import_result_get((int)$viewFile['id']); $sheetNames = array_keys($sheets); $current = (string)($_GET['sheet'] ?? ($sheetNames[0] ?? '')); if (!isset($sheets[$current])) $current = (string)($sheetNames[0] ?? ''); $rowsToShow = $sheets[$current] ?? []; ?>
 <div class="card mb-3 project-file-view"><div class="card-header d-flex justify-content-between align-items-center flex-wrap" style="gap:8px">
-  <div><strong><?php echo e($viewFile['original_name']); ?></strong><div class="small text-muted"><?php echo e($viewFile['business_name']); ?> · <?php echo e($uploaderText($viewFile + ['employee_name' => db()->query('SELECT name FROM employees WHERE id=' . (int)$viewFile['employee_id'])->fetchColumn() ?: '—'])); ?> · <?php echo e($viewFile['created_at']); ?> · <?php echo $viewFile['status'] === 'imported' ? '已导入 ' . (int)$viewFile['imported_count'] . ' 单' : '仅预览未导入'; ?></div></div>
+  <div><strong><?php echo e($viewFile['original_name']); ?></strong><div class="small text-muted"><?php echo e($viewFile['business_name']); ?> · <?php echo e($uploaderText($viewFile + ['employee_name' => db()->query('SELECT name FROM employees WHERE id=' . (int)$viewFile['employee_id'])->fetchColumn() ?: '—'])); ?> · <?php echo e($viewFile['created_at']); ?> · <?php echo $viewReport ? '对应 ' . count($viewReport['order_ids']) . ' 单 · 已在库 ' . (int)$viewReport['existing'] . ' 单' . ($viewReport['pending'] ? ' · 待补全 ' . (int)$viewReport['pending'] . ' 行' : ' · 核对完成') : ($viewFile['status'] === 'imported' ? '已导入 ' . (int)$viewFile['imported_count'] . ' 单' : '待确认导入 · 仅预览'); ?></div></div>
   <div class="d-flex" style="gap:6px"><a class="btn btn-sm btn-outline-secondary" href="<?php echo BASE_URL; ?>/project/files.php?<?php echo e(http_build_query(array_diff_key($_GET, ['view' => 1, 'sheet' => 1]))); ?>">返回列表</a><a class="btn btn-sm btn-primary" href="<?php echo BASE_URL; ?>/project/files.php?download=<?php echo (int)$viewFile['id']; ?>">下载原文件</a></div>
 </div><div class="card-body">
   <?php if (count($sheetNames) > 1): ?><nav class="app-tabs mb-3" aria-label="工作表"><?php foreach ($sheetNames as $name): ?><a href="<?php echo BASE_URL; ?>/project/files.php?<?php echo e(http_build_query(array_merge($_GET, ['sheet' => $name]))); ?>" class="<?php echo $name === $current ? 'active' : ''; ?>"><?php echo e($name); ?> <small>(<?php echo max(count($sheets[$name]) - 1, 0); ?>)</small></a><?php endforeach; ?></nav><?php endif; ?>
@@ -109,8 +117,8 @@ include __DIR__ . '/../includes/header.php';
   <td data-label="上传人"><?php echo e($uploaderText($f)); ?><?php if (!empty($f['department'])): ?><div class="small text-muted"><?php echo e($f['department']); ?></div><?php endif; ?></td>
   <td data-label="上传时间" class="text-nowrap"><?php echo e(substr($f['created_at'], 0, 16)); ?></td>
   <td data-label="工作表" class="small"><?php echo e($f['sheets_used'] ?: '—'); ?></td>
-  <td data-label="结果"><?php echo $f['status'] === 'imported' ? '<span class="badge badge-success">已导入 ' . (int)$f['imported_count'] . ' 单</span>' . ((int)$f['skipped_count'] ? ' <span class="small text-muted">跳过 ' . (int)$f['skipped_count'] . '</span>' : '') : '<span class="badge badge-secondary">仅预览</span>'; ?></td>
-  <td class="text-nowrap"><a class="btn btn-sm btn-outline-primary" href="<?php echo BASE_URL; ?>/project/files.php?<?php echo e(http_build_query(array_merge($_GET, ['view' => (int)$f['id']]))); ?>">查看</a> <a class="btn btn-sm btn-outline-secondary" href="<?php echo BASE_URL; ?>/project/files.php?download=<?php echo (int)$f['id']; ?>">下载</a> <form method="post" class="d-inline" onsubmit="return confirmFileDelete(this, <?php echo (int)$f['imported_count']; ?>);"><input type="hidden" name="csrf" value="<?php echo e(ps_csrf_token()); ?>"><input type="hidden" name="action" value="delete_file"><input type="hidden" name="file_id" value="<?php echo (int)$f['id']; ?>"><button class="btn btn-sm btn-outline-danger" type="submit">删除</button></form></td>
+  <td data-label="结果"><?php $report = $resultReports[(int)$f['id']] ?? []; if ($report): ?><span class="badge badge-<?php echo $report['pending'] ? 'warning' : 'success'; ?>"><?php echo $report['pending'] ? '待补全 ' . (int)$report['pending'] . ' 行' : '核对完成'; ?></span><div class="small text-muted">对应 <?php echo count($report['order_ids']); ?> 单 · 本次写入 <?php echo (int)$report['written']; ?> · 已在库 <?php echo (int)$report['existing']; ?></div><?php else: ?><?php echo $f['status'] === 'imported' ? '<span class="badge badge-success">已导入 ' . (int)$f['imported_count'] . ' 单</span>' . ((int)$f['skipped_count'] ? ' <span class="small text-muted">跳过 ' . (int)$f['skipped_count'] . '</span>' : '') : '<span class="badge badge-warning">待确认导入 · 仅预览</span>'; ?><?php endif; ?></td>
+  <td class="text-nowrap"><div class="mb-2"><?php if ($f['status'] === 'preview' || !empty($report['pending']) || (!$report && (int)$f['skipped_count'] > 0)): ?><a class="btn btn-sm btn-warning" href="<?php echo BASE_URL; ?>/project/import.php?resume_file=<?php echo (int)$f['id']; ?>">继续导入</a><?php endif; ?><?php if (!empty($report['order_ids'])): ?> <a class="btn btn-sm btn-success" href="<?php echo BASE_URL; ?>/project/index.php?import_file=<?php echo (int)$f['id']; ?>">对应订单</a><?php endif; ?></div><a class="btn btn-sm btn-outline-primary" href="<?php echo BASE_URL; ?>/project/files.php?<?php echo e(http_build_query(array_merge($_GET, ['view' => (int)$f['id']]))); ?>">查看</a> <a class="btn btn-sm btn-outline-secondary" href="<?php echo BASE_URL; ?>/project/files.php?download=<?php echo (int)$f['id']; ?>">下载</a> <form method="post" class="d-inline" onsubmit="return confirmFileDelete(this, <?php echo (int)$f['imported_count']; ?>);"><input type="hidden" name="csrf" value="<?php echo e(ps_csrf_token()); ?>"><input type="hidden" name="action" value="delete_file"><input type="hidden" name="file_id" value="<?php echo (int)$f['id']; ?>"><button class="btn btn-sm btn-outline-danger" type="submit">删除</button></form></td>
 </tr><?php endforeach; ?>
 <?php if (!$files): ?><tr><td colspan="7" class="text-center text-muted py-4">还没有上传过的表格。合作人员在“拖拽上传 Excel”上传后会自动出现在这里。</td></tr><?php endif; ?>
 </tbody></table></div></div>

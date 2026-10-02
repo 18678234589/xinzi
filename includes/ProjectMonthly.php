@@ -74,9 +74,20 @@ function ps_monthly_snapshot_matches($rule, $snap)
 
 function ps_monthly_snapshots($month)
 {
-    $q = db()->prepare('SELECT s.*,o.project_type,o.order_no,o.order_kind FROM project_commission_snapshots s JOIN project_orders o ON o.id=s.order_id WHERE s.payroll_month=? ORDER BY s.id');
+    $q = db()->prepare('SELECT s.*,o.project_type,o.order_no,o.order_kind,o.contract_amount AS order_contract_amount FROM project_commission_snapshots s JOIN project_orders o ON o.id=s.order_id WHERE s.payroll_month=? ORDER BY s.id');
     $q->execute([$month]);
-    return $q->fetchAll();
+    $rows = $q->fetchAll();
+    foreach ($rows as &$snap) {
+        if (!in_array($snap['project_type'], ['网站续费', '环境配置'], true)) continue;
+        // 部门分成不是个人分单毛利：3%服务费应扣完整一次，不能只扣某人1/6的服务费。
+        $fee = (float)$snap['order_contract_amount'] * ps_business_service_fee_rate($snap['project_type']);
+        $cost = (float)$snap['direct_cost'];
+        if ($snap['calc_mode'] === 'individual' && (float)$snap['group_weight'] > 0) $cost /= (float)$snap['group_weight'];
+        $snap['department_profit'] = (float)$snap['income_amount'] - $cost - $fee;
+        $snap['department_revenue'] = (float)$snap['income_amount'] - $fee;
+    }
+    unset($snap);
+    return $rows;
 }
 
 /**
@@ -186,9 +197,11 @@ function ps_sales_package_calc($params, $orders, $reviewRate = null)
  * 计算某月全部月度规则结果。返回 [['employee_id','rule_id','rule_name','rule_type','amount','detail'], ...]（金额为 0 的不返回）。
  * 已锁定月份返回冻结结果。
  */
-function ps_monthly_results($month, $forceLive = false)
+function ps_monthly_results($month, $forceLive = false, $context = null)
 {
-    if (!$forceLive) {
+    // 预期结算复用同一规则引擎，但只传入内存数据，不落库、不替换已锁定结算。
+    $forecast = !empty($context['forecast']);
+    if (!$forceLive && $context === null) {
         $period = db()->prepare('SELECT status FROM project_payroll_periods WHERE period=?');
         $period->execute([$month]);
         if ($period->fetchColumn() === 'locked') {
@@ -197,8 +210,8 @@ function ps_monthly_results($month, $forceLive = false)
             return $q->fetchAll();
         }
     }
-    $rules = ps_monthly_rules_for($month);
-    $snapshots = ps_monthly_snapshots($month);
+    $rules = $context['rules'] ?? ps_monthly_rules_for($month);
+    $snapshots = $context['snapshots'] ?? ps_monthly_snapshots($month);
     // 分成尾差：逐单四舍五入与“按月合计后四舍五入”的差额（核算表口径），通常为几分钱。
     $rounding = [];
     foreach ($snapshots as $snap) {
@@ -217,10 +230,33 @@ function ps_monthly_results($month, $forceLive = false)
         return $items;
     };
     if (!$rules) return $roundingItems();
-    $inputs = ps_monthly_inputs($month);
+    $inputs = $context['inputs'] ?? ps_monthly_inputs($month);
     $metricLabels = ps_monthly_metrics();
-    $attendance = ps_monthly_attendance($month);
+    $attendance = $context['attendance'] ?? ps_monthly_attendance($month);
     $results = [];
+    $tierBases = [];
+    $fullAttendance = [];
+    foreach ($rules as $r) {
+        if ($r['rule_type'] === 'attendance_bonus' && $r['employee_id'] !== null) $fullAttendance[(int)$r['employee_id']] = (float)($r['params']['amount'] ?? 0);
+    }
+    // 先确定阶梯固定额：规则中心调整展示顺序后，固定服务费仍须使用同一档位。
+    foreach ($rules as $r) {
+        if ($r['rule_type'] !== 'tier_rate') continue;
+        $metrics = [];
+        foreach ($snapshots as $snap) {
+            if (!ps_monthly_snapshot_matches($r, $snap)) continue;
+            [$profit, $sales] = ps_monthly_snapshot_values($snap);
+            $eid = (int)$snap['employee_id'];
+            $metrics[$eid] = ($metrics[$eid] ?? 0) + ($r['metric'] === 'sales' ? $sales : $profit);
+        }
+        foreach ($metrics as $eid => $value) {
+            $tier = ps_monthly_pick_tier($r['params']['tiers'] ?? [], $value);
+            if (!$tier || !isset($tier['base']) || $tier['base'] === '') continue;
+            $includesAttendance = $r['params']['base_includes_attendance'] ?? ($r['scope_business'] === 'AI网站定制' && $r['scope_role'] === '前端');
+            $tierBases[$eid] = ['amount' => max((float)$tier['base'] - ($includesAttendance ? ($fullAttendance[$eid] ?? 0) : 0), 0),
+                'detail' => '按当月阶梯固定额 ¥' . money_plain($tier['base']) . ($includesAttendance ? '，扣除单列全勤奖 ¥' . money_plain($fullAttendance[$eid] ?? 0) : '')];
+        }
+    }
     $add = function ($employeeId, $rule, $amount, $detail, $keepZero = false) use (&$results, &$rounding) {
         $exact = (float)$amount;
         $amount = round($amount, 2);
@@ -258,7 +294,7 @@ function ps_monthly_results($month, $forceLive = false)
                 $tier = ps_monthly_pick_tier($p['tiers'] ?? [], $m[$metric]);
                 if (!$tier) continue;
                 $target = $m['portion'] * (float)$tier['rate'];
-                $add($eid, $rule, $target - $m['share'], sprintf('月%s ¥%s 落在 ≥¥%s 档 %s%%：毛利 ¥%s × %s%% = ¥%s，逐单已计 ¥%s', $metricLabel, money_plain($m[$metric]), money_plain($tier['from']), round((float)$tier['rate'] * 100, 2), money_plain($m['portion']), round((float)$tier['rate'] * 100, 2), money_plain($target), money_plain($m['share'])) . (isset($tier['base']) && $tier['base'] !== '' ? '；对应底薪 ¥' . money_plain($tier['base']) . '（底薪在原系统结算）' : ''));
+                $add($eid, $rule, $target - $m['share'], sprintf('月%s ¥%s 落在 ≥¥%s 档 %s%%：毛利 ¥%s × %s%% = ¥%s，逐单已计 ¥%s', $metricLabel, money_plain($m[$metric]), money_plain($tier['from']), round((float)$tier['rate'] * 100, 2), money_plain($m['portion']), round((float)$tier['rate'] * 100, 2), money_plain($target), money_plain($m['share'])) . (isset($tierBases[$eid]) ? '；' . $tierBases[$eid]['detail'] : ''));
             }
         } elseif ($type === 'threshold_bonus') {
             $threshold = (float)($p['threshold'] ?? 0);
@@ -294,6 +330,13 @@ function ps_monthly_results($month, $forceLive = false)
                 if ($businesses !== null && !in_array(ps_business_normalize($snap['project_type']), $businesses, true)) continue;
                 $oid = (int)$snap['order_id'];
                 $orders[$oid] = $orders[$oid] ?? ['pool' => null, 'max' => null, 'revenue' => 0.0];
+                if (isset($snap['department_profit'], $snap['department_revenue'])) {
+                    // 部门毛利按整单成本与完整服务费计一次，不能取某个人分摊后的基数。
+                    $orders[$oid]['pool'] = (float)$snap['department_profit'];
+                    $orders[$oid]['revenue'] = (float)$snap['department_revenue'];
+                    $commissions += (float)$snap['commission_amount'];
+                    continue;
+                }
                 // 收入口径：售价收入 − 服务费（每单计一次）
                 $orders[$oid]['revenue'] = max($orders[$oid]['revenue'], (float)$snap['income_amount'] - (float)$snap['service_fee']);
                 if ($snap['calc_mode'] === 'pool' && (float)$snap['group_weight'] >= 1) $orders[$oid]['pool'] = (float)$snap['contribution_profit'];
@@ -382,11 +425,11 @@ function ps_monthly_results($month, $forceLive = false)
             if ($rule['employee_id'] === null) continue;
             $eid = (int)$rule['employee_id'];
             $override = $inputs[(int)$rule['id']][$eid] ?? null;
-            $amount = $override !== null ? (float)$override['value'] : (float)($p['amount'] ?? 0);
+            $amount = $override !== null ? (float)$override['value'] : (float)($tierBases[$eid]['amount'] ?? $p['amount'] ?? 0);
             if ($amount <= 0) continue;
             // 管理岗等按月固定、不按考勤折算
             [$value, $how] = !empty($p['no_prorate']) ? [round($amount, 2), '每月固定，不按考勤折算'] : ps_monthly_prorate($amount, $attendance[$eid] ?? null);
-            $add($eid, $rule, $value, ($override !== null ? '本月金额 ¥' . money_plain($amount) . ($override['note'] !== '' ? '（' . $override['note'] . '）' : '') . '；' : '') . $how);
+            $add($eid, $rule, $value, ($override !== null ? '本月金额 ¥' . money_plain($amount) . ($override['note'] !== '' ? '（' . $override['note'] . '）' : '') . '；' : '') . $how . ($override === null && isset($tierBases[$eid]) ? '；' . $tierBases[$eid]['detail'] : ''));
         } elseif ($type === 'attendance_bonus') {
             if ($rule['employee_id'] === null) continue;
             $eid = (int)$rule['employee_id'];
@@ -395,6 +438,14 @@ function ps_monthly_results($month, $forceLive = false)
             if ($override === null) {
                 // 未批准：显示 0 元与考勤建议，让本人和财务都看得到“待财务批准”，而不是看起来漏算
                 [$suggest, $suggestText] = ps_attendance_suggestion((float)($p['amount'] ?? 0), $attendance[$eid] ?? null);
+                if ($forecast) {
+                    if (!isset($attendance[$eid])) {
+                        $suggest = (float)($p['amount'] ?? 0);
+                        $suggestText = '暂无考勤记录，暂按满勤预期';
+                    }
+                    $add($eid, $rule, $suggest, '全勤奖预期：' . $suggestText . '；最终以财务批准为准', true);
+                    continue;
+                }
                 $add($eid, $rule, 0, '待财务批准（本月' . $suggestText . '，建议 ¥' . money_plain($suggest) . '）', true);
                 continue;
             }

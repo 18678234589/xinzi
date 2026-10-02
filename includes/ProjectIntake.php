@@ -473,6 +473,8 @@ function ps_import_headerless_map($rows, $knownShops, $employeesByName)
     $pick('contact_note', function ($v) { return (bool)preg_match('/^1[3-9]\d{9}$/', $v); });
     $pick('contract_amount', function ($v) { return is_numeric(str_replace([',', '¥', '￥'], '', $v)) && (float)str_replace([',', '¥', '￥'], '', $v) < 1000000; }, $map['order_no']);
     $pick('shop', function ($v) use ($knownShops) { foreach ($knownShops as $shop) if ($v === $shop || mb_strpos($shop, $v) !== false || mb_strpos($v, $shop) !== false) return true; return false; });
+    // 网站客服旧表常无表头；产品列是确定标记，不靠 AI 猜整张表的业务。
+    $pick('program_name', function ($v) { return (bool)preg_match('/^(php|jsp|森动|博山定制|华梦|大连定制|网站定制)/iu', $v); });
     // 人员列：姓名都在人员名单中；按账号角色区分客服列与技术列，角色不明时先客服后技术
     $isName = function ($v) use ($employeesByName) { foreach (preg_split('/[,，、\/]+/u', $v) as $n) if (!isset($employeesByName[trim($n)])) return false; return true; };
     $peopleColumns = [];

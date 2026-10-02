@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . '/../includes/ProjectPartnerDashboard.php';
+require_once __DIR__ . '/../includes/ProjectExpectedSettlement.php';
 require_once __DIR__ . '/../includes/ProjectWelfare.php';
 $actor = ps_require_actor();
 $month = (string)($_POST['month'] ?? $_GET['month'] ?? date('Y-m', strtotime('first day of last month')));
@@ -29,6 +30,9 @@ $rows = array_values(array_filter($allRows, static fn($r) => $r['order_date'] >=
 $previousRows = array_values(array_filter($allRows, static fn($r) => $r['order_date'] < $from));
 $summary = ps_partner_summary($rows);
 $previous = ps_partner_summary($previousRows);
+$ordersUrl = ps_partner_orders_url($employeeId, $month);
+$previousOrdersUrl = ps_partner_orders_url($employeeId, substr($previousFrom, 0, 7));
+$expectedIncome = ps_partner_expected_income($employeeId, $month);
 $input = ps_partner_ai_input($summary, $previous, $month);
 $inputHash = hash('sha256', json_encode($input, JSON_UNESCAPED_UNICODE | JSON_PRESERVE_ZERO_FRACTION));
 $insightQuery = db()->prepare('SELECT insight_json,created_at FROM project_partner_insights WHERE employee_id=? AND period=? AND input_hash=? LIMIT 1');
@@ -87,20 +91,21 @@ $welfareBalance = pw_balance();
 
   <div class="pd-section-label"><span>01 / 经营脉搏</span><small>清晰看见每一步</small></div>
   <section class="pd-kpis" aria-label="经营数据">
-    <article class="pd-kpi"><b class="pd-kpi-id" aria-hidden="true">01 / ORDERS</b><span>参与订单</span><strong><?php echo (int)$summary['orders']; ?> <small>单</small></strong><em>上月 <?php echo (int)$previous['orders']; ?> 单</em></article>
+    <article class="pd-kpi"><b class="pd-kpi-id" aria-hidden="true">01 / ORDERS</b><span><a class="pd-order-count-link" href="<?php echo e($ordersUrl); ?>">参与订单 <i class="fas fa-arrow-up-right-from-square small" aria-hidden="true"></i></a></span><strong><a class="pd-order-count-link" href="<?php echo e($ordersUrl); ?>" aria-label="<?php echo e('查看' . $person['name'] . '在' . $month . '参与的' . (int)$summary['orders'] . '笔订单'); ?>"><?php echo (int)$summary['orders']; ?> <small>单</small></a></strong><em><a class="pd-order-count-link" href="<?php echo e($previousOrdersUrl); ?>">上月 <?php echo (int)$previous['orders']; ?> 单</a></em></article>
     <article class="pd-kpi"><b class="pd-kpi-id" aria-hidden="true">02 / VALUE</b><span>订单成交额</span><strong>¥<?php echo money($summary['contract']); ?></strong><em>按本人分单权重归属</em></article>
-    <article class="pd-kpi pd-kpi-primary"><b class="pd-kpi-id" aria-hidden="true">03 / VERIFIED</b><span>订单净实收</span><strong>¥<?php echo money($summary['net']); ?></strong><em>较前月 <?php echo $netDelta >= 0 ? '+' : '−'; ?>¥<?php echo money(abs($netDelta)); ?></em></article>
-    <article class="pd-kpi"><b class="pd-kpi-id" aria-hidden="true">04 / REFUNDS</b><span>退款率</span><strong><?php echo e($rateText); ?></strong><em>退款 ¥<?php echo money($summary['refunds']); ?> / 已审核实收 ¥<?php echo money($summary['receipts']); ?></em></article>
+    <article class="pd-kpi pd-kpi-primary"><b class="pd-kpi-id" aria-hidden="true">03 / EXPECTED INCOME</b><span><?php echo e($month); ?> 预期总收入</span><strong>¥<?php echo money($expectedIncome['total']); ?></strong><em>固定服务费 ¥<?php echo money($expectedIncome['fixed_fee']); ?> + 项目分成 ¥<?php echo money($expectedIncome['commission']); ?> + 预期全勤奖 ¥<?php echo money($expectedIncome['attendance']); ?></em></article>
+    <article class="pd-kpi"><b class="pd-kpi-id" aria-hidden="true">04 / EXPECTED SHARE</b><span>预期总分成</span><strong>¥<?php echo money($expectedIncome['commission']); ?></strong><em>逐单分成及补助 ¥<?php echo money($expectedIncome['order_commission']); ?> · 月度阶梯、奖励及调整 ¥<?php echo money($expectedIncome['monthly_commission']); ?></em></article>
   </section>
-  <?php if ($summary['unverified_cash_orders']): ?><div class="pd-data-note"><i class="fas fa-receipt"></i> <?php echo (int)$summary['unverified_cash_orders']; ?> 单尚无已审核实收：成交额可看，净实收与退款率要等财务完成收款核对后再判断；这不计为个人异常。</div><?php endif; ?>
+  <div class="pd-data-note"><i class="fas fa-calculator"></i> 按订单归属日期与规则中心计算预期，归入本月的跨月分成更正一并计入，不代表已审核或已发放。未确认收款按已填写售价预估；全勤奖最终以财务批准为准。<?php if ($expectedIncome['warnings']['cash']): ?> <?php echo (int)$expectedIncome['warnings']['cash']; ?> 单实收待确认。<?php endif; ?><?php if ($expectedIncome['warnings']['cost']): ?> <?php echo (int)$expectedIncome['warnings']['cost']; ?> 单资源/成本待补齐，目前仅按已知成本估算，补齐后金额可能降低。<?php endif; ?><?php if ($expectedIncome['warnings']['rule']): ?> <?php echo (int)$expectedIncome['warnings']['rule']; ?> 单分成规则未匹配，相关金额暂不计入。<?php endif; ?><?php if ($expectedIncome['warnings']['weight']): ?> <?php echo (int)$expectedIncome['warnings']['weight']; ?> 单分配权重待核对，相关分成暂不计入。<?php endif; ?><?php if ($expectedIncome['warnings']['refund']): ?> <?php echo (int)$expectedIncome['warnings']['refund']; ?> 单退款待核对，确认后会自动重算。<?php endif; ?></div>
+  <details class="pd-data-note"><summary>查看预期收入组成与计算依据</summary><div>逐单分成及补助：¥<?php echo money($expectedIncome['order_commission']); ?></div><?php foreach ($expectedIncome['items'] as $incomeItem): ?><div><?php echo e($incomeItem['rule_name']); ?>：¥<?php echo money($incomeItem['amount']); ?> <small><?php echo e($incomeItem['detail']); ?></small></div><?php endforeach; ?></details>
 
   <div class="pd-section-label"><span>02 / 业务信号</span><small>把数据变成下一步的线索</small></div>
   <div class="pd-grid">
     <section class="pd-panel"><div class="pd-panel-title"><div><span class="pd-icon"><i class="fas fa-layer-group"></i></span><h2>业务构成</h2></div><small><?php echo $summary['receipts'] > 0 ? '按净实收排序' : '实收待核对 · 按订单数查看'; ?></small></div>
       <?php if (!$summary['businesses']): ?><div class="pd-empty">暂时没有关联订单。录入订单并关联参与人后，这里会自动呈现。</div><?php else: ?>
-      <?php $businessScale = $summary['receipts'] > 0 ? max(1, ...array_map(static fn($x) => max(0, (float)$x['net']), $summary['businesses'])) : max(1, ...array_column($summary['businesses'], 'orders')); ?>
+      <?php $businessScale = $summary['receipts'] > 0 ? max(array_merge([1], array_map(static fn($x) => max(0, (float)$x['net']), $summary['businesses']))) : max(array_merge([1], array_column($summary['businesses'], 'orders'))); ?>
       <div class="pd-businesses"><?php foreach ($summary['businesses'] as $name => $item): $businessValue = $summary['receipts'] > 0 ? max(0, (float)$item['net']) : (int)$item['orders']; $businessShare = min(100, round($businessValue / $businessScale * 100, 1)); ?>
-        <div class="pd-business"><div><strong><?php echo e($name); ?></strong><small><?php echo (int)$item['orders']; ?> 单</small></div><span>¥<?php echo money($item['net']); ?></span><div class="pd-business-track" aria-hidden="true"><i style="--pd-fill:<?php echo $businessShare; ?>%"></i></div></div>
+        <a class="pd-business pd-business-link" href="<?php echo e(ps_partner_orders_url($employeeId, $month, $name)); ?>" aria-label="<?php echo e('查看' . $person['name'] . '在' . $month . '的' . $name . '订单，共' . (int)$item['orders'] . '单'); ?>"><div><strong><?php echo e($name); ?></strong><small><?php echo (int)$item['orders']; ?> 单 <i class="fas fa-arrow-right" aria-hidden="true"></i></small></div><span>¥<?php echo money($item['net']); ?></span><div class="pd-business-track" aria-hidden="true"><i style="--pd-fill:<?php echo $businessShare; ?>%"></i></div></a>
       <?php endforeach; ?></div><?php endif; ?>
     </section>
     <section class="pd-panel"><div class="pd-panel-title"><div><span class="pd-icon amber"><i class="fas fa-clipboard-check"></i></span><h2>待核对清单</h2></div><small><?php echo (int)$summary['alert_count']; ?> 单需关注</small></div>

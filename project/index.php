@@ -1,16 +1,22 @@
 <?php
 require_once __DIR__ . '/../includes/ProjectIntake.php';
+require_once __DIR__ . '/../includes/ProjectImportResult.php';
 require_once __DIR__ . '/../includes/ProjectBusiness.php';
 require_once __DIR__ . '/../includes/ProjectOrderSource.php';
 require_once __DIR__ . '/../includes/ProjectDepartmentImport.php';
+require_once __DIR__ . '/../includes/ProjectVault.php';
+require_once __DIR__ . '/../includes/commission_explain.php';
+require_once __DIR__ . '/../includes/ProjectPartnerDashboard.php';
 $actor = ps_require_actor();
+$participationOnly = ($_GET['participating'] ?? '') === '1';
+$filterEmployeeId = ps_partner_list_employee_id($actor, $_GET['employee_id'] ?? 0);
 $error = '';
 $businessCatalog = ps_business_catalog();
 $allowedBusinesses = ps_actor_businesses($actor);
 $departmentImportBusiness = '';
 foreach (['网站续费', '网站修改'] as $candidate) if (ps_department_import_allowed($actor, $candidate)) { $departmentImportBusiness = $candidate; break; }
 // 只有固定报酬、不录订单的合作人员（如售后退款部）：直接进入“我的项目报酬”
-if ($actor['role'] !== 'finance' && !$allowedBusinesses && $_SERVER['REQUEST_METHOD'] !== 'POST') { header('Location: ' . BASE_URL . '/project/payroll.php'); exit; }
+if ($actor['role'] !== 'finance' && !$allowedBusinesses && !$participationOnly && $_SERVER['REQUEST_METHOD'] !== 'POST') { header('Location: ' . BASE_URL . '/project/payroll.php'); exit; }
 $selectedBusiness = ps_business_choice($actor, (string)($_POST['project_type'] ?? $_GET['business'] ?? ''));
 $roleDefaultKinds = [];
 if ($actor['role'] !== 'finance') foreach ($allowedBusinesses as $businessName) {
@@ -18,11 +24,26 @@ if ($actor['role'] !== 'finance') foreach ($allowedBusinesses as $businessName) 
     $roleDefaultKinds[$businessName] = ps_order_kind_from_role($businessName, $roleHint ?? '');
 }
 $shops = db()->query('SELECT name FROM shops ORDER BY sort,id')->fetchAll(PDO::FETCH_COLUMN);
+$dateBasis = ($_GET['date_basis'] ?? '') === 'created_at' ? 'created_at' : 'order_date';
 $month = (string)($_GET['month'] ?? date('Y-m'));
 if (!preg_match('/^\d{4}-(0[1-9]|1[0-2])$/', $month)) $month = date('Y-m');
+// 未明确选月份时：本月还没有订单（如月初刚上传完上月表格），自动切到本人最近有订单的月份，避免“导入了却看不到”。
+if (!isset($_GET['month']) && $_SERVER['REQUEST_METHOD'] !== 'POST') {
+    try {
+        $monthScope = $actor['role'] === 'finance' ? '' : ' AND (EXISTS (SELECT 1 FROM project_participants mp WHERE mp.order_id=o.id AND mp.employee_id=' . (int)$actor['employee_id'] . ') OR EXISTS (SELECT 1 FROM project_department_uploaders du WHERE du.order_id=o.id AND du.employee_id=' . (int)$actor['employee_id'] . '))';
+        $hasMonth = (int)db()->query("SELECT COUNT(*) FROM project_orders o WHERE o." . $dateBasis . ">='" . $month . "-01' AND o." . $dateBasis . "<'" . date('Y-m-d', strtotime($month . '-01 +1 month')) . "'" . $monthScope)->fetchColumn();
+        if (!$hasMonth) {
+            $latest = db()->query("SELECT DATE_FORMAT(MAX(o." . $dateBasis . "),'%Y-%m') FROM project_orders o WHERE o." . $dateBasis . "<'" . date('Y-m-d', strtotime($month . '-01 +1 month')) . "'" . $monthScope)->fetchColumn();
+            if ($latest) $month = $latest;
+        }
+    } catch (Throwable $e) {
+        // 查询失败时保持本月
+    }
+}
 $employees = db()->query('SELECT id,name,department FROM employees ORDER BY department,name,id')->fetchAll();
 $employeesById = [];
 foreach ($employees as $employee) $employeesById[(int)$employee['id']] = $employee;
+$filterEmployeeName = $employeesById[$filterEmployeeId]['name'] ?? ('人员 #' . $filterEmployeeId);
 $activeTechnicalIds = array_map('intval', db()->query("SELECT employee_id FROM project_users WHERE role='technical' AND is_active=1")->fetchAll(PDO::FETCH_COLUMN));
 // 微信代写编辑员（客服账号）在代写订单上担任“对接编辑”，可在技术 / 对接栏选到
 $activeTechnicalIds = array_values(array_unique(array_merge($activeTechnicalIds, array_map('intval', db()->query("SELECT u.employee_id FROM project_users u JOIN project_user_businesses b ON b.user_id=u.id AND b.business_name='微信代写' WHERE u.is_active=1")->fetchAll(PDO::FETCH_COLUMN)))));
@@ -261,27 +282,44 @@ if (empty($_SESSION['ps_last_auto_finish_time']) || time() - (int)$_SESSION['ps_
     }
 }
 
-// 列表筛选：月份 + 业务 + 待办 + 关键字（订单号/客户/付款昵称）。
+// 列表筛选：月份 + 业务 + 待办 + 关键字（订单号/客户/付款昵称/项目账号的类型·说明·地址·账号·备注）。
 $filterBusiness = (string)($_GET['filter_business'] ?? '');
 $filterState = (string)($_GET['state'] ?? '');
 $keyword = trim((string)($_GET['q'] ?? ''));
+$credentialHits = [];
+$importFileId = (int)($_GET['import_file'] ?? 0);
+$importFileReport = [];
 $where = [];
 $params = [];
-if ($keyword !== '') {
-    $where[] = '(o.order_no LIKE ? OR o.customer_name LIKE ? OR s.payment_nickname LIKE ?)';
+if ($importFileId > 0) {
+    try { ps_import_file_get($importFileId, $actor); }
+    catch (RuntimeException $e) { http_response_code(403); exit(e($e->getMessage())); }
+    $importFileReport = ps_import_result_get($importFileId);
+    $fileOrderIds = array_map('intval', $importFileReport['order_ids'] ?? []);
+    $where[] = $fileOrderIds ? 'o.id IN (' . implode(',', $fileOrderIds) . ')' : '1=0';
+} elseif ($keyword !== '') {
+    $credentialHits = pv_search_order_hits($keyword);
+    $credentialSql = $credentialHits ? ' OR o.id IN (' . implode(',', array_map('intval', array_keys($credentialHits))) . ')' : '';
+    $where[] = '(o.order_no LIKE ? OR o.customer_name LIKE ? OR s.payment_nickname LIKE ?' . $credentialSql . ')';
     array_push($params, '%' . $keyword . '%', '%' . $keyword . '%', '%' . $keyword . '%');
 } else {
-    $where[] = 'o.order_date>=? AND o.order_date<?';
+    $where[] = 'o.' . $dateBasis . '>=? AND o.' . $dateBasis . '<?';
     array_push($params, $month . '-01', date('Y-m-d', strtotime($month . '-01 +1 month')));
 }
-if ($filterBusiness !== '' && isset($businessCatalog[$filterBusiness])) { $where[] = 'o.project_type=?'; $params[] = $filterBusiness; }
+if (!$participationOnly && $filterBusiness !== '' && isset($businessCatalog[$filterBusiness])) { $where[] = 'o.project_type=?'; $params[] = $filterBusiness; }
 if ($filterState === 'open') $where[] = "o.settlement_status IN ('draft','review')";
 if ($filterState === 'approved') $where[] = "o.settlement_status IN ('approved','locked')";
 if ($filterState === 'unfinished') $where[] = "o.delivery_status='unfinished'";
 if ($filterState === 'finished') $where[] = "o.delivery_status='finished'";
 if ($filterState === 'pending_delivery') $where[] = "EXISTS (SELECT 1 FROM project_order_requests por WHERE por.order_id=o.id AND por.request_type='delivery_completion' AND por.status='pending')";
 if ($filterState === 'pending_upgrade') $where[] = "EXISTS (SELECT 1 FROM project_order_requests por WHERE por.order_id=o.id AND por.request_type='product_upgrade' AND por.status='pending')";
-if ($actor['role'] !== 'finance') { $where[] = '(EXISTS (SELECT 1 FROM project_participants mp WHERE mp.order_id=o.id AND mp.employee_id=?) OR EXISTS (SELECT 1 FROM project_department_uploaders du WHERE du.order_id=o.id AND du.employee_id=?))'; $params[] = $actor['employee_id']; $params[] = $actor['employee_id']; }
+if ($actor['role'] === 'finance') {
+    if ($filterEmployeeId > 0) { $where[] = 'EXISTS (SELECT 1 FROM project_participants mp WHERE mp.order_id=o.id AND mp.employee_id=?)'; $params[] = $filterEmployeeId; }
+} else {
+    $where[] = $participationOnly ? 'EXISTS (SELECT 1 FROM project_participants mp WHERE mp.order_id=o.id AND mp.employee_id=?)' : '(EXISTS (SELECT 1 FROM project_participants mp WHERE mp.order_id=o.id AND mp.employee_id=?) OR EXISTS (SELECT 1 FROM project_department_uploaders du WHERE du.order_id=o.id AND du.employee_id=?))';
+    $params[] = $actor['employee_id'];
+    if (!$participationOnly) $params[] = $actor['employee_id'];
+}
 $sql = "SELECT o.*, COALESCE(s.price_source,'missing') price_source, COALESCE(s.payment_nickname,'') payment_nickname, r.domain_mode,
     (SELECT COUNT(*) FROM project_costs c WHERE c.order_id=o.id AND c.review_status='pending') pending_costs,
     (SELECT COALESCE(SUM(c.amount),0) FROM project_costs c WHERE c.order_id=o.id AND c.review_status='approved') approved_costs,
@@ -292,10 +330,11 @@ $sql = "SELECT o.*, COALESCE(s.price_source,'missing') price_source, COALESCE(s.
     EXISTS (SELECT 1 FROM project_department_orders d WHERE d.order_id=o.id) is_department_order,
     (SELECT GROUP_CONCAT(e.name ORDER BY p.commission_group DESC,p.id SEPARATOR '、') FROM project_participants p JOIN employees e ON e.id=p.employee_id WHERE p.order_id=o.id) people
     FROM project_orders o LEFT JOIN project_order_sources s ON s.order_id=o.id LEFT JOIN project_order_resources r ON r.order_id=o.id
-    WHERE " . implode(' AND ', $where) . ' ORDER BY o.order_date DESC,o.id DESC LIMIT 500';
+    WHERE " . implode(' AND ', $where) . ' ORDER BY o.' . $dateBasis . ' DESC,o.id DESC';
 $q = db()->prepare($sql);
 $q->execute($params);
 $orders = $q->fetchAll();
+if ($participationOnly && $filterBusiness !== '') $orders = array_values(array_filter($orders, function ($row) use ($filterBusiness) { return ps_partner_business_bucket($row['project_type']) === $filterBusiness; }));
 foreach ($orders as $i => $row) $orders[$i]['todos'] = ps_order_todos($row);
 if ($filterState === 'todo') $orders = array_values(array_filter($orders, function ($row) { return (bool)$row['todos']; }));
 $totals = ['contract' => 0.0, 'receipt' => 0.0, 'cost' => 0.0, 'todo' => 0];
@@ -304,6 +343,36 @@ foreach ($orders as $row) {
     $totals['receipt'] += (float)$row['receipt_amount'] - (float)$row['refund_amount'];
     $totals['cost'] += (float)$row['approved_costs'];
     if ($row['todos']) $totals['todo']++;
+}
+// 分页：每页 30 单；统计仍按全部筛选结果，预计分成只算当前页。
+$perPage = 30;
+$totalOrders = count($orders);
+$totalPages = max(1, (int)ceil($totalOrders / $perPage));
+$page = min(max(1, (int)($_GET['page'] ?? 1)), $totalPages);
+$pageOrders = array_slice($orders, ($page - 1) * $perPage, $perPage);
+$pageQuery = function ($p) { return '?' . http_build_query(array_merge($_GET, ['page' => $p])); };
+$commissionCells = [];
+$snapshotMap = [];
+$approvedIds = array_map(function ($r) { return (int)$r['id']; }, array_filter($pageOrders, function ($r) { return in_array($r['settlement_status'], ['approved', 'locked'], true); }));
+if ($approvedIds) {
+    $snapQuery = db()->query('SELECT order_id,employee_id,commission_group,commission_amount,subsidy_amount FROM project_commission_snapshots WHERE order_id IN (' . implode(',', $approvedIds) . ')');
+    foreach ($snapQuery->fetchAll() as $snap) $snapshotMap[$snap['order_id'] . ':' . $snap['commission_group'] . ':' . $snap['employee_id']] = round((float)$snap['commission_amount'] + (float)$snap['subsidy_amount'], 2);
+}
+foreach ($pageOrders as $row) {
+    $cells = [];
+    try {
+        $rowPeople = ps_participants((int)$row['id']);
+        $isApproved = in_array($row['settlement_status'], ['approved', 'locked'], true);
+        $rowSum = $isApproved ? null : ps_summary($row, ps_costs((int)$row['id']), $rowPeople);
+        foreach ($rowPeople as $rp) {
+            if ($actor['role'] !== 'finance' && (int)$rp['employee_id'] !== (int)$actor['employee_id']) continue;
+            $amount = null;
+            if ($isApproved) $amount = $snapshotMap[$row['id'] . ':' . $rp['commission_group'] . ':' . $rp['employee_id']] ?? null;
+            else foreach ($rowSum['groups'][$rp['commission_group']]['people'] ?? [] as $sp) if ((int)$sp['employee_id'] === (int)$rp['employee_id'] && $sp['estimated_calc']) $amount = round($sp['estimated_calc']['share'] + $sp['estimated_calc']['subsidy'], 2);
+            $cells[] = ['name' => $rp['name'], 'group' => $rp['commission_group'], 'employee_id' => (int)$rp['employee_id'], 'amount' => $amount, 'estimated' => !$isApproved];
+        }
+    } catch (Throwable $e) { $cells = []; }
+    $commissionCells[(int)$row['id']] = $cells;
 }
 $createdOrder = null;
 if (isset($_GET['created'])) {
@@ -315,6 +384,7 @@ $openEntry = $error !== '' || isset($_GET['entry']);
 $bulkResult = $_SESSION['project_bulk_result'] ?? null;
 unset($_SESSION['project_bulk_result']);
 $page_title = $actor['role'] === 'finance' ? '项目订单结算' : '我的项目订单';
+if (PHP_SAPI === 'cli' && !empty($GLOBALS['project_order_list_cli'])) return;
 include __DIR__ . '/../includes/header.php';
 $resourceHint = function ($t) { return trim($t['name'] . ' ' . $t['specification']) . ' · ¥' . money($t['price']); };
 ?>
@@ -380,9 +450,14 @@ $resourceHint = function ($t) { return trim($t['name'] . ' ' . $t['specification
   </form>
 </div></div>
 <?php endif; ?>
+<?php if ($importFileId): ?><div class="alert alert-info">正在查看这份表格对应的订单，已跨月份核对；仅显示你有权限的订单。<a class="alert-link" href="<?php echo BASE_URL; ?>/project/index.php">返回全部项目订单</a></div><?php endif; ?>
+<?php if ($participationOnly && $filterEmployeeId > 0): ?><div class="alert alert-info d-flex justify-content-between align-items-center flex-wrap" style="gap:8px"><span><i class="fas fa-chart-line mr-1" aria-hidden="true"></i><?php echo e($filterEmployeeName); ?> · <?php echo e($month); ?> · <?php echo e($filterBusiness ?: '全部业务'); ?> · 共 <?php echo (int)$totalOrders; ?> 单参与订单</span><a class="alert-link" href="<?php echo BASE_URL; ?>/project/dashboard.php?<?php echo e(http_build_query(['employee_id' => $filterEmployeeId, 'month' => $month])); ?>">返回经营看板</a></div><?php endif; ?>
 <div class="card mb-3"><div class="card-body py-3"><form method="get" class="form-row align-items-end">
+<?php if ($importFileId): ?><input type="hidden" name="import_file" value="<?php echo $importFileId; ?>"><?php endif; ?>
+<?php if ($participationOnly): ?><input type="hidden" name="participating" value="1"><?php if ($actor['role'] !== 'finance'): ?><input type="hidden" name="employee_id" value="<?php echo $filterEmployeeId; ?>"><?php endif; ?><?php endif; ?>
+<?php if ($actor['role'] === 'finance'): ?><div class="col-md-2 mb-2"><label class="small text-muted mb-1" for="filterEmployee">合作人员</label><select class="form-control" name="employee_id" id="filterEmployee"><option value="0">全部合作人员</option><?php foreach ($employees as $filterPerson): ?><option value="<?php echo (int)$filterPerson['id']; ?>" <?php echo $filterEmployeeId === (int)$filterPerson['id'] ? 'selected' : ''; ?>><?php echo e($filterPerson['name'] . ' · ' . $filterPerson['department']); ?></option><?php endforeach; ?></select></div><?php endif; ?>
   <div class="col-md-3 mb-2">
-    <label class="small text-muted mb-1" for="month">订单月份</label>
+    <label class="small text-muted mb-1" for="month"><?php echo $dateBasis === 'created_at' ? '录入月份' : '订单月份'; ?></label>
     <div class="input-group">
       <input class="form-control" type="month" name="month" id="month" value="<?php echo e($month); ?>">
       <div class="input-group-append">
@@ -391,6 +466,7 @@ $resourceHint = function ($t) { return trim($t['name'] . ' ' . $t['specification
       </div>
     </div>
   </div>
+  <div class="col-md-2 mb-2"><label class="small text-muted mb-1" for="dateBasis">查看方式</label><select class="form-control" id="dateBasis" name="date_basis"><option value="order_date" <?php echo $dateBasis === 'order_date' ? 'selected' : ''; ?>>按订单日期</option><option value="created_at" <?php echo $dateBasis === 'created_at' ? 'selected' : ''; ?>>最近录入 / 导入</option></select></div>
   <?php
   $filterCatalog = [];
   if ($actor['role'] !== 'finance') {
@@ -402,26 +478,29 @@ $resourceHint = function ($t) { return trim($t['name'] . ' ' . $t['specification
           if (empty($bDef['legacy'])) $filterCatalog[$bName] = $bDef;
       }
   }
+  if ($participationOnly && $filterBusiness !== '' && !isset($filterCatalog[$filterBusiness])) $filterCatalog[$filterBusiness] = [];
   ?>
   <div class="col-md-2 mb-2"><label class="small text-muted mb-1" for="filterBusiness">业务</label><select class="form-control" name="filter_business" id="filterBusiness"><option value="">全部业务</option><?php foreach ($filterCatalog as $businessName => $definition): ?><option value="<?php echo e($businessName); ?>" <?php echo $filterBusiness === $businessName ? 'selected' : ''; ?>><?php echo e($businessName); ?></option><?php endforeach; ?></select></div>
   <div class="col-md-2 mb-2"><label class="small text-muted mb-1" for="filterState">状态</label><select class="form-control" name="state" id="filterState"><option value="">全部</option><option value="unfinished" <?php echo $filterState === 'unfinished' ? 'selected' : ''; ?>>交付未完成</option><option value="finished" <?php echo $filterState === 'finished' ? 'selected' : ''; ?>>交付已完成</option><option value="pending_delivery" <?php echo $filterState === 'pending_delivery' ? 'selected' : ''; ?>>待交付审核</option><option value="pending_upgrade" <?php echo $filterState === 'pending_upgrade' ? 'selected' : ''; ?>>待升级审核</option><option value="todo" <?php echo $filterState === 'todo' ? 'selected' : ''; ?>>有待办</option><option value="open" <?php echo $filterState === 'open' ? 'selected' : ''; ?>>未审核</option><option value="approved" <?php echo $filterState === 'approved' ? 'selected' : ''; ?>>已审核</option></select></div>
-  <div class="col-md-3 mb-2"><label class="small text-muted mb-1" for="filterQ">搜索（订单号 / 客户 / 付款昵称）</label><input class="form-control" type="search" name="q" id="filterQ" value="<?php echo e($keyword); ?>" placeholder="输入关键字"></div>
+  <div class="col-md-3 mb-2"><label class="small text-muted mb-1" for="filterQ">搜索（订单号 / 客户 / 付款昵称 / 项目账号）</label><input class="form-control" type="search" name="q" id="filterQ" value="<?php echo e($keyword); ?>" placeholder="订单号、客户、账号、IP、备注…"></div>
   <div class="col-md-2 mb-2"><button class="btn btn-outline-primary btn-block">筛选</button></div>
 </form></div></div>
 <?php $mine = $actor['role'] !== 'finance' ? '我参与的' : ''; ?><div class="project-totals mb-3"><div><small><?php echo $mine; ?>订单</small><strong><?php echo count($orders); ?></strong></div><div><small><?php echo $mine; ?>售价合计</small><strong>¥<?php echo money($totals['contract']); ?></strong></div><div><small>已确认净实收</small><strong>¥<?php echo money($totals['receipt']); ?></strong></div><div><small>已审核直接成本</small><strong>¥<?php echo money($totals['cost']); ?></strong></div><div class="<?php echo $totals['todo'] ? 'is-alert' : ''; ?>"><small>有待办的订单</small><strong><?php echo $totals['todo']; ?></strong></div></div>
 <?php $isFinance = $actor['role'] === 'finance'; ?>
-<?php if ($isFinance): ?><form method="post" id="bulkForm"><input type="hidden" name="csrf" value="<?php echo e(ps_csrf_token()); ?>"><input type="hidden" name="return_query" value="<?php echo e(http_build_query(array_intersect_key($_GET, array_flip(['month','filter_business','state','q'])))); ?>"><?php endif; ?>
-<div class="card"><div class="card-header d-flex justify-content-between align-items-center flex-wrap" style="gap:8px"><span>订单列表（<?php echo count($orders); ?>）</span><?php if ($isFinance && $orders): ?><div class="project-bulk-bar"><span class="small text-muted" id="bulkCount">已选 0 单</span><button class="btn btn-sm btn-outline-success" name="bulk_action" value="receipt" onclick="return confirm('按售价为所选订单确认实收？已有实收、售价待补或店铺交易关闭的订单会跳过。')">按售价确认实收</button><button class="btn btn-sm btn-outline-success" name="bulk_action" value="finish">标记交付完成</button><input type="month" name="bulk_month" class="form-control form-control-sm" style="width:150px" value="<?php echo e($month); ?>" aria-label="分成归属月份"><button class="btn btn-sm btn-success" name="bulk_action" value="approve" onclick="return confirm('审核所选订单并生成项目分成？不满足条件的订单会跳过并列出原因。')">批量审核</button></div><?php endif; ?></div><div class="table-responsive"><table class="table table-hover mb-0 project-order-table">
-  <thead><tr><?php if ($isFinance): ?><th style="width:34px"><input type="checkbox" id="bulkAll" aria-label="全选"></th><?php endif; ?><th>订单号 / 付款昵称</th><th>业务</th><th>日期</th><th>参与人</th><th class="text-right">售价</th><th class="text-right">净实收</th><th class="text-right">直接成本</th><th>待办</th><th>状态</th><th></th></tr></thead><tbody>
-  <?php foreach ($orders as $order): ?><tr>
+<?php if ($isFinance && ($corrPendingCount = ps_corr_pending_count()) > 0): ?><div class="alert alert-warning"><i class="fas fa-flag mr-1"></i>有 <?php echo (int)$corrPendingCount; ?> 条分成更正申请待处理，<a class="alert-link" href="<?php echo BASE_URL; ?>/project/corrections.php">点此查看</a>。</div><?php endif; ?>
+<?php if ($isFinance): ?><form method="post" id="bulkForm"><input type="hidden" name="csrf" value="<?php echo e(ps_csrf_token()); ?>"><input type="hidden" name="return_query" value="<?php echo e(http_build_query(array_intersect_key($_GET, array_flip(['month','date_basis','filter_business','state','q','page','employee_id','participating'])))); ?>"><?php endif; ?>
+<div class="card"><div class="card-header d-flex justify-content-between align-items-center flex-wrap" style="gap:8px"><span>订单列表（共 <?php echo (int)$totalOrders; ?> 单<?php if ($totalPages > 1): ?>，第 <?php echo (int)$page; ?>/<?php echo (int)$totalPages; ?> 页<?php endif; ?>）</span><?php if ($isFinance && $orders): ?><div class="project-bulk-bar"><span class="small text-muted" id="bulkCount">已选 0 单</span><button class="btn btn-sm btn-outline-success" name="bulk_action" value="receipt" onclick="return confirm('按售价为所选订单确认实收？已有实收、售价待补或店铺交易关闭的订单会跳过。')">按售价确认实收</button><button class="btn btn-sm btn-outline-success" name="bulk_action" value="finish">标记交付完成</button><input type="month" name="bulk_month" class="form-control form-control-sm" style="width:150px" value="<?php echo e($month); ?>" aria-label="分成归属月份"><button class="btn btn-sm btn-success" name="bulk_action" value="approve" onclick="return confirm('审核所选订单并生成项目分成？不满足条件的订单会跳过并列出原因。')">批量审核</button></div><?php endif; ?></div><div class="table-responsive"><table class="table table-hover mb-0 project-order-table">
+  <thead><tr><?php if ($isFinance): ?><th style="width:34px"><input type="checkbox" id="bulkAll" aria-label="全选"></th><?php endif; ?><th>订单号 / 付款昵称</th><th>业务</th><th>日期</th><th>参与人</th><th class="text-right">售价</th><th class="text-right">净实收</th><th class="text-right">直接成本</th><th class="text-right">预计分成</th><th>待办</th><th>状态</th><th></th></tr></thead><tbody>
+  <?php foreach ($pageOrders as $order): ?><tr>
     <?php if ($isFinance): ?><td><?php if (!in_array($order['settlement_status'], ['approved','locked'], true)): ?><input type="checkbox" name="ids[]" value="<?php echo (int)$order['id']; ?>" class="bulk-item" aria-label="选择 <?php echo e($order['order_no']); ?>"><?php endif; ?></td><?php endif; ?>
-    <td><strong><?php echo e($order['order_no']); ?></strong><?php if (!empty($order['is_department_order'])): ?> <span class="badge badge-success">部门订单</span><?php endif; ?><div class="small text-muted"><?php echo e($order['payment_nickname'] ?: ($order['customer_name'] ?: '—')); ?></div></td>
+    <td><strong><?php echo e($order['order_no']); ?></strong><?php if (!empty($order['is_department_order'])): ?> <span class="badge badge-success">部门订单</span><?php endif; ?><div class="small text-muted"><?php echo e($order['payment_nickname'] ?: ($order['customer_name'] ?: '—')); ?></div><?php if (isset($credentialHits[(int)$order['id']])): ?><div class="small"><span class="badge badge-info">项目账号命中</span> <?php echo e($credentialHits[(int)$order['id']]); ?></div><?php endif; ?></td>
     <td><?php echo e($order['project_type']); ?><?php if ($order['order_kind'] !== ''): ?><div class="small text-muted"><?php echo e($order['order_kind']); ?></div><?php endif; ?></td>
     <td class="text-nowrap"><?php echo e($order['order_date']); ?></td>
     <td class="small"><?php echo e($order['people'] ?: '—'); ?></td>
     <td class="text-right"><?php echo $order['price_source'] === 'missing' ? '<span class="text-muted">待补</span>' : '¥' . money($order['contract_amount']); ?></td>
     <td class="text-right">¥<?php echo money((float)$order['receipt_amount'] - (float)$order['refund_amount']); ?></td>
     <td class="text-right">¥<?php echo money($order['approved_costs']); ?></td>
+    <td class="text-right small text-nowrap"><?php foreach ($commissionCells[(int)$order['id']] ?? [] as $cell): ?><div><span class="text-muted"><?php echo e($cell['name']); ?></span> <?php if ($cell['amount'] === null): ?><span class="text-muted">待配置</span><?php else: ?><a href="#" class="calc-open" title="点击查看计算过程" data-order="<?php echo (int)$order['id']; ?>" data-employee="<?php echo (int)$cell['employee_id']; ?>" data-group="<?php echo e($cell['group']); ?>"><?php echo $cell['estimated'] ? '预计 ' : ''; ?>¥<?php echo money($cell['amount']); ?></a><?php endif; ?></div><?php endforeach; ?><?php if (empty($commissionCells[(int)$order['id']])): ?><span class="text-muted">—</span><?php endif; ?></td>
     <td><?php foreach ($order['todos'] as [$text, $level]): ?><span class="badge badge-<?php echo e($level); ?> mr-1 mb-1"><?php echo e($text); ?></span><?php endforeach; ?><?php if (!$order['todos']): ?><span class="text-muted small">—</span><?php endif; ?></td>
     <td class="text-nowrap">
       <?php echo e(ps_label('settlement', $order['settlement_status'])); ?>
@@ -429,9 +508,44 @@ $resourceHint = function ($t) { return trim($t['name'] . ' ' . $t['specification
     </td>
     <td><a class="btn btn-outline-primary btn-sm text-nowrap" href="<?php echo BASE_URL; ?>/project/order.php?id=<?php echo (int)$order['id']; ?>">打开结算单</a></td>
   </tr><?php endforeach; ?>
-  <?php if (!$orders): ?><tr><td colspan="11" class="text-center text-muted py-4"><?php echo $keyword !== '' ? '没有匹配的订单' : '本月暂无可查看的项目订单'; ?></td></tr><?php endif; ?>
+  <?php if (!$orders): ?><tr><td colspan="12" class="text-center text-muted py-4"><?php echo $keyword !== '' ? '没有匹配的订单' : '本月暂无可查看的项目订单'; ?></td></tr><?php endif; ?>
   </tbody></table></div></div>
+<?php if ($totalPages > 1): $from = max(1, $page - 2); $to = min($totalPages, $page + 2); ?>
+<nav class="mt-3" aria-label="订单分页"><ul class="pagination pagination-sm justify-content-center flex-wrap mb-0">
+  <li class="page-item<?php echo $page <= 1 ? ' disabled' : ''; ?>"><a class="page-link" href="<?php echo e($pageQuery(max(1, $page - 1))); ?>">上一页</a></li>
+  <?php if ($from > 1): ?><li class="page-item"><a class="page-link" href="<?php echo e($pageQuery(1)); ?>">1</a></li><?php if ($from > 2): ?><li class="page-item disabled"><span class="page-link">…</span></li><?php endif; ?><?php endif; ?>
+  <?php for ($i = $from; $i <= $to; $i++): ?><li class="page-item<?php echo $i === $page ? ' active' : ''; ?>"><a class="page-link" href="<?php echo e($pageQuery($i)); ?>"><?php echo $i; ?></a></li><?php endfor; ?>
+  <?php if ($to < $totalPages): ?><?php if ($to < $totalPages - 1): ?><li class="page-item disabled"><span class="page-link">…</span></li><?php endif; ?><li class="page-item"><a class="page-link" href="<?php echo e($pageQuery($totalPages)); ?>"><?php echo $totalPages; ?></a></li><?php endif; ?>
+  <li class="page-item<?php echo $page >= $totalPages ? ' disabled' : ''; ?>"><a class="page-link" href="<?php echo e($pageQuery(min($totalPages, $page + 1))); ?>">下一页</a></li>
+</ul></nav>
+<?php endif; ?>
 <?php if ($isFinance): ?></form><?php endif; ?>
+<div class="modal fade" id="calcAjaxModal" tabindex="-1" role="dialog" aria-hidden="true"><div class="modal-dialog modal-lg modal-dialog-scrollable" role="document"><div class="modal-content"></div></div></div>
+<script>
+// 点预计分成金额：按需加载“计算过程”。弹窗挂到 body 下（卡片的毛玻璃样式会把弹窗困在遮罩后面）。
+document.addEventListener('DOMContentLoaded', function () {
+  var modal = document.getElementById('calcAjaxModal');
+  if (!modal) return;
+  document.body.appendChild(modal);
+  var box = modal.querySelector('.modal-content');
+  var closeBtn = '<div class="modal-footer"><button type="button" class="btn btn-secondary btn-sm" data-dismiss="modal">关闭</button></div>';
+  document.addEventListener('click', function (ev) {
+    var link = ev.target.closest ? ev.target.closest('.calc-open') : null;
+    if (!link) return;
+    ev.preventDefault();
+    box.innerHTML = '<div class="modal-body text-center text-muted py-5">正在加载计算过程…</div>';
+    window.jQuery(modal).modal('show');
+    var url = '<?php echo BASE_URL; ?>/project/calc_modal.php?order_id=' + encodeURIComponent(link.dataset.order) + '&employee_id=' + encodeURIComponent(link.dataset.employee) + '&group=' + encodeURIComponent(link.dataset.group);
+    fetch(url, { credentials: 'same-origin' }).then(function (r) {
+      return r.text().then(function (txt) {
+        if (r.ok) { box.innerHTML = txt; return; }
+        var body = document.createElement('div'); body.className = 'modal-body text-danger'; body.textContent = txt || '加载失败';
+        box.innerHTML = ''; box.appendChild(body); box.insertAdjacentHTML('beforeend', closeBtn);
+      });
+    }).catch(function () { box.innerHTML = '<div class="modal-body text-danger">加载失败，请重试</div>' + closeBtn; });
+  });
+});
+</script>
 </div>
 <script>
 (function () {

@@ -554,3 +554,7 @@ body.app-warm::before {
     .project-trend { height: 130px; gap: 4px; }
     .project-trend strong { font-size: .66rem; }
 }
+
+.app-bell { position: relative; color: inherit; font-size: 1.15rem; line-height: 1; padding: 4px; }
+.app-bell:hover { color: inherit; opacity: .85; text-decoration: none; }
+.app-bell-badge { position: absolute; top: -6px; right: -8px; min-width: 17px; height: 17px; padding: 0 4px; border-radius: 9px; background: #e5484d; color: #fff; font-size: 11px; line-height: 17px; text-align: center; font-style: normal; }
