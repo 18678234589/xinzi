@@ -6,7 +6,8 @@
  *   employee_id=0 / order_scope='department' / shop=店铺名 / order_no=订单编号
  *   raw_data 保存 __shop__ / __trade_time__ / __original_price__ / __order_status__ / __etmll_id__
  *   及原始业务字段（商品标题/佣金/合伙人公司等），供订单详情弹窗展示。
- * 增量规则：order_no 已存在于本站（含回收站）的跳过；已同步过的按 etmll_sync_state 水位表跳过。
+ * 增量规则：按店铺+订单号匹配店铺流水；个人订单不阻止店铺同步。已同步来源仍检查变化。
+ * 更新规则：仅刷新 ETMLL 来源流水；手动上传的已有流水只关联与补全项目空字段；回收站不恢复。
  * 金额规则：交易关闭按退款单记负数（总额为0时按退款额入账）；部分退款记净额（总额-退款）；其余记订单总额。
  * 退款标记：入账为负数的订单 raw_data 写 __is_refund__=1，供"只看退款"筛选使用；净额为正的部分退款靠"退款金额"字段展示角标。
  */
@@ -132,126 +133,207 @@ function etmll_sync_state_table(PDO $pdo)
  */
 function etmll_sync_run(bool $dryRun = false): array
 {
-    $pdo  = db();
-    $epdo = etmll_connect(true);
-
+    $pdo = db();
     etmll_sync_state_table($pdo);
-
-    // 本站已有订单号（含回收站，避免已删除订单被重新同步）
-    $have = [];
-    foreach ($pdo->query("SELECT `order_no` FROM `orders` WHERE `order_no` <> ''") as $r) {
-        $have[trim((string)$r['order_no'])] = 1;
+    $epdo = etmll_connect(true);
+    $src = $epdo->query("SELECT o.id,o.order_no,o.total_amount,o.refund_amount,o.raw_status,
+        o.product_title,o.order_pay_time,o.shipping_time,o.created_at,o.shop_name,
+        o.merchant_order_no,o.commission,o.proxy_amount,m.name AS merchant_name,p.name AS partner_name
+        FROM `order` o LEFT JOIN merchant m ON m.id=o.merchant_id LEFT JOIN partner p ON p.id=o.partner_id
+        WHERE o.status=0 ORDER BY o.id ASC");
+    try {
+        return etmll_sync_orders($pdo, $src, $dryRun);
+    } finally {
+        $src->closeCursor();
     }
+}
 
-    // 已同步水位
-    $done = [];
-    foreach ($pdo->query("SELECT `etmll_order_id` FROM `etmll_sync_state`") as $r) {
-        $done[(int)$r['etmll_order_id']] = 1;
+/** 来源字段签名不含每次变化的同步时间，也不包含人工附加字段。 */
+function etmll_sync_signature($amount, $date, $shop, $orderNo, array $raw): string
+{
+    $data = [number_format((float)$amount, 2, '.', ''), (string)$date, (string)$shop, (string)$orderNo];
+    foreach (['__shop__','__order_status__','__trade_time__','订单编号','店铺','商品标题','订单状态','付款时间','发货时间','商户','合伙人公司','商家订单号','数据来源'] as $key) {
+        $data[] = trim((string)($raw[$key] ?? ''));
     }
-
-    // 本站已有店铺
-    $shopExists = [];
-    foreach ($pdo->query("SELECT `name` FROM `shops`") as $r) {
-        $shopExists[$r['name']] = 1;
+    foreach (['__original_price__','订单金额','退款金额','佣金','代垫金额'] as $key) {
+        $data[] = number_format((float)($raw[$key] ?? 0), 2, '.', '');
     }
+    $data[] = (int)($raw['__etmll_id__'] ?? 0);
+    $data[] = empty($raw['__is_refund__']) ? 0 : 1;
+    return hash('sha256', json_encode($data, JSON_UNESCAPED_UNICODE));
+}
 
-    // ETMLL 有效订单（status=0；status=2 为ETMLL内已删除）
-    $src = $epdo->query("SELECT o.`id`, o.`order_no`, o.`total_amount`, o.`refund_amount`, o.`raw_status`,
-                                o.`product_title`, o.`order_pay_time`, o.`shipping_time`, o.`created_at`, o.`shop_name`,
-                                o.`merchant_order_no`, o.`commission`, o.`proxy_amount`,
-                                m.`name` AS merchant_name, p.`name` AS partner_name
-                         FROM `order` o
-                         LEFT JOIN `merchant` m ON m.`id` = o.`merchant_id`
-                         LEFT JOIN `partner` p ON p.`id` = o.`partner_id`
-                         WHERE o.`status` = 0
-                         ORDER BY o.`id` ASC");
+function etmll_sync_identity($shop, $orderNo): string
+{
+    return trim((string)$shop) . "\0" . trim((string)$orderNo);
+}
 
-    $insert = $pdo->prepare("INSERT INTO `orders`
-        (employee_id, order_amount, order_date, project, shop, order_no, raw_data, is_abnormal, abnormal_reason, order_scope)
-        VALUES (0, ?, ?, '', ?, ?, ?, ?, ?, 'department')");
-    $mark    = $pdo->prepare("INSERT INTO `etmll_sync_state` (etmll_order_id, order_no, shop, order_amount) VALUES (?, ?, ?, ?)");
-    $addShop = $pdo->prepare("INSERT INTO `shops` (name, sort) VALUES (?, 99)");
+/** 分批写关联记录，避免历史手动流水首次关联时逐条往返数据库。 */
+function etmll_sync_mark_batch(PDO $pdo, array $rows)
+{
+    if (!$rows) return;
+    $values = [];
+    foreach ($rows as $row) foreach ($row as $value) $values[] = $value;
+    $q = $pdo->prepare('INSERT INTO etmll_sync_state (etmll_order_id,order_no,shop,order_amount) VALUES '
+        . implode(',',array_fill(0,count($rows),'(?,?,?,?)'))
+        . ' ON DUPLICATE KEY UPDATE order_no=VALUES(order_no),shop=VALUES(shop),order_amount=VALUES(order_amount),synced_at=CURRENT_TIMESTAMP');
+    $q->execute($values);
+}
 
-    $inserted = 0; $projectFilled = 0; $skippedExisting = 0; $skippedDone = 0; $skippedUnpaid = 0; $skippedNoShop = 0;
-    $byShop = []; $newShops = [];
+/** 只读取部门店铺流水，个人订单与店铺流水是两种关联记录，不能相互阻止导入。 */
+function etmll_sync_inventory(PDO $pdo): array
+{
+    $byIdentity = []; $bySource = [];
+    $buffered = $pdo->getAttribute(PDO::MYSQL_ATTR_USE_BUFFERED_QUERY);
+    $pdo->setAttribute(PDO::MYSQL_ATTR_USE_BUFFERED_QUERY, false);
+    try {
+        $q = $pdo->query("SELECT id,order_no,shop,order_amount,order_date,raw_data,COALESCE(is_deleted,0) AS deleted
+            FROM orders WHERE employee_id=0 AND order_scope='department' ORDER BY id ASC");
+        while ($row = $q->fetch(PDO::FETCH_ASSOC)) {
+            $entry = ['id'=>(int)$row['id'], 'deleted'=>(bool)$row['deleted']];
+            $key = etmll_sync_identity($row['shop'], $row['order_no']);
+            // 同号多行时优先保留仍在使用的记录；全部在回收站时不恢复。
+            if (trim((string)$row['order_no']) !== '' && (!isset($byIdentity[$key]) || !$entry['deleted'] || $byIdentity[$key]['deleted'])) $byIdentity[$key] = $entry;
+            $raw = json_decode((string)$row['raw_data'], true);
+            $sourceId = is_array($raw) ? (int)($raw['__etmll_id__'] ?? 0) : 0;
+            if ($sourceId > 0 && (!isset($bySource[$sourceId]) || !$entry['deleted'] || $bySource[$sourceId]['deleted'])) {
+                $entry['signature'] = etmll_sync_signature($row['order_amount'], $row['order_date'], $row['shop'], $row['order_no'], $raw);
+                $bySource[$sourceId] = $entry;
+            }
+        }
+        $q->closeCursor();
+    } finally {
+        $pdo->setAttribute(PDO::MYSQL_ATTR_USE_BUFFERED_QUERY, $buffered);
+    }
+    return [$byIdentity, $bySource];
+}
 
+/** 流式处理来源；来源标记用于关联与去重，不能用来跳过后续变更。 */
+function etmll_sync_orders(PDO $pdo, iterable $sourceRows, bool $dryRun = false): array
+{
+    if ($pdo->inTransaction()) throw new RuntimeException('同步必须在独立事务中运行');
+    $lockName = 'etmll_sync_' . substr(hash('sha256', (string)$pdo->query('SELECT DATABASE()')->fetchColumn()), 0, 32);
+    $locked = false;
     if (!$dryRun) {
-        $pdo->beginTransaction();
+        $lock = $pdo->prepare('SELECT GET_LOCK(?,0)');
+        $lock->execute([$lockName]);
+        if ((int)$lock->fetchColumn() !== 1) throw new RuntimeException('已有订单同步正在进行，请稍后刷新查看结果');
+        $locked = true;
     }
     try {
-        while ($o = $src->fetch(PDO::FETCH_ASSOC)) {
-            $eid = (int)$o['id'];
-            if (isset($done[$eid])) {
-                $skippedDone++;
-                continue;
-            }
-
-            $rawStatus = trim((string)$o['raw_status']);
-            if (mb_strpos($rawStatus, '等待买家付款') !== false) {
-                $skippedUnpaid++;
-                continue;
-            }
-
-            $m = etmll_map_order($o);
-            if ($m['shop'] === '') {
-                $skippedNoShop++;
-                continue;
-            }
-            if ($m['order_no'] !== '' && isset($have[$m['order_no']])) {
-                $skippedExisting++;
-                continue;
-            }
-
-            if ($dryRun) {
-                $inserted++;
-                $byShop[$m['shop']] = ($byShop[$m['shop']] ?? 0) + 1;
-                if (!isset($shopExists[$m['shop']])) {
-                    $newShops[$m['shop']] = 1;
+        [$byIdentity, $bySource] = etmll_sync_inventory($pdo);
+        $done = [];
+        foreach ($pdo->query('SELECT etmll_order_id,order_no,shop,order_amount FROM etmll_sync_state') as $row) $done[(int)$row['etmll_order_id']] = $row;
+        $shopExists = array_fill_keys($pdo->query('SELECT name FROM shops')->fetchAll(PDO::FETCH_COLUMN), true);
+        $projectNos = [];
+        try {
+            foreach ($pdo->query("SELECT order_no FROM project_orders WHERE settlement_status NOT IN ('approved','locked')") as $row) $projectNos[$row['order_no']] = true;
+        } catch (PDOException $ex) {
+            if (!in_array($ex->getCode(), ['42S02','42S22'], true)) throw $ex;
+        }
+        $insert = $pdo->prepare("INSERT INTO orders (employee_id,order_amount,order_date,project,shop,order_no,raw_data,is_abnormal,abnormal_reason,order_scope)
+            VALUES (0,?,?,'',?,?,?,?,?,'department')");
+        $update = $pdo->prepare('UPDATE orders SET order_amount=?,order_date=?,shop=?,order_no=?,raw_data=?,
+            is_abnormal=CASE WHEN abnormal_reason IN (\'\',\'订单金额为0\') THEN ? ELSE is_abnormal END,
+            abnormal_reason=CASE WHEN abnormal_reason IN (\'\',\'订单金额为0\') THEN ? ELSE abnormal_reason END WHERE id=? AND COALESCE(is_deleted,0)=0');
+        $read = $pdo->prepare('SELECT raw_data FROM orders WHERE id=? AND COALESCE(is_deleted,0)=0 FOR UPDATE');
+        $matchNew = $pdo->prepare("SELECT id,COALESCE(is_deleted,0) AS deleted FROM orders WHERE employee_id=0 AND order_scope='department' AND shop=? AND order_no=? ORDER BY COALESCE(is_deleted,0),id DESC LIMIT 1 FOR UPDATE");
+        $pendingMarks = [];
+        $addShop = $pdo->prepare('INSERT INTO shops (name,sort) VALUES (?,99)');
+        $result = ['dry_run'=>$dryRun,'scanned'=>0,'inserted'=>0,'updated'=>0,'linked_existing'=>0,'project_filled'=>0,
+            'skipped_existing'=>0,'skipped_done'=>0,'skipped_unpaid'=>0,'skipped_no_shop'=>0,'skipped_deleted'=>0,
+            'skipped_missing_local'=>0,'by_shop'=>[],'by_shop_updated'=>[],'by_shop_linked'=>[],'new_shops'=>[]];
+        $newShops = [];
+        if (!$dryRun) $pdo->beginTransaction();
+        try {
+            foreach ($sourceRows as $o) {
+                $result['scanned']++;
+                $eid = (int)$o['id'];
+                if (mb_strpos(trim((string)$o['raw_status']), '等待买家付款') !== false) { $result['skipped_unpaid']++; continue; }
+                $m = etmll_map_order($o);
+                if ($m['shop'] === '') { $result['skipped_no_shop']++; continue; }
+                $key = etmll_sync_identity($m['shop'], $m['order_no']);
+                $own = isset($bySource[$eid]);
+                $existing = $bySource[$eid] ?? ($m['order_no'] !== '' ? ($byIdentity[$key] ?? null) : null);
+                if (!$existing && isset($done[$eid])) { $result['skipped_missing_local']++; continue; }
+                // 避免读取快照之后，另一个上传刚刚新增同一店铺订单。
+                if (!$existing && !$dryRun && $m['order_no'] !== '') {
+                    $matchNew->execute([$m['shop'],$m['order_no']]);
+                    $existing = $matchNew->fetch(PDO::FETCH_ASSOC) ?: null;
                 }
-                continue;
-            }
-
-            if (!isset($shopExists[$m['shop']])) {
-                $addShop->execute([$m['shop']]);
-                $shopExists[$m['shop']] = 1;
-                $newShops[$m['shop']] = 1;
-            }
-            $insert->execute([$m['amount'], $m['order_date'], $m['shop'], $m['order_no'], $m['raw_json'], $m['is_abnormal'], $m['abnormal_reason']]);
-            $legacyId = (int)$pdo->lastInsertId();
-            $mark->execute([$eid, $m['order_no'], $m['shop'], $m['amount']]);
-            // 与手动上传店铺订单一致：已建档的项目订单按订单号自动补空的售价/店铺/交易状态，不改人工填写和已审核数据。
-            if ($m['order_no'] !== '' && $m['amount'] > 0) {
-                try {
-                    if (ps_sync_project_from_shop_order($legacyId, $m['order_no'], $m['shop'], json_decode($m['raw_json'], true), (float)$o['total_amount'])) $projectFilled++;
-                } catch (PDOException $projectError) {
-                    // 项目结算表未迁移时不影响店铺订单同步。
+                if ($existing && $existing['deleted']) { $result['skipped_deleted']++; continue; }
+                $raw = json_decode($m['raw_json'], true);
+                $signature = etmll_sync_signature($m['amount'], $m['order_date'], $m['shop'], $m['order_no'], $raw);
+                $isUpdate = $own && $existing['signature'] !== $signature;
+                $isInsert = !$existing;
+                $isLink = !$isInsert && !isset($done[$eid]);
+                $legacyId = $existing ? (int)$existing['id'] : -$eid;
+                if ($isInsert && !isset($shopExists[$m['shop']])) {
+                    if (!$dryRun) $addShop->execute([$m['shop']]);
+                    $shopExists[$m['shop']] = true;
+                    $newShops[$m['shop']] = true;
+                }
+                if ($isInsert) {
+                    if (!$dryRun) {
+                        $insert->execute([$m['amount'],$m['order_date'],$m['shop'],$m['order_no'],$m['raw_json'],$m['is_abnormal'],$m['abnormal_reason']]);
+                        $legacyId = (int)$pdo->lastInsertId();
+                    }
+                    $result['inserted']++;
+                    $result['by_shop'][$m['shop']] = ($result['by_shop'][$m['shop']] ?? 0) + 1;
+                } elseif ($isUpdate) {
+                    if (!$dryRun) {
+                        $read->execute([$legacyId]);
+                        $old = $read->fetch(PDO::FETCH_ASSOC);
+                        if (!$old) { $result['skipped_deleted']++; continue; }
+                        $merged = json_decode((string)$old['raw_data'], true);
+                        if (!is_array($merged)) $merged = [];
+                        foreach ($raw as $field => $value) $merged[$field] = $value;
+                        if (!isset($raw['__is_refund__'])) unset($merged['__is_refund__']);
+                        $update->execute([$m['amount'],$m['order_date'],$m['shop'],$m['order_no'],json_encode($merged,JSON_UNESCAPED_UNICODE),$m['is_abnormal'],$m['abnormal_reason'],$legacyId]);
+                    }
+                    $result['updated']++;
+                    $result['by_shop_updated'][$m['shop']] = ($result['by_shop_updated'][$m['shop']] ?? 0) + 1;
+                } else {
+                    if ($own) $result['skipped_done']++; else $result['skipped_existing']++;
+                }
+                if ($isLink) {
+                    $result['linked_existing']++;
+                    $result['by_shop_linked'][$m['shop']] = ($result['by_shop_linked'][$m['shop']] ?? 0) + 1;
+                }
+                $state = $done[$eid] ?? null;
+                if (!$dryRun && ($isInsert || $isUpdate || !$state || $state['order_no'] !== $m['order_no'] || $state['shop'] !== $m['shop'] || abs((float)$state['order_amount']-$m['amount'])>.005)) {
+                    $pendingMarks[] = [$eid,$m['order_no'],$m['shop'],$m['amount']];
+                    if (count($pendingMarks) >= 500) {
+                        etmll_sync_mark_batch($pdo,$pendingMarks);
+                        $pendingMarks = [];
+                    }
+                }
+                $done[$eid] = ['order_no'=>$m['order_no'],'shop'=>$m['shop'],'order_amount'=>$m['amount']];
+                $entry = ['id'=>$legacyId,'deleted'=>false];
+                if ($m['order_no'] !== '') $byIdentity[$key] = $entry;
+                if ($isInsert || $own) $bySource[$eid] = $entry + ['signature'=>$signature];
+                // 已存在的流水同样尝试补全后来创建的项目订单，保护人工与已审核数据。
+                if (!$dryRun && isset($projectNos[$m['order_no']]) && $m['amount'] > 0) {
+                    if (ps_sync_project_from_shop_order($legacyId,$m['order_no'],$m['shop'],$raw,(float)$o['total_amount'])) $result['project_filled']++;
                 }
             }
-            $inserted++;
-            $byShop[$m['shop']] = ($byShop[$m['shop']] ?? 0) + 1;
+            if (!$dryRun) {
+                etmll_sync_mark_batch($pdo,$pendingMarks);
+                $pdo->commit();
+            }
+        } catch (Throwable $ex) {
+            if (!$dryRun && $pdo->inTransaction()) $pdo->rollBack();
+            throw $ex;
         }
-        if (!$dryRun) {
-            $pdo->commit();
+        foreach (['by_shop','by_shop_updated','by_shop_linked'] as $field) arsort($result[$field]);
+        $result['new_shops'] = array_keys($newShops);
+        return $result;
+    } finally {
+        if ($locked) {
+            $release = $pdo->prepare('SELECT RELEASE_LOCK(?)');
+            $release->execute([$lockName]);
         }
-    } catch (Throwable $e) {
-        if (!$dryRun && $pdo->inTransaction()) {
-            $pdo->rollBack();
-        }
-        throw $e;
     }
-
-    arsort($byShop);
-    return [
-        'dry_run'          => $dryRun,
-        'inserted'         => $inserted,
-        'project_filled'   => $projectFilled,
-        'skipped_existing' => $skippedExisting,
-        'skipped_done'     => $skippedDone,
-        'skipped_unpaid'   => $skippedUnpaid,
-        'skipped_no_shop'  => $skippedNoShop,
-        'by_shop'          => $byShop,
-        'new_shops'        => array_keys($newShops),
-    ];
 }
 
 /**
@@ -264,7 +346,8 @@ function etmll_sync_status(): array
 
     etmll_sync_state_table($pdo);
 
-    $etmllTotal = (int)$epdo->query("SELECT COUNT(*) FROM `order` WHERE `status` = 0")->fetchColumn();
+    $sourceInfo = $epdo->query("SELECT COUNT(*) AS c,MAX(created_at) AS latest_created,MAX(order_pay_time) AS latest_paid FROM `order` WHERE status=0")->fetch(PDO::FETCH_ASSOC);
+    $etmllTotal = (int)$sourceInfo['c'];
 
     $etmllByShop = [];
     foreach ($epdo->query("SELECT COALESCE(NULLIF(TRIM(o.`shop_name`), ''), TRIM(m.`name`)) AS shop, COUNT(*) AS c
@@ -285,6 +368,12 @@ function etmll_sync_status(): array
     }
 
     $syncInfo = $pdo->query("SELECT COUNT(*) AS c, MAX(`synced_at`) AS last_at FROM `etmll_sync_state`")->fetch(PDO::FETCH_ASSOC);
+    $lastRun = null;
+    try {
+        $lastRun = $pdo->query("SELECT MAX(created_at) FROM project_audit_logs WHERE entity_type='etmll_sync' AND action='sync'")->fetchColumn() ?: null;
+    } catch (PDOException $ex) {
+        if (!in_array($ex->getCode(), ['42S02','42S22'], true)) throw $ex;
+    }
 
     $shops = [];
     foreach ($etmllByShop as $s => $c) {
@@ -304,6 +393,9 @@ function etmll_sync_status(): array
         'local_total'  => $localTotal,
         'synced_total' => (int)$syncInfo['c'],
         'last_sync_at' => $syncInfo['last_at'],
+        'last_run_at'  => $lastRun,
+        'latest_source_created' => $sourceInfo['latest_created'],
+        'latest_source_paid' => $sourceInfo['latest_paid'],
         'shops'        => $shops,
     ];
 }
