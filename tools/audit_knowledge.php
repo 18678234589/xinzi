@@ -4,7 +4,7 @@ if (PHP_SAPI !== 'cli') { http_response_code(404); exit; }
 $root = $argv[1] ?? dirname(__DIR__);
 $page = $argv[2] ?? 'knowledge_links.php';
 $mode = $argv[3] ?? 'employee';
-if (!in_array($page,['knowledge.php','knowledge_article.php','knowledge_links.php','knowledge_rules.php','knowledge_integrations.php','knowledge_keywords.php'],true)) throw new RuntimeException('Unsupported page');
+if (!in_array($page,['knowledge.php','knowledge_article.php','knowledge_links.php','knowledge_categories.php','knowledge_rules.php','knowledge_integrations.php','knowledge_keywords.php'],true)) throw new RuntimeException('Unsupported page');
 $_SERVER['DOCUMENT_ROOT']=$root; $_SERVER['REQUEST_METHOD']='GET'; $_SERVER['SCRIPT_NAME']='/project/'.$page;
 require_once $root.'/includes/ProjectKnowledge.php';
 if($mode==='admin') {
@@ -30,6 +30,8 @@ if($auditPage==='knowledge_links.php') {
     if(substr_count($html,'class="kb-glass kb-link-card"')<10)throw new RuntimeException('Missing seeded links');
     if($auditMode==='employee' && strpos($html,'value="delete"')!==false)throw new RuntimeException('Delete exposed to cooperator');
 }
+if($auditPage==='knowledge_categories.php' && (strpos($html,'共享分类库')===false || strpos($html,'name="name"')===false)) throw new RuntimeException('Category creation UI missing');
+if(in_array($auditPage,['knowledge_links.php','knowledge_article.php'],true) && strpos($html,'data-kb-category-field')===false) throw new RuntimeException('Category picker missing');
 if(strpos($html,'secret_cipher')!==false||preg_match('/value="v1:[A-Za-z0-9+\/=]+"/',$html))throw new RuntimeException('Cipher exposed');
 $export = $argv[5] ?? '';
 if($export!=='') {

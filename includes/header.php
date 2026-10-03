@@ -94,7 +94,7 @@ $nav = function ($href, $icon, $label, $active) {
     <link href="<?php echo BASE_URL; ?>/assets/css/style.css" rel="stylesheet">
     <link href="<?php echo BASE_URL; ?>/assets/css/project-intake.css" rel="stylesheet">
     <link href="<?php echo BASE_URL; ?>/assets/css/theme.css" rel="stylesheet">
-    <link href="<?php echo BASE_URL; ?>/assets/css/knowledge.css?v=20261002" rel="stylesheet">
+    <link href="<?php echo BASE_URL; ?>/assets/css/knowledge.css?v=20261002.3" rel="stylesheet">
     <?php if (in_array(($_rel ?? ''), ['project/governance.php','project/governance_ideas.php','project/governance_election.php','project/contributions.php','project/messages.php','project/holidays.php'], true) || (($_rel ?? '') === 'project/rules.php' && ($_GET['domain'] ?? $_POST['domain'] ?? '') === 'governance')): ?><link href="<?php echo BASE_URL; ?>/assets/css/governance.css" rel="stylesheet"><?php endif; ?>
     <?php if (($_rel ?? '') === 'project/dashboard.php'): ?><link href="<?php echo BASE_URL; ?>/assets/css/partner-dashboard.css" rel="stylesheet"><?php endif; ?>
     <?php if (($_rel ?? '') === 'project/dashboard.php'): ?><link href="<?php echo BASE_URL; ?>/assets/css/partner-dashboard-future.css" rel="stylesheet"><?php endif; ?>
@@ -172,7 +172,7 @@ $nav = function ($href, $icon, $label, $active) {
     <?php if ($vault_nav): echo $nav('/project/vault.php', 'fa-key', '平台与服务器信息', $_rel === 'project/vault.php'); endif; ?>
     <?php endif; ?>
     <div class="sidebar-project-label">知识与成长</div>
-    <?php echo $nav('/project/knowledge.php', 'fa-book-open', '共创知识库', in_array($_rel, ['project/knowledge.php','project/knowledge_article.php','project/knowledge_integrations.php'], true)); ?>
+    <?php echo $nav('/project/knowledge.php', 'fa-book-open', '共创知识库', in_array($_rel, ['project/knowledge.php','project/knowledge_article.php','project/knowledge_categories.php','project/knowledge_integrations.php'], true)); ?>
     <div class="sidebar-kb-subnav">
     <?php echo $nav('/project/knowledge_links.php', 'fa-compass', '常用网址', $_rel === 'project/knowledge_links.php'); ?>
     <?php echo $nav('/project/knowledge_rules.php', 'fa-sliders-h', '规则中心', in_array($_rel, ['project/knowledge_rules.php','project/rules.php','project/governance_rules.php','project/welfare_rules.php'], true)); ?>

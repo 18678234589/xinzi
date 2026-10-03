@@ -6,7 +6,7 @@ function pk_ready()
 {
     static $ready;
     if ($ready !== null) return $ready;
-    try { db()->query('SELECT id FROM project_kb_links LIMIT 1'); return $ready = true; }
+    try { db()->query('SELECT id FROM project_kb_links LIMIT 1'); db()->query('SELECT id FROM project_kb_categories LIMIT 1'); return $ready = true; }
     catch (PDOException $e) { return $ready = false; }
 }
 
@@ -191,7 +191,7 @@ function pk_save_link(array $input, array $ctx)
     $title = pk_limit($input['title'] ?? '', 100, '名称', true);
     $url = pk_url($input['url'] ?? '');
     $keywords = pk_keywords($input['keywords'] ?? '');
-    $category = pk_limit($input['category'] ?? '常用工具', 60, '分类', true);
+    $category = pk_category_input($input, '常用工具');
     $description = pk_limit($input['description'] ?? '', 255, '介绍');
     $sort = max(0, min(9999, (int)($input['sort_order'] ?? 100)));
     $db = db(); $db->beginTransaction();
@@ -207,11 +207,13 @@ function pk_save_link(array $input, array $ctx)
         if ($conflict !== '') throw new RuntimeException('关键词“' . $conflict . '”已指向其他网址，请换一个关键词。');
         if ($id) {
             if (!$old || !empty($old['deleted_at']) || (int)$old['revision'] !== (int)($input['revision'] ?? 0)) throw new RuntimeException('网址刚刚被更新，请刷新后再编辑。');
+            if (($input['category'] ?? '') === '__new__') $category = pk_create_category($category,$ctx);
             $db->prepare('UPDATE project_kb_links SET title=?,url=?,url_hash=?,keywords=?,category=?,description=?,sort_order=?,revision=revision+1 WHERE id=?')->execute([$title,$url,hash('sha256',$url),implode(',',$keywords),$category,$description,$sort,$id]);
         } else {
             $q = $db->prepare('SELECT COUNT(*) FROM project_kb_links WHERE owner_type=? AND owner_id=? AND created_at>=CURRENT_DATE');
             $q->execute([$ctx['actor']['type'],$ctx['actor']['id']]);
             if ((int)$q->fetchColumn() >= 100) throw new RuntimeException('今天已添加很多网址，请明天再继续。');
+            if (($input['category'] ?? '') === '__new__') $category = pk_create_category($category,$ctx);
             $db->prepare('INSERT INTO project_kb_links (title,url,url_hash,keywords,category,description,sort_order,owner_type,owner_id) VALUES (?,?,?,?,?,?,?,?,?)')->execute([$title,$url,hash('sha256',$url),implode(',',$keywords),$category,$description,$sort,$ctx['actor']['type'],$ctx['actor']['id']]);
             $id = (int)$db->lastInsertId();
         }
@@ -240,7 +242,7 @@ function pk_article_input(array $input, array $ctx)
     $data = [
         'title'=>pk_limit($input['title'] ?? '',200,'标题',true),
         'body'=>pk_limit($input['body'] ?? '',100000,'正文（最多 10 万字）',true),
-        'category'=>pk_limit($input['category'] ?? '经验与方法',60,'分类',true),
+        'category'=>pk_category_input($input, '经验与方法'),
         'tags'=>pk_limit($input['tags'] ?? '',255,'标签'),
         'visibility'=>(string)($input['visibility'] ?? 'private'),
         'department'=>pk_limit($input['department'] ?? '',100,'部门'),
@@ -271,12 +273,14 @@ function pk_save_article(array $input, array $ctx)
             $q = $db->prepare('SELECT * FROM project_kb_articles WHERE id=? FOR UPDATE'); $q->execute([$id]); $old = $q->fetch();
             if (!$old || !pk_editable($old,$ctx)) throw new RuntimeException('无权编辑这篇知识。');
             if ((int)$old['revision'] !== (int)($input['revision'] ?? 0)) throw new RuntimeException('这篇知识已被更新。请刷新并核对后再保存，内容不会被覆盖。');
+            if (($input['category'] ?? '') === '__new__') $data['category'] = pk_create_category($data['category'],$ctx);
             $values = array_values($data); $values[] = $id;
             $db->prepare('UPDATE project_kb_articles SET title=?,body=?,category=?,tags=?,visibility=?,department=?,status=?,revision=revision+1 WHERE id=?')->execute($values);
             if (!empty($input['accept_incoming']) && $old['incoming_hash']) {
                 $db->prepare('UPDATE project_kb_articles SET source_hash=incoming_hash,incoming_title=NULL,incoming_body=NULL,incoming_hash=NULL WHERE id=?')->execute([$id]);
             }
         } else {
+            if (($input['category'] ?? '') === '__new__') $data['category'] = pk_create_category($data['category'],$ctx);
             $values = array_merge(array_values($data),[$ctx['actor']['type'],$ctx['actor']['id']]);
             $db->prepare('INSERT INTO project_kb_articles (title,body,category,tags,visibility,department,status,owner_type,owner_id) VALUES (?,?,?,?,?,?,?,?,?)')->execute($values);
             $id = (int)$db->lastInsertId();
@@ -325,7 +329,7 @@ function pk_stage_document($provider, $key, array $doc, array $ctx)
 function pk_tabs($active)
 {
     $actor = ps_actor();
-    $tabs = ['articles'=>['knowledge.php','知识文章','fa-book-open'],'links'=>['knowledge_links.php','常用网址','fa-compass'],'rules'=>['knowledge_rules.php','规则中心','fa-sliders-h']];
+    $tabs = ['articles'=>['knowledge.php','知识文章','fa-book-open'],'links'=>['knowledge_links.php','常用网址','fa-compass'],'categories'=>['knowledge_categories.php','分类库','fa-folder-open'],'rules'=>['knowledge_rules.php','规则中心','fa-sliders-h']];
     if ($actor && pk_is_super($actor)) $tabs['integrations'] = ['knowledge_integrations.php','同步与权限','fa-plug'];
     echo '<nav class="kb-tabs" aria-label="知识库栏目">';
     foreach ($tabs as $key=>$tab) echo '<a class="' . ($active === $key ? 'is-active' : '') . '" href="' . BASE_URL . '/project/' . $tab[0] . '"' . ($active === $key ? ' aria-current="page"' : '') . '><i class="fas ' . $tab[2] . '"></i> ' . $tab[1] . '</a>';
@@ -334,5 +338,7 @@ function pk_tabs($active)
 
 function pk_hero($eyebrow, $title, $subtitle)
 {
-    echo '<section class="kb-hero"><div class="kb-orb kb-orb-one"></div><div class="kb-orb kb-orb-two"></div><div class="kb-hero-copy"><span class="kb-eyebrow">' . e($eyebrow) . '</span><h1>' . e($title) . '</h1><p>' . e($subtitle) . '</p></div><span class="kb-hero-symbol" aria-hidden="true">✦</span></section>';
+    echo '<section class="kb-hero"><div class="kb-hero-art" aria-hidden="true"></div><div class="kb-hero-grid" aria-hidden="true"></div><div class="kb-hero-flow" aria-hidden="true"></div><div class="kb-orb kb-orb-one" aria-hidden="true"></div><div class="kb-orb kb-orb-two" aria-hidden="true"></div><div class="kb-hero-copy"><span class="kb-eyebrow"><span class="kb-live-dot" aria-hidden="true"></span>' . e($eyebrow) . '</span><h1>' . e($title) . '</h1><p>' . e($subtitle) . '</p><div class="kb-hero-caption" aria-hidden="true"><span></span> CONNECT · SHARE · GROW</div></div><div class="kb-hero-orbit" aria-hidden="true"><span></span><span></span></div><button type="button" class="kb-motion-toggle" data-kb-motion hidden aria-label="开启背景动效" aria-pressed="false">开启动效</button></section>';
 }
+
+require_once __DIR__ . '/ProjectKnowledgeCategories.php';

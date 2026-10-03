@@ -24,6 +24,43 @@
   var script = document.currentScript;
   function initUI() {
     document.documentElement.dataset.kbUiReady = '1';
+    var motionChoice = null;
+    try { motionChoice = localStorage.getItem('kb-hero-motion'); } catch (e) { /* 存储受限时仍可切换本页。 */ }
+    var reducedMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    var motionOn = motionChoice === 'on' || (motionChoice !== 'off' && !reducedMotion);
+    function renderMotion() {
+      document.querySelectorAll('.kb-hero').forEach(function (hero) {
+        hero.dataset.motion = motionOn ? 'on' : 'off';
+        var button = hero.querySelector('[data-kb-motion]'); if (!button) return;
+        button.hidden = false; button.textContent = motionOn ? '暂停动效' : '开启动效';
+        button.setAttribute('aria-pressed', String(motionOn));
+        button.setAttribute('aria-label', motionOn ? '暂停背景动效' : '开启背景动效');
+      });
+    }
+    renderMotion();
+    document.querySelectorAll('[data-kb-motion]').forEach(function (button) {
+      button.addEventListener('click', function () {
+        motionOn = !motionOn;
+        try { localStorage.setItem('kb-hero-motion', motionOn ? 'on' : 'off'); } catch (e) { /* 无持久存储时只改变本页。 */ }
+        renderMotion();
+      });
+    });
+    document.querySelectorAll('[data-kb-category-field]').forEach(function (field) {
+      var select = field.querySelector('select[name="category"]'), panel = field.querySelector('[data-kb-category-new]');
+      var input = field.querySelector('input[name="new_category"]'), toggle = field.querySelector('[data-kb-category-toggle]');
+      var previous = select.value === '__new__' ? select.options[0].value : select.value;
+      function update(focus) {
+        var isNew = select.value === '__new__';
+        panel.hidden = !isNew; input.disabled = !isNew; input.required = isNew;
+        toggle.setAttribute('aria-expanded', String(isNew));
+        if (!isNew) previous = select.value;
+        if (isNew && focus) input.focus();
+      }
+      select.addEventListener('change', function () { update(true); });
+      toggle.addEventListener('click', function () { select.value = '__new__'; update(true); });
+      field.querySelector('[data-kb-category-cancel]').addEventListener('click', function () { select.value = previous; update(false); select.focus(); });
+      update(false);
+    });
     document.querySelectorAll('form[data-kb-transport]').forEach(function (form) {
       form.dataset.kbTransportReady = '1';
       form.addEventListener('submit', function (event) {
@@ -56,6 +93,8 @@
     document.querySelectorAll('[data-kb-open]').forEach(function (link) {
       link.addEventListener('click', function () { var panel = document.getElementById(link.dataset.kbOpen); if (panel) { panel.open = true; var input = panel.querySelector('input[name="title"]'); if (input) setTimeout(function () { input.focus({ preventScroll: true }); }, 100); } });
     });
+    // 从分类库进入添加网址时，锚点直接展开表单；无需再点一次。
+    if (location.hash === '#kb-add-link') { var addPanel = document.getElementById('kb-add-link'); if (addPanel) addPanel.open = true; }
     var search = document.getElementById('kb-link-search'), category = document.getElementById('kb-link-category');
     if (search && category) {
       var cards = Array.from(document.querySelectorAll('.kb-link-card'));
