@@ -50,6 +50,8 @@ check('domain import', $fields['resources']['domain']['expires_on'],'2027-09-01'
 check('mini import', $fields['resources']['miniapp_certification']['expires_on'],'2027-10-02');
 check('customer not staff phone',$fields['phone'],'13800000000');
 check('bad optional date not blocking',pr_import_fields(['域名到期日'],['不清楚'])['resources'],[]);
+check('space not treated as domain expiry',pr_import_fields(['域名 / 空间到期日期'],['2027-09-01'])['resources'],[]);
+check('narrative not used as expiry header',pr_import_fields([str_repeat('备注',25).'域名到期'],['2027-09-01'])['resources'],[]);
 check('ambiguous contacts not guessed',pr_import_fields(['客户电话'],['13800000000 13900000000'])['phone'],'');
 $config=['access_key_id'=>'fixture-ak','secret_cipher'=>pv_encrypt('fixture-secret'),'sign_name'=>'测试','template_code'=>'SMS_fixture','param_map'=>'{"date":"date"}'];
 $request=pr_sms_request($config,'13800000000',['resource'=>'域名','date'=>'2026-10-12','days'=>'10'],'fixture-id','2026-10-02T02:00:00Z','fixture-nonce');

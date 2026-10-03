@@ -6,10 +6,13 @@ function pr_import_fields($head,$row)
     $out=['phone'=>'','resources'=>[]];
     foreach ($head as $i=>$label) {
         $label=preg_replace('/[\s（）()：:]/u','',trim((string)$label)); $value=trim((string)($row[$i]??''));
-        if ($value==='') continue;
+        if ($value==='' || mb_strlen($label)>40) continue;
         $type=null;
-        if (preg_match('/域名.*(到期|有效期)|(到期|有效期).*域名/u',$label)) $type='domain';
-        elseif (preg_match('/(小程序|认证).*(到期|有效期)|(到期|有效期).*(小程序|认证)/u',$label)) $type='miniapp_certification';
+        // A combined domain/server column or long narrative is not an authoritative domain date.
+        if (!preg_match('/空间|服务器|SSL/i',$label)) {
+            if (preg_match('/域名.*(到期|有效期)|(到期|有效期).*域名/u',$label)) $type='domain';
+            elseif (preg_match('/(小程序|认证).*(到期|有效期)|(到期|有效期).*(小程序|认证)/u',$label)) $type='miniapp_certification';
+        }
         if ($type) {
             try { $date=function_exists('ps_import_date')?ps_import_date($value):null; } catch (Throwable $e) { $date=null; }
             if (!$date) { try { $date=pr_date($value); } catch (RuntimeException $e) { $date=null; } }
