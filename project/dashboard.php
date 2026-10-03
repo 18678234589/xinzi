@@ -181,4 +181,5 @@ $welfareBalance = pw_balance();
   });
 })();
 </script>
+<?php include __DIR__ . '/../includes/renewal_dashboard_card.php'; ?>
 <?php include __DIR__ . '/../includes/footer.php'; ?>

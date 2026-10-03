@@ -248,6 +248,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     }
                 } else { $prevFullRow = $row; $prevFullLine = $rowLine; }
                 $record = ['line' => $rowLine, 'sheet' => $sheetName, 'layout_signature' => $layoutSignature, 'business_signature' => ps_import_business_signature($head, $sheetName), 'status' => '可导入', 'error' => '', 'warning' => '', 'base_valid' => true, 'people' => ['technical' => [], 'customer_service' => []], 'domain_mode' => '', 'domain_template_id' => 0];
+                require_once __DIR__ . '/../includes/ProjectRenewalImport.php';
+                $record['renewal_fields'] = pr_import_fields($head, $row);
                 $record['amount_from_shop'] = $continuationOf && $amountCell === '' && $lookup($row, 'contract_amount') !== '';
                 if ($continuationOf) $record['warning'] = '此行只写了订单号：日期、店铺、客服、技术等沿用第 ' . ($continuationOf % 10000) . ' 行' . ($amountCell === '' ? ($lookup($row, 'contract_amount') !== '' ? '，售价按店铺流水带入' : '，售价待补（财务核对）') : '');
                 try {
@@ -796,6 +798,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $importReport = ps_import_result_save($resultFileId, $preview, $importedLines, $actor, $operator, $imported);
                 if ($nested) $pdo->exec('RELEASE SAVEPOINT project_order_import');
                 else $pdo->commit();
+                // Ancillary renewal data cannot roll back or block valid financial orders.
+                require_once __DIR__ . '/../includes/ProjectRenewalImport.php';
+                if (pr_ready()) {
+                    try {
+                        pr_seed();
+                        foreach ($ready as $renewalEntry) {
+                            $renewalRow=$renewalEntry[0];
+                            if (empty($renewalRow['renewal_fields'])) continue;
+                            $renewalLookup=$pdo->prepare('SELECT id FROM project_orders WHERE order_no=?');
+                            $renewalLookup->execute([$renewalRow['order_no']]); $renewalId=(int)$renewalLookup->fetchColumn();
+                            if ($renewalId) pr_import_apply($renewalId,$renewalRow['renewal_fields'],$actor);
+                        }
+                    } catch (Throwable $renewalError) { error_log('renewal_import_followup: '.get_class($renewalError)); }
+                }
                 ps_ai_mark_applied($_SESSION['project_import_ai_touched'] ?? []);
                 $preferenceEmployeeId = (int)($actor['employee_id'] ?? 0);
                 if (!$preferenceEmployeeId && !empty($_SESSION['project_import_file'])) {

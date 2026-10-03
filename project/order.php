@@ -489,6 +489,7 @@ include __DIR__ . '/../includes/header.php';
 <?php endif; ?>
 
 <?php include __DIR__ . '/../includes/order_credentials_card.php'; ?>
+<?php include __DIR__ . '/../includes/order_renewal_card.php'; ?>
 
 <?php if ($canEdit && $order['delivery_status'] !== 'finished' && !$pendingDeliveryReq && in_array($actor['role'], ['customer_service', 'technical', 'finance'], true)): ?>
 <div class="card mb-3 project-form-card">
