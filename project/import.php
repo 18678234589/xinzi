@@ -142,6 +142,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $head = $raw ? array_map(function ($v) { return trim((string)$v); }, array_shift($raw)) : [];
                 if ($head) $head[0] = preg_replace('/^\xEF\xBB\xBF/', '', $head[0] ?? '');
                 $entry = ['raw' => $raw, 'head' => $head, 'map' => null, 'reason' => '', 'ai' => '', 'line_base' => 2];
+                // 森动备案“二次备案”分表 / 备案-单量表没有订单编号列：按“域名 + 联系方式”生成稳定的内部订单号
+                // （二次备案 EB-…、备案-单量 BA-…，业务名参与散列避免跨业务撞号），同一行重复上传不会重复建单。
+                if (in_array($selectedBusiness, ['森动备案', '备案-单量'], true) && $head && in_array('域名', $head, true) && !array_intersect(['订单编号', '订单号', '订单', '淘宝订单号', '微信交易流水号', '微信支付订单号', '支付订单号'], $head)) {
+                    $ebDomain = array_search('域名', $head, true); $ebContact = array_search('联系方式', $head, true);
+                    $ebWidth = count($head); $head[] = '订单编号';
+                    $ebPrefix = $selectedBusiness === '森动备案' ? 'EB' : 'BA';
+                    $ebSalt = $selectedBusiness === '森动备案' ? '' : mb_strtolower($selectedBusiness) . '|';
+                    $raw = array_map(function ($r) use ($ebDomain, $ebContact, $ebWidth, $ebPrefix, $ebSalt) {
+                        if (!is_array($r)) return $r;
+                        $r = array_pad(array_values($r), $ebWidth, '');
+                        $dom = trim((string)($r[$ebDomain] ?? '')); $con = $ebContact !== false ? trim((string)($r[$ebContact] ?? '')) : '';
+                        $r[] = $dom !== '' ? $ebPrefix . '-' . strtoupper(substr(md5($ebSalt . mb_strtolower($dom) . '|' . $con), 0, 12)) : '';
+                        return $r;
+                    }, $raw);
+                    $entry['raw'] = $raw; $entry['head'] = $head;
+                }
                 // 没有表头、第 1 行就是订单（首行有订单号样式的长数字串）：按各列内容识别，首行也作为订单读取
                 $headerlessMap = $head && ps_import_row_is_data($head) ? ps_import_headerless_map(array_merge([$head], $raw), $knownShops, $employeesByName) : null;
                 if ($headerlessMap) $entry = ['raw' => array_merge([$head], $raw), 'head' => array_fill(0, count($head), ''), 'map' => $headerlessMap, 'reason' => '', 'ai' => '表格没有表头，已按各列内容识别订单号、日期、售价、客服、技术等。', 'line_base' => 1];
@@ -311,6 +327,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     }
                     // 部门原表偶有把时间写进日期列（如 18.05、“17. 00”）：按今天建单并提示核对
                     if (!$record['order_date'] && !empty($businessDefinition['free_shop']) && $lookup($row, 'order_date') !== '' && ($lookup($row, 'order_no') !== '' && $lookup($row, 'contract_amount') !== '')) { $record['order_date'] = date('Y-m-d'); $record['warning'] = '日期“' . $lookup($row, 'order_date') . '”无法识别，已按今天建单，请核对'; }
+                    // 备案-单量表没有日期列：按导入当天记单（月度归属由上传时间决定，财务可在结算单调整）。
+                    if (!$record['order_date'] && $selectedBusiness === '备案-单量') {
+                        $record['order_date'] = date('Y-m-d');
+                        $record['warning'] .= ($record['warning'] ? '；' : '') . '表无日期列，已按导入当天记单';
+                    }
                     $record['contract_amount'] = str_replace([',','¥','￥',' '], '', $lookup($row, 'contract_amount'));
                     if (preg_match('/^\d+\.\d{3,}$/', $record['contract_amount'])) $record['contract_amount'] = number_format((float)$record['contract_amount'], 2, '.', '');
                     $status = $lookup($row, 'status');
@@ -350,6 +371,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             $record['warning'] .= ($record['warning'] ? '；' : '') . '订单类型列写的“' . $kindText . '”不是可选类型（' . implode('、', $orderKinds) . '），已忽略';
                             $kindText = '';
                         }
+                    }
+                    // 备案-提成表“建站订单”列有值：一律记为拍链接类型（与网站续费“拍建站”列同逻辑），可另配每单奖励。
+                    if ($selectedBusiness === '备案-提成' && $kindText === '' && $lookup($row, 'build_order_marker') !== '') {
+                        $record['warning'] .= ($record['warning'] ? '；' : '') . '建站订单“' . $lookup($row, 'build_order_marker') . '”已按拍链接处理';
+                        $record['kind_mapped'] = true;
+                        $kindText = '拍链接';
                     }
                     // 代写 / 期刊 / 微信代写按原表内容识别类型：负数行 = 退款冲减；“提成”列为 0 = 合并单；微信付款；期刊“杂志社版面费” = 代付版面费。
                     if ($kindText === '' && !empty($businessDefinition['import_cost'])) {
@@ -407,6 +434,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         if ($kindText === '小额返款' && !isset($columnMap['status'])) $record['delivery_status'] = 'finished';
                     }
                     $record['kind_missing'] = false;
+                    // 森动备案：表格没写订单类型时按工作表 / 店铺判断——“二次备案”分表 → 二次备案；淘宝店铺 → 备案-淘宝；其余 → 备案
+                    if ($kindText === '' && $selectedBusiness === '森动备案') {
+                        $kindText = mb_strpos((string)$sheetName, '二次') !== false ? '二次备案' : (mb_strpos($lookup($row, 'shop'), '淘宝') !== false ? '备案-淘宝' : '备案');
+                        $record['warning'] .= ($record['warning'] ? '；' : '') . '订单类型按表格自动判断为“' . $kindText . '”（二次备案分表 → 二次备案；淘宝店铺 → 备案-淘宝），可在本行改选';
+                    }
                     if ($kindText === '' && !empty($businessDefinition['kind_required'])) {
                         // 显式类型优先；之后按描述、本人确认过的同布局默认、AI 建议、业务默认依次托底。
                         $hint = ($record['business_text'] ?? '') . ' ' . $record['contact_note'] . ' ' . $lookup($row, 'detail:make_requirement');
@@ -422,11 +454,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $record['order_kind'] = $kindText;
                     // 部门代录补充：同号原单建单时默认记了类型，表格明确给出拍建站时提示按表格更正。
                     if ($departmentMode && !empty($record['kind_mapped']) && !empty($existing['order_kind']) && $existing['order_kind'] !== $kindText) $record['warning'] .= ($record['warning'] ? '；' : '') . '原单类型“' . $existing['order_kind'] . '”将按表格更正为“' . $kindText . '”';
-                    // 成本（稿费 / 杂志社费用 + 写手费用）：只对代写类业务读取；退款冲减行为负数。
+                    // 成本（稿费 / 杂志社费用 + 写手费用 + 备案-提成快递费）：随表导入的业务读成本列；退款冲减行为负数。
                     $record['direct_cost'] = '';
                     if (!empty($businessDefinition['import_cost'])) {
                         $costTotal = 0.0; $hasCost = false;
-                        foreach (['direct_cost', 'direct_cost2'] as $costKey) {
+                        foreach (['direct_cost', 'direct_cost2', 'shipping_cost'] as $costKey) {
                             $costText = str_replace([',','¥','￥',' '], '', $lookup($row, $costKey));
                             if ($costText === '' || !is_numeric($costText)) continue;
                             $costTotal += (float)$costText; $hasCost = true;
@@ -448,6 +480,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         $remark2Text = trim($lookup($row, 'remark2'));
                         if ($remark2Text !== '') $renewalExtras[] = '备注2：' . $remark2Text;
                         $record['renewal_extras'] = $renewalExtras;
+                    }
+                    // 网站修改新表（2026-10）：后台类型 / 分单备注金额仅记录，拼进订单备注备查；付款截图不参与计算。
+                    if ($selectedBusiness === '网站修改') {
+                        $modifyExtras = [];
+                        $backendTypeText = trim($lookup($row, 'backend_type_marker'));
+                        if ($backendTypeText !== '') $modifyExtras[] = '后台类型：' . $backendTypeText;
+                        $splitAmountText = trim($lookup($row, 'split_amount_note'));
+                        if ($splitAmountText !== '') $modifyExtras[] = '分单备注金额：' . $splitAmountText;
+                        $record['renewal_extras'] = array_merge($record['renewal_extras'] ?? [], $modifyExtras);
                     }
                     $record['program_name'] = $usesProgram ? $lookup($row, 'program_name') : '';
                     $record['program_template_id'] = 0;
@@ -578,11 +619,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 throw new RuntimeException('没有与“' . $selectedBusiness . '”表头对应的工作表（' . implode('；', $reasons) . '）。请确认业务类型，或下载该业务模板对照表头');
             }
             // 同号加购先合并，再与原单比较；重复上传整张表不能拿每个分项价格和整单总价比。
+            $previewForHint = $preview;
+            $prevShopNick = null;
             foreach ($preview as &$mergedRow) {
+                $thisShopNick = trim((string)($mergedRow['shop'] ?? '')) . '|' . trim((string)($mergedRow['payment_nickname'] ?? ''));
+                $sameAsPrev = $prevShopNick !== null && $prevShopNick === $thisShopNick && $thisShopNick !== '|';
+                $prevShopNick = $thisShopNick;
                 if (empty($mergedRow['base_valid']) || empty($mergedRow['existing_snapshot'])) continue;
                 $conflicts = ps_customer_intake_conflicts($mergedRow['existing_snapshot'], $mergedRow);
                 if ($selectedBusiness === '商标' && $actor['role'] === 'technical') $conflicts = array_values(array_intersect($conflicts, ['售价']));
-                if ($conflicts) { $mergedRow['base_valid'] = false; $mergedRow['status'] = '需处理'; $mergedRow['error'] = '原单与上传表的' . implode('、', $conflicts) . '不一致，请由财务核对'; }
+                if ($conflicts) { $mergedRow['base_valid'] = false; $mergedRow['status'] = '需处理'; $mergedRow['error'] = '原单与上传表的' . implode('、', $conflicts) . '不一致，请由财务核对'; $mergedRow['conflict_detail'] = ps_customer_intake_conflict_detail($mergedRow['existing_snapshot'], $mergedRow, $conflicts) . ($sameAsPrev && (in_array('店铺', $conflicts, true) || in_array('付款昵称', $conflicts, true)) ? '。这一行的店铺、付款昵称与上一行完全相同，可能是整列下拉填充时带下来的，请对照备注列核对' : '');
+                    require_once __DIR__ . '/../includes/ProjectOrderFix.php';
+                    $mergedRow['fix_panel'] = ['order_id' => (int)($mergedRow['existing_snapshot']['id'] ?? 0), 'order_no' => $mergedRow['order_no'], 'fields' => pof_fields($mergedRow['existing_snapshot'], $mergedRow, $conflicts), 'hint' => pof_split_hint($mergedRow['existing_snapshot'], $mergedRow, $previewForHint), 'same_prev' => $sameAsPrev];
+                }
             }
             unset($mergedRow);
             $totalPreviewRows = count($preview);
@@ -872,8 +921,11 @@ $page_title = $departmentMode ? '网站售后部门订单' : '导入项目订单
 if (PHP_SAPI === 'cli' && !empty($GLOBALS['project_import_cli'])) return;
 include __DIR__ . '/../includes/header.php';
 ?>
+<style>.import-warn{color:#7a4500;font-weight:600}.import-fix{background:#fff;border:1px solid #bfdccb;border-radius:10px;padding:.55rem .75rem;max-width:520px}.import-fix-hint{color:#6b3d00;background:#fff4dc;border-radius:6px;padding:.3rem .5rem;margin-bottom:.4rem;line-height:1.55;font-size:.84rem}.import-fix-title{font-weight:700;color:#17503e;font-size:.84rem;margin-bottom:.2rem}.import-fix-row{display:block;margin:.1rem 0;font-size:.85rem;color:#2b3f38}.import-fix-actions{margin-top:.4rem}.import-fix-foot{color:#6a7a75;font-size:.78rem;margin-top:.3rem}.import-detail{color:#5a1f1f;background:#fff;border:1px dashed #e0a3a3;border-radius:6px;padding:.25rem .5rem;display:inline-block;line-height:1.55}</style>
+<?php
+?>
 <div class="project-intake-page">
-<div class="project-hero mb-3"><div><div class="project-eyebrow">项目合作结算中心 · <?php echo $departmentMode ? '网站售后部门订单' : '批量录入'; ?></div><h2><?php echo $departmentMode ? '上传网站售后部门订单' : '导入' . e($selectedBusiness ?: '项目') . '订单'; ?></h2><p><?php echo $departmentMode ? '按网站续费或网站修改模板上传，表格中的参与人逐单匹配；未写姓名时可选择本批默认参与人。部门代录不要求上传人参与每一单，实收仍由财务确认。' : '先选业务模板，再拖入 Excel 逐行核对。已关联人员上传相同订单号时补充原单，不会重复建单；售价不直接作为实收。'; ?></p></div><div class="project-hero-actions"><a class="btn btn-light" href="<?php echo BASE_URL; ?>/project/index.php?business=<?php echo rawurlencode($selectedBusiness ?: ''); ?>">返回订单录入</a></div></div>
+<div class="project-hero mb-3"><div><div class="project-eyebrow">项目合作结算中心 · <?php echo $departmentMode ? '网站售后部门订单' : '批量录入'; ?></div><h2><?php echo $departmentMode ? '上传网站售后部门订单' : '导入' . e($selectedBusiness ?: '项目') . '订单'; ?></h2><p><?php echo $departmentMode ? '按网站续费、网站修改或备案模板上传，表格中的参与人逐单匹配；未写姓名时可选择本批默认参与人。部门代录不要求上传人参与每一单，实收仍由财务确认。' : '先选业务模板，再拖入 Excel 逐行核对。已关联人员上传相同订单号时补充原单，不会重复建单；售价不直接作为实收。'; ?></p></div><div class="project-hero-actions"><a class="btn btn-light" href="<?php echo BASE_URL; ?>/project/index.php?business=<?php echo rawurlencode($selectedBusiness ?: ''); ?>">返回订单录入</a></div></div>
 <?php if ($error): ?><div class="alert alert-danger"><?php echo e($error); ?></div><?php endif; ?>
 <?php if ($importReport): ?><div class="alert alert-<?php echo $importReport['pending'] ? 'warning' : 'success'; ?>">本次已写入 / 补充 <?php echo (int)$importReport['written']; ?> 单，已在库 <?php echo (int)$importReport['existing']; ?> 单<?php echo $importReport['pending'] ? '；还有 ' . (int)$importReport['pending'] . ' 行待补全，其他订单已成功保存' : '，核对已完成'; ?>。实收仍须财务确认。<a class="btn btn-sm btn-success ml-2" href="<?php echo BASE_URL; ?>/project/index.php?import_file=<?php echo $resultFileId; ?>">查看这份表格对应订单</a></div><?php elseif ($imported): ?><div class="alert alert-success">已导入 <?php echo $imported; ?> 个订单。实收仍须财务确认。</div><?php endif; ?>
 <?php if ($resumeFile): ?><div class="card mb-3"><div class="card-body"><strong>继续核对：<?php echo e($resumeFile['original_name']); ?></strong><p class="small text-muted mt-2">直接读取已保存原件，无需重传。按原上传人的业务和参与关系导入，已审核订单保持不变。</p><form method="post"><input type="hidden" name="csrf" value="<?php echo e(ps_csrf_token()); ?>"><input type="hidden" name="action" value="repreview"><input type="hidden" name="resume_file" value="<?php echo $resumeFileId; ?>"><input type="hidden" name="file_id" value="<?php echo $resumeFileId; ?>"><input type="hidden" name="business" value="<?php echo e($selectedBusiness); ?>"><input type="hidden" name="scope" value="<?php echo e($scope); ?>"><input type="hidden" name="all_sheets" value="1"><input type="hidden" name="auto_import" value="1"><button class="btn btn-success">核对并导入有效订单</button></form></div></div><?php endif; ?>
@@ -945,7 +997,15 @@ document.addEventListener('DOMContentLoaded', function () {
 <td><?php if (!empty($row['resource_locked'])): ?><span class="text-muted">原单已确认</span><?php elseif (!empty($row['base_valid'])): ?><select class="form-control form-control-sm" name="domain_choice[<?php echo (int)$row['line']; ?>]" aria-label="第<?php echo (int)$row['line']; ?>行域名"><option value="">请选择域名方式</option><?php if (($row['domain_mode'] ?? '') === 'pending'): ?><option value="pending" selected>待技术确认</option><?php endif; ?><option value="none" <?php echo $row['domain_mode'] === 'none' ? 'selected' : ($row['domain_mode'] === 'template' ? 'disabled' : ''); ?>>无需域名</option><?php foreach ($domainTemplates as $t): ?><option value="<?php echo (int)$t['id']; ?>" <?php echo (int)$row['domain_template_id'] === (int)$t['id'] ? 'selected' : ($row['domain_mode'] === 'none' ? 'disabled' : ''); ?>><?php echo e(trim($t['name'] . ' ' . $t['specification']) . ' · ¥' . money($t['price'])); ?></option><?php endforeach; ?></select><small class="text-muted">原表：<?php echo e(($row['domain_used'] ?: '空白') . ' · ' . ($row['resource_note'] ?: '未写域名/空间')); ?></small><?php else: ?>—<?php endif; ?></td>
 <td><?php if (!empty($row['resource_locked'])): ?>—<?php elseif (!empty($row['base_valid'])): ?><select class="form-control form-control-sm" name="server_template_id[<?php echo (int)$row['line']; ?>]"><option value="0">不自动计服务器</option><?php foreach ($serverTemplates as $t): ?><option value="<?php echo (int)$t['id']; ?>"><?php echo e(trim($t['name'] . ' ' . $t['specification']) . ' · ¥' . money($t['price'])); ?></option><?php endforeach; ?></select><?php else: ?>—<?php endif; ?></td>
 <?php endif; ?>
-<td><span class="badge badge-<?php echo $skipRow ? 'secondary' : (empty($row['base_valid']) ? 'danger' : ($row['status'] === '可导入' ? 'success' : 'warning')); ?>"><?php echo e($row['status']); ?></span><?php if ($row['error']): ?><div class="small <?php echo $skipRow ? 'text-muted' : 'text-danger'; ?> mt-1"><?php echo e($row['error']); ?></div><?php if (!$skipRow && ($rowGuide = ps_import_fix_guide($row['error'], $selectedBusiness))): ?><div class="small text-muted mt-1"><i class="fas fa-lightbulb text-warning mr-1"></i>怎么改：<?php echo e($rowGuide['how']); ?><?php echo $rowGuide['example'] !== '' ? '　例：' . e($rowGuide['example']) : ''; ?></div><?php endif; ?><?php endif; ?><?php if ($row['warning']): ?><div class="small text-warning mt-1"><?php echo e($row['warning']); ?></div><?php endif; ?></td></tr><?php endforeach; ?>
+<td><span class="badge badge-<?php echo $skipRow ? 'secondary' : (empty($row['base_valid']) ? 'danger' : ($row['status'] === '可导入' ? 'success' : 'warning')); ?>"><?php echo e($row['status']); ?></span><?php if ($row['error']): ?><div class="small <?php echo $skipRow ? 'text-muted' : 'text-danger'; ?> mt-1"><?php echo e($row['error']); ?></div><?php if (!$skipRow && ($rowGuide = ps_import_fix_guide($row['error'], $selectedBusiness))): ?><div class="small text-muted mt-1"><i class="fas fa-lightbulb text-warning mr-1"></i>怎么改：<?php echo e($rowGuide['how']); ?><?php echo $rowGuide['example'] !== '' ? '　例：' . e($rowGuide['example']) : ''; ?></div><?php endif; ?><?php if (!$skipRow && !empty($row['conflict_detail'])): ?><div class="small import-detail mt-1"><i class="fas fa-not-equal mr-1"></i><?php echo e($row['conflict_detail']); ?></div><?php endif; ?><?php if (!$skipRow && !empty($row['fix_panel']) && $row['fix_panel']['order_id'] > 0 && $row['fix_panel']['fields']): $fp = $row['fix_panel']; ?>
+<div class="import-fix mt-2" data-order-id="<?php echo (int)$fp['order_id']; ?>">
+  <?php if ($fp['hint'] !== ''): ?><div class="import-fix-hint"><i class="fas fa-lightbulb"></i> <?php echo e($fp['hint']); ?></div><?php endif; ?>
+  <div class="import-fix-title">表里是对的？直接更正原单（勾选要改的）</div>
+  <?php foreach ($fp['fields'] as $f): ?><label class="import-fix-row"><input type="checkbox" class="js-fixf" value="<?php echo e($f[0]); ?>" data-new="<?php echo e($f[3]); ?>" <?php echo ($f[6] && !($fp['same_prev'] && $f[0] !== 'contract_amount')) ? 'checked' : ''; ?>> <?php echo e($f[1]); ?>：<s><?php echo e($f[4] !== '' ? $f[4] : '（空）'); ?></s> → <b><?php echo e($f[5]); ?></b></label><?php endforeach; ?>
+  <div class="import-fix-actions"><button type="button" class="btn btn-sm btn-success js-fix-submit"><?php echo $actor['role'] === 'finance' ? '立即更正原单' : '提交财务确认'; ?></button> <span class="small js-fix-msg" role="status"></span></div>
+  <div class="import-fix-foot"><?php echo $actor['role'] === 'finance' ? '更正后点上方“重新核对”即可导入。' : '财务确认后，回到这里点“重新核对”就能导入；也可以改表格后重新上传。'; ?></div>
+</div>
+<?php endif; ?><?php endif; ?><?php if ($row['warning']): ?><div class="small import-warn mt-1"><?php echo e($row['warning']); ?></div><?php endif; ?></td></tr><?php endforeach; ?>
 </tbody></table></div><div class="card-body border-top d-flex flex-wrap justify-content-between align-items-center" style="gap:10px;position:sticky;bottom:0;z-index:20;background:#fff;box-shadow:0 -3px 10px rgba(15,64,40,.12);border-radius:0 0 14px 14px"><small class="text-muted">红色行不会入账；可先处理已通过的行。绿色按钮点击后订单才真正写入，仅上传预览不会入库。售价不会直接变成实收<?php echo $businessDefinition['resources'] ? '，SSL 报备价不会直接入成本' : ''; ?>。</small><div class="d-flex flex-wrap" style="gap:8px"><?php if ($repairableCount): ?><button class="btn btn-outline-primary mt-2" type="submit" name="action" value="repair_preview">应用补填并重新核对</button><?php endif; ?><button class="btn btn-success btn-lg mt-2" type="submit" name="action" value="commit" <?php echo $baseValidCount ? '' : 'disabled'; ?>><?php echo $invalidCount ? '先导入 ' . $baseValidCount . ' 行合格订单' : '确认导入已核对订单'; ?></button></div></div></form>
 <?php endif; ?>
 </div>
@@ -963,4 +1023,21 @@ document.addEventListener('DOMContentLoaded', function () {
 </script>
 <script src="<?php echo BASE_URL; ?>/assets/lib/xlsx.full.min.js"></script>
 <script src="<?php echo BASE_URL; ?>/assets/js/project-xls-upload.js"></script>
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+  var csrf = <?php echo json_encode(ps_csrf_token()); ?>, url = <?php echo json_encode(BASE_URL . '/project/order_fix_api.php'); ?>;
+  document.querySelectorAll('.js-fix-submit').forEach(function (b) { b.addEventListener('click', function () {
+    var box = b.closest('.import-fix'), msg = box.querySelector('.js-fix-msg'), changes = {};
+    box.querySelectorAll('.js-fixf:checked').forEach(function (c) { changes[c.value] = c.getAttribute('data-new'); });
+    if (!Object.keys(changes).length) { msg.textContent = '请至少勾选一项'; msg.className = 'small js-fix-msg text-danger'; return; }
+    b.disabled = true; msg.textContent = '提交中…'; msg.className = 'small js-fix-msg text-muted';
+    fetch(url, {method: 'POST', credentials: 'same-origin', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({csrf: csrf, action: 'fix', order_id: box.dataset.orderId, changes: changes})}).then(function (r) {
+      return r.text().then(function (t) { var d; try { d = JSON.parse(t); } catch (e) { throw new Error(r.status === 403 ? '没有权限更正这个订单（需要是订单参与人）' : '服务器返回了非预期内容，请刷新页面后重试'); } if (d.error) throw new Error(d.error); return d; });
+    }).then(function (d) {
+      msg.textContent = d.mode === 'applied' ? '✓ 原单已更正，请点上方“重新核对”' : '✓ 已提交，财务确认后点“重新核对”即可';
+      msg.className = 'small js-fix-msg text-success';
+    }).catch(function (e) { msg.textContent = e.message; msg.className = 'small js-fix-msg text-danger'; b.disabled = false; });
+  }); });
+});
+</script>
 <?php include __DIR__ . '/../includes/footer.php'; ?>

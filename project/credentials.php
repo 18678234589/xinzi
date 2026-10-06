@@ -6,6 +6,11 @@ $actor = ps_require_actor();
 if (!headers_sent()) { header('Cache-Control: no-store, max-age=0'); header('X-Robots-Tag: noindex'); }
 $json = function ($data, $status = 200) { http_response_code($status); header('Content-Type: application/json; charset=utf-8'); echo json_encode($data, JSON_UNESCAPED_UNICODE); exit; };
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') { http_response_code(405); exit; }
+if (stripos((string)($_SERVER['CONTENT_TYPE'] ?? ''), 'application/json') === 0) {
+    // 网站防火墙会拦“表单里单个字段过长”的请求，粘贴识别改用 JSON 请求体
+    $jsonBody = json_decode((string)file_get_contents('php://input'), true);
+    if (is_array($jsonBody)) $_POST = array_merge($_POST, $jsonBody);
+}
 $ajax = !empty($_POST['ajax']);
 if (!hash_equals(ps_csrf_token(), (string)($_POST['csrf'] ?? ''))) { if ($ajax) $json(['error' => '页面已过期，请刷新后重试'], 403); ps_check_csrf(); }
 $orderId = (int)($_POST['order_id'] ?? 0);

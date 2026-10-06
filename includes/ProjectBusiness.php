@@ -26,6 +26,14 @@ function ps_business_catalog()
         '网站续费' => ['departments' => ['网站售后续费'], 'resources' => false, 'requires_technical' => false, 'service_fee_rate' => 0.03, 'order_kinds' => ['续费', '拍链接'], 'kind_required' => true, 'default_kind' => '续费', 'cost_label' => '续费成本', 'import_cost' => true, 'fields' => ['website_url' => '网站地址', 'renew_item' => '续费项目', 'renew_years' => '续费年数', 'program_name' => '程序名称', 'version' => '版本']],
         // 网站售后部：自己接单的修改 / 备案（(收入 − 成本) × 20%，备案修改另加 5 元/单）
         '网站修改' => ['departments' => ['网站售后技术', '网站售后备案'], 'resources' => false, 'requires_technical' => false, 'service_fee_rate' => 0, 'order_kinds' => ['修改', '备案', '备案修改'], 'kind_required' => true, 'default_kind' => '修改', 'cost_label' => '成本', 'import_cost' => true, 'fields' => ['website_url' => '网站地址', 'service_item' => '修改 / 备案内容']],
+        // 网站售后部备案提成表（2026-10 新模板）：逐单提成 =（售价 − 成本 − 快递费）× 比例；「建站订单」列有值记为拍链接类型（可另配每单奖励）。
+        '备案-提成' => ['departments' => ['网站售后备案'], 'resources' => false, 'requires_technical' => false, 'service_fee_rate' => 0, 'order_kinds' => ['备案', '拍链接'], 'kind_required' => true, 'default_kind' => '备案', 'cost_label' => '成本', 'import_cost' => true, 'fields' => []],
+        // 网站售后部备案单量表：只有「联系方式 + 域名」两列，按行计单量（每单固定价）；无订单号/日期/金额，
+        // 由上传流程按域名+联系方式生成稳定内部单号（BA-…），日期按导入当天记单，状态列决定可否结算。
+        '备案-单量' => ['departments' => ['网站售后备案'], 'resources' => false, 'requires_technical' => false, 'service_fee_rate' => 0, 'order_kinds' => [], 'fields' => ['domain_name' => '域名']],
+        // 森动备案（栾鑫）：森动建站系统模板程序的备案。备案：(售价 − 成本) × 20% + 每单 1 元，淘宝下单再 +0.5 元；
+        // 二次备案：只按订单数量每单 5 元，无提成、无其他补贴。淘宝 / 二次备案用订单类型区分（见规则中心“森动备案”）。不绑定部门，需财务给账号分配此业务。
+        '森动备案' => ['departments' => [], 'resources' => false, 'requires_technical' => false, 'service_fee_rate' => 0, 'order_kinds' => ['备案', '备案-淘宝', '二次备案'], 'kind_required' => true, 'default_kind' => '备案', 'cost_label' => '备案成本', 'import_cost' => true, 'free_shop' => true, 'fields' => ['contact_wechat' => '联系微信号', 'filing_status' => '备案状态', 'auth_code' => '授权码', 'program_name' => '程序', 'domain_name' => '域名', 'vendor' => '接入商']],
         // 微信代写：编辑员自接单（店铺订单每单补助 3 元），部门利润池按月分配（规则中心“部门利润池分配”）。
         '微信代写' => ['departments' => ['微信代写客服', '微信代写售后', '微信营销部经理'], 'resources' => false, 'requires_technical' => false, 'service_fee_rate' => 0, 'order_kinds' => ['店铺订单', '微信付款'], 'kind_required' => true, 'default_kind' => '店铺订单', 'cost_label' => '写手稿费', 'import_cost' => true, 'free_shop' => true, 'fields' => ['writer_code' => '写手编号', 'writing_volume' => '字数']],
         // 商标部：普通订单 (售价 − 成本 − 1%服务费) × 12% + 3元/单；新客户订单 + 6元/单；同一客服同一客户当月第二单起记“同客户”（照常提成、不计单量）；小额返款订单 3元/单；资料专员与提交专员每件 2.2 元。
@@ -231,6 +239,31 @@ function ps_business_import_columns($business)
         $columns['domain_real_cost'] = ['域名真实成本'];
         $columns['remark2'] = ['备注2'];
     }
+    // 森动备案（栾鑫备案模板）：付费旺旺 = 付款昵称；“二次备案”分表用“联系方式”列记客户联系方式。
+    if ($business === '森动备案') {
+        $columns['payment_nickname'][] = '付费旺旺';
+        $columns['contact_note'] = array_merge(['联系方式'], $columns['contact_note']);
+    }
+    // 网站售后部备案提成表（2026-10）：付费旺旺=付款昵称；快递费随成本列折进成本；建站订单=拍链接类型标记；截图为凭证记录列（只识别、不参与计算）。
+    if ($business === '备案-提成') {
+        $columns['payment_nickname'][] = '付费旺旺';
+        $columns['shipping_cost'] = ['快递费'];
+        $columns['build_order_marker'] = ['建站订单'];
+        $columns['screenshot_marker'] = ['截图'];
+    }
+    // 网站售后部备案单量表（2026-10）：联系方式即客户联系方式；域名由 fields 生成 detail:域名。
+    if ($business === '备案-单量') {
+        $columns['contact_note'] = array_merge(['联系方式'], $columns['contact_note']);
+    }
+    // 网站售后部修改表（2026-10 新模板）：价格=售价；付款截图/后台类型/分单备注金额仅记录；域名空间=网站地址；特殊情况备注记联系方式备注。
+    if ($business === '网站修改') {
+        $columns['contract_amount'][] = '价格';
+        $columns['screenshot_marker'] = ['付款截图'];
+        $columns['backend_type_marker'] = ['后台类型'];
+        $columns['split_amount_note'] = ['分单备注金额'];
+        $columns['detail:website_url'] = ['网站地址', '域名空间'];
+        $columns['contact_note'] = array_merge($columns['contact_note'], ['特殊情况备注']);
+    }
     foreach ($definition['fields'] as $key => $label) {
         if (!isset($columns['detail:' . $key])) {
             $columns['detail:' . $key] = [$label];
@@ -239,11 +272,16 @@ function ps_business_import_columns($business)
     return $columns;
 }
 
-/** 下载用表头；AI 网站定制保持原模板 14 列顺序不变；网站续费对齐售后部 2026-09 新表。 */
+/** 下载用表头；AI 网站定制保持原模板 14 列顺序不变；网站续费对齐售后部 2026-09 新表；备案两表按 2026-10 原表列序。 */
 function ps_business_import_headers($business)
 {
     // 网站售后部续费表按原表列序输出，中间保留一列空表头与原表一致。
     if ($business === '网站续费') return ['接单客服', '拍建站', '续费年数', '程序名称', '版本', '店铺', '付费旺旺', '日期', '订单编号', '售价', '总成本', '空间成本', '域名成本', '域名真实成本', '', '空间域名', '备注1', '备注2'];
+    // 网站售后部备案两表按原表列序输出（原表无状态列，模板补「状态」列由上传时按实际填写）。
+    if ($business === '备案-提成') return ['日期', '店铺', '付费旺旺', '订单编号', '售价', '成本', '快递费', '建站订单', '截图', '状态', '备注'];
+    if ($business === '备案-单量') return ['联系方式', '域名', '状态'];
+    // 网站售后部修改表按 2026-10 原表列序输出；原表无状态列，模板补「状态」由上传时按实际填写识别。
+    if ($business === '网站修改') return ['店铺', '付款截图', '日期', '订单编号', '价格', '成本', '后台类型', '域名空间', '特殊情况备注', '分单备注金额', '状态'];
     $columns = ps_business_import_columns($business);
     $order = ['order_date','shop','business','payment_nickname','order_no','contract_amount','status','contact_note','customer_service','frontend','domain_used','ssl_used','backend','resource_note','order_kind','program_name'];
     if ($business !== 'AI网站定制') $order[] = 'payment_reference'; // 原 AI 定制 14 列模板不变，额外列仍可识别。

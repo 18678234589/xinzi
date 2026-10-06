@@ -57,11 +57,65 @@ $serverTemplates = ps_intake_templates('server');
 $programTemplates = ps_intake_templates('program');
 $outsourceTemplates = ps_intake_templates('outsourcing');
 
+// 删除传错订单的共用清理：先删无级联的子表，再删订单本体（已审核订单在调用前拦截，不可恢复）。
+$deleteOrderRows = function ($orderId) {
+    // 技术对账行挂在分成快照上，先删对账再删快照；order_requests / order_details 有级联，显式删除保持一致
+    db()->prepare('DELETE t FROM project_technical_reconciliations t JOIN project_commission_snapshots s ON s.id=t.snapshot_id WHERE s.order_id=?')->execute([$orderId]);
+    foreach (['project_commission_snapshots', 'project_commission_adjustments', 'project_cash_movements', 'project_costs', 'project_participants', 'project_order_sources', 'project_order_resources', 'project_order_requests', 'project_order_details'] as $table) {
+        db()->prepare('DELETE FROM ' . $table . ' WHERE order_id=?')->execute([$orderId]);
+    }
+    db()->prepare('DELETE FROM project_orders WHERE id=?')->execute([$orderId]);
+};
+
+// 删除权限：财务可删任意未审核单；网站售后部员工 + 指定放行名单（栾鑫）可删自己参与或代录的未审核单（即本人可见的订单）。
+$isAfterSalesDept = false;
+if ($actor['role'] !== 'finance' && !empty($actor['employee_id'])) {
+    $deptQuery = db()->prepare('SELECT department FROM employees WHERE id=?');
+    $deptQuery->execute([(int)$actor['employee_id']]);
+    $isAfterSalesDept = $deptQuery->fetchColumn() === '网站售后部';
+}
+$deleteAllowEmployeeIds = [55 => '栾鑫']; // 个人放行：运营经理部，同样只能删本人参与/代录的未审核单
+$canDeleteOrders = $actor['role'] === 'finance' || $isAfterSalesDept || (isset($deleteAllowEmployeeIds[(int)($actor['employee_id'] ?? 0)]));
+
+// 单个删除传错的订单：仅未审核（草稿 / 审核中）可删，连同实收流水、成本、参与人、分成快照一并清理。
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['delete_order_id'])) {
+    ps_check_csrf();
+    if (!$canDeleteOrders) { http_response_code(403); exit('无权限'); }
+    $deleteId = (int)$_POST['delete_order_id'];
+    $orderNo = '#' . $deleteId;
+    try {
+        db()->beginTransaction();
+        $q = db()->prepare('SELECT order_no, settlement_status FROM project_orders WHERE id=? FOR UPDATE');
+        $q->execute([$deleteId]);
+        $row = $q->fetch();
+        if (!$row) throw new RuntimeException('订单不存在');
+        $orderNo = $row['order_no'];
+        if (in_array($row['settlement_status'], ['approved', 'locked'], true)) throw new RuntimeException('订单已审核生成分成，不可删除');
+        // 售后部员工只能删本人可见的订单（参与人或部门代录上传人）
+        if ($actor['role'] !== 'finance') {
+            $partQuery = db()->prepare('SELECT 1 FROM project_participants WHERE order_id=? AND employee_id=? UNION SELECT 1 FROM project_department_uploaders WHERE order_id=? AND employee_id=? LIMIT 1');
+            $partQuery->execute([$deleteId, (int)$actor['employee_id'], $deleteId, (int)$actor['employee_id']]);
+            if (!$partQuery->fetchColumn()) throw new RuntimeException('只能删除本人参与的订单');
+        }
+        $deleteOrderRows($deleteId);
+        ps_audit('order', $deleteId, 'delete_order', $actor, ['order_no' => $orderNo]);
+        db()->commit();
+        $_SESSION['project_delete_result'] = ['ok' => true, 'order_no' => $orderNo];
+    } catch (Throwable $e) {
+        if (db()->inTransaction()) db()->rollBack();
+        $_SESSION['project_delete_result'] = ['ok' => false, 'order_no' => $orderNo, 'reason' => $e instanceof PDOException ? '删除失败' : $e->getMessage()];
+    }
+    $backQuery = (string)($_SERVER['QUERY_STRING'] ?? '');
+    header('Location: ' . BASE_URL . '/project/index.php' . ($backQuery !== '' ? '?' . $backQuery : '')); exit;
+}
+
 // 财务批量操作：按售价确认实收 / 标记交付完成 / 批量审核。逐单独立事务，失败的订单列出原因，不影响其他订单。
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['bulk_action'])) {
     ps_check_csrf();
-    if ($actor['role'] !== 'finance') { http_response_code(403); exit('无权限'); }
     $bulkAction = (string)$_POST['bulk_action'];
+    // 批量删除下放给网站售后部；其余批量操作仍仅财务
+    if ($bulkAction === 'delete') { if (!$canDeleteOrders) { http_response_code(403); exit('无权限'); } }
+    elseif ($actor['role'] !== 'finance') { http_response_code(403); exit('无权限'); }
     $ids = array_values(array_unique(array_filter(array_map('intval', (array)($_POST['ids'] ?? [])))));
     $payrollMonth = (string)($_POST['bulk_month'] ?? '');
     $done = 0;
@@ -119,6 +173,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['bulk_action'])) {
                 } catch (Throwable $approveEx) {
                     // 若前置条件（如域名待确认、SSL待补录）未满足，仅标记已交付完成，暂不锁定审核
                 }
+            } elseif ($bulkAction === 'delete') {
+                // 批量删除传错的订单（已审核的上面已拦下并列出原因）；售后部员工只能删本人参与/代录的
+                if ($actor['role'] !== 'finance') {
+                    $partQuery = db()->prepare('SELECT 1 FROM project_participants WHERE order_id=? AND employee_id=? UNION SELECT 1 FROM project_department_uploaders WHERE order_id=? AND employee_id=? LIMIT 1');
+                    $partQuery->execute([$orderId, (int)$actor['employee_id'], $orderId, (int)$actor['employee_id']]);
+                    if (!$partQuery->fetchColumn()) throw new RuntimeException('只能删除本人参与的订单');
+                }
+                $deleteOrderRows($orderId);
+                ps_audit('order', $orderId, 'bulk_delete', $actor, ['order_no' => $orderNo]);
             } else throw new RuntimeException('操作无效');
             db()->commit();
             $done++;
@@ -127,7 +190,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['bulk_action'])) {
             $failed[] = $orderNo . '：' . ($e instanceof PDOException ? '保存失败' : $e->getMessage());
         }
     }
-    $_SESSION['project_bulk_result'] = ['action' => ['receipt' => '确认实收', 'finish' => '标记交付完成', 'approve' => '审核并生成分成'][$bulkAction] ?? $bulkAction, 'done' => $done, 'failed' => $failed];
+    $_SESSION['project_bulk_result'] = ['action' => ['receipt' => '确认实收', 'finish' => '标记交付完成', 'approve' => '审核并生成分成', 'delete' => '删除'][$bulkAction] ?? $bulkAction, 'done' => $done, 'failed' => $failed];
     header('Location: ' . BASE_URL . '/project/index.php?' . (string)($_POST['return_query'] ?? '')); exit;
 }
 
@@ -383,6 +446,8 @@ if (isset($_GET['created'])) {
 $openEntry = $error !== '' || isset($_GET['entry']);
 $bulkResult = $_SESSION['project_bulk_result'] ?? null;
 unset($_SESSION['project_bulk_result']);
+$deleteResult = $_SESSION['project_delete_result'] ?? null;
+unset($_SESSION['project_delete_result']);
 $page_title = $actor['role'] === 'finance' ? '项目订单结算' : '我的项目订单';
 if (PHP_SAPI === 'cli' && !empty($GLOBALS['project_order_list_cli'])) return;
 include __DIR__ . '/../includes/header.php';
@@ -390,8 +455,11 @@ $resourceHint = function ($t) { return trim($t['name'] . ' ' . $t['specification
 ?>
 <div class="project-intake-page">
 <div class="project-hero mb-3"><div><div class="project-eyebrow">项目合作结算中心 · 订单入口</div><h2><?php if ($actor['role'] === 'finance'): echo e($page_title); else: $hour = (int)date('G'); echo ($hour < 11 ? '早上好' : ($hour < 14 ? '中午好' : ($hour < 18 ? '下午好' : '晚上好'))) . '，' . e($display_name); endif; ?></h2><p><?php echo $actor['role'] === 'customer_service' ? '客服录入买家与成交信息并指定技术；技术在同一订单号补资源和成本，双方看到的是同一张结算单。' : ($actor['role'] === 'technical' ? '打开本人参与的订单补技术资料与成本；先建单时可在结算单关联客服。' : '客服与技术共用一张订单结算单。输入订单号即可从店铺 / ETMLL 流水带出买家与售价，标准成本从成本中心带入。'); ?> 实收由财务确认。</p></div><div class="project-hero-actions"><?php if ($allowedBusinesses): ?><button class="btn btn-light" type="button" id="manualOrderToggle" aria-controls="manual-order" aria-expanded="<?php echo $openEntry ? 'true' : 'false'; ?>"><i class="fas fa-pen mr-1"></i> <span><?php echo $openEntry ? '收起在线录单' : '在线录入订单'; ?></span></button><a class="btn btn-outline-light" href="<?php echo BASE_URL; ?>/project/import.php?business=<?php echo rawurlencode($selectedBusiness); ?>"><i class="fas fa-file-excel mr-1"></i> 批量导入 Excel</a><?php endif; ?><?php if ($departmentImportBusiness): ?><a class="btn btn-outline-light" href="<?php echo BASE_URL; ?>/project/import.php?scope=department&amp;business=<?php echo rawurlencode($departmentImportBusiness); ?>"><i class="fas fa-users mr-1"></i> 网站售后部门订单</a><?php endif; ?><?php if ($actor['role'] === 'finance'): ?><a class="btn btn-outline-light" href="<?php echo BASE_URL; ?>/project/settings.php#cost-center">成本中心</a><?php endif; ?></div></div>
+<?php include __DIR__ . '/../includes/renewal_due_widget.php'; ?>
+<?php include __DIR__ . '/../includes/rule_algo_card.php'; ?>
 <?php if ($error): ?><div class="alert alert-danger"><?php echo e($error); ?></div><?php endif; ?>
 <?php if ($createdOrder): ?><div class="alert alert-success d-flex justify-content-between align-items-center flex-wrap"><span><i class="fas fa-check-circle mr-1"></i> 订单 <strong><?php echo e($createdOrder['order_no']); ?></strong> 已保存，可以继续录入下一单。</span><a class="btn btn-sm btn-outline-success" href="<?php echo BASE_URL; ?>/project/order.php?id=<?php echo (int)$createdOrder['id']; ?>">打开刚保存的结算单</a><?php if (in_array(ps_business_normalize($createdOrder['project_type'] ?? ''), ['小程序开发', 'AI网站定制', '网站模板', '环境配置', '网站续费', '网站修改'], true)): ?> <a class="btn btn-sm btn-warning ml-1" href="<?php echo BASE_URL; ?>/project/order.php?id=<?php echo (int)$createdOrder['id']; ?>#credentials"><i class="fas fa-key mr-1"></i>记录该项目账号密码</a><?php endif; ?></div><?php endif; ?>
+<?php if ($deleteResult): ?><div class="alert alert-<?php echo $deleteResult['ok'] ? 'success' : 'danger'; ?>"><i class="fas fa-trash mr-1"></i>订单 <strong><?php echo e($deleteResult['order_no']); ?></strong> <?php echo $deleteResult['ok'] ? '已删除，相关实收流水、成本、参与人和分成快照已一并清理。' : '删除失败：' . e($deleteResult['reason']); ?></div><?php endif; ?>
 <?php if ($bulkResult): ?><div class="alert alert-<?php echo $bulkResult['failed'] ? 'warning' : 'success'; ?>"><strong>批量<?php echo e($bulkResult['action']); ?>：</strong>成功 <?php echo (int)$bulkResult['done']; ?> 单<?php if ($bulkResult['failed']): ?>，<?php echo count($bulkResult['failed']); ?> 单未处理：<ul class="mb-0 mt-1 small"><?php foreach (array_slice($bulkResult['failed'], 0, 30) as $failure): ?><li><?php echo e($failure); ?></li><?php endforeach; ?></ul><?php endif; ?></div><?php endif; ?>
 <?php if ($autoFinishInfo): ?><div class="alert alert-info"><i class="fas fa-magic mr-1"></i><?php echo e($autoFinishInfo); ?></div><?php endif; ?>
 <?php if (!$allowedBusinesses): ?><div class="alert alert-warning">当前账户尚未匹配业务类型，请联系财务在项目结算配置中分配。</div><?php endif; ?>
@@ -488,11 +556,11 @@ $resourceHint = function ($t) { return trim($t['name'] . ' ' . $t['specification
 <?php $mine = $actor['role'] !== 'finance' ? '我参与的' : ''; ?><div class="project-totals mb-3"><div><small><?php echo $mine; ?>订单</small><strong><?php echo count($orders); ?></strong></div><div><small><?php echo $mine; ?>售价合计</small><strong>¥<?php echo money($totals['contract']); ?></strong></div><div><small>已确认净实收</small><strong>¥<?php echo money($totals['receipt']); ?></strong></div><div><small>已审核直接成本</small><strong>¥<?php echo money($totals['cost']); ?></strong></div><div class="<?php echo $totals['todo'] ? 'is-alert' : ''; ?>"><small>有待办的订单</small><strong><?php echo $totals['todo']; ?></strong></div></div>
 <?php $isFinance = $actor['role'] === 'finance'; ?>
 <?php if ($isFinance && ($corrPendingCount = ps_corr_pending_count()) > 0): ?><div class="alert alert-warning"><i class="fas fa-flag mr-1"></i>有 <?php echo (int)$corrPendingCount; ?> 条分成更正申请待处理，<a class="alert-link" href="<?php echo BASE_URL; ?>/project/corrections.php">点此查看</a>。</div><?php endif; ?>
-<?php if ($isFinance): ?><form method="post" id="bulkForm"><input type="hidden" name="csrf" value="<?php echo e(ps_csrf_token()); ?>"><input type="hidden" name="return_query" value="<?php echo e(http_build_query(array_intersect_key($_GET, array_flip(['month','date_basis','filter_business','state','q','page','employee_id','participating'])))); ?>"><?php endif; ?>
-<div class="card"><div class="card-header d-flex justify-content-between align-items-center flex-wrap" style="gap:8px"><span>订单列表（共 <?php echo (int)$totalOrders; ?> 单<?php if ($totalPages > 1): ?>，第 <?php echo (int)$page; ?>/<?php echo (int)$totalPages; ?> 页<?php endif; ?>）</span><?php if ($isFinance && $orders): ?><div class="project-bulk-bar"><span class="small text-muted" id="bulkCount">已选 0 单</span><button class="btn btn-sm btn-outline-success" name="bulk_action" value="receipt" onclick="return confirm('按售价为所选订单确认实收？已有实收、售价待补或店铺交易关闭的订单会跳过。')">按售价确认实收</button><button class="btn btn-sm btn-outline-success" name="bulk_action" value="finish">标记交付完成</button><input type="month" name="bulk_month" class="form-control form-control-sm" style="width:150px" value="<?php echo e($month); ?>" aria-label="分成归属月份"><button class="btn btn-sm btn-success" name="bulk_action" value="approve" onclick="return confirm('审核所选订单并生成项目分成？不满足条件的订单会跳过并列出原因。')">批量审核</button></div><?php endif; ?></div><div class="table-responsive"><table class="table table-hover mb-0 project-order-table">
-  <thead><tr><?php if ($isFinance): ?><th style="width:34px"><input type="checkbox" id="bulkAll" aria-label="全选"></th><?php endif; ?><th>订单号 / 付款昵称</th><th>业务</th><th>日期</th><th>参与人</th><th class="text-right">售价</th><th class="text-right">净实收</th><th class="text-right">直接成本</th><th class="text-right">预计分成</th><th>待办</th><th>状态</th><th></th></tr></thead><tbody>
+<?php if ($canDeleteOrders): ?><form method="post" id="bulkForm"><input type="hidden" name="csrf" value="<?php echo e(ps_csrf_token()); ?>"><input type="hidden" name="return_query" value="<?php echo e(http_build_query(array_intersect_key($_GET, array_flip(['month','date_basis','filter_business','state','q','page','employee_id','participating'])))); ?>"><?php endif; ?>
+<div class="card"><div class="card-header d-flex justify-content-between align-items-center flex-wrap" style="gap:8px"><span>订单列表（共 <?php echo (int)$totalOrders; ?> 单<?php if ($totalPages > 1): ?>，第 <?php echo (int)$page; ?>/<?php echo (int)$totalPages; ?> 页<?php endif; ?>）</span><?php if ($canDeleteOrders && $orders): ?><div class="project-bulk-bar"><span class="small text-muted" id="bulkCount">已选 0 单</span><?php if ($isFinance): ?><button class="btn btn-sm btn-outline-success" name="bulk_action" value="receipt" onclick="return confirm('按售价为所选订单确认实收？已有实收、售价待补或店铺交易关闭的订单会跳过。')">按售价确认实收</button><button class="btn btn-sm btn-outline-success" name="bulk_action" value="finish">标记交付完成</button><input type="month" name="bulk_month" class="form-control form-control-sm" style="width:150px" value="<?php echo e($month); ?>" aria-label="分成归属月份"><button class="btn btn-sm btn-success" name="bulk_action" value="approve" onclick="return confirm('审核所选订单并生成项目分成？不满足条件的订单会跳过并列出原因。')">批量审核</button><?php endif; ?><button class="btn btn-sm btn-outline-danger" name="bulk_action" value="delete" onclick="return confirm('删除所选订单？将连同实收流水、成本、参与人和分成快照一并删除，不可恢复；已审核的订单会跳过并列出原因。')">批量删除</button></div><?php endif; ?></div><div class="table-responsive"><table class="table table-hover mb-0 project-order-table">
+  <thead><tr><?php if ($canDeleteOrders): ?><th style="width:34px"><input type="checkbox" id="bulkAll" aria-label="全选"></th><?php endif; ?><th>订单号 / 付款昵称</th><th>业务</th><th>日期</th><th>参与人</th><th class="text-right">售价</th><th class="text-right">净实收</th><th class="text-right">直接成本</th><th class="text-right">预计分成</th><th>待办</th><th>状态</th><th></th></tr></thead><tbody>
   <?php foreach ($pageOrders as $order): ?><tr>
-    <?php if ($isFinance): ?><td><?php if (!in_array($order['settlement_status'], ['approved','locked'], true)): ?><input type="checkbox" name="ids[]" value="<?php echo (int)$order['id']; ?>" class="bulk-item" aria-label="选择 <?php echo e($order['order_no']); ?>"><?php endif; ?></td><?php endif; ?>
+    <?php if ($canDeleteOrders): ?><td><?php if (!in_array($order['settlement_status'], ['approved','locked'], true)): ?><input type="checkbox" name="ids[]" value="<?php echo (int)$order['id']; ?>" class="bulk-item" aria-label="选择 <?php echo e($order['order_no']); ?>"><?php endif; ?></td><?php endif; ?>
     <td><strong><?php echo e($order['order_no']); ?></strong><?php if (!empty($order['is_department_order'])): ?> <span class="badge badge-success">部门订单</span><?php endif; ?><div class="small text-muted"><?php echo e($order['payment_nickname'] ?: ($order['customer_name'] ?: '—')); ?></div><?php if (isset($credentialHits[(int)$order['id']])): ?><div class="small"><span class="badge badge-info">项目账号命中</span> <?php echo e($credentialHits[(int)$order['id']]); ?></div><?php endif; ?></td>
     <td><?php echo e($order['project_type']); ?><?php if ($order['order_kind'] !== ''): ?><div class="small text-muted"><?php echo e($order['order_kind']); ?></div><?php endif; ?></td>
     <td class="text-nowrap"><?php echo e($order['order_date']); ?></td>
@@ -506,7 +574,7 @@ $resourceHint = function ($t) { return trim($t['name'] . ' ' . $t['specification
       <?php echo e(ps_label('settlement', $order['settlement_status'])); ?>
       <div><?php echo $order['delivery_status'] === 'finished' ? '<span class="badge badge-success">已交付完成</span>' : '<span class="badge badge-light border">交付未完成</span>'; ?></div>
     </td>
-    <td><a class="btn btn-outline-primary btn-sm text-nowrap" href="<?php echo BASE_URL; ?>/project/order.php?id=<?php echo (int)$order['id']; ?>">打开结算单</a></td>
+    <td class="text-nowrap"><a class="btn btn-outline-primary btn-sm text-nowrap" href="<?php echo BASE_URL; ?>/project/order.php?id=<?php echo (int)$order['id']; ?>">打开结算单</a><?php if ($canDeleteOrders && !in_array($order['settlement_status'], ['approved','locked'], true)): ?><button type="submit" name="delete_order_id" value="<?php echo (int)$order['id']; ?>" class="btn btn-outline-danger btn-sm text-nowrap ml-1" onclick="return confirm('删除订单 <?php echo e($order['order_no']); ?>？将连同实收流水、成本、参与人和分成快照一并删除，不可恢复。')">删除</button><?php endif; ?></td>
   </tr><?php endforeach; ?>
   <?php if (!$orders): ?><tr><td colspan="12" class="text-center text-muted py-4"><?php echo $keyword !== '' ? '没有匹配的订单' : '本月暂无可查看的项目订单'; ?></td></tr><?php endif; ?>
   </tbody></table></div></div>
@@ -519,7 +587,7 @@ $resourceHint = function ($t) { return trim($t['name'] . ' ' . $t['specification
   <li class="page-item<?php echo $page >= $totalPages ? ' disabled' : ''; ?>"><a class="page-link" href="<?php echo e($pageQuery(min($totalPages, $page + 1))); ?>">下一页</a></li>
 </ul></nav>
 <?php endif; ?>
-<?php if ($isFinance): ?></form><?php endif; ?>
+<?php if ($canDeleteOrders): ?></form><?php endif; ?>
 <div class="modal fade" id="calcAjaxModal" tabindex="-1" role="dialog" aria-hidden="true"><div class="modal-dialog modal-lg modal-dialog-scrollable" role="document"><div class="modal-content"></div></div></div>
 <script>
 // 点预计分成金额：按需加载“计算过程”。弹窗挂到 body 下（卡片的毛玻璃样式会把弹窗困在遮罩后面）。

@@ -175,7 +175,8 @@ function pv_parse_paste($text, array $categories, $actor)
                 . $masked;
             $messages = [['role' => 'system', 'content' => '你是严谨的信息整理助手，只输出 JSON。'], ['role' => 'user', 'content' => $prompt]];
             // 网络偶发（DNS / 连接超时）时自动重试一次
-            try { $reply = ps_ai_chat($messages, 3000); } catch (RuntimeException $e) { if (mb_strpos($e->getMessage(), '无法连接') === false) throw $e; $reply = ps_ai_chat($messages, 3000); }
+            // 推理型模型的思考也占 max_tokens：给足额度，避免内容多时正文被挤空
+            try { $reply = ps_ai_chat($messages, 10000); } catch (RuntimeException $e) { if (mb_strpos($e->getMessage(), '无法连接') === false) throw $e; $reply = ps_ai_chat($messages, 10000); }
             $data = ps_ai_json($reply);
             $items = is_array($data['items'] ?? null) ? $data['items'] : null;
             if ($items === null) throw new RuntimeException('AI 未返回条目');

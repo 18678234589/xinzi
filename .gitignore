@@ -31,3 +31,6 @@ tunnel.bat
 .codex-remote-attachments/
 *.rar
 *.zip
+
+# 含云服务密钥的本地资料，禁止提交
+阿里云短信包.md

@@ -21,8 +21,10 @@ $rows = $q->fetchAll();
 $badge = ['pending' => '<span class="badge badge-warning">待处理</span>', 'resolved' => '<span class="badge badge-success">已处理</span>', 'rejected' => '<span class="badge badge-secondary">未采纳</span>'];
 $page_title = '分成更正申请';
 include __DIR__ . '/../includes/header.php';
+require_once __DIR__ . '/../includes/correction_tabs.php';
 ?>
-<div class="d-flex justify-content-between align-items-center flex-wrap mb-3"><h4 class="mb-0">分成更正申请</h4>
+<?php pc_tabs('order'); ?>
+<div class="d-flex justify-content-between align-items-center flex-wrap mb-3"><h4 class="mb-0">订单分成更正</h4>
   <div class="btn-group btn-group-sm"><?php foreach (['pending' => '待处理', 'resolved' => '已处理', 'rejected' => '未采纳', 'all' => '全部'] as $key => $label): ?><a class="btn btn-outline-secondary<?php echo $status === $key ? ' active' : ''; ?>" href="?status=<?php echo $key; ?>"><?php echo $label; ?></a><?php endforeach; ?></div></div>
 <?php if ($error): ?><div class="alert alert-danger"><?php echo e($error); ?></div><?php endif; ?>
 <?php if (isset($_GET['done'])): ?><div class="alert alert-success">已处理，结果已回复给申请人。</div><?php endif; ?>

@@ -3,6 +3,28 @@ require_once __DIR__ . '/ProjectIntake.php';
 require_once __DIR__ . '/ProjectBusiness.php';
 require_once __DIR__ . '/ProjectAiFallback.php';
 
+/** 退款“已核算至”的月份（如 2026-08）：该月及以前的退款工资已发，只留档，不再自动关联 / 自动扣减，免得冲进后面月份的分成。 */
+function ps_refund_settled_through()
+{
+    $m = (string)ps_setting_get('refund_settled_through', '');
+    return preg_match('/^\d{4}-(0[1-9]|1[0-2])$/', $m) ? $m : '';
+}
+
+/** 只处理“当期有效”的退款行的 SQL 条件：晚于已核算月份、且日期不在未来（防录入笔误）。$a 为表别名前缀，如 'r.'。 */
+function ps_refund_live_sql($a = '')
+{
+    $sql = " AND {$a}refund_date<=CURDATE()";
+    $m = ps_refund_settled_through();
+    if ($m !== '') $sql .= " AND {$a}refund_date>'" . date('Y-m-t', strtotime($m . '-01')) . "'";
+    return $sql;
+}
+
+function ps_refund_is_history($refundDate)
+{
+    $m = ps_refund_settled_through();
+    return $m !== '' && substr((string)$refundDate, 0, 7) <= $m;
+}
+
 function ps_refund_website_business($business)
 {
     return in_array(ps_business_normalize($business), ['网站模板', 'AI网站定制', '网站续费', '网站修改'], true);
@@ -80,6 +102,17 @@ function ps_refund_fingerprint(array $input)
 }
 
 /** 只按确定的订单号或原付款流水唯一关联；退款流水本身不能冒充原订单号。 */
+/** 从“梁冬艳8月微信【130】P2026080139”“微信18952144350N”这类夹带备注的单元格里取出候选订单号。 */
+function ps_refund_order_tokens($text)
+{
+    $text = trim((string)$text);
+    if ($text === '') return [];
+    preg_match_all('/(?<![0-9A-Za-z])(WX-[0-9A-Fa-f]{8,}|[A-Za-z]{0,3}[0-9]{9,}[A-Za-z]?)(?![0-9A-Za-z])/', $text, $m);
+    $tokens = [];
+    foreach ($m[1] as $t) if ($t !== $text && mb_strlen($t) >= 9) $tokens[$t] = $t;
+    return array_values($tokens);
+}
+
 function ps_refund_resolve_order($orderNo, $sourceReference)
 {
     $orderNo = trim((string)$orderNo); $sourceReference = trim((string)$sourceReference);
@@ -87,6 +120,15 @@ function ps_refund_resolve_order($orderNo, $sourceReference)
     if ($orderNo !== '') {
         $q = db()->prepare('SELECT * FROM project_orders WHERE order_no=? LIMIT 1');
         $q->execute([$orderNo]); $byNo = $q->fetch() ?: null;
+    }
+    // 整格文字对不上订单时，尝试取出里面的编号（只在恰好对上一张订单时才采用，避免误关联）
+    $tokenNote = '';
+    if (!$byNo && $orderNo !== '') {
+        $hits = [];
+        $tq = db()->prepare('SELECT * FROM project_orders WHERE order_no=? LIMIT 1');
+        foreach (ps_refund_order_tokens($orderNo) as $token) { $tq->execute([$token]); if ($o = $tq->fetch()) $hits[(int)$o['id']] = $o; }
+        if (count($hits) > 1) return [null, '原文里有多个编号分别对应不同订单，请财务核对'];
+        if ($hits) { $byNo = reset($hits); $tokenNote = '已从原文提取订单号 ' . $byNo['order_no'] . ' 自动关联'; }
     }
     $lookupReference = $sourceReference !== '' ? $sourceReference : ($byNo ? '' : $orderNo);
     if ($lookupReference !== '') {
@@ -97,7 +139,7 @@ function ps_refund_resolve_order($orderNo, $sourceReference)
     }
     if ($byNo && $byReference && (int)$byNo['id'] !== (int)$byReference['id']) return [null, '原订单号与原支付流水指向不同订单，请财务核对'];
     $order = $byNo ?: $byReference;
-    return [$order, $order && !$byNo ? '已按原支付流水自动关联订单 ' . $order['order_no'] : ''];
+    return [$order, $order && !$byNo ? '已按原支付流水自动关联订单 ' . $order['order_no'] : $tokenNote];
 }
 
 /** 原订单后补上传时自动补关联；仅改变待审线索的指向，不产生退款或分成。 */
@@ -105,13 +147,13 @@ function ps_refund_reconcile_pending($actor, $limit = 200)
 {
     if (($actor['role'] ?? '') !== 'finance') return 0;
     $limit = max(1, min((int)$limit, 500)); $linked = 0;
-    $rows = db()->query("SELECT r.id,r.order_no,r.source_payment_reference FROM project_refund_import_rows r WHERE r.review_status='pending' AND r.order_id IS NULL AND (EXISTS (SELECT 1 FROM project_orders o WHERE o.order_no=r.order_no AND r.order_no<>'') OR EXISTS (SELECT 1 FROM project_order_sources s WHERE s.payment_reference<>'' AND (s.payment_reference=r.source_payment_reference OR (r.source_payment_reference='' AND s.payment_reference=r.order_no)))) ORDER BY r.id DESC LIMIT " . $limit)->fetchAll();
+    $rows = db()->query("SELECT r.id,r.order_no,r.source_payment_reference FROM project_refund_import_rows r WHERE r.review_status='pending' AND r.order_id IS NULL AND (r.order_no REGEXP '[0-9]{9}' OR r.source_payment_reference<>'')" . ps_refund_live_sql('r.') . " ORDER BY r.id DESC LIMIT " . $limit)->fetchAll();
     $update = db()->prepare("UPDATE project_refund_import_rows SET order_id=?,order_no=? WHERE id=? AND order_id IS NULL AND review_status='pending'");
     foreach ($rows as $row) {
         [$order] = ps_refund_resolve_order($row['order_no'], $row['source_payment_reference']);
         if (!$order) continue;
         $update->execute([(int)$order['id'], $order['order_no'], (int)$row['id']]);
-        if ($update->rowCount()) { $linked++; ps_audit('refund_import', (int)$row['id'], 'auto_link_order', $actor, ['order_id' => (int)$order['id']]); }
+        if ($update->rowCount()) { $linked++; ps_audit('refund_import', (int)$row['id'], 'auto_link_order', $actor, ['order_id' => (int)$order['id'], 'raw_cell' => mb_substr((string)$row['order_no'], 0, 120)]); }
     }
     return $linked;
 }
@@ -253,6 +295,8 @@ function ps_refund_commit_rows(array $rows, array $selected, $actor, $month)
         }
         if (!$done) throw new RuntimeException('请勾选至少一笔已通过核对的退款');
         if ($nested) $pdo->exec('RELEASE SAVEPOINT project_alipay_refunds'); else $pdo->commit();
+        // 上传 / 登记成功后立即对号并自动扣减能确认的退款（失败不影响已登记的退款）
+        if (!$nested) { try { ps_refund_auto_apply(300); } catch (Throwable $e) { error_log('refund_auto_apply: ' . $e->getMessage()); } }
         return $done;
     } catch (Throwable $e) {
         if ($nested) $pdo->exec('ROLLBACK TO SAVEPOINT project_alipay_refunds');
@@ -276,14 +320,16 @@ function ps_refund_review($id, $decision, $actor, $month, $nested = false, $corr
             $sourceReference = trim((string)$correctedSourceReference) ?: ($row['source_payment_reference'] ?? '');
             $method = ps_refund_method($correctedMethod !== '' ? $correctedMethod : $row['payment_method']);
             $reference = trim((string)$correctedRefundReference) ?: $row['payment_reference'];
-            if ($method === '待核渠道') throw new RuntimeException('请先确认退款渠道（支付宝、微信、银行卡或店铺）');
+            // 渠道只是记账备注，不影响扣减金额：人工审核仍要求先确认渠道，系统自动处理时保留“待核渠道”标记，财务可随时补充。
+            if ($method === '待核渠道' && ($actor['type'] ?? '') !== 'system') throw new RuntimeException('请先确认退款渠道（支付宝、微信、银行卡或店铺）');
             if (mb_strlen($sourceReference) > 200 || mb_strlen($reference) > 150) throw new RuntimeException('交易流水号过长');
             [$resolved, $matchWarning] = ps_refund_resolve_order($orderNo, $sourceReference);
             if (!$resolved) throw new RuntimeException($matchWarning ?: '原项目订单尚未匹配，请填写原订单号或原支付流水号');
             $q = $pdo->prepare('SELECT * FROM project_orders WHERE id=? FOR UPDATE');
             $q->execute([(int)$resolved['id']]); $order = $q->fetch();
             if (!$order) throw new RuntimeException('原项目订单已变化，请重新核对');
-            if ((float)$row['amount'] > round((float)$order['receipt_amount'] - (float)$order['refund_amount'], 2)) throw new RuntimeException('退款超过已审核实收的可退余额，请先核对实收/已退款');
+            $refundBase = (float)$order['receipt_amount'] > 0 ? (float)$order['receipt_amount'] : (float)$order['contract_amount']; // 尚未录入收款时按售价预估
+            if ((float)$row['amount'] > round($refundBase - (float)$order['refund_amount'], 2)) throw new RuntimeException((float)$order['receipt_amount'] > 0 ? '退款超过已审核实收的可退余额，请先核对实收/已退款' : '退款超过订单售价的可退余额，请先核对售价/已退款');
             if ($reference !== '') {
                 $repeat = $pdo->prepare("SELECT id FROM project_refund_import_rows WHERE payment_method=? AND payment_reference=? AND review_status='approved' AND id<>? LIMIT 1");
                 $repeat->execute([$method, $reference, (int)$id]);
@@ -296,9 +342,14 @@ function ps_refund_review($id, $decision, $actor, $month, $nested = false, $corr
             $reason = mb_substr($method . '退款 ' . $row['refund_date'] . ($reference !== '' ? ' 流水号 ' . $reference : '') . ($row['reason'] !== '' ? '；' . $row['reason'] : ''), 0, 300);
             if (in_array($order['settlement_status'], ['approved', 'locked'], true)) ps_post_adjustment((int)$order['id'], $actor, $row['amount'], 0, $reason, $month);
             else {
-                $pdo->prepare("INSERT INTO project_cash_movements (order_id,movement_type,amount,note,review_status,submitted_by_type,submitted_by_id,reviewed_by_admin,reviewed_at) VALUES (?,'refund',?,?,'approved',?,?,?,NOW())")
-                    ->execute([(int)$order['id'], $row['amount'], $reason, $actor['type'], $actor['id'], $actor['id']]);
+                $effMonth = substr((string)$row['refund_date'], 0, 7);
+                $pdo->prepare("INSERT INTO project_cash_movements (order_id,movement_type,amount,note,effective_month,review_status,submitted_by_type,submitted_by_id,reviewed_by_admin,reviewed_at) VALUES (?,'refund',?,?,?,'approved',?,?,?,NOW())")
+                    ->execute([(int)$order['id'], $row['amount'], $reason, $effMonth, $actor['type'], $actor['id'], $actor['id']]);
+                $cashId = (int)$pdo->lastInsertId();
                 ps_recalculate_cash((int)$order['id']);
+                // 退款发生在订单所属月份之后：所属月份不动，在退款月补扣并说明算法
+                require_once __DIR__ . '/ProjectRefundClawback.php';
+                prc_clawback_for_refund((int)$order['id'], (float)$row['amount'], $effMonth, trim((string)$row['reason']), $actor, $cashId);
             }
             $pdo->prepare('UPDATE project_refund_import_rows SET order_id=?,order_no=?,payment_method=?,source_payment_reference=?,payment_reference=? WHERE id=?')->execute([(int)$order['id'], $order['order_no'], $method, $sourceReference, $reference, (int)$id]);
         }
@@ -310,4 +361,66 @@ function ps_refund_review($id, $decision, $actor, $month, $nested = false, $corr
         elseif ($pdo->inTransaction()) $pdo->rollBack();
         throw $e;
     }
+}
+
+/**
+ * 自动对号并扣减退款：①把后补上传的原订单自动关联到待审退款；②对已对上订单、渠道明确、订单未审核且不超过可退金额的退款，
+ * 自动记为已审核退款（计入订单退款，预计分成随之扣减）。其余保持“待审核”并给出原因，由财务处理。
+ * 上传退款表 / 导入订单后会立即触发，另有定时任务兜底。$dryRun=true 只统计不写入。
+ */
+function ps_refund_system_actor() { return ['type' => 'system', 'id' => 0, 'employee_id' => null, 'role' => 'finance', 'username' => 'system']; }
+
+function ps_refund_auto_apply($limit = 300, $dryRun = false)
+{
+    $system = ps_refund_system_actor();
+    $summary = ['linked' => 0, 'applied' => 0, 'would_apply' => 0, 'skipped' => []];
+    if (!$dryRun) {
+        $summary['linked'] = ps_refund_reconcile_pending($system, 500);
+        require_once __DIR__ . '/ProjectRefundMatch.php';
+        $summary['linked'] += prm_auto_nickname($system, 300); // 写成客户ID、且只对应一张订单的退款
+        $shop = prm_shop_refund_sync(false); // 店铺里的售中退款 / 交易关闭
+        $summary['shop_applied'] = $shop['applied']; $summary['shop_queued'] = $shop['queued'];
+    }
+    $rows = db()->query("SELECT * FROM project_refund_import_rows WHERE review_status='pending' AND order_id IS NOT NULL" . ps_refund_live_sql() . " ORDER BY refund_date,id LIMIT " . max(1, min((int)$limit, 1000)))->fetchAll();
+    $orderStmt = db()->prepare('SELECT * FROM project_orders WHERE id=?');
+    foreach ($rows as $row) {
+        $orderStmt->execute([(int)$row['order_id']]); $order = $orderStmt->fetch();
+        $why = '';
+        if (!$order) $why = '原订单已不存在';
+        // 渠道没写明（待核渠道）不拦：渠道只是记账备注，不影响扣减金额，记录上保留标记
+        elseif (in_array($order['settlement_status'], ['approved', 'locked'], true)) $why = '原订单已审核，需财务选择调整计入的月份';
+        else {
+            $base = (float)$order['receipt_amount'] > 0 ? (float)$order['receipt_amount'] : (float)$order['contract_amount'];
+            if ((float)$row['amount'] > round($base - (float)$order['refund_amount'], 2)) $why = '退款金额超过订单可退金额（售价 / 实收 ¥' . number_format($base, 2, '.', '') . '，已退 ¥' . number_format((float)$order['refund_amount'], 2, '.', '') . '）';
+        }
+        if ($why === '' && $dryRun) { $summary['would_apply']++; continue; }
+        if ($why === '') {
+            try { ps_refund_review((int)$row['id'], 'approved', $system, substr($row['refund_date'], 0, 7)); $summary['applied']++; continue; }
+            catch (RuntimeException $e) { $why = $e->getMessage(); }
+        }
+        $summary['skipped'][] = ['id' => (int)$row['id'], 'order_no' => $row['order_no'], 'amount' => $row['amount'], 'reason' => $why];
+    }
+    return $summary;
+}
+
+/** 待审退款的去向分类（退款页面顶部提示用）：能自动扣的 / 没有对应项目订单 / 渠道待核 / 其他。 */
+function ps_refund_pending_breakdown()
+{
+    $out = ['history' => 0, 'total' => 0, 'ready' => 0, 'no_order_in_shop' => 0, 'no_order_unknown' => 0, 'channel' => 0, 'blocked' => 0, 'amount' => 0.0];
+    $rows = db()->query("SELECT r.id,r.order_no,r.amount,r.payment_method,r.order_id,o.settlement_status,o.contract_amount,o.receipt_amount,o.refund_amount FROM project_refund_import_rows r LEFT JOIN project_orders o ON o.id=r.order_id WHERE r.review_status='pending'" . ps_refund_live_sql('r.'))->fetchAll();
+    $out['history'] = (int)db()->query("SELECT COUNT(*) FROM project_refund_import_rows WHERE review_status='pending'" . (ps_refund_settled_through() !== '' ? " AND refund_date<='" . date('Y-m-t', strtotime(ps_refund_settled_through() . '-01')) . "'" : " AND 1=0"))->fetchColumn();
+    if (!function_exists('ps_shop_order_lookup') && is_file(__DIR__ . '/ProjectOrderSource.php')) require_once __DIR__ . '/ProjectOrderSource.php';
+    foreach ($rows as $r) {
+        $out['total']++; $out['amount'] += (float)$r['amount'];
+        if (!$r['order_id']) {
+            $inShop = false; try { $inShop = (bool)ps_shop_order_lookup(trim($r['order_no'])); } catch (Throwable $e) { $inShop = false; }
+            if ($inShop) $out['no_order_in_shop']++; else $out['no_order_unknown']++;
+            continue;
+        }
+        if ($r['payment_method'] === '待核渠道') $out['channel']++;
+        $base = (float)$r['receipt_amount'] > 0 ? (float)$r['receipt_amount'] : (float)$r['contract_amount'];
+        if (in_array($r['settlement_status'], ['approved', 'locked'], true) || (float)$r['amount'] > round($base - (float)$r['refund_amount'], 2)) { $out['blocked']++; continue; }
+        $out['ready']++;
+    }
+    return $out;
 }

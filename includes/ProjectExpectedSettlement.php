@@ -5,6 +5,7 @@ require_once __DIR__ . '/ProjectMonthly.php';
 /** 内存预期记录：只用于看板，不写入分成快照或收款。 */
 function ps_expected_snapshot_rows($order, $summary, $source = [])
 {
+    $order = ps_order_asof($order);
     $rows = [];
     $closed = preg_match('/交易关闭|已关闭|取消订单|已取消/u', (string)($source['trade_status'] ?? '')) === 1;
     $income = (float)$order['receipt_amount'] > 0
@@ -119,7 +120,7 @@ function ps_expected_month($month)
     $q->execute([$month, $from, $until]);
     foreach ($q->fetchAll() as $adjustment) $monthly[] = ['employee_id' => (int)$adjustment['employee_id'], 'rule_id' => 0,
         'rule_name' => '跨月分成更正 · ' . $adjustment['order_no'], 'rule_type' => 'adjustment', 'paid_separately' => 0,
-        'amount' => (float)$adjustment['amount'], 'detail' => (string)$adjustment['reason']];
+        'amount' => (float)$adjustment['amount'], 'detail' => trim((string)$adjustment['reason'] . ((string)($adjustment['calc_note'] ?? '') !== '' ? '｜' . $adjustment['calc_note'] : ''))];
     return $cache[$month] = ['snapshots' => $snapshots, 'monthly' => $monthly, 'warnings' => $warnings];
 }
 

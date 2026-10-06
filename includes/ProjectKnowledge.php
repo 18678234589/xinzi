@@ -329,7 +329,7 @@ function pk_stage_document($provider, $key, array $doc, array $ctx)
 function pk_tabs($active)
 {
     $actor = ps_actor();
-    $tabs = ['articles'=>['knowledge.php','知识文章','fa-book-open'],'links'=>['knowledge_links.php','常用网址','fa-compass'],'categories'=>['knowledge_categories.php','分类库','fa-folder-open'],'rules'=>['knowledge_rules.php','规则中心','fa-sliders-h']];
+    $tabs = ['articles'=>['knowledge.php','知识文章','fa-book-open'],'skills'=>['knowledge_skills.php','沟通技巧库','fa-comments'],'costs'=>['knowledge_costs.php','成本速查','fa-coins'],'links'=>['knowledge_links.php','常用网址','fa-compass'],'categories'=>['knowledge_categories.php','分类库','fa-folder-open'],'rules'=>['knowledge_rules.php','规则中心','fa-sliders-h']];
     if ($actor && pk_is_super($actor)) $tabs['integrations'] = ['knowledge_integrations.php','同步与权限','fa-plug'];
     echo '<nav class="kb-tabs" aria-label="知识库栏目">';
     foreach ($tabs as $key=>$tab) echo '<a class="' . ($active === $key ? 'is-active' : '') . '" href="' . BASE_URL . '/project/' . $tab[0] . '"' . ($active === $key ? ' aria-current="page"' : '') . '><i class="fas ' . $tab[2] . '"></i> ' . $tab[1] . '</a>';

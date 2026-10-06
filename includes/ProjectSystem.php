@@ -117,7 +117,11 @@ function ps_ai_chat(array $messages, $maxTokens = 1200, ?array $config = null)
         throw new RuntimeException('AI 服务返回错误（HTTP ' . $status . '）' . ($message !== '' ? '：' . mb_substr($message, 0, 200) : ''));
     }
     $content = $data['choices'][0]['message']['content'] ?? null;
-    if (!is_string($content)) throw new RuntimeException('AI 服务返回格式不是 OpenAI 兼容格式');
+    if (!is_string($content)) {
+        // 推理型模型会先“思考”再输出，思考占满 max_tokens 时正文为空（finish_reason=length）
+        if (($data['choices'][0]['finish_reason'] ?? '') === 'length') throw new RuntimeException('AI 输出被截断（内容较多，思考用完了额度），请把内容分成几段再识别');
+        throw new RuntimeException('AI 服务返回格式不是 OpenAI 兼容格式');
+    }
     return trim($content);
 }
 

@@ -14,15 +14,33 @@ function ps_actor()
     return $user ? ['type' => 'employee', 'id' => (int)$user['id'], 'employee_id' => (int)$user['employee_id'], 'role' => $user['role'], 'username' => $user['username'], 'phone' => $user['phone'] ?? null, 'password_changed_at' => $user['password_changed_at'] ?? null] : null;
 }
 
+/** 管理层账号是否被财务分配了业务（有业务才开放订单入口，只能在分配的业务里录单）。 */
+function ps_governance_has_business($actor)
+{
+    static $cache = [];
+    $id = (int)($actor['id'] ?? 0);
+    if (!$id) return false;
+    if (!isset($cache[$id])) {
+        try { $q = db()->prepare('SELECT 1 FROM project_user_businesses WHERE user_id=? LIMIT 1'); $q->execute([$id]); $cache[$id] = (bool)$q->fetchColumn(); }
+        catch (Throwable $e) { $cache[$id] = false; }
+    }
+    return $cache[$id];
+}
+
 function ps_require_actor()
 {
     $actor = ps_actor();
     if (!$actor) { header('Location: ' . BASE_URL . '/login.php'); exit; }
     if ($actor['type'] === 'employee' && $actor['role'] === 'governance') {
         $script = basename($_SERVER['SCRIPT_NAME'] ?? '');
-        $allowed = ['profile.php', 'governance.php', 'governance_ideas.php', 'governance_election.php', 'governance_rules.php', 'governance_evidence.php', 'payroll.php', 'welfare.php', 'contributions.php', 'messages.php', 'holidays.php', 'vault.php', 'knowledge.php', 'knowledge_article.php', 'knowledge_links.php', 'knowledge_categories.php', 'knowledge_rules.php', 'knowledge_keywords.php', 'knowledge_integrations.php'];
+        $allowed = ['profile.php', 'governance.php', 'governance_ideas.php', 'governance_election.php', 'governance_rules.php', 'governance_evidence.php', 'payroll.php', 'welfare.php', 'contributions.php', 'messages.php', 'holidays.php', 'vault.php', 'knowledge.php', 'knowledge_article.php', 'knowledge_links.php', 'knowledge_categories.php', 'knowledge_rules.php', 'knowledge_keywords.php', 'knowledge_integrations.php', 'knowledge_skills.php', 'knowledge_skill.php', 'knowledge_skill_import.php', 'knowledge_skills_export.php', 'knowledge_costs.php'];
         if ($script === 'rules.php' && ($_GET['domain'] ?? $_POST['domain'] ?? '') === 'governance') $allowed[] = 'rules.php';
         if ($script === 'rules.php' && ($_GET['domain'] ?? $_POST['domain'] ?? '') === 'welfare') $allowed[] = 'rules.php';
+        // 被分配了业务的管理层账号（如负责备案的董事长）：开放订单入口，页面内按“技术”身份录单，只能在分配的业务里建单、只能看到自己参与的订单。
+        if (in_array($script, ['index.php', 'order.php', 'lookup.php', 'proof.php', 'credentials.php', 'ai.php', 'rule_request_api.php', 'import.php', 'files.php', 'import_undo_api.php'], true) && ps_governance_has_business($actor)) {
+            $allowed[] = $script;
+            $actor['role'] = 'technical'; $actor['governance_orders'] = true;
+        }
         if (!in_array($script, $allowed, true)) { http_response_code(403); exit('此账号仅可访问管理层事项与本人结算'); }
         if ($script !== 'profile.php' && empty($actor['password_changed_at']) && PHP_SAPI !== 'cli') {
             header('Location: ' . BASE_URL . '/project/profile.php?password=1'); exit;
@@ -32,7 +50,7 @@ function ps_require_actor()
     if ($actor['type'] === 'employee' && $actor['role'] === 'vault') {
         $script = basename($_SERVER['SCRIPT_NAME'] ?? '');
         $knowledgeRuleRead = (($script === 'rules.php' && in_array($_GET['domain'] ?? '', ['welfare','governance'],true)) || $script === 'governance_rules.php') && ($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'GET';
-        if (!$knowledgeRuleRead && !in_array($script, ['profile.php', 'vault.php', 'messages.php', 'dup_feedback.php', 'knowledge.php', 'knowledge_article.php', 'knowledge_links.php', 'knowledge_categories.php', 'knowledge_rules.php', 'knowledge_keywords.php', 'knowledge_integrations.php'], true)) { header('Location: ' . BASE_URL . '/project/vault.php'); exit; }
+        if (!$knowledgeRuleRead && !in_array($script, ['profile.php', 'vault.php', 'messages.php', 'dup_feedback.php', 'knowledge.php', 'knowledge_article.php', 'knowledge_links.php', 'knowledge_categories.php', 'knowledge_rules.php', 'knowledge_keywords.php', 'knowledge_integrations.php', 'knowledge_skills.php', 'knowledge_skill.php', 'knowledge_skill_import.php', 'knowledge_skills_export.php', 'knowledge_costs.php'], true)) { header('Location: ' . BASE_URL . '/project/vault.php'); exit; }
         if ($script !== 'profile.php' && empty($actor['password_changed_at']) && PHP_SAPI !== 'cli') { header('Location: ' . BASE_URL . '/project/profile.php?password=1'); exit; }
     }
     // 合作人员首次登录须先绑定手机号（之后可用手机号登录），绑定前只能进入“我的账号”。
@@ -100,7 +118,10 @@ function ps_recalculate_cash($orderId)
     $q->execute([(int)$orderId]);
     $totals = $q->fetch();
     // 退款冲减单（代写换写手、上月退款）以负数实收登记，不受“退款不超过实收”限制。
-    if ((float)$totals['refund'] > 0 && (float)$totals['refund'] > (float)$totals['receipt']) throw new RuntimeException('累计退款不能超过已审核实收');
+    // 尚未录入收款的订单（目前大多数）：退款按售价预估可退金额，不超过售价即可；财务登记实收后再按实收复核。
+    $cs = db()->prepare('SELECT contract_amount FROM project_orders WHERE id=?'); $cs->execute([(int)$orderId]);
+    $refundCap = (float)$totals['receipt'] > 0 ? (float)$totals['receipt'] : (float)$cs->fetchColumn();
+    if ((float)$totals['refund'] > 0 && (float)$totals['refund'] > $refundCap + 0.004) throw new RuntimeException('累计退款不能超过已审核实收（尚未录入收款时不能超过售价）');
     $update = db()->prepare('UPDATE project_orders SET receipt_amount=?,refund_amount=?,row_version=row_version+1 WHERE id=?');
     $update->execute([$totals['receipt'], $totals['refund'], (int)$orderId]);
 }
@@ -182,11 +203,13 @@ function money_plain($value)
  * 服务费 = 售价 × 规则服务费率（未设置时用业务默认）。规则设了“成本下限”时，直接成本取 max(实际成本, 售价 × 下限比例)，
  * 如客服核算博山定制单按售价 65% 计成本、华梦外包按实际 80%。售价低于规则最低售价时不计分成与补助；补助按人每单固定。
  */
-function ps_calc_person($rule, $income, $directCost, $contract, $weight, $businessFeeRate, $costNote = '')
+function ps_calc_person($rule, $income, $directCost, $contract, $weight, $businessFeeRate, $costNote = '', $feeBase = null)
 {
     $mode = ($rule['calc_mode'] ?? 'pool') === 'individual' ? 'individual' : 'pool';
     $feeRate = isset($rule['service_fee_rate']) && $rule['service_fee_rate'] !== null && $rule['service_fee_rate'] !== '' ? (float)$rule['service_fee_rate'] : (float)$businessFeeRate;
-    $fee = round((float)$contract * $feeRate, 2);
+    // 服务费基数：订单有退款时按“售价 − 退款”后的净额计（平台按实际成交额结算），其余仍按售价；起算售价等门槛仍看原售价。
+    $feeBaseAmount = $feeBase === null ? (float)$contract : (float)$feeBase;
+    $fee = round($feeBaseAmount * $feeRate, 2);
     $minCostRate = isset($rule['min_cost_rate']) && $rule['min_cost_rate'] !== null && $rule['min_cost_rate'] !== '' ? (float)$rule['min_cost_rate'] : 0.0;
     $floorApplied = $minCostRate > 0 && (float)$contract * $minCostRate > (float)$directCost;
     $cost = $floorApplied ? round((float)$contract * $minCostRate, 2) : (float)$directCost;
@@ -194,7 +217,7 @@ function ps_calc_person($rule, $income, $directCost, $contract, $weight, $busine
     $feePart = $mode === 'pool' ? round($fee * (float)$weight, 2) : $fee;
     $base = round((float)$income - $costBasis - $feePart, 2);
     // 提成按未取整的服务费计算（核算表按月售价合计 × 费率），展示仍用到分的服务费；差额进“分成尾差”。
-    $feeExact = (float)$contract * $feeRate * ($mode === 'pool' ? (float)$weight : 1);
+    $feeExact = $feeBaseAmount * $feeRate * ($mode === 'pool' ? (float)$weight : 1);
     $baseExact = (float)$income - $costBasis - $feeExact;
     $rate = (float)$rule['rate'];
     $min = (float)($rule['min_contract_amount'] ?? 0);
@@ -233,6 +256,7 @@ function ps_trademark_piece_calc($calc, $count)
 
 function ps_summary($order, $costs, $participants)
 {
+    $order = ps_order_asof($order);
     $income = round((float)$order['receipt_amount'] - (float)$order['refund_amount'], 2);
     $approvedCost = 0.0;
     $pendingCost = 0.0;
@@ -267,7 +291,8 @@ function ps_summary($order, $costs, $participants)
     $orderKind = (string)($order['order_kind'] ?? '');
     // 业务默认店铺服务费按售价计（网站模板/环境配置/小程序 3%），AI 定制默认不扣；分成规则可按组或岗位覆盖。
     $businessFeeRate = ps_business_service_fee_rate($order['project_type']);
-    $serviceFee = round($contract * $businessFeeRate, 2);
+    $feeBase = (float)$order['refund_amount'] > 0 ? max(round($contract - (float)$order['refund_amount'], 2), 0.0) : $contract; // 有退款时服务费按退款后的净额计
+    $serviceFee = round($feeBase * $businessFeeRate, 2);
     $trademarkCount = null;
     if ($order['project_type'] === '商标') {
         static $orderDetailStmt = null;
@@ -288,14 +313,15 @@ function ps_summary($order, $costs, $participants)
         $people = array_values(array_filter($participants, function ($p) use ($group) { return $p['commission_group'] === $group; }));
         $defaultRule = ps_rule_for($group, $order['project_type'], $order['order_date'], '', $orderKind);
         $weight = array_sum(array_map(function ($p) { return (float)$p['group_weight']; }, $people));
-        $pool = 0.0; $estimatedPool = 0.0; $subsidy = 0.0; $missing = false;
+        $pool = 0.0; $estimatedPool = 0.0; $subsidy = 0.0; $missing = false; $subsidyRule = false;
         foreach ($people as $i => $person) {
             $rule = ps_rule_for($group, $order['project_type'], $order['order_date'], $person['role_name'] ?? '', $orderKind);
             $people[$i]['rule'] = $rule;
+            if ($rule && (float)$rule['per_order_subsidy'] > 0) $subsidyRule = true; // 规则本身配置了每单补助（与限定名单是否实际发放无关）
             [$costNow, $noteNow] = $personCost($group, $person['role_name'] ?? '', false);
             [$costEst, $noteEst] = $personCost($group, $person['role_name'] ?? '', true);
-            $people[$i]['calc'] = $rule ? ps_calc_person($rule, $income, $costNow, $contract, $person['group_weight'], $businessFeeRate, $noteNow) : null;
-            $people[$i]['estimated_calc'] = $rule ? $estMark(ps_calc_person($rule, $estIncome, $costEst, $contract, $person['group_weight'], $businessFeeRate, $noteEst)) : null;
+            $people[$i]['calc'] = $rule ? ps_calc_person($rule, $income, $costNow, $contract, $person['group_weight'], $businessFeeRate, $noteNow, $feeBase) : null;
+            $people[$i]['estimated_calc'] = $rule ? $estMark(ps_calc_person($rule, $estIncome, $costEst, $contract, $person['group_weight'], $businessFeeRate, $noteEst, $feeBase)) : null;
             // 规则限定“每单补助只发给指定员工”（subsidy_employee_ids，逗号分隔，留空 = 所有参与人）：不在名单内则取消补助。
             $subsidyOnly = array_filter(array_map('intval', preg_split('/[^\d]+/', (string)($rule['subsidy_employee_ids'] ?? ''))));
             if ($rule && $subsidyOnly && !in_array((int)($person['employee_id'] ?? 0), $subsidyOnly, true)) {
@@ -318,8 +344,8 @@ function ps_summary($order, $costs, $participants)
             // 无参与人时仍显示该组按默认规则可形成的分成池，供财务预估。
             [$costNow, $noteNow] = $personCost($group, '', false);
             [$costEst, $noteEst] = $personCost($group, '', true);
-            $calc = $defaultRule ? ps_calc_person($defaultRule, $income, $costNow, $contract, 1, $businessFeeRate, $noteNow) : null;
-            $estimated = $defaultRule ? $estMark(ps_calc_person($defaultRule, $estIncome, $costEst, $contract, 1, $businessFeeRate, $noteEst)) : null;
+            $calc = $defaultRule ? ps_calc_person($defaultRule, $income, $costNow, $contract, 1, $businessFeeRate, $noteNow, $feeBase) : null;
+            $estimated = $defaultRule ? $estMark(ps_calc_person($defaultRule, $estIncome, $costEst, $contract, 1, $businessFeeRate, $noteEst, $feeBase)) : null;
             if ($order['project_type'] === '商标' && $group === 'technical') {
                 $calc = ps_trademark_piece_calc($calc, $trademarkCount);
                 $estimated = ps_trademark_piece_calc($estimated, $trademarkCount);
@@ -328,7 +354,8 @@ function ps_summary($order, $costs, $participants)
             $estimatedPool = $estimated ? $estimated['share'] : null;
         }
         $rule = $missing ? null : ($defaultRule ?: ($people[0]['rule'] ?? null));
-        $groups[$group] = ['people' => $people, 'rule' => $rule, 'weight' => $weight, 'rate' => $rule ? (float)$rule['rate'] : null, 'missing_rule' => $missing, 'subsidy' => round($subsidy, 2),
+        if ($defaultRule && (float)$defaultRule['per_order_subsidy'] > 0) $subsidyRule = true;
+        $groups[$group] = ['people' => $people, 'rule' => $rule, 'weight' => $weight, 'rate' => $rule ? (float)$rule['rate'] : null, 'missing_rule' => $missing, 'subsidy' => round($subsidy, 2), 'subsidy_rule' => $subsidyRule ? 1 : 0,
             'pool' => $missing || $pool === null ? null : round($pool, 2), 'estimated_pool' => $missing || $estimatedPool === null ? null : round($estimatedPool, 2)];
     }
     return ['income' => $income, 'direct_cost' => $approvedCost, 'approved_cost' => round($approvedCost + $serviceFee, 2), 'service_fee' => $serviceFee, 'service_fee_rate' => $businessFeeRate, 'pending_cost' => $pendingCost,
@@ -515,7 +542,9 @@ function ps_approve_order($orderId, $actor, $payrollMonth)
         }
         if ($order['delivery_status'] !== 'finished') throw new RuntimeException('项目尚未完成');
         if (!empty(ps_business_catalog()[ps_business_normalize($order['project_type'])]['kind_required']) && trim((string)($order['order_kind'] ?? '')) === '') throw new RuntimeException('请先选择订单类型（新订单 / 定制 / 续费），它决定分成比例和每单补助');
-        $hasSubsidy = $sum['groups']['technical']['subsidy'] > 0 || $sum['groups']['customer_service']['subsidy'] > 0;
+        // 补助规则存在但被“补助限定员工”取消发放时仍视为可结算：网站续费等部门单实收可为 0（无流水单），靠补助规则维持可审核。
+        $hasSubsidy = $sum['groups']['technical']['subsidy'] > 0 || $sum['groups']['customer_service']['subsidy'] > 0
+            || !empty($sum['groups']['technical']['subsidy_rule']) || !empty($sum['groups']['customer_service']['subsidy_rule']);
         $allowsNegative = false;
         foreach ($sum['groups'] as $group) foreach ($group['people'] as $person) if (!empty($person['rule']['allow_negative'])) $allowsNegative = true;
         if ($sum['income'] <= 0 && !$hasSubsidy && !($allowsNegative && $sum['income'] < 0)) throw new RuntimeException('没有可结算的实收收入');
@@ -1049,4 +1078,26 @@ function ps_auto_finish_trade_success_orders($days = null)
         'approved' => $approvedCount,
         'orders' => $processed
     ];
+}
+
+/** 退款发生在订单所属月份之后的金额（按退款生效月份判断）；这部分在退款月补扣，不进入订单所属月份的分成。 */
+function ps_refund_later($orderId, $orderDate)
+{
+    static $q = null;
+    try {
+        if ($q === null) $q = db()->prepare("SELECT COALESCE(SUM(amount),0) FROM project_cash_movements WHERE order_id=? AND movement_type='refund' AND review_status='approved' AND effective_month IS NOT NULL AND effective_month>?");
+        $q->execute([(int)$orderId, substr((string)$orderDate, 0, 7)]);
+        return round((float)$q->fetchColumn(), 2);
+    } catch (Throwable $e) {
+        return 0.0; // 字段尚未迁移时按原口径
+    }
+}
+
+/** 订单“所属月份当时”的口径：去掉后月退款。$order['_all_refunds'] 为真时保持全部退款（补扣计算用）。 */
+function ps_order_asof($order)
+{
+    if (!empty($order['_all_refunds']) || empty($order['id']) || (float)($order['refund_amount'] ?? 0) <= 0) return $order;
+    $later = ps_refund_later($order['id'], $order['order_date'] ?? '');
+    if ($later > 0) $order['refund_amount'] = max(round((float)$order['refund_amount'] - $later, 2), 0.0);
+    return $order;
 }

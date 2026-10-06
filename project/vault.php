@@ -9,6 +9,10 @@ $notice = '';
 $json = function ($data, $status = 200) { http_response_code($status); header('Content-Type: application/json; charset=utf-8'); echo json_encode($data, JSON_UNESCAPED_UNICODE); exit; };
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    if (stripos((string)($_SERVER['CONTENT_TYPE'] ?? ''), 'application/json') === 0) {
+        $jsonBody = json_decode((string)file_get_contents('php://input'), true);
+        if (is_array($jsonBody)) $_POST = array_merge($_POST, $jsonBody);
+    }
     $ajax = !empty($_POST['ajax']);
     if (!hash_equals(ps_csrf_token(), (string)($_POST['csrf'] ?? ''))) { if ($ajax) $json(['error' => '页面已过期，请刷新后重试'], 403); ps_check_csrf(); }
     $action = (string)($_POST['action'] ?? '');
@@ -23,7 +27,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } elseif ($action === 'parse') {
             $json(pv_parse_paste((string)($_POST['text'] ?? ''), PV_CATEGORIES, $actor));
         } elseif ($action === 'import') {
-            $items = json_decode((string)($_POST['items'] ?? ''), true);
+            $items = $_POST['items'] ?? '';
+            if (is_string($items)) $items = json_decode($items, true);
             if (!is_array($items) || !$items) throw new RuntimeException('没有要保存的条目');
             $saved = 0;
             db()->beginTransaction();
@@ -32,6 +37,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 db()->commit();
             } catch (Throwable $e) { db()->rollBack(); throw $e; }
             $_SESSION['vault_notice'] = '已导入 ' . $saved . ' 条平台信息';
+            if ($ajax) $json(['saved' => $saved]);
             header('Location: ' . BASE_URL . '/project/vault.php'); exit;
         } elseif ($action === 'save') {
             $id = pv_item_save($_POST, $actor, (int)($_POST['id'] ?? 0));
@@ -145,8 +151,19 @@ include __DIR__ . '/../includes/header.php';
 document.addEventListener('DOMContentLoaded', function () {
   var csrf = <?php echo json_encode(ps_csrf_token()); ?>, categories = <?php echo json_encode(PV_CATEGORIES, JSON_UNESCAPED_UNICODE); ?>, cache = {};
   function post(data) {
-    var body = new URLSearchParams(Object.assign({csrf: csrf, ajax: 1}, data));
-    return fetch(location.pathname, {method: 'POST', body: body, credentials: 'same-origin'}).then(function (r) { return r.json(); }).then(function (d) { if (d.error) throw new Error(d.error); return d; });
+    // 用 JSON 请求体：网站防火墙会把“表单里单个字段过长”的请求拦成 HTML 页面
+    return fetch(location.pathname, {method: 'POST', body: JSON.stringify(Object.assign({csrf: csrf, ajax: 1}, data)), headers: {'Content-Type': 'application/json'}, credentials: 'same-origin'}).then(function (r) {
+      return r.text().then(function (t) {
+        var d;
+        try { d = JSON.parse(t); } catch (e) {
+          if (r.status === 403 && t.indexOf('防火墙') !== -1) throw new Error('请求被网站防火墙拦截，请把内容分成更短的几段再识别');
+          if (r.redirected || t.indexOf('login') !== -1) throw new Error('登录已过期，请刷新页面重新登录后再试');
+          throw new Error('服务器返回了非预期内容（HTTP ' + r.status + '），请刷新页面后重试');
+        }
+        if (d.error) throw new Error(d.error);
+        return d;
+      });
+    });
   }
   function secret(id, purpose) { return cache[id] && purpose !== 'copy' ? Promise.resolve(cache[id]) : post({action: 'reveal', id: id, purpose: purpose || 'reveal'}).then(function (d) { cache[id] = d; return d; }); }
   function copy(text, btn) {
@@ -194,10 +211,14 @@ document.addEventListener('DOMContentLoaded', function () {
   });
   document.getElementById('vaultCheckAll').addEventListener('change', function () { var on = this.checked; document.querySelectorAll('.js-pick').forEach(function (c) { c.checked = on; }); });
   document.getElementById('vaultImportForm').addEventListener('submit', function (ev) {
+    ev.preventDefault();
     var items = [];
     document.querySelectorAll('#vaultPreviewBody tr').forEach(function (tr) { if (!tr.querySelector('.js-pick').checked) return; var it = {}; tr.querySelectorAll('[data-k]').forEach(function (el) { it[el.dataset.k] = el.value; }); items.push(it); });
-    if (!items.length) { ev.preventDefault(); alert('请至少勾选一条'); return; }
-    document.getElementById('vaultImportItems').value = JSON.stringify(items);
+    if (!items.length) { alert('请至少勾选一条'); return; }
+    var btn = this.querySelector('button[type=submit]'), note = document.getElementById('vaultParseNote');
+    if (btn) btn.disabled = true;
+    post({action: 'import', items: items}).then(function () { location.href = location.pathname; })
+      .catch(function (e) { note.textContent = e.message; if (btn) btn.disabled = false; });
   });
 });
 </script>

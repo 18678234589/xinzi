@@ -40,7 +40,20 @@ unset($_SESSION['credential_notice'], $_SESSION['credential_error']);
 document.addEventListener('DOMContentLoaded', function () {
   var endpoint = <?php echo json_encode(BASE_URL . '/project/credentials.php'); ?>, csrf = <?php echo json_encode(ps_csrf_token()); ?>, orderId = <?php echo (int)$order['id']; ?>, kinds = <?php echo json_encode(PV_ORDER_KINDS, JSON_UNESCAPED_UNICODE); ?>, cache = {}, n = 0;
   var esc = function (s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) { return {'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[c]; }); };
-  function post(data) { return fetch(endpoint, {method: 'POST', credentials: 'same-origin', body: new URLSearchParams(Object.assign({csrf: csrf, ajax: 1, order_id: orderId}, data))}).then(function (r) { return r.json(); }).then(function (d) { if (d.error) throw new Error(d.error); return d; }); }
+  function post(data) {
+    return fetch(endpoint, {method: 'POST', credentials: 'same-origin', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(Object.assign({csrf: csrf, ajax: 1, order_id: orderId}, data))}).then(function (r) {
+      return r.text().then(function (t) {
+        var d;
+        try { d = JSON.parse(t); } catch (e) {
+          if (r.status === 403 && t.indexOf('防火墙') !== -1) throw new Error('请求被网站防火墙拦截，请把内容分成更短的几段再识别');
+          if (r.redirected || t.indexOf('login') !== -1) throw new Error('登录已过期，请刷新页面重新登录后再试');
+          throw new Error('服务器返回了非预期内容（HTTP ' + r.status + '），请刷新页面后重试');
+        }
+        if (d.error) throw new Error(d.error);
+        return d;
+      });
+    });
+  }
   function secret(id, purpose) { return cache[id] && purpose !== 'copy' ? Promise.resolve(cache[id]) : post({action: 'reveal', id: id, purpose: purpose || 'reveal'}).then(function (d) { cache[id] = d; return d; }); }
   function copy(text, btn) { var ok = function () { var t = btn.textContent; btn.textContent = '已复制'; setTimeout(function () { btn.textContent = t; }, 1200); }; if (navigator.clipboard && window.isSecureContext) navigator.clipboard.writeText(text).then(ok); else { var ta = document.createElement('textarea'); ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0'; document.body.appendChild(ta); ta.select(); try { document.execCommand('copy'); ok(); } catch (e) { prompt('复制：', text); } document.body.removeChild(ta); } }
   function addRow(it) {

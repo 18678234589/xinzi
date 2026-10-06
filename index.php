@@ -51,6 +51,8 @@ include __DIR__ . '/includes/header.php';
 ?>
 <div class="project-intake-page">
 <div class="project-hero mb-3"><div><div class="project-eyebrow"><?php echo date('Y 年 n 月 j 日'); ?> · 星期<?php echo $weekdays[(int)date('w')]; ?></div><h2><?php echo $greeting; ?>，<?php echo e($display_name); ?></h2><p>今天也辛苦了。常用入口都在下面，项目订单的待审事项会在这里提醒你。</p></div><div class="project-hero-actions"><a class="btn btn-light" href="<?php echo BASE_URL; ?>/project/index.php?entry=1"><i class="fas fa-pen mr-1"></i> 录入项目订单</a><a class="btn btn-outline-light" href="<?php echo BASE_URL; ?>/project/payroll.php"><i class="fas fa-wallet mr-1"></i> 项目报酬结算</a></div></div>
+<?php require_once __DIR__ . '/includes/ProjectRenewals.php'; $actor = ps_actor(); include __DIR__ . '/includes/renewal_due_widget.php'; ?>
+<?php include __DIR__ . '/includes/rule_algo_card.php'; ?>
 
 <div class="dash-grid mb-3">
     <div class="dash-tile"><span class="dash-tile-icon sky"><i class="fas fa-users"></i></span><div><small>合作人员</small><strong><?php echo $emp_count; ?></strong></div></div>

@@ -67,6 +67,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         .login-logo { display: inline-grid; place-items: center; width: 64px; height: 64px; border-radius: 16px; font-size: 28px; color: #fff; background: linear-gradient(145deg,#4c9a78,#2f6a52 55%,#245443); box-shadow: 0 1px 0 rgba(255,255,255,.45) inset, 0 10px 24px -6px rgba(47,106,82,.55); }
         .captcha-img { height: 38px; cursor: pointer; border-radius: 0 8px 8px 0; }
         .badge-2fa { font-size: .7em; vertical-align: middle; }
+        .pw-eye { display: inline-flex; align-items: center; justify-content: center; width: 44px; border: 1px solid #ced4da; border-left: 0; border-radius: 0 8px 8px 0; background: #fff; color: #5f6f68; cursor: pointer; }
+        #loginPassword { border-top-right-radius: 0 !important; border-bottom-right-radius: 0 !important; }
+        .pw-eye:hover, .pw-eye:focus { color: #1f6a52; background: #f3f8f5; box-shadow: none; outline: 0; }
+        .pw-eye:focus-visible { outline: 2px solid #2f7a67; outline-offset: -2px; }
+        .pw-eye[aria-pressed="true"] { color: #1f6a52; }
     </style>
 </head>
 <body class="app-warm">
@@ -91,7 +96,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 <div class="form-group">
                     <div class="input-group">
                         <div class="input-group-prepend"><span class="input-group-text"><i class="fas fa-lock"></i></span></div>
-                        <input type="password" name="password" class="form-control" placeholder="密码">
+                        <input type="password" name="password" id="loginPassword" class="form-control" placeholder="密码" autocomplete="current-password">
+                        <div class="input-group-append"><button type="button" class="btn pw-eye" id="pwEye" aria-label="显示密码" aria-pressed="false" title="显示 / 隐藏密码"><i class="fas fa-eye" aria-hidden="true"></i></button></div>
                     </div>
                 </div>
                 <div class="form-group">
@@ -111,6 +117,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         </div>
     </div>
     <script>
+    // 小眼睛：显示 / 隐藏密码
+    (function () {
+        var input = document.getElementById('loginPassword'), btn = document.getElementById('pwEye');
+        btn.addEventListener('click', function () {
+            var show = input.type === 'password';
+            input.type = show ? 'text' : 'password';
+            btn.setAttribute('aria-pressed', show ? 'true' : 'false');
+            btn.setAttribute('aria-label', show ? '隐藏密码' : '显示密码');
+            btn.firstElementChild.className = show ? 'fas fa-eye-slash' : 'fas fa-eye';
+            input.focus();
+        });
+    })();
     // 点击刷新验证码
     document.getElementById('captchaImg').addEventListener('click', function() {
         this.src = 'captcha.php?t=' + Date.now();

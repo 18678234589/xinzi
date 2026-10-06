@@ -91,7 +91,7 @@ $welfareBalance = pw_balance();
 
   <div class="pd-section-label"><span>01 / 经营脉搏</span><small>清晰看见每一步</small></div>
   <section class="pd-kpis" aria-label="经营数据">
-    <article class="pd-kpi"><b class="pd-kpi-id" aria-hidden="true">01 / ORDERS</b><span><a class="pd-order-count-link" href="<?php echo e($ordersUrl); ?>">参与订单 <i class="fas fa-arrow-up-right-from-square small" aria-hidden="true"></i></a></span><strong><a class="pd-order-count-link" href="<?php echo e($ordersUrl); ?>" aria-label="<?php echo e('查看' . $person['name'] . '在' . $month . '参与的' . (int)$summary['orders'] . '笔订单'); ?>"><?php echo (int)$summary['orders']; ?> <small>单</small></a></strong><em><a class="pd-order-count-link" href="<?php echo e($previousOrdersUrl); ?>">上月 <?php echo (int)$previous['orders']; ?> 单</a></em></article>
+    <article class="pd-kpi"><b class="pd-kpi-id" aria-hidden="true">01 / ORDERS</b><span><a class="pd-order-count-link" href="<?php echo e($ordersUrl); ?>">参与订单 <i class="fas fa-arrow-right small" aria-hidden="true"></i></a></span><strong><a class="pd-order-count-link" href="<?php echo e($ordersUrl); ?>" aria-label="<?php echo e('查看' . $person['name'] . '在' . $month . '参与的' . (int)$summary['orders'] . '笔订单'); ?>"><?php echo (int)$summary['orders']; ?> <small>单</small></a></strong><em><a class="pd-order-count-link" href="<?php echo e($previousOrdersUrl); ?>">上月 <?php echo (int)$previous['orders']; ?> 单</a></em></article>
     <article class="pd-kpi"><b class="pd-kpi-id" aria-hidden="true">02 / VALUE</b><span>订单成交额</span><strong>¥<?php echo money($summary['contract']); ?></strong><em>按本人分单权重归属</em></article>
     <article class="pd-kpi pd-kpi-primary"><b class="pd-kpi-id" aria-hidden="true">03 / EXPECTED INCOME</b><span><?php echo e($month); ?> 预期总收入</span><strong>¥<?php echo money($expectedIncome['total']); ?></strong><em>固定服务费 ¥<?php echo money($expectedIncome['fixed_fee']); ?> + 项目分成 ¥<?php echo money($expectedIncome['commission']); ?> + 预期全勤奖 ¥<?php echo money($expectedIncome['attendance']); ?></em></article>
     <article class="pd-kpi"><b class="pd-kpi-id" aria-hidden="true">04 / EXPECTED SHARE</b><span>预期总分成</span><strong>¥<?php echo money($expectedIncome['commission']); ?></strong><em>逐单分成及补助 ¥<?php echo money($expectedIncome['order_commission']); ?> · 月度阶梯、奖励及调整 ¥<?php echo money($expectedIncome['monthly_commission']); ?></em></article>
@@ -182,4 +182,5 @@ $welfareBalance = pw_balance();
 })();
 </script>
 <?php include __DIR__ . '/../includes/renewal_dashboard_card.php'; ?>
+<?php include __DIR__ . '/../includes/kb_chat_examples_card.php'; ?>
 <?php include __DIR__ . '/../includes/footer.php'; ?>

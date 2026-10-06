@@ -32,6 +32,20 @@ function ps_customer_intake_conflicts($existing, $input)
     return $conflicts;
 }
 
+/** 冲突项的具体对照（原单 vs 上传表），预览里显示在提示下面，方便一眼看出差在哪。 */
+function ps_customer_intake_conflict_detail($existing, $input, array $conflicts)
+{
+    $parts = [];
+    $q = function ($v) { return '“' . trim((string)$v) . '”'; };
+    foreach ($conflicts as $c) {
+        if ($c === '售价') $parts[] = '售价：原单 ¥' . number_format((float)($existing['contract_amount'] ?? 0), 2, '.', '') . '，表里 ¥' . number_format((float)($input['contract_amount'] ?? 0), 2, '.', '');
+        elseif ($c === '店铺') $parts[] = '店铺：原单' . $q($existing['shop'] ?? '') . '，表里' . $q($input['shop'] ?? '');
+        elseif ($c === '付款昵称') $parts[] = '付款昵称：原单' . $q($existing['payment_nickname'] ?? '') . '，表里' . $q($input['payment_nickname'] ?? '');
+        elseif ($c === '支付流水号') $parts[] = '支付流水号：原单' . $q($existing['payment_reference'] ?? '') . '，表里' . $q($input['payment_reference'] ?? '');
+    }
+    return implode('；', $parts);
+}
+
 /** 客服仅补空字段；已经由人工或店铺订单确定的数据须由财务核对更正。调用方负责事务。 */
 function ps_save_customer_intake($orderId, $input, $actor, $allowNoop = false, $fillOnly = false)
 {
