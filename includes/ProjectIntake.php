@@ -427,7 +427,7 @@ function ps_business_import_example_row($business, $headers)
 {
     $columns = ps_business_import_columns($business);
     $kinds = ps_business_order_kinds($business);
-    $samples = ['order_date' => '2026-09-01', 'shop' => '美呀美旗舰店', 'business' => '写具体做什么，如 小程序商城搭建', 'payment_nickname' => 'tb12345678', 'payment_reference' => '', 'order_no' => '示例-3316440471002001958（本行可删，上传时自动跳过）', 'contract_amount' => '350', 'status' => '已完成', 'contact_note' => '13800000000', 'customer_service' => '王宁', 'frontend' => '石凯新', 'backend' => '', 'order_kind' => $kinds[0] ?? '', 'program_name' => '森动中级版', 'domain_used' => '否', 'ssl_used' => '0', 'resource_note' => 'www.example.com', 'direct_cost' => '120', 'direct_cost2' => '0'];
+    $samples = ['order_date' => '2026-09-01', 'shop' => '美呀美旗舰店', 'business' => '写具体做什么，如 小程序商城搭建', 'payment_nickname' => 'tb12345678', 'payment_reference' => '', 'order_no' => '示例-3316440471002001958（本行可删，上传时自动跳过）', 'contract_amount' => '350', 'status' => '已完成', 'contact_note' => '13800000000', 'customer_service' => '王宁', 'frontend' => '石凯新', 'backend' => '', 'order_kind' => $kinds[0] ?? '', 'program_name' => '森动中级版', 'domain_used' => '否', 'ssl_used' => '0', 'resource_note' => 'www.example.com', 'direct_cost' => '120', 'direct_cost2' => '0', 'shipping_cost' => '10', 'detail:domain_name' => '示例.com（本行可删，上传时自动跳过）', 'screenshot_marker' => '（截图链接或留空，仅凭证）', 'backend_type_marker' => '（仅记录）', 'split_amount_note' => '（仅记录）'];
     $row = [];
     foreach ($headers as $label) {
         $value = '';
@@ -569,6 +569,11 @@ function ps_import_business_detect($fileRow, $allowedBusinesses, $selectedBusine
             foreach ($map as $key => $index) {
                 if (strpos($key, 'detail:') === 0 || in_array($key, ['program_name','domain_used','ssl_used','resource_note','ppt_marker'], true)) $scores[$business] += 3;
                 elseif (in_array($key, ['direct_cost2','pay_mode'], true)) $scores[$business] += 2;
+            }
+            // 表头出现“设计师工资 / 设计师主”等列：成本口径为设计师佣金的业务（标书）加分，避免被当成同部门的小程序开发而要求指定技术
+            $def = ps_business_catalog()[$business] ?? [];
+            if (!empty($def['cost_label']) && mb_strpos((string)$def['cost_label'], '设计师') !== false) {
+                foreach ($head as $cell) if (mb_strpos((string)$cell, '设计师') !== false) { $scores[$business] += 4; break; }
             }
         }
     }

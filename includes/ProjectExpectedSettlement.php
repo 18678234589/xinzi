@@ -20,7 +20,8 @@ function ps_expected_snapshot_rows($order, $summary, $source = [])
         if ($people && abs($weight - 1) > 0.00001) continue; // 分配无效不能把重复的 100% 算成真实预期收入。
         foreach ($people as &$person) {
             $person['calc'] = $person['estimated_calc'];
-            if (($closed || $income <= 0) && $person['calc']) {
+            // 取消 / 已全额退款的订单不再获得正分成；从没有过售价的按单量计费订单（备案-单量、二次备案）保留每单固定补助
+            if (($closed || ($income <= 0 && (float)$order['contract_amount'] > 0)) && $person['calc']) {
                 // 退款冲减可以是负分成，取消/全退订单不再获得正分成或计单补助。
                 $person['calc']['share'] = min(0.0, (float)$person['calc']['share']);
                 $person['calc']['base'] = min(0.0, (float)$person['calc']['base']);

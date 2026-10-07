@@ -158,6 +158,44 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     }, $raw);
                     $entry['raw'] = $raw; $entry['head'] = $head;
                 }
+                // 森动备案：①“二次备案”分表按“2026年N月份”标题分段，每行取该月最后一天为日期（订单号带月份，同域名不同月份不合并）；
+                //   已核算月份及以前的段落不导入。②“备案状态=未备案”且无订单号 / 日期的占位行直接忽略（备案完成后再传）。行号保持不变，忽略的行置空。
+                if ($selectedBusiness === '森动备案' && $head && $raw) {
+                    $sbDate = array_search('日期', $head, true); $sbStatus = array_search('备案状态', $head, true);
+                    $sbSecond = $sbDate === false && in_array('域名', $head, true);
+                    if ($sbSecond || $sbStatus !== false) {
+                        $sbNoIdx = array_search('订单编号', $head, true); $sbDom = array_search('域名', $head, true); $sbCon = array_search('联系方式', $head, true);
+                        $sbSettled = (string)ps_setting_get('refund_settled_through', ''); if (!preg_match('/^\d{4}-(0[1-9]|1[0-2])$/', $sbSettled)) $sbSettled = '';
+                        if ($sbSecond) { $head[] = '日期'; $sbDate = count($head) - 1; }
+                        $sbWidth = count($head); $sbMonth = ''; $sbSettledRows = 0; $sbPlaceholder = 0; $sbMonths = [];
+                        $blank = array_fill(0, $sbWidth, '');
+                        $nonEmpty = function ($v) { return trim((string)$v) !== ''; };
+                        foreach ($raw as $k => $r) {
+                            if (!is_array($r)) continue;
+                            $r = array_pad(array_values($r), $sbWidth, '');
+                            if (!array_filter($r, $nonEmpty)) continue;
+                            if ($sbSecond) {
+                                $first = trim((string)$r[0]);
+                                if ($first !== '' && count(array_filter(array_slice($r, 1, $sbWidth - 2), $nonEmpty)) === 0 && preg_match('/(\d{4})\s*年\s*(\d{1,2})\s*月/u', $first, $mm)) { $sbMonth = sprintf('%04d-%02d', $mm[1], $mm[2]); $raw[$k] = $blank; continue; }
+                                if ($sbMonth !== '') {
+                                    if ($sbSettled !== '' && $sbMonth <= $sbSettled) { $sbSettledRows++; $raw[$k] = $blank; continue; }
+                                    $r[$sbDate] = date('Y-m-t', strtotime($sbMonth . '-01'));
+                                    if ($sbNoIdx !== false && $sbDom !== false && trim((string)$r[$sbDom]) !== '') $r[$sbNoIdx] = 'EB-' . strtoupper(substr(md5(mb_strtolower(trim((string)$r[$sbDom])) . '|' . ($sbCon !== false ? trim((string)$r[$sbCon]) : '') . '|' . $sbMonth), 0, 12));
+                                    $sbMonths[$sbMonth] = ($sbMonths[$sbMonth] ?? 0) + 1;
+                                }
+                                $raw[$k] = $r;
+                            } elseif ($sbStatus !== false && mb_strpos(trim((string)$r[$sbStatus]), '未备案') !== false && ($sbNoIdx === false || trim((string)$r[$sbNoIdx]) === '') && ($sbDate === false || trim((string)$r[$sbDate]) === '')) {
+                                $sbPlaceholder++; $raw[$k] = $blank;
+                            }
+                        }
+                        $sbNotes = [];
+                        if ($sbSecond && $sbMonths) { ksort($sbMonths); $sbNotes[] = '已按月份标题取日期：' . implode('、', array_map(function ($m, $c) { return $m . ' ' . $c . ' 行'; }, array_keys($sbMonths), $sbMonths)); }
+                        if ($sbSettledRows) $sbNotes[] = $sbSettledRows . ' 行属于已核算月份（' . $sbSettled . ' 及以前），不再导入';
+                        if ($sbPlaceholder) $sbNotes[] = $sbPlaceholder . ' 行“未备案”占位行已忽略，备案完成后再上传';
+                        if ($sbNotes) $entry['ai'] = implode('；', $sbNotes) . '。';
+                        $entry['raw'] = $raw; $entry['head'] = $head;
+                    }
+                }
                 // 没有表头、第 1 行就是订单（首行有订单号样式的长数字串）：按各列内容识别，首行也作为订单读取
                 $headerlessMap = $head && ps_import_row_is_data($head) ? ps_import_headerless_map(array_merge([$head], $raw), $knownShops, $employeesByName) : null;
                 if ($headerlessMap) $entry = ['raw' => array_merge([$head], $raw), 'head' => array_fill(0, count($head), ''), 'map' => $headerlessMap, 'reason' => '', 'ai' => '表格没有表头，已按各列内容识别订单号、日期、售价、客服、技术等。', 'line_base' => 1];
