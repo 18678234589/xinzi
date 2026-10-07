@@ -37,6 +37,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     unset($_SESSION['captcha']);
                     unset($_SESSION['admin_id'], $_SESSION['admin_username']);
                     $_SESSION['project_user_id'] = (int)$staff['id'];
+                    unset($_SESSION['rip_shown']); // 每次登录都重新提醒补录续费资料
                     session_regenerate_id(true);
                     $destination = !$staff['phone'] ? '/project/profile.php?first=1' : (($staff['role'] === 'governance') ? (empty($staff['password_changed_at']) ? '/project/profile.php?password=1' : '/project/governance_ideas.php') : '/project/index.php');
                     header('Location: ' . BASE_URL . $destination);

@@ -92,6 +92,7 @@ $csrf = e(ps_csrf_token());
 ?>
 <div class="project-intake-page">
 <div class="project-hero mb-3"><div><div class="project-eyebrow">项目合作结算中心 · 管理员</div><h2>系统设置</h2><p>管理各业务审核人分配、客户联系方式查看权限、接入 AI 助手，以及合作人员账户。只有财务 / 管理员能进入这里。</p></div><div class="project-hero-actions"><a class="btn btn-light" href="#reviewers">审核人配置</a><a class="btn btn-outline-light" href="#auto-finish">超时自动完成</a><a class="btn btn-outline-light" href="#contact">联系方式权限</a><a class="btn btn-outline-light" href="#ai">AI 接入</a><a class="btn btn-outline-light" href="<?php echo BASE_URL; ?>/project/settings.php#accounts">合作人员账户</a><a class="btn btn-outline-light" href="#ai-log">AI 托底记录</a><a class="btn btn-outline-light" href="#my-password">我的登录密码</a></div></div>
+<?php if (($actor['type'] ?? '') === 'admin'): ?><div class="alert alert-light border d-flex justify-content-between align-items-center flex-wrap mb-3"><span><i class="fas fa-plug text-info mr-1"></i><strong>接口设置</strong>：域名注册商 / DNSPod / Cloudflare / 七牛 CDN 的 API 凭据（仅系统管理员可见）</span><a class="btn btn-sm btn-outline-info" href="<?php echo BASE_URL; ?>/project/api_settings.php">打开接口设置</a></div><?php endif; ?>
 <?php if ($error): ?><div class="alert alert-danger"><?php echo e($error); ?></div><?php endif; ?>
 <?php if ($success): ?><div class="alert alert-success"><?php echo e($success); ?></div><?php endif; ?>
 
@@ -109,7 +110,7 @@ foreach (ps_business_catalog() as $bizName => $bizDef):
 <tr>
     <td class="font-weight-bold"><?php echo e($bizName); ?></td>
     <td class="small text-muted"><?php echo e(implode('、', $bizDef['departments'] ?? [])); ?></td>
-    <td class="small"><?php echo in_array($bizName, ['AI网站定制','网站模板','网站续费','网站修改'], true) ? '<span class="badge badge-info">宋文娜（网站专责）</span>' : '<span class="badge badge-light">全体财务</span>'; ?></td>
+    <td class="small"><?php echo in_array($bizName, ['AI网站定制','网站模板','网站续费','网站修改','备案-提成','备案-单量'], true) ? '<span class="badge badge-info">宋文娜（网站专责）</span>' : '<span class="badge badge-light">全体财务</span>'; ?></td>
     <td style="max-width:240px">
         <select class="form-control form-control-sm" name="reviewer[<?php echo e($bizName); ?>]">
             <option value="all" <?php echo $currentReviewer === 'all' ? 'selected' : ''; ?>>全体财务 / 不限</option>

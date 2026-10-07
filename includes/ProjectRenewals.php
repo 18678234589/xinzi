@@ -69,8 +69,10 @@ function pr_save($source, $actor)
     $id = (int)($source['id'] ?? 0); $orderId = (int)($source['order_id'] ?? 0);
     $order=pr_order($orderId, $actor);
     $type = (string)($source['resource_type'] ?? '');
-    if (!isset(pr_type_labels()[$type])) throw new RuntimeException('请选择域名或小程序认证');
+    if (!isset(pr_types_for($order['project_type'])[$type])) throw new RuntimeException('请选择该订单可登记的资源类型（微信认证 / 备案 / 域名 / 服务器）');
     $name = trim((string)($source['resource_name'] ?? ''));
+    // 备案 / 服务器不一定有明确名称：留空时用类型名占位，避免只为填名字而不登记到期日
+    if ($name === '' && in_array($type, ['icp', 'server'], true)) $name = pr_type_labels()[$type];
     if ($name === '' || mb_strlen($name) > 180) throw new RuntimeException('请填写域名或小程序名称（最多 180 字）');
     $expiry = pr_date($source['expires_on'] ?? '');
     $expirySource=$expiry && (!empty($source['expiry_confirmed']) || $expiry!==pr_default_expiry($order['order_date'])) ? 'confirmed' : 'estimated';

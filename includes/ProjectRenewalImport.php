@@ -7,18 +7,14 @@ function pr_import_fields($head,$row)
     foreach ($head as $i=>$label) {
         $label=preg_replace('/[\s（）()：:]/u','',trim((string)$label)); $value=trim((string)($row[$i]??''));
         if ($value==='' || mb_strlen($label)>40) continue;
-        $type=null;
-        // A combined domain/server column or long narrative is not an authoritative domain date.
-        if (!preg_match('/空间|服务器|SSL/i',$label)) {
-            if (preg_match('/域名.*(到期|有效期)|(到期|有效期).*域名/u',$label)) $type='domain';
-            elseif (preg_match('/(小程序|认证).*(到期|有效期)|(到期|有效期).*(小程序|认证)/u',$label)) $type='miniapp_certification';
-        }
+        // 域名 / 服务器 / 备案 / 微信认证 的到期日列；域名与服务器合写的列、长段说明不当作权威日期（见 pr_import_label_type）
+        $type=pr_import_label_type($label);
         if ($type) {
             try { $date=function_exists('ps_import_date')?ps_import_date($value):null; } catch (Throwable $e) { $date=null; }
             if (!$date) { try { $date=pr_date($value); } catch (RuntimeException $e) { $date=null; } }
             if ($date) { try { $out['resources'][$type]['expires_on']=pr_date($date); } catch (RuntimeException $e) {} }
         }
-        if (in_array($label,['域名','域名地址','网站域名'],true) && preg_match('/^(?:[a-z0-9-]+\.)+[a-z]{2,63}$/iD',$value)) $out['resources']['domain']['resource_name']=strtolower($value);
+        if (in_array($label,['域名','域名地址','网站域名','客户域名'],true) && preg_match('/^(?:[a-z0-9-]+\.)+[a-z]{2,63}$/iD',$value)) $out['resources']['domain']['resource_name']=strtolower($value);
         if (in_array($label,['小程序名称','小程序名'],true)) $out['resources']['miniapp_certification']['resource_name']=mb_substr($value,0,180);
         if (preg_match('/客户.*(手机|电话)|联系电话|客户联系方式|^手机号$|备注.*客户电话/u',$label) && !preg_match('/客服.*(手机|电话)/u',$label)) {
             preg_match_all('/(?<![0-9])1[3-9][0-9]{9}(?![0-9])/',$value,$m);

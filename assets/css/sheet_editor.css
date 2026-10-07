@@ -1,0 +1,25 @@
+.se-card { border: 1px solid #cfe3d6; border-radius: 16px; background: #fff; margin-bottom: 16px; overflow: hidden; }
+.se-head { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; justify-content: space-between; padding: 12px 16px; background: linear-gradient(135deg, #f4faf6, #fff); border-bottom: 1px solid #e3efe7; }
+.se-title { font-weight: 700; color: #1f4b3d; }
+.se-title i { color: #2e805e; margin-right: 6px; }
+.se-hint { font-size: .82rem; color: #5f6b64; padding: 8px 16px; border-bottom: 1px solid #eef3ef; }
+.se-legend { display: inline-block; width: 12px; height: 12px; border-radius: 3px; vertical-align: -1px; margin: 0 4px 0 10px; border: 1px solid #d9c46a; background: #fff3c4; }
+.se-legend.done { border-color: #9cc9a8; background: #e7f4ea; }
+.se-actions { display: flex; align-items: center; gap: 12px; }
+.se-submit { background: #2e805e; color: #fff !important; border: 0; border-radius: 10px; padding: 7px 16px; font-weight: 600; }
+.se-submit:hover:not(:disabled) { background: #256b51; }
+.se-submit:disabled { background: #b7c9bf; cursor: not-allowed; }
+.se-body { padding: 0; }
+.se-grid { min-height: 120px; }
+.se-grid .jexcel_container { max-width: 100%; }
+.se-grid .jexcel > thead > tr > td.se-edit-head { background: #fff3c4 !important; color: #5b4a00; font-weight: 700; }
+.se-grid .jexcel > tbody > tr > td.readonly { color: #5f6b64; background: #fafbfa; }
+.se-trunc { font-size: .8rem; color: #8a5a00; padding: 6px 16px; }
+.se-modal { position: fixed; top: 0; right: 0; bottom: 0; left: 0; background: rgba(20, 30, 25, .45); z-index: 2000; display: flex; align-items: center; justify-content: center; padding: 16px; }
+.se-modal[hidden] { display: none; }
+.se-modal-box { background: #fff; border-radius: 16px; max-width: 860px; width: 100%; max-height: 86vh; display: flex; flex-direction: column; box-shadow: 0 20px 50px rgba(0, 0, 0, .25); }
+.se-modal-head { padding: 14px 18px; border-bottom: 1px solid #e8eee9; font-weight: 700; display: flex; justify-content: space-between; align-items: center; }
+.se-modal-body { padding: 14px 18px; overflow: auto; }
+.se-modal-foot { padding: 12px 18px; border-top: 1px solid #e8eee9; display: flex; justify-content: flex-end; gap: 8px; }
+.se-ok { background: #2e805e; color: #fff !important; border: 0; border-radius: 10px; padding: 7px 18px; font-weight: 600; }
+.se-close { border: 1px solid #cdd8d1; background: #fff; border-radius: 10px; padding: 7px 14px; }

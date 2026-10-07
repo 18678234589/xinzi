@@ -47,7 +47,7 @@ function prm_pending_unmatched($limit = 60)
 function prm_resolve($id, $orderNo, $mode, $note, $actor)
 {
     if (!ps_refund_after_sales($actor)) throw new RuntimeException('仅售后和财务可以处理待对号退款');
-    if (!in_array($mode, ['deduct', 'duplicate'], true)) throw new RuntimeException('请选择处理方式');
+    if (!in_array($mode, ['deduct', 'duplicate', 'unreported'], true)) throw new RuntimeException('请选择处理方式');
     $note = trim((string)$note);
     $pdo = db();
     $pdo->beginTransaction();
@@ -55,9 +55,18 @@ function prm_resolve($id, $orderNo, $mode, $note, $actor)
         $q = $pdo->prepare('SELECT * FROM project_refund_import_rows WHERE id=? FOR UPDATE');
         $q->execute([(int)$id]); $row = $q->fetch();
         if (!$row || $row['review_status'] !== 'pending') throw new RuntimeException('这笔退款已被处理，请刷新页面');
+        if ($mode === 'unreported') {
+            // 客户付款后马上取消、客服没有报单：项目系统里本来就没有这张订单，没有分成可扣。只留可追溯的记录并结案，不再催办。
+            $typed = trim((string)$orderNo);
+            $reason = mb_substr(trim($row['reason'] . '；【未报单】客户付款后取消，客服未报单，系统无对应订单，未扣减分成（原写：' . $row['order_no'] . ($typed !== '' && $typed !== $row['order_no'] ? ' / 核对单号：' . $typed : '') . '）' . ($note !== '' ? '：' . $note : ''), '；'), 0, 300);
+            $pdo->prepare("UPDATE project_refund_import_rows SET reason=?,review_status='approved',reviewed_by_admin=0,reviewed_at=NOW() WHERE id=?")->execute([$reason, (int)$id]);
+            ps_audit('refund_import', (int)$id, 'match_unreported', $actor, ['raw_cell' => mb_substr((string)$row['order_no'], 0, 120), 'typed' => $typed, 'amount' => $row['amount'], 'note' => $note]);
+            $pdo->commit();
+            return '已记录为“客服未报单”退款 ¥' . number_format((float)$row['amount'], 2, '.', '') . '：系统里没有对应订单，不扣分成。以后该订单若补报，请财务到订单里单独登记这笔退款。';
+        }
         $o = $pdo->prepare('SELECT * FROM project_orders WHERE order_no=? FOR UPDATE');
         $o->execute([trim((string)$orderNo)]); $order = $o->fetch();
-        if (!$order) throw new RuntimeException('找不到订单号 ' . trim((string)$orderNo) . '，请从候选里选或核对后再填');
+        if (!$order) throw new RuntimeException('找不到订单号 ' . trim((string)$orderNo) . '。如果是客服没有报单、系统里确实没有这笔订单，请把处理方式改成“客服未报单：无对应订单”；否则请从候选里选或核对单号后再填');
         $raw = (string)$row['order_no'];
         if ($mode === 'deduct' && ps_refund_is_history($row['refund_date'])) throw new RuntimeException('这笔退款发生在 ' . substr($row['refund_date'], 0, 7) . '，该月工资已核算，不再自动扣减订单；如确需扣减请财务在审核里手动处理');
         if ($mode === 'duplicate') {

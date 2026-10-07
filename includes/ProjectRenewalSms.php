@@ -8,8 +8,8 @@ function pr_sms_config()
 function pr_sms_map($json)
 {
     $map = json_decode((string)$json, true);
-    if (!is_array($map) || !$map || count($map) > 3) throw new RuntimeException('模板变量映射需要是 JSON 对象，例如 {"resource":"resource","date":"date","days":"days"}');
-    foreach ($map as $key=>$field) if (!preg_match('/^[a-zA-Z][a-zA-Z0-9_]{0,29}$/D', (string)$key) || !in_array($field,['resource','date','days'],true)) throw new RuntimeException('变量值只能映射到 resource、date 或 days');
+    if (!is_array($map) || !$map || count($map) > 4) throw new RuntimeException('模板变量映射需要是 JSON 对象，例如 {"resource":"resource","order":"order","date":"date","days":"days"}');
+    foreach ($map as $key=>$field) if (!preg_match('/^[a-zA-Z][a-zA-Z0-9_]{0,29}$/D', (string)$key) || !in_array($field,['resource','order','date','days'],true)) throw new RuntimeException('变量值只能映射到 resource、order、date 或 days');
     return $map;
 }
 function pr_sms_save_config($source, $actor)
@@ -106,7 +106,8 @@ function pr_sms_run($send = false, $transport = null, $now = null)
                 $pdo->prepare("UPDATE project_renewal_sms SET state='cancelled',provider_code='CHANGED_BEFORE_SEND',updated_at=NOW() WHERE id=?")->execute([$id]); $pdo->commit(); $summary['cancelled']++; continue;
             }
             // Resource/config locks keep renewal confirmation or disablement from racing this request (15s timeout).
-            $values=['resource'=>$item['resource_type']==='domain'?'域名':'小程序认证','date'=>$item['expires_on'],'days'=>(string)$job['remind_days']];
+            $oq=$pdo->prepare('SELECT order_no FROM project_orders WHERE id=?'); $oq->execute([$item['order_id']]);
+            $values=['resource'=>(pr_type_labels()[$item['resource_type']] ?? '资源'),'order'=>(string)$oq->fetchColumn(),'date'=>$item['expires_on'],'days'=>(string)$job['remind_days']];
             try { $result=$transport ? $transport($fresh,$phone,$values,'renewal-'.$id) : pr_sms_send($fresh,$phone,$values,'renewal-'.$id); }
             catch (Throwable $e) { $result=['state'=>'unknown','code'=>'TRANSPORT_EXCEPTION','request_id'=>'','biz_id'=>'']; }
             $pdo->prepare('UPDATE project_renewal_sms SET state=?,provider_code=?,provider_request_id=?,provider_biz_id=?,next_attempt_at=DATE_ADD(NOW(),INTERVAL 1 HOUR),updated_at=NOW() WHERE id=?')->execute([$result['state'],$result['code'],$result['request_id'],$result['biz_id'],$id]);

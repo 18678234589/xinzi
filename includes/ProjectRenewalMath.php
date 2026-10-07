@@ -36,7 +36,29 @@ function pr_phone($phone)
     if ($phone !== '' && !preg_match('/^1[3-9][0-9]{9}$/D', $phone)) throw new RuntimeException('请填写客户的中国大陆 11 位手机号；不是合作人员手机号');
     return $phone;
 }
-function pr_type_labels() { return ['domain' => '域名', 'miniapp_certification' => '小程序认证']; }
+function pr_type_labels() { return ['miniapp_certification' => '微信认证', 'icp' => '备案', 'domain' => '域名', 'server' => '服务器']; }
+/** 各业务可登记的资源类型：小程序有微信认证 / 备案 / 域名 / 服务器；网站类没有微信认证。 */
+function pr_types_for($projectType)
+{
+    $all = pr_type_labels();
+    if ($projectType === '小程序开发') return $all;
+    unset($all['miniapp_certification']);
+    return $all;
+}
+function pr_default_type($projectType) { return $projectType === '小程序开发' ? 'miniapp_certification' : 'domain'; }
+/** 表头里的到期日列 → 资源类型。域名和服务器合写、或写的是长段说明的列不当作权威到期日。 */
+function pr_import_label_type($label)
+{
+    if (!preg_match('/到期|有效期/u', $label)) return null;
+    $domain = preg_match('/域名/u', $label); $server = preg_match('/服务器|空间|主机/u', $label);
+    if ($domain && $server) return null;
+    if (preg_match('/SSL|证书/iu', $label)) return null;
+    if ($domain) return 'domain';
+    if ($server) return 'server';
+    if (preg_match('/备案|ICP/iu', $label)) return 'icp';
+    if (preg_match('/小程序|认证/u', $label)) return 'miniapp_certification';
+    return null;
+}
 function pr_policy_scope($role, $department, $name, $businesses)
 {
     if ($role === 'finance') return 'all';

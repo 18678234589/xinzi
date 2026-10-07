@@ -37,7 +37,7 @@ function ps_require_actor()
         if ($script === 'rules.php' && ($_GET['domain'] ?? $_POST['domain'] ?? '') === 'governance') $allowed[] = 'rules.php';
         if ($script === 'rules.php' && ($_GET['domain'] ?? $_POST['domain'] ?? '') === 'welfare') $allowed[] = 'rules.php';
         // 被分配了业务的管理层账号（如负责备案的董事长）：开放订单入口，页面内按“技术”身份录单，只能在分配的业务里建单、只能看到自己参与的订单。
-        if (in_array($script, ['index.php', 'order.php', 'lookup.php', 'proof.php', 'credentials.php', 'ai.php', 'rule_request_api.php', 'import.php', 'files.php', 'import_undo_api.php'], true) && ps_governance_has_business($actor)) {
+        if (in_array($script, ['index.php', 'order.php', 'lookup.php', 'proof.php', 'credentials.php', 'ai.php', 'rule_request_api.php', 'import.php', 'files.php', 'import_undo_api.php', 'file_sheet_api.php', 'renewals.php', 'renewal_gaps.php'], true) && ps_governance_has_business($actor)) {
             $allowed[] = $script;
             $actor['role'] = 'technical'; $actor['governance_orders'] = true;
         }

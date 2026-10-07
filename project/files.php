@@ -84,6 +84,16 @@ include __DIR__ . '/../includes/header.php';
   <div class="d-flex" style="gap:6px"><a class="btn btn-sm btn-outline-secondary" href="<?php echo BASE_URL; ?>/project/files.php?<?php echo e(http_build_query(array_diff_key($_GET, ['view' => 1, 'sheet' => 1]))); ?>">返回列表</a><a class="btn btn-sm btn-primary" href="<?php echo BASE_URL; ?>/project/files.php?download=<?php echo (int)$viewFile['id']; ?>">下载原文件</a></div>
 </div><div class="card-body">
   <?php if (count($sheetNames) > 1): ?><nav class="app-tabs mb-3" aria-label="工作表"><?php foreach ($sheetNames as $name): ?><a href="<?php echo BASE_URL; ?>/project/files.php?<?php echo e(http_build_query(array_merge($_GET, ['sheet' => $name]))); ?>" class="<?php echo $name === $current ? 'active' : ''; ?>"><?php echo e($name); ?> <small>(<?php echo max(count($sheets[$name]) - 1, 0); ?>)</small></a><?php endforeach; ?></nav><?php endif; ?>
+  <?php $canEditSheet = $isFinance || ((int)$viewFile['employee_id'] === (int)($actor['employee_id'] ?? 0) && $viewFile['uploaded_by_type'] === 'employee'); ?>
+  <link href="<?php echo BASE_URL; ?>/assets/lib/jspreadsheet/jsuites.css" rel="stylesheet"><link href="<?php echo BASE_URL; ?>/assets/lib/jspreadsheet/jspreadsheet.css" rel="stylesheet"><link href="<?php echo BASE_URL; ?>/assets/css/sheet_editor.css?v=<?php echo @filemtime(__DIR__ . '/../assets/css/sheet_editor.css'); ?>" rel="stylesheet">
+  <div class="d-flex flex-wrap align-items-center mb-2" style="gap:8px"><button type="button" class="btn btn-sm btn-success" id="seModeEdit" style="color:#fff">在线编辑 / 提交更正</button><button type="button" class="btn btn-sm btn-outline-secondary" id="seModeView">只读查看（可搜索）</button></div>
+  <div class="se-card" id="seRoot" data-api="<?php echo BASE_URL; ?>/project/file_sheet_api.php" data-csrf="<?php echo e(ps_csrf_token()); ?>" data-file="<?php echo (int)$viewFile['id']; ?>" data-sheet="<?php echo e($current); ?>" data-can-edit="<?php echo $canEditSheet ? '1' : '0'; ?>">
+    <div class="se-head"><div class="se-title"><i class="fas fa-table"></i>像 Excel 一样编辑</div><div class="se-actions"><span class="se-status small text-muted"></span><button class="se-submit" type="button" disabled>提交更正</button></div></div>
+    <div class="se-hint"><span class="se-legend"></span>浅黄色表头的列可以修改（客户手机号、客户域名、服务器到期日、售价、店铺、付款昵称），其余列是原表内容、只读。修改会自动保存，可直接从 Excel 复制粘贴；改完点“提交更正”：手机号 / 域名 / 服务器到期日直接写入续费资料，售价 / 店铺 / 付款昵称<?php echo $isFinance ? '直接更正订单' : '提交给财务确认'; ?>。<span class="se-legend done"></span>绿色 = 已提交。原始上传文件不会被改动。</div>
+    <div class="se-body"><div class="se-grid"></div></div><div class="se-trunc" hidden>为保证流畅只载入前 3000 行，完整内容请下载原文件。</div>
+    <div class="se-modal" hidden><div class="se-modal-box"><div class="se-modal-head"><span>提交更正</span><button class="se-close" type="button">关闭</button></div><div class="se-modal-body"></div><div class="se-modal-foot"><button class="se-close" type="button">取消</button><button class="se-ok" type="button">确认提交</button></div></div></div>
+  </div>
+  <div id="sheetStatic" hidden>
   <input type="search" class="form-control mb-2" id="sheetSearch" placeholder="在本表中查找（订单号、客户、姓名…）" aria-label="在本表中查找">
   <div class="table-responsive project-sheet-wrap"><table class="table table-sm table-bordered mb-0 project-sheet" id="sheetTable"><tbody>
   <?php $maxCols = 0; foreach ($rowsToShow as $r) $maxCols = max($maxCols, count($r)); $shown = 0; foreach ($rowsToShow as $i => $r): if (++$shown > 3000) break; ?>
@@ -92,7 +102,19 @@ include __DIR__ . '/../includes/header.php';
   <?php if (!$rowsToShow): ?><tr><td class="text-center text-muted py-4">这张工作表是空的</td></tr><?php endif; ?>
   </tbody></table></div>
   <?php if (count($rowsToShow) > 3000): ?><p class="small text-muted mt-2 mb-0">只显示前 3000 行，完整内容请下载原文件。</p><?php endif; ?>
+  </div>
 </div></div>
+<script src="<?php echo BASE_URL; ?>/assets/lib/jspreadsheet/jsuites.js"></script><script src="<?php echo BASE_URL; ?>/assets/lib/jspreadsheet/jspreadsheet.js"></script><script src="<?php echo BASE_URL; ?>/assets/js/sheet_editor.js?v=<?php echo @filemtime(__DIR__ . '/../assets/js/sheet_editor.js'); ?>"></script>
+<script>
+(function () {
+  document.body.setAttribute('data-finance', <?php echo $isFinance ? "'1'" : "'0'"; ?>);
+  var editWrap = document.getElementById('seRoot'), stat = document.getElementById('sheetStatic'), started = false;
+  function show(edit) { editWrap.hidden = !edit; stat.hidden = edit; document.getElementById('seModeEdit').className = 'btn btn-sm ' + (edit ? 'btn-success' : 'btn-outline-success'); document.getElementById('seModeView').className = 'btn btn-sm ' + (edit ? 'btn-outline-secondary' : 'btn-secondary'); if (edit && !started) { started = true; SheetEditor(editWrap); } }
+  document.getElementById('seModeEdit').addEventListener('click', function () { show(true); });
+  document.getElementById('seModeView').addEventListener('click', function () { show(false); });
+  show(true);
+})();
+</script>
 <script>
 (function () {
   var box = document.getElementById('sheetSearch'), rows = document.querySelectorAll('#sheetTable tr:not(.is-head)');

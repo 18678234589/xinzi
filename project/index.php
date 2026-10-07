@@ -207,6 +207,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $projectType = (string)($_POST['project_type'] ?? '');
         $business = ps_require_business($actor, $projectType);
         if ($no === '' && $paymentReference !== '') $no = ps_payment_reference_order_no($projectType, $paymentReference);
+        // 微信付款客服没拿到单号：勾选“没有订单号”后系统生成内部号（拿到真实单号后在订单页补录）
+        if ($no === '' && $paymentReference === '' && !empty($_POST['no_order_no'])) $no = 'WX-' . strtoupper(substr(hash('sha256', 'noorder|' . $projectType . '|' . $date . '|' . $contract . '|' . microtime(true) . '|' . bin2hex(random_bytes(6))), 0, 24));
+        // 续费所需资料：网站客服 / 售后填客户手机号，网站技术填域名，小程序填服务器到期日；暂时拿不到可勾选“稍后补充”（未补充将不会获得本订单的续费分成）
+        $custPhone = trim((string)($_POST['customer_phone'] ?? '')); $custDomain = trim((string)($_POST['customer_domain'] ?? '')); $serverExpiry = trim((string)($_POST['server_expiry'] ?? ''));
+        if ($actor['role'] !== 'finance' && empty($_POST['info_later'])) {
+            $webBiz = in_array($projectType, ['AI网站定制', '网站模板', '网站续费', '网站修改', '备案-提成'], true);
+            $needInfo = [];
+            if ($webBiz && $actor['role'] === 'customer_service' && $custPhone === '' && !preg_match('/(^|[^0-9])1[3-9][0-9]{9}([^0-9]|$)/', (string)($_POST['contact_note'] ?? ''))) $needInfo[] = '客户手机号';
+            if ($webBiz && $actor['role'] === 'technical' && $custDomain === '') $needInfo[] = '域名';
+            if ($projectType === '小程序开发' && $serverExpiry === '') $needInfo[] = '服务器到期日';
+            if ($needInfo) throw new RuntimeException('请填写' . implode('、', $needInfo) . '；暂时拿不到的可勾选“稍后补充”（未补充将不会获得本订单的续费分成）');
+        }
         $peopleLabels = ps_business_people_labels($projectType);
         $orderKind = ps_order_kind_valid($projectType, $_POST['order_kind'] ?? '');
         if ($orderKind === '' && !empty($business['default_kind'])) $orderKind = $business['default_kind'];
@@ -328,6 +340,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         ps_audit('order', $id, 'create', $actor, ['order_no' => $no, 'order_kind' => $orderKind, 'program_template_id' => $programTemplate['id'] ?? null, 'domain_template_id' => $domainTemplate['id'] ?? null, 'server_template_id' => $serverTemplate['id'] ?? null, 'receipt_unconfirmed' => $actor['role'] !== 'finance']);
         ps_sync_existing_shop_order($id, $no, $shop);
         db()->commit();
+        if ($custPhone !== '' || $custDomain !== '' || $serverExpiry !== '') {
+            try {
+                require_once __DIR__ . '/../includes/ProjectSheetEdit.php';
+                if ($custPhone !== '') pse_set_phone($id, $custPhone, $actor);
+                if ($custDomain !== '') pse_set_domain($id, $custDomain, $actor);
+                if ($serverExpiry !== '') pse_set_server_expiry($id, $serverExpiry, $actor);
+            } catch (Throwable $infoError) { ps_audit('order', $id, 'renewal_info_failed', $actor, ['error' => mb_substr($infoError->getMessage(), 0, 200)]); }
+        }
         if (($_POST['after_save'] ?? '') === 'next') {
             header('Location: ' . BASE_URL . '/project/index.php?' . http_build_query(['business' => $projectType, 'created' => $id, 'entry' => 1])); exit;
         }
@@ -456,6 +476,8 @@ $resourceHint = function ($t) { return trim($t['name'] . ' ' . $t['specification
 <div class="project-intake-page">
 <div class="project-hero mb-3"><div><div class="project-eyebrow">项目合作结算中心 · 订单入口</div><h2><?php if ($actor['role'] === 'finance'): echo e($page_title); else: $hour = (int)date('G'); echo ($hour < 11 ? '早上好' : ($hour < 14 ? '中午好' : ($hour < 18 ? '下午好' : '晚上好'))) . '，' . e($display_name); endif; ?></h2><p><?php echo $actor['role'] === 'customer_service' ? '客服录入买家与成交信息并指定技术；技术在同一订单号补资源和成本，双方看到的是同一张结算单。' : ($actor['role'] === 'technical' ? '打开本人参与的订单补技术资料与成本；先建单时可在结算单关联客服。' : '客服与技术共用一张订单结算单。输入订单号即可从店铺 / ETMLL 流水带出买家与售价，标准成本从成本中心带入。'); ?> 实收由财务确认。</p></div><div class="project-hero-actions"><?php if ($allowedBusinesses): ?><button class="btn btn-light" type="button" id="manualOrderToggle" aria-controls="manual-order" aria-expanded="<?php echo $openEntry ? 'true' : 'false'; ?>"><i class="fas fa-pen mr-1"></i> <span><?php echo $openEntry ? '收起在线录单' : '在线录入订单'; ?></span></button><a class="btn btn-outline-light" href="<?php echo BASE_URL; ?>/project/import.php?business=<?php echo rawurlencode($selectedBusiness); ?>"><i class="fas fa-file-excel mr-1"></i> 批量导入 Excel</a><?php endif; ?><?php if ($departmentImportBusiness): ?><a class="btn btn-outline-light" href="<?php echo BASE_URL; ?>/project/import.php?scope=department&amp;business=<?php echo rawurlencode($departmentImportBusiness); ?>"><i class="fas fa-users mr-1"></i> 网站售后部门订单</a><?php endif; ?><?php if ($actor['role'] === 'finance'): ?><a class="btn btn-outline-light" href="<?php echo BASE_URL; ?>/project/settings.php#cost-center">成本中心</a><?php endif; ?></div></div>
 <?php include __DIR__ . '/../includes/renewal_due_widget.php'; ?>
+<?php include __DIR__ . '/../includes/domain_missing_widget.php'; ?>
+<?php include __DIR__ . '/../includes/renewal_info_popup.php'; ?>
 <?php include __DIR__ . '/../includes/finance_taobao_card.php'; ?>
 <?php include __DIR__ . '/../includes/rule_algo_card.php'; ?>
 <?php if ($error): ?><div class="alert alert-danger"><?php echo e($error); ?></div><?php endif; ?>
@@ -477,11 +499,32 @@ $resourceHint = function ($t) { return trim($t['name'] . ' ' . $t['specification
     </div>
     <?php endif; ?>
     <div class="form-row">
-      <div class="form-group col-md-4"><label for="intakeOrderNo">店铺订单号（有则填）</label><input class="form-control form-control-lg" id="intakeOrderNo" name="order_no" maxlength="100" value="<?php echo e($_POST['order_no'] ?? ''); ?>" placeholder="淘宝/店铺订单号" autofocus></div>
+      <div class="form-group col-md-4"><label for="intakeOrderNo">店铺订单号（有则填）</label><input class="form-control form-control-lg" id="intakeOrderNo" name="order_no" maxlength="100" value="<?php echo e($_POST['order_no'] ?? ''); ?>" placeholder="淘宝/店铺订单号" autofocus><div class="form-check mt-1"><input class="form-check-input" type="checkbox" name="no_order_no" value="1" id="noOrderNo" <?php echo !empty($_POST['no_order_no']) ? 'checked' : ''; ?>><label class="form-check-label small" for="noOrderNo">没有订单号（微信付款，客服也没拿到单号）</label></div></div>
       <div class="form-group col-md-3"><label for="intakeBusiness">业务类型 *</label><select class="form-control form-control-lg" id="intakeBusiness" name="project_type" required><?php foreach ($allowedBusinesses as $businessName): ?><option value="<?php echo e($businessName); ?>" <?php echo $selectedBusiness === $businessName ? 'selected' : ''; ?>><?php echo e($businessName); ?></option><?php endforeach; ?></select></div>
       <div class="form-group col-md-2" id="intakeKindWrap"><label for="intakeKind">订单类型</label><select class="form-control form-control-lg" id="intakeKind" name="order_kind"><option value="">—</option></select></div>
       <div class="form-group col-md-3"><label for="intakeDate">订单日期</label><input class="form-control form-control-lg" id="intakeDate" type="date" name="order_date" value="<?php echo e($_POST['order_date'] ?? ''); ?>"><small class="text-muted">店铺订单号已同步时可自动带入；微信付款请填写支付日期</small></div>
     </div>
+    <div class="form-row" id="intakeRenewalInfo">
+      <div class="form-group col-md-3" data-for="web"><label for="intakePhone">客户手机号 <span class="text-danger info-star" data-role="customer_service" hidden>*</span></label><input class="form-control" id="intakePhone" name="customer_phone" maxlength="20" inputmode="tel" value="<?php echo e($_POST['customer_phone'] ?? ''); ?>" placeholder="客户的 11 位手机号"></div>
+      <div class="form-group col-md-3" data-for="web"><label for="intakeDomain">域名 <span class="text-danger info-star" data-role="technical" hidden>*</span></label><input class="form-control" id="intakeDomain" name="customer_domain" maxlength="120" value="<?php echo e($_POST['customer_domain'] ?? ''); ?>" placeholder="如 example.com"></div>
+      <div class="form-group col-md-3" data-for="mini"><label for="intakeServerExpiry">服务器到期日 <span class="text-danger info-star" data-role="*" hidden>*</span></label><input class="form-control" id="intakeServerExpiry" type="date" name="server_expiry" value="<?php echo e($_POST['server_expiry'] ?? ''); ?>"></div>
+      <div class="form-group col-md-6 d-flex align-items-end"><label class="mb-2 small text-muted" id="intakeInfoLaterWrap"><input type="checkbox" name="info_later" value="1" <?php echo !empty($_POST['info_later']) ? 'checked' : ''; ?>> 暂时拿不到，稍后补充（<strong class="text-danger">未补充将不会获得本订单的续费分成</strong>）</label></div>
+    </div>
+    <script>
+    (function () {
+      var role = <?php echo json_encode($actor['role']); ?>, sel = document.getElementById('intakeBusiness'), wrap = document.getElementById('intakeRenewalInfo');
+      if (!sel || !wrap) return;
+      var web = ['AI网站定制', '网站模板', '网站续费', '网站修改', '备案-提成'];
+      function sync() {
+        var b = sel.value, isWeb = web.indexOf(b) !== -1, isMini = b === '小程序开发';
+        wrap.querySelectorAll('[data-for]').forEach(function (g) { g.hidden = !(g.getAttribute('data-for') === 'web' ? isWeb : isMini); });
+        wrap.querySelectorAll('.info-star').forEach(function (s) { var r = s.getAttribute('data-role'); s.hidden = !((isWeb && r === role) || (isMini && r === '*')); });
+        document.getElementById('intakeInfoLaterWrap').parentNode.hidden = !(isWeb || isMini) || role === 'finance';
+        wrap.hidden = !(isWeb || isMini);
+      }
+      sel.addEventListener('change', sync); sync();
+    })();
+    </script>
     <div id="intakeLookup" class="project-lookup" hidden aria-live="polite"></div>
     <div class="form-row">
       <div class="form-group col-md-3"><label for="intakeShop">店铺（可后补）</label><input class="form-control" id="intakeShop" name="shop" list="intakeShopList" maxlength="150" value="<?php echo e($_POST['shop'] ?? ''); ?>" placeholder="可不填，待上传匹配" autocomplete="off"><datalist id="intakeShopList"><?php foreach ($shops as $shopName): ?><option value="<?php echo e($shopName); ?>"><?php endforeach; ?></datalist></div>

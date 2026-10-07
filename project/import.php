@@ -41,10 +41,10 @@ $renewalRates = $departmentMode ? ps_department_renewal_rates($ruleMonth) : [];
 $businessDefinition = $selectedBusiness ? ps_business_catalog()[$selectedBusiness] : null;
 if (isset($_GET['download']) && $selectedBusiness && $_SERVER['REQUEST_METHOD'] === 'GET') {
     header('Content-Type: text/csv; charset=UTF-8');
-    header('Content-Disposition: attachment; filename="project-order-template.csv"');
+    header('Content-Disposition: attachment; filename="project-order-template.csv"; filename*=UTF-8' . chr(39) . chr(39) . rawurlencode($selectedBusiness . '-订单模板.csv'));
     echo "\xEF\xBB\xBF";
     $output = fopen('php://output', 'wb');
-    $templateHeaders = ps_business_import_headers($selectedBusiness);
+    $templateHeaders = ps_business_import_headers($selectedBusiness, $actor);
     fputcsv($output, $templateHeaders);
     // 附一行示例（订单号以“示例”开头，上传时自动跳过），照着填即可
     fputcsv($output, ps_business_import_example_row($selectedBusiness, $templateHeaders));
@@ -128,6 +128,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if ($actor['role'] !== 'finance') { $nameQuery = db()->prepare('SELECT name FROM employees WHERE id=?'); $nameQuery->execute([(int)$actor['employee_id']]); $actorName = $nameQuery->fetchColumn() ?: '本人'; }
             $knownShops = db()->query('SELECT name FROM shops')->fetchAll(PDO::FETCH_COLUMN);
             $seen = [];
+            $wxSeq = []; // 无订单号行的同键序号：同一张表里完全相同的行也各得一个稳定的内部号
             $blankRows = [];
             $preview = [];
             $exists = db()->prepare('SELECT o.id,o.project_type,o.settlement_status,o.shop,o.contract_amount,o.order_date,s.payment_nickname,s.payment_reference,s.price_source FROM project_orders o LEFT JOIN project_order_sources s ON s.order_id=o.id WHERE o.order_no=? LIMIT 1');
@@ -319,6 +320,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     if ($record['order_no'] === '' && $record['payment_reference'] !== '') {
                         $record['order_no'] = ps_payment_reference_order_no($selectedBusiness, $record['payment_reference']);
                         $record['warning'] .= ($record['warning'] ? '；' : '') . '无店铺订单号，已按微信交易流水号生成内部关联号';
+                    }
+                    // 微信付款等没有订单号的订单：只要有日期、金额和一个识别信息（付款昵称 / 联系方式 / 客服），就按这些内容生成稳定的内部订单号（WX-…），
+                    // 同一张表重复上传得到同一个号，不会重复建单；拿到真实订单号后可在订单页补录。
+                    if ($record['order_no'] === '' && $record['payment_reference'] === '') {
+                        $wxAmount = trim((string)$lookup($row, 'contract_amount')); $wxDate = trim((string)$lookup($row, 'order_date'));
+                        $wxNick = trim((string)$lookup($row, 'payment_nickname')); $wxContact = trim((string)$lookup($row, 'contact_note')); $wxCs = trim((string)$lookup($row, 'customer_service'));
+                        if ($wxAmount !== '' && $wxDate !== '' && ($wxNick !== '' || $wxContact !== '' || $wxCs !== '')) {
+                            $wxKey = mb_strtolower($selectedBusiness . '|' . $wxDate . '|' . trim((string)$lookup($row, 'shop')) . '|' . $wxNick . '|' . $wxAmount . '|' . $wxCs);
+                            $wxSeq[$wxKey] = ($wxSeq[$wxKey] ?? 0) + 1;
+                            $record['order_no'] = 'WX-' . strtoupper(substr(hash('sha256', 'noorder|' . $wxKey . '|' . $wxSeq[$wxKey]), 0, 24));
+                            $record['warning'] .= ($record['warning'] ? '；' : '') . '没有订单号（微信付款等）：已按“日期＋店铺＋付款昵称＋金额”生成内部订单号，拿到真实订单号后可在订单页补录';
+                        }
                     }
                     $exists->execute([$record['order_no']]);
                     $existing = $exists->fetch();
@@ -536,6 +549,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $record['details'] = ps_business_details($selectedBusiness, $rawDetails);
                     if ($record['ssl_used'] !== '' && !in_array($record['ssl_used'], ['无','否'], true) && (!preg_match('/^\d+(?:\.\d{1,2})?$/', $record['ssl_used']) || (float)$record['ssl_used'] > 999999999999.99)) throw new RuntimeException('SSL 真实成本无效，请填写金额、0 或无');
                     if ($record['order_no'] === '' || strlen($record['order_no']) > 100 || !$record['order_date'] || ($record['contract_amount'] !== '' && !preg_match(($record['order_kind'] === '退款冲减' ? '/^-?' : '/^') . '\d+(?:\.\d{1,2})?$/', $record['contract_amount'])) || (float)$record['contract_amount'] > 999999999999.99) throw new RuntimeException(!$record['order_date'] ? '日期无法识别' : ($record['order_no'] === '' ? '缺少店铺订单号或支付流水号' : '订单号或售价无效'));
+                    // 日期年份明显写错（如把 2026 写成 2029）：不让订单悄悄落到错误的月份，要求核对
+                    if (preg_match('/^\d{4}-\d{2}-\d{2}$/', (string)$record['order_date']) && ($record['order_date'] > date('Y-m-d', strtotime('+35 days')) || $record['order_date'] < date('Y-m-d', strtotime('-3 years')))) throw new RuntimeException('日期“' . $record['order_date'] . '”年份异常（应在今天前后合理范围内），请核对年份后重新上传');
                     if ($existing) $record['existing_snapshot'] = $existing;
                     $cs = ps_import_names($lookup($row, 'customer_service'), $employeesByName, $selectedBusiness);
                     // 技术列写的不是合作人员（常见是把项目名称填进了“制作技术”）：不拦整行，提示后忽略；客服列仍严格校验
@@ -976,7 +991,7 @@ include __DIR__ . '/../includes/header.php';
 <?php if (!$selectedBusiness): ?><div class="alert alert-warning">当前账户尚未分配业务，请联系财务配置。</div><?php else: ?>
 <div class="card project-form-card mb-3"><div class="card-body"><div class="project-section-title"><span class="project-step">01</span><div><h5><?php echo $departmentMode ? '部门订单 · 批量上传' : '上传订单表'; ?></h5><p><?php echo $departmentMode ? '支持 .xlsx / .xls / .csv，最多 1500 行、20 MB；只允许网站售后部成员及财务代录。' : '支持 .xlsx / .xls / .csv，最多 1500 行、20 MB。技术和客服只能导入写有本人参与的订单；网站客服新单须指定接单技术。'; ?></p></div></div>
 <?php if ($departmentBusinesses): ?><div class="mb-3"><a class="btn btn-sm <?php echo $departmentMode ? 'btn-outline-secondary' : 'btn-success'; ?>" href="?business=<?php echo rawurlencode($departmentMode ? $selectedBusiness : ($departmentBusinesses[0] ?? '网站续费')); ?>&scope=<?php echo $departmentMode ? 'personal' : 'department'; ?>"><?php echo $departmentMode ? '返回个人订单导入' : '切换到网站售后部门订单'; ?></a></div><?php endif; ?>
-<form method="get" class="form-inline mb-3"><input type="hidden" name="scope" value="<?php echo $departmentMode ? 'department' : 'personal'; ?>"><label class="mr-2" for="importBusiness">业务模板</label><select id="importBusiness" name="business" class="form-control mr-2" onchange="this.form.submit()"><?php foreach ($departmentMode ? $departmentBusinesses : $allowedBusinesses as $businessName): ?><option value="<?php echo e($businessName); ?>" <?php echo $selectedBusiness === $businessName ? 'selected' : ''; ?>><?php echo e($businessName); ?></option><?php endforeach; ?></select><?php if ($departmentMode): ?><label class="mr-2" for="deptRuleMonth">规则月份</label><input id="deptRuleMonth" type="month" name="rule_month" class="form-control mr-2" value="<?php echo e($ruleMonth); ?>" onchange="this.form.submit() "><?php endif; ?><a class="btn btn-outline-success" href="?business=<?php echo rawurlencode($selectedBusiness); ?>&scope=<?php echo $departmentMode ? 'department' : 'personal'; ?>&download=1">下载此业务模板（含示例行）</a></form>
+<form method="get" class="form-inline mb-3"><input type="hidden" name="scope" value="<?php echo $departmentMode ? 'department' : 'personal'; ?>"><label class="mr-2" for="importBusiness">业务模板</label><select id="importBusiness" name="business" class="form-control mr-2" onchange="this.form.submit()"><?php foreach ($departmentMode ? $departmentBusinesses : $allowedBusinesses as $businessName): ?><option value="<?php echo e($businessName); ?>" <?php echo $selectedBusiness === $businessName ? 'selected' : ''; ?>><?php echo e($businessName); ?></option><?php endforeach; ?></select><?php if ($departmentMode): ?><label class="mr-2" for="deptRuleMonth">规则月份</label><input id="deptRuleMonth" type="month" name="rule_month" class="form-control mr-2" value="<?php echo e($ruleMonth); ?>" onchange="this.form.submit() "><?php endif; ?><a class="btn btn-outline-success" href="?business=<?php echo rawurlencode($selectedBusiness); ?>&scope=<?php echo $departmentMode ? 'department' : 'personal'; ?>&download=1">下载此业务模板（含示例行）</a><?php $tplExtras = ps_import_role_extras($selectedBusiness, $actor, ps_business_import_headers_base($selectedBusiness)); if ($tplExtras): ?><span class="small text-muted ml-2">已按你的岗位加入“<?php echo e(implode('、', $tplExtras)); ?>”列</span><?php endif; ?></form>
 <form method="post" enctype="multipart/form-data" id="projectUploadForm" data-legacy-xls-upload><input type="hidden" name="csrf" value="<?php echo e(ps_csrf_token()); ?>"><input type="hidden" name="action" value="preview"><input type="hidden" name="business" value="<?php echo e($selectedBusiness); ?>"><input type="hidden" name="scope" value="<?php echo $departmentMode ? 'department' : 'personal'; ?>"><input type="hidden" name="rule_month" value="<?php echo e($ruleMonth); ?>">
 <?php if ($departmentMode): ?>
 <div class="p-3 mb-3" style="background:#f0f7f2;border:1px solid #d8eadc;border-radius:14px">

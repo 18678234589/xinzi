@@ -63,6 +63,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             db()->prepare('INSERT INTO project_order_details (order_id,business_name,details_json) VALUES (?,?,?) ON DUPLICATE KEY UPDATE details_json=VALUES(details_json)')
                 ->execute([$id, '网站模板', json_encode($existing, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR)]);
             ps_audit('order', $id, 'technical_details', $actor, ['fields' => array_keys(array_filter($details, 'strlen'))]);
+        } elseif ($action === 'rename_order_no') {
+            require_once __DIR__ . '/../includes/ProjectOrderNo.php';
+            pon_rename($id, (string)($_POST['new_order_no'] ?? ''), $actor);
         } elseif ($action === 'update_order') {
             if (!$finance) throw new RuntimeException('无权限');
             $contract = (string)($_POST['contract_amount'] ?? '');
@@ -342,6 +345,10 @@ include __DIR__ . '/../includes/header.php';
 ?>
 <div class="d-flex justify-content-between align-items-center mb-3"><h4 class="mb-0">订单结算单 <small class="text-muted"><?php echo e($order['order_no']); ?></small></h4><a class="btn btn-outline-secondary btn-sm" href="<?php echo BASE_URL; ?>/project/index.php">返回订单</a></div>
 <?php if ($error): ?><div class="alert alert-danger"><?php echo e($error); ?></div><?php endif; ?>
+<?php if (strpos((string)$order['order_no'], 'WX-') === 0 && $canEdit): ?>
+<div class="alert alert-warning d-flex flex-wrap align-items-center justify-content-between" style="gap:8px"><span><i class="fas fa-link mr-1"></i><strong>这是没有订单号的订单（系统生成了内部号）。</strong>拿到客户的真实订单号后，在这里补录，退款和店铺流水才能自动对上。</span>
+<form method="post" class="form-inline" onsubmit="return confirm('确认把订单号改成所填内容？')"><input type="hidden" name="csrf" value="<?php echo e(ps_csrf_token()); ?>"><input type="hidden" name="action" value="rename_order_no"><input class="form-control form-control-sm mr-2" name="new_order_no" maxlength="100" placeholder="真实订单号" required style="min-width:220px"><button class="btn btn-sm btn-warning">补录订单号</button></form></div>
+<?php endif; ?>
 <?php if (isset($_GET['saved'])): ?><div class="alert alert-success">已保存</div><?php endif; ?>
 <?php if (isset($_GET['corr'])): ?><div class="alert alert-success">更正申请已提交，财务和管理员会在“更正申请”里看到，处理结果会回复到你的站内信。</div><?php endif; ?>
 <?php if (isset($_GET['adjusted'])): ?><div class="alert alert-success">售后调整已登记，生成 <?php echo (int)$_GET['adjusted']; ?> 条分成调整（金额无变化的人员不生成）。</div><?php endif; ?>

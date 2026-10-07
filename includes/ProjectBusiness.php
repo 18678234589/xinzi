@@ -136,8 +136,9 @@ function ps_require_business($actor, $business)
 
 function ps_active_employee_for_business($employeeId, $role, $business)
 {
-    $q = db()->prepare('SELECT id,employee_id,role FROM project_users WHERE employee_id=? AND role=? AND is_active=1 LIMIT 1');
-    $q->execute([(int)$employeeId, $role]);
+    // 管理层账号（如栾鑫）被分配了业务后，也可以作为该业务的接单技术
+    $q = db()->prepare("SELECT id,employee_id,role FROM project_users WHERE employee_id=? AND (role=? OR (role='governance' AND ?='technical')) AND is_active=1 LIMIT 1");
+    $q->execute([(int)$employeeId, $role, $role]);
     $user = $q->fetch();
     return $user && in_array(ps_business_normalize($business), ps_actor_businesses($user), true);
 }
@@ -273,7 +274,35 @@ function ps_business_import_columns($business)
 }
 
 /** 下载用表头；AI 网站定制保持原模板 14 列顺序不变；网站续费对齐售后部 2026-09 新表；备案两表按 2026-10 原表列序。 */
-function ps_business_import_headers($business)
+/** 按岗位给网站类模板追加的列：客服 / 售后补“客户手机号”，技术补“客户域名”（便于到期提醒和续费联系）。 */
+function ps_import_role_extras($business, $actor, array $headers = [])
+{
+    if ($actor && $business === '小程序开发' && ($actor['role'] ?? '') !== 'finance') {
+        foreach ($headers as $h) if (preg_match('/服务器.*(到期|有效期)|(到期|有效期).*服务器/u', (string)$h)) return [];
+        return ['服务器到期日']; // 小程序订单需提供服务器到期日，用于续费提醒和续费分成
+    }
+    if (!$actor || !in_array($business, ['AI网站定制', '网站模板', '网站续费', '网站修改', '备案-提成'], true)) return [];
+    $role = $actor['role'] ?? '';
+    if ($role === 'customer_service') {
+        foreach ($headers as $h) if (preg_match('/^(客户)?(手机号?码?|电话|联系电话|联系方式)$/u', trim((string)$h))) return []; // 只有专门的手机号列才算已有；“备注（写客户电话或者微信）”这类备注列不算
+        return ['客户手机号'];
+    }
+    if ($role === 'technical') {
+        foreach ($headers as $h) if (in_array(trim((string)$h), ['域名', '域名地址', '网站域名', '客户域名'], true)) return [];
+        return ['客户域名'];
+    }
+    return [];
+}
+
+/** 下载模板用的表头：业务基础表头 + 当前岗位需要的列。 */
+function ps_business_import_headers($business, $actor = null)
+{
+    $headers = ps_business_import_headers_base($business);
+    foreach (ps_import_role_extras($business, $actor, $headers) as $extra) $headers[] = $extra;
+    return $headers;
+}
+
+function ps_business_import_headers_base($business)
 {
     // 网站售后部续费表按原表列序输出，中间保留一列空表头与原表一致。
     if ($business === '网站续费') return ['接单客服', '拍建站', '续费年数', '程序名称', '版本', '店铺', '付费旺旺', '日期', '订单编号', '售价', '总成本', '空间成本', '域名成本', '域名真实成本', '', '空间域名', '备注1', '备注2'];
