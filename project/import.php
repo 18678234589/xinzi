@@ -538,6 +538,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         $group = $actor['role'] === 'technical' ? 'technical' : 'customer_service';
                         // 代写类：编辑员（客服账号）在代写订单上是“对接编辑”，本人在任一组即可
                         if (!empty($businessDefinition['import_cost']) && !isset($record['people'][$group][(int)$actor['employee_id']]) && isset($record['people']['technical'][(int)$actor['employee_id']])) $group = 'technical';
+                        // 上传人只要在这行订单里（客服或技术任一栏）就算本人订单；另一栏写别人是正常业务（如环境配置同事写客服、技术是前后端同事）。
+                        $otherGroup = $group === 'technical' ? 'customer_service' : 'technical';
+                        if (!isset($record['people'][$group][(int)$actor['employee_id']]) && isset($record['people'][$otherGroup][(int)$actor['employee_id']])) $group = $otherGroup;
                         if (!isset($record['people'][$group][(int)$actor['employee_id']])) {
                             $listed = implode('、', array_column($record['people'][$group], 'name'));
                             if ($listed !== '') $record['skip_status'] = '他人订单';
@@ -695,6 +698,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 if ($actor['role'] !== 'finance' && !$departmentMode) {
                     $group = $actor['role'] === 'technical' ? 'technical' : 'customer_service';
                     if (!empty($businessDefinition['import_cost']) && !isset($row['people'][$group][(int)$actor['employee_id']]) && isset($row['people']['technical'][(int)$actor['employee_id']])) $group = 'technical';
+                    // 与预览一致：上传人在客服或技术任一栏即可，另一栏可以是别人
+                    $otherGroup = $group === 'technical' ? 'customer_service' : 'technical';
+                    if (!isset($row['people'][$group][(int)$actor['employee_id']]) && isset($row['people'][$otherGroup][(int)$actor['employee_id']])) $group = $otherGroup;
                     if (!isset($row['people'][$group][(int)$actor['employee_id']])) throw new RuntimeException('第 ' . $line . ' 行不属于当前登录人员，请重新上传核对');
                 }
                 $needsResources = $resourceSelection && empty($row['resource_locked']);

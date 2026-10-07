@@ -140,7 +140,7 @@ function etmll_sync_run(bool $dryRun = false): array
         o.product_title,o.order_pay_time,o.shipping_time,o.created_at,o.shop_name,
         o.merchant_order_no,o.commission,o.proxy_amount,m.name AS merchant_name,p.name AS partner_name
         FROM `order` o LEFT JOIN merchant m ON m.id=o.merchant_id LEFT JOIN partner p ON p.id=o.partner_id
-        WHERE o.status=0 ORDER BY o.id ASC");
+        WHERE o.status=0 AND COALESCE(o.order_pay_time,o.created_at)>='" . date('Y-m-d', strtotime('-1 year')) . "' ORDER BY o.id ASC");
     try {
         return etmll_sync_orders($pdo, $src, $dryRun);
     } finally {

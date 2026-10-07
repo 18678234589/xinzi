@@ -2,6 +2,7 @@
 require_once __DIR__ . '/../includes/auth.php';
 require_login();
 require_once __DIR__ . '/../includes/etmll_sync.php';
+require_once __DIR__ . '/../includes/etmll_push.php';
 
 $page_title = 'ETMLL订单同步';
 $success = '';
@@ -25,6 +26,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             } catch (Throwable $auditError) {
                 error_log('ETMLL 同步已完成，操作日志暂未写入。');
             }
+        } elseif ($action === 'push_preview' || $action === 'push_backfill') {
+            if (etmll_push_since() === '') ps_setting_set('etmll_push_since', date('Y-m-d H:i:s'), (int)$_SESSION['admin_id']);
+            $dry = $action === 'push_preview';
+            $pushResult = etmll_push_run($dry, true, 20000);
+            $notice = $dry
+                ? '回填预览（未写入）：近一年内本站有、ETMLL 没有的订单共 ' . $pushResult['would_push'] . ' 条，合计 ¥' . number_format($pushResult['amount'], 2) . '。确认无误后点“确认回填到 ETMLL”。'
+                : '';
+            if (!$dry) $success = '已回填 ' . $pushResult['pushed'] . ' 条订单到 ETMLL（合计 ¥' . number_format($pushResult['amount'], 2) . '），已有订单号 ' . $pushResult['skipped_existing'] . ' 条未覆盖；这些订单在 ETMLL 标记为“' . ETMLL_PUSH_TAG . '”，合伙人归属待分配。';
         } elseif ($action === 'preview') {
             $preview = etmll_sync_run(true);
             $notice  = "预览完成：预计新增 {$preview['inserted']} 条、更新 {$preview['updated']} 条、关联已有流水 {$preview['linked_existing']} 条；尚未写入。";
@@ -96,6 +105,19 @@ include __DIR__ . '/../includes/header.php';
     </div>
 </div>
 <div class="alert alert-light border mb-3"><i class="fas fa-clock text-info"></i> ETMLL 来源最新付款：<strong><?php echo e(substr((string)$status['latest_source_paid'],0,19) ?: '暂无付款记录'); ?></strong>。同步会读取来源现有订单；尚未进入来源库的新订单，需先在 ETMLL 完成导入。</div>
+
+<?php $pushSince = etmll_push_since(); ?>
+<div class="card mb-3 border-info">
+    <div class="card-header bg-white"><h5 class="mb-0"><i class="fas fa-exchange-alt text-info"></i> 双向自动同步（仅近一年订单）</h5></div>
+    <div class="card-body">
+        <p class="mb-2 small text-muted">每 5 分钟自动同步一次：ETMLL 新订单 → 本站店铺流水；本站新上传的店铺订单 → ETMLL（只推正数金额、近一年、ETMLL 已有的订单号不覆盖；合伙人归属留空由 ETMLL 分配，在 ETMLL 标记为“<?php echo e(ETMLL_PUSH_TAG); ?>”）。</p>
+        <p class="mb-2">自动推送起点：<strong><?php echo e($pushSince ?: '未开启'); ?></strong>（此后新上传的订单才自动推送）</p>
+        <?php if (!empty($pushResult)): ?><div class="alert alert-light border small mb-2">近一年历史订单：本站有而 ETMLL 没有 <strong><?php echo (int)($pushResult['would_push'] + $pushResult['pushed']); ?></strong> 条，¥<?php echo number_format($pushResult['amount'], 2); ?>
+            <?php foreach ($pushResult['by_shop'] as $sn => $cnt): ?><span class="badge badge-light border ml-1"><?php echo e($sn); ?> <?php echo (int)$cnt; ?></span><?php endforeach; ?></div><?php endif; ?>
+        <form method="post" class="d-inline"><input type="hidden" name="csrf" value="<?php echo e(ps_csrf_token()); ?>"><input type="hidden" name="action" value="push_preview"><button class="btn btn-outline-info btn-sm">预览历史回填</button></form>
+        <form method="post" class="d-inline" onsubmit="return confirm('确认把近一年内本站有、ETMLL 没有的历史订单写入 ETMLL？\n这些订单会进入 ETMLL 的订单表（合伙人归属待分配），可能影响 ETMLL 的结算统计。');"><input type="hidden" name="csrf" value="<?php echo e(ps_csrf_token()); ?>"><input type="hidden" name="action" value="push_backfill"><button class="btn btn-warning btn-sm">确认回填到 ETMLL</button></form>
+    </div>
+</div>
 
 <div class="row">
     <!-- 左侧：店铺对照 -->
