@@ -1,6 +1,7 @@
 <?php
 if (PHP_SAPI !== 'cli') { http_response_code(403); exit; }
 require_once __DIR__ . '/../includes/etmll_sync.php';
+require_once __DIR__ . '/../includes/ProjectShopState.php';
 
 function etmll_check($value, $message)
 {
@@ -90,6 +91,15 @@ $restored = etmll_sync_orders($pdo,$source,false);
 etmll_check($restored['updated']===1,'source correction must update again');
 $raw = json_decode($pdo->query('SELECT raw_data FROM orders WHERE id=' . $updatedId)->fetchColumn(),true);
 etmll_check(empty($raw['__is_refund__']),'cleared refund must not retain old refund flag');
+$statement = ps_shop_statement_merge($raw, ['__order_status__'=>'交易成功','__trade_time__'=>'2026-09-23 10:20:30','买家实付金额'=>100,'人工备注'=>'最新表格']);
+etmll_check(empty($statement['__etmll_id__']) && $statement['__etmll_linked_id__']===4,'latest shop upload must release old ETMLL ownership without losing linkage');
+etmll_check($statement['__financial_source__']==='shop_statement' && $statement['人工备注']==='最新表格','latest statement must retain trusted provenance and new values');
+$pdo->prepare('UPDATE orders SET raw_data=? WHERE id=?')->execute([json_encode($statement,JSON_UNESCAPED_UNICODE),$updatedId]);
+$source[4]['raw_status'] = '买家已付款,等待卖家发货';
+etmll_sync_orders($pdo,$source,false);
+$afterStatement = json_decode($pdo->query('SELECT raw_data FROM orders WHERE id='.$updatedId)->fetchColumn(),true);
+etmll_check($afterStatement['__order_status__']==='交易成功' && $afterStatement['人工备注']==='最新表格','background ETMLL cache must not overwrite uploaded latest state');
+etmll_check((int)$pdo->query("SELECT COUNT(*) FROM orders WHERE order_no='ETM-UPDATE'")->fetchColumn()===1,'upload takeover must not duplicate a previously synchronized order');
 $sql = etmll_source_select_sql('2025-10-08');
 etmll_check(strpos($sql,'o.status IN (0,1)')!==false,'verified source orders must remain synchronizable');
 etmll_check(strpos($sql,'o.order_create_time')!==false && strpos($sql,'COALESCE(o.order_pay_time')===false,'old payment timestamp cannot mask newer creation timestamp');
