@@ -986,7 +986,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 } catch (Throwable $reviewError) { error_log('auto_review_import_followup: ' . $reviewError->getMessage()); }
                 // Ancillary renewal data cannot roll back or block valid financial orders.
                 require_once __DIR__ . '/../includes/ProjectRenewalImport.php';
-                if (pr_ready()) {
+                // 续费资料只在确有可补的行时才预置（pr_seed 要扫全部订单，备案等表没有续费列，不必每次导入都跑）
+                if (pr_ready() && array_filter($ready, function ($renewalEntry) { $f = $renewalEntry[0]['renewal_fields'] ?? []; return !empty($f) && (($f['phone'] ?? '') !== '' || !empty($f['resources'])); })) {
                     try {
                         pr_seed();
                         foreach ($ready as $renewalEntry) {

@@ -10,6 +10,9 @@ function pos_ensure()
 {
     static $done = false;
     if ($done) return;
+    // 表已存在就不再执行建表语句：DDL 要等元数据锁，前面有长事务时会把后面所有访问这张表的请求都排队拖住（网关超时）。
+    try { db()->query('SELECT 1 FROM project_order_splits LIMIT 0'); $done = true; return; }
+    catch (PDOException $e) { if ((string)$e->getCode() !== '42S02') throw $e; }
     db()->exec("CREATE TABLE IF NOT EXISTS project_order_splits (
       id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
       parent_order_id BIGINT UNSIGNED NOT NULL,

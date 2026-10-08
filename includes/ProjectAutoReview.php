@@ -20,27 +20,51 @@ function pa_sources(array $order, array $source, $lock = false)
 {
     $evidenceNo = trim((string)pos_evidence_order_no($order)); // 分单子单按原订单号核对店铺流水
     $refs = [$evidenceNo];
-    if (trim((string)($source['payment_reference'] ?? '')) !== '') $refs[] = trim($source['payment_reference']);
+    $paymentReference = trim((string)($source['payment_reference'] ?? ''));
+    if ($paymentReference !== '') $refs[] = $paymentReference;
     $refs = array_values(array_unique($refs));
-    $identity = 'order_no IN (' . implode(',', array_fill(0, count($refs), '?')) . ')';
-    $params = $refs;
-    if (!empty($source['payment_reference'])) {
-        foreach (['支付宝交易号','微信交易号','支付订单号','交易流水号','商家订单号'] as $field) {
-            $path = '$."' . $field . '"';
-            $identity .= ' OR (CASE WHEN JSON_VALID(raw_data) THEN JSON_UNQUOTE(JSON_EXTRACT(raw_data,?)) ELSE NULL END)=?';
-            array_push($params, $path, trim($source['payment_reference']));
+    $base = "SELECT id,order_no,shop,raw_data FROM orders WHERE employee_id=0 AND order_scope='department' AND COALESCE(is_deleted,0)=0";
+    // 先按订单号走索引；交易号只在订单日期前后一段时间内、且 raw_data 含该号码的流水里找，
+    // 不再对全部店铺流水逐行解析 JSON（线上一次要 18 秒，导入后核对 25 单会触发网关超时）。
+    $q = db()->prepare($base . ' AND order_no IN (' . implode(',', array_fill(0, count($refs), '?')) . ') ORDER BY id DESC LIMIT 40' . ($lock ? ' FOR UPDATE' : ''));
+    $q->execute($refs);
+    $found = [];
+    foreach ($q->fetchAll() as $row) $found[(int)$row['id']] = $row;
+    // 订单号已直接对上店铺流水时，交易号只是补充（原逻辑也只取直接匹配）；描述性文字（如“公司网报”）不是交易号，不必扫流水。
+    $hasDirect = (bool)array_filter($found, function ($row) use ($evidenceNo) { return $row['order_no'] === $evidenceNo; });
+    if ($paymentReference !== '' && !$hasDirect && preg_match('/[A-Za-z0-9]{10,}/', $paymentReference)) {
+        $orderDate = (string)($order['order_date'] ?? '');
+        $time = $orderDate !== '' ? strtotime($orderDate) : false;
+        $window = $time ? ' AND order_date>=? AND order_date<=?' : '';
+        $params = ['%' . str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], $paymentReference) . '%'];
+        if ($time) array_push($params, date('Y-m-d', $time - 60 * 86400), date('Y-m-d', $time + 60 * 86400));
+        $q = db()->prepare($base . ' AND raw_data LIKE ?' . $window . ' ORDER BY id DESC LIMIT 200');
+        $q->execute($params);
+        $candidates = [];
+        foreach ($q->fetchAll() as $row) {
+            $raw = json_decode((string)$row['raw_data'], true);
+            if (!is_array($raw)) continue;
+            foreach (['支付宝交易号', '微信交易号', '支付订单号', '交易流水号', '商家订单号'] as $field) {
+                if (isset($raw[$field]) && trim((string)$raw[$field]) === $paymentReference) { $candidates[(int)$row['id']] = true; break; }
+            }
+        }
+        $candidates = array_diff_key($candidates, $found);
+        if ($candidates) {
+            $ids = array_slice(array_keys($candidates), 0, 40);
+            $q = db()->prepare($base . ' AND id IN (' . implode(',', array_fill(0, count($ids), '?')) . ') ORDER BY id DESC' . ($lock ? ' FOR UPDATE' : ''));
+            $q->execute($ids);
+            foreach ($q->fetchAll() as $row) $found[(int)$row['id']] = $row;
         }
     }
-    $q = db()->prepare("SELECT id,order_no,shop,raw_data FROM orders WHERE ($identity) AND employee_id=0 AND order_scope='department' AND COALESCE(is_deleted,0)=0 ORDER BY id DESC LIMIT 40" . ($lock ? ' FOR UPDATE' : ''));
-    $q->execute($params);
+    krsort($found);
     $rows = [];
-    foreach ($q->fetchAll() as $row) {
+    foreach (array_slice($found, 0, 40, true) as $row) {
         $row['raw'] = json_decode((string)$row['raw_data'], true) ?: [];
         $row['matched_by_reference'] = $row['order_no'] !== $evidenceNo;
         unset($row['raw_data']);
         $rows[] = $row;
     }
-    $direct = array_values(array_filter($rows,function($row)use($evidenceNo){return $row['order_no']===$evidenceNo;}));
+    $direct = array_values(array_filter($rows, function ($row) use ($evidenceNo) { return $row['order_no'] === $evidenceNo; }));
     if ($direct) return $direct; // Full platform order number takes precedence over a combined payment reference.
     return $rows;
 }
@@ -229,11 +253,13 @@ function pa_view(array $row)
 }
 
 /** Ancillary review never rolls back or blocks a successful upload/save. */
-function pa_after_save(array $ids)
+function pa_after_save(array $ids, $budgetSeconds = 15)
 {
     if (!pa_storage_available()) return;
     $apply = (bool)ps_setting_get('auto_review_enabled', false);
+    $deadline = microtime(true) + (float)$budgetSeconds; // 超出时间预算的订单留给定时核对，上传请求不能被拖到网关超时
     foreach (array_slice(array_unique(array_map('intval', $ids)), 0, 25) as $id) {
+        if (microtime(true) > $deadline) break;
         try { pa_check_order($id, $apply, true); }
         catch (Throwable $e) { error_log('auto_review_after_save order=' . $id . ' ' . $e->getMessage()); }
     }

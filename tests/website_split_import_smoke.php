@@ -77,6 +77,16 @@ try {
     [$pv, $imp, $err] = $importAs($song, '网站模板', $csv);
     $check(count($orders("$no3%")) === 2 && count($orders("$no4%")) === 1, '整张表重复上传不重复建单');
 
+    echo "=== 四、备案人员上传的订单号已是网站模板订单（备案是在网站订单上追加的服务） ===\n";
+    $filer = $actorOf('刘媛媛');
+    $no5 = "51277$tag" . '61970300';
+    $pdo->prepare("INSERT INTO project_orders (order_no,customer_name,project_type,order_kind,shop,contract_amount,order_date,delivery_status,note) VALUES (?,'测试客户','网站模板','','美呀美',250,'2026-08-28','unfinished','测试')")->execute([$no5]);
+    $filerHead = "日期,订单编号,订单类型,项目执行\n";
+    [$pv, $imp, $err] = $importAs($filer, '备案-提成', $filerHead . "2026.8.28,$no5,备案,刘媛媛\n");
+    $check(!empty($pv[0]['base_valid']) && ($pv[0]['error'] ?? '') === '', '备案上传同号网站订单不再提示“已属于其他业务”：' . ($pv[0]['error'] ?? ''));
+    $rows = $orders("$no5%");
+    $check($err === '' && $imp === 1 && count($rows) === 2 && $rows[1]['project_type'] === '备案-提成', '备案另记一张“备案-提成”订单，网站订单不变');
+
     echo "\n=== 网站分单与多网站同号测试全部通过 ===\n";
 } catch (Throwable $e) {
     fwrite(STDERR, $e->getMessage() . "\n");
