@@ -66,6 +66,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             db()->prepare('UPDATE project_cost_templates SET is_active=0 WHERE id=?')->execute([$templateId]);
             ps_audit('template', $templateId, 'disable', $actor, []);
             $success = '旧模板已停用，历史成本快照不受影响';
+        } elseif ($action === 'trademark_cost_backfill') {
+            require_once __DIR__ . '/../includes/ProjectTrademarkCost.php';
+            $done = ptc_backfill($actor);
+            $success = $done['costs'] ? '已给 ' . $done['orders'] . ' 张未审核商标订单补带商标成本，共 ' . $done['costs'] . ' 条' : '没有需要补带成本的未审核商标订单（无商标个数或已带入过）';
         } elseif ($action === 'import_templates') {
             $added = ps_apply_preset_templates($actor);
             $success = $added ? '已从《程序表记录》导入 ' . $added . ' 个标准成本模板' : '《程序表记录》中的模板均已存在，无需导入';
@@ -252,6 +256,7 @@ $pct = function ($value) { return rtrim(rtrim(number_format((float)$value * 100,
 
 <div id="cost-center" class="card mb-3"><div class="card-header d-flex justify-content-between align-items-center flex-wrap"><span>成本中心 · 标准成本模板库（启用 <?php echo $activeTemplateCount; ?> 个）</span><input type="search" id="templateFilter" class="form-control form-control-sm" style="max-width:260px" placeholder="搜索名称 / 规格，如 JSP展示中级" aria-label="搜索成本模板"></div>
 <div class="card-body">
+<div class="project-preset mb-3"><div><strong><i class="fas fa-copyright mr-1"></i> 商标成本自动带入</strong><div class="small text-muted">商标表格没有成本列。在下方添加成本时选「适用业务 = 商标」「单位 = 件」「固定价」（官费、代理费等可各建一条），导入商标订单时按「商标个数 × 单价」自动入账。已导入的未审核订单可在这里一键补带；已审核 / 锁定的订单不动。</div></div><form method="post" onsubmit="return confirm('给所有未审核的商标订单补带商标成本？');"><input type="hidden" name="csrf" value="<?php echo $csrf; ?>"><input type="hidden" name="action" value="trademark_cost_backfill"><button class="btn btn-outline-primary btn-sm" type="submit">给未审核商标订单补带成本</button></form></div>
 <div class="project-preset mb-3"><div><strong><i class="fas fa-file-import mr-1"></i> 《程序表记录（成本中心记录）》</strong><div class="small text-muted">共 <?php echo count($presetTemplates); ?> 项：森动 / JSP / 青站 / 优站 / PHP 等程序套餐的“采购价 / 核算成本”，以及域名首年 80（次年 90）、SSL 30 / 泛域名 250、短信包等插件。待导入 <?php echo $presetTemplateNew; ?> 项<?php echo $presetTemplateDiffers ? '；另有 ' . $presetTemplateDiffers . ' 项现价与表格不同，保留现价（需要时用“改价”）' : ''; ?>。</div></div><form method="post"><input type="hidden" name="csrf" value="<?php echo $csrf; ?>"><input type="hidden" name="action" value="import_templates"><button class="btn btn-success text-nowrap" <?php echo $presetTemplateNew ? '' : 'disabled'; ?> onclick="return confirm('导入 <?php echo $presetTemplateNew; ?> 个标准成本模板？已存在的模板不会被覆盖。')">一键导入</button></form></div>
 <form method="post" class="form-row align-items-end"><input type="hidden" name="csrf" value="<?php echo $csrf; ?>"><input type="hidden" name="action" value="template">
 <div class="form-group col-md-2"><label>类别</label><select name="category" class="form-control"><?php foreach ($categories as $key => $label): ?><option value="<?php echo e($key); ?>"><?php echo e($label); ?></option><?php endforeach; ?></select></div>

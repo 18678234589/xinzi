@@ -67,7 +67,7 @@ function ps_template_cost_status($template, $amount)
     return ((float)$amount <= 500 || $template['category'] === 'program' || ($template['price_mode'] ?? 'fixed') === 'percent') ? 'approved' : 'pending';
 }
 
-function ps_intake_add_template_cost($orderId, $template, $actor, $origin)
+function ps_intake_add_template_cost($orderId, $template, $actor, $origin, $quantity = 1)
 {
     $contract = 0.0;
     if (($template['price_mode'] ?? 'fixed') === 'percent') {
@@ -75,10 +75,10 @@ function ps_intake_add_template_cost($orderId, $template, $actor, $origin)
         $q->execute([(int)$orderId]);
         $contract = (float)$q->fetchColumn();
     }
-    [$price, $amount, $supplier] = ps_template_cost_amount($template, $contract);
+    [$price, $amount, $supplier] = ps_template_cost_amount($template, $contract, $quantity);
     $status = ps_template_cost_status($template, $amount);
-    $q = db()->prepare('INSERT INTO project_costs (order_id,template_id,template_version,category,item_name,quantity,unit,unit_price,amount,supplier_amount,cost_kind,is_custom,reason,review_status,submitted_by_employee) VALUES (?,?,?,?,?,1,?,?,?,?,?,0,?,?,?)');
-    $q->execute([(int)$orderId, (int)$template['id'], (int)$template['version'], $template['category'], $template['name'] . ($template['specification'] ? ' · ' . $template['specification'] : ''), $template['unit'], $price, $amount, $supplier, $template['cost_kind'], $origin, $status, $actor['employee_id'] ?? null]);
+    $q = db()->prepare('INSERT INTO project_costs (order_id,template_id,template_version,category,item_name,quantity,unit,unit_price,amount,supplier_amount,cost_kind,is_custom,reason,review_status,submitted_by_employee) VALUES (?,?,?,?,?,?,?,?,?,?,?,0,?,?,?)');
+    $q->execute([(int)$orderId, (int)$template['id'], (int)$template['version'], $template['category'], $template['name'] . ($template['specification'] ? ' · ' . $template['specification'] : ''), (float)$quantity, $template['unit'], $price, $amount, $supplier, $template['cost_kind'], $origin, $status, $actor['employee_id'] ?? null]);
     $costId = (int)db()->lastInsertId();
     ps_audit('cost', $costId, 'create_from_intake', $actor, ['order_id' => (int)$orderId, 'template_id' => (int)$template['id'], 'amount' => $amount, 'status' => $status, 'origin' => $origin]);
     return $costId;
@@ -159,6 +159,29 @@ function ps_intake_domain_suggestion($resourceNote, $templates)
         $matches[] = $template;
     }
     return count($matches) === 1 ? $matches[0] : null;
+}
+
+/** 订单号去掉“订单编号：”标签和尾部备注（“… 和某某一起”“…科恒中信”），保留“科中2026091901”这类带前缀的内部号。 */
+function ps_order_no_canonical($raw)
+{
+    $no = trim((string)$raw);
+    $no = trim(preg_replace('/^(?:订单编号|订单号|订单|单号|编号)\s*[:：]\s*/u', '', $no));
+    if (preg_match('/^[\p{Han}]{0,4}[A-Za-z0-9_-]{6,}/u', $no, $m)) return $m[0];
+    return $no;
+}
+
+/** 与库里已有订单同号（忽略标签和尾部备注）时沿用库里的写法，否则用规范写法；保证同一订单不会因写法不同重复建单。 */
+function ps_order_no_resolve($raw)
+{
+    $canonical = ps_order_no_canonical($raw);
+    if ($canonical === '' || mb_strlen($canonical) < 8) return trim((string)$raw);
+    $q = db()->prepare('SELECT order_no FROM project_orders WHERE order_no=? LIMIT 1');
+    $q->execute([$canonical]);
+    if ($exact = $q->fetchColumn()) return $exact;
+    $like = db()->prepare('SELECT order_no FROM project_orders WHERE order_no LIKE ? ORDER BY id LIMIT 20');
+    $like->execute(['%' . str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], $canonical) . '%']);
+    foreach ($like->fetchAll(PDO::FETCH_COLUMN) as $stored) if (ps_order_no_canonical($stored) === $canonical) return $stored;
+    return $canonical;
 }
 
 /** 订单某组（技术 / 客服）是否已有参与人。 */

@@ -41,7 +41,7 @@ function ps_business_catalog()
         // 标书（曹双双、王宁兼标书客服）：(售价 − 成本 − 售价 × 3% 服务费) × 10%；成本 = 设计师佣金合计，随表导入。
         '标书' => ['departments' => ['标书'], 'resources' => false, 'requires_technical' => false, 'service_fee_rate' => 0.03, 'order_kinds' => [], 'cost_label' => '设计师佣金', 'import_cost' => true, 'free_shop' => true, 'fields' => ['designer' => '设计师 / 技术昵称']],
         // 平面设计（阎泸琪）：逐单不计提成，按月营业额阶梯结算（规则中心“营业额阶梯薪酬”）；原表“老客户”列有内容记为老客户找回（+10%）。
-        '平面设计' => ['departments' => ['平面设计'], 'resources' => false, 'requires_technical' => false, 'service_fee_rate' => 0, 'order_kinds' => ['新订单', '老客户找回'], 'kind_required' => true, 'default_kind' => '新订单', 'free_shop' => true, 'fields' => ['design_item' => '设计内容']],
+        '平面设计' => ['departments' => ['平面设计'], 'resources' => false, 'requires_technical' => false, 'service_fee_rate' => 0, 'order_kinds' => ['新订单', '老客户找回'], 'kind_required' => true, 'default_kind' => '新订单', 'free_shop' => true, 'price_from_order' => true, 'fields' => ['design_item' => '设计内容']],
     ];
 }
 

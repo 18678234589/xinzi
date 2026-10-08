@@ -1,5 +1,7 @@
 <?php
 require_once __DIR__ . '/../includes/ProjectIntake.php';
+require_once __DIR__ . '/../includes/ProjectOrderSplit.php';
+pos_ensure();
 require_once __DIR__ . '/../includes/ProjectImportResult.php';
 require_once __DIR__ . '/../includes/ProjectBusiness.php';
 require_once __DIR__ . '/../includes/ProjectOrderSource.php';
@@ -186,7 +188,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     ps_check_csrf();
     if (!in_array($actor['role'], ['finance', 'customer_service', 'technical'], true)) { http_response_code(403); exit('无权限'); }
     try {
-        $no = trim((string)($_POST['order_no'] ?? ''));
+        $no = ps_order_no_resolve($_POST['order_no'] ?? '');
         $date = trim((string)($_POST['order_date'] ?? ''));
         $paymentReference = trim((string)($_POST['payment_reference'] ?? ''));
         $contract = trim((string)($_POST['contract_amount'] ?? ''));
@@ -398,6 +400,7 @@ $sql = "SELECT o.*, " . $reviewSelect . " s.synced_at source_synced_at,COALESCE(
     (SELECT COUNT(*) FROM project_order_requests por WHERE por.order_id=o.id AND por.request_type='product_upgrade' AND por.status='pending') pending_upgrade_requests,
     (SELECT COUNT(*) FROM project_participants p WHERE p.order_id=o.id AND p.commission_group='technical') tech_count,
     EXISTS (SELECT 1 FROM project_department_orders d WHERE d.order_id=o.id) is_department_order,
+    (SELECT sp.parent_order_id FROM project_order_splits sp WHERE sp.child_order_id=o.id LIMIT 1) split_parent_id,(SELECT COUNT(*) FROM project_order_splits sc WHERE sc.parent_order_id=o.id) split_children,
     (SELECT GROUP_CONCAT(e.name ORDER BY p.commission_group DESC,p.id SEPARATOR '、') FROM project_participants p JOIN employees e ON e.id=p.employee_id WHERE p.order_id=o.id) people
     FROM project_orders o LEFT JOIN project_order_sources s ON s.order_id=o.id LEFT JOIN project_order_resources r ON r.order_id=o.id" . $reviewJoin . "
     WHERE " . implode(' AND ', $where) . ' ORDER BY o.' . $dateBasis . ' DESC,o.id DESC';
@@ -605,7 +608,7 @@ $resourceHint = function ($t) { return trim($t['name'] . ' ' . $t['specification
   <thead><tr><?php if ($canDeleteOrders): ?><th style="width:34px"><input type="checkbox" id="bulkAll" aria-label="全选"></th><?php endif; ?><th>订单号 / 付款昵称</th><th>业务</th><th>日期</th><th>参与人</th><th class="text-right">售价</th><th class="text-right">净实收</th><th class="text-right">直接成本</th><th class="text-right">预计分成</th><th>系统核对／待补事项</th><th>结算状态</th><th></th></tr></thead><tbody>
   <?php foreach ($pageOrders as $order): ?><tr>
     <?php if ($canDeleteOrders): ?><td><?php if (!in_array($order['settlement_status'], ['approved','locked'], true)): ?><input type="checkbox" name="ids[]" value="<?php echo (int)$order['id']; ?>" class="bulk-item" aria-label="选择 <?php echo e($order['order_no']); ?>"><?php endif; ?></td><?php endif; ?>
-    <td><strong><?php echo e($order['order_no']); ?></strong><?php if (!empty($order['is_department_order'])): ?> <span class="badge badge-success">部门订单</span><?php endif; ?><div class="small text-muted"><?php echo e($order['payment_nickname'] ?: ($order['customer_name'] ?: '—')); ?></div><?php if (isset($credentialHits[(int)$order['id']])): ?><div class="small"><span class="badge badge-info">项目账号命中</span> <?php echo e($credentialHits[(int)$order['id']]); ?></div><?php endif; ?></td>
+    <td><strong><?php echo e($order['order_no']); ?></strong><?php if (!empty($order['is_department_order'])): ?> <span class="badge badge-success">部门订单</span><?php endif; ?><?php if (!empty($order['split_parent_id']) || !empty($order['split_children'])): ?> <span class="badge badge-info" title="同一订单号由不同业务分别录入，各自按本人金额结算；收款需财务按订单号合并核对">分单</span><?php endif; ?><div class="small text-muted"><?php echo e($order['payment_nickname'] ?: ($order['customer_name'] ?: '—')); ?></div><?php if (isset($credentialHits[(int)$order['id']])): ?><div class="small"><span class="badge badge-info">项目账号命中</span> <?php echo e($credentialHits[(int)$order['id']]); ?></div><?php endif; ?></td>
     <td><?php echo e($order['project_type']); ?><?php if ($order['order_kind'] !== ''): ?><div class="small text-muted"><?php echo e($order['order_kind']); ?></div><?php endif; ?></td>
     <td class="text-nowrap"><?php echo e($order['order_date']); ?></td>
     <td class="small"><?php echo e($order['people'] ?: '—'); ?></td>

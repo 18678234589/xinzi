@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . '/ProjectSettlement.php';
+require_once __DIR__ . '/ProjectOrderSplit.php';
 require_once __DIR__ . '/ProjectRefundTrash.php';
 require_once __DIR__ . '/ProjectAutoReviewMath.php';
 require_once __DIR__ . '/ProjectReviewPolicy.php';
@@ -16,7 +17,8 @@ function pa_storage_available()
 
 function pa_sources(array $order, array $source, $lock = false)
 {
-    $refs = [trim((string)$order['order_no'])];
+    $evidenceNo = trim((string)pos_evidence_order_no($order)); // 分单子单按原订单号核对店铺流水
+    $refs = [$evidenceNo];
     if (trim((string)($source['payment_reference'] ?? '')) !== '') $refs[] = trim($source['payment_reference']);
     $refs = array_values(array_unique($refs));
     $identity = 'order_no IN (' . implode(',', array_fill(0, count($refs), '?')) . ')';
@@ -33,11 +35,11 @@ function pa_sources(array $order, array $source, $lock = false)
     $rows = [];
     foreach ($q->fetchAll() as $row) {
         $row['raw'] = json_decode((string)$row['raw_data'], true) ?: [];
-        $row['matched_by_reference'] = $row['order_no'] !== $order['order_no'];
+        $row['matched_by_reference'] = $row['order_no'] !== $evidenceNo;
         unset($row['raw_data']);
         $rows[] = $row;
     }
-    $direct = array_values(array_filter($rows,function($row)use($order){return $row['order_no']===$order['order_no'];}));
+    $direct = array_values(array_filter($rows,function($row)use($evidenceNo){return $row['order_no']===$evidenceNo;}));
     if ($direct) return $direct; // Full platform order number takes precedence over a combined payment reference.
     return $rows;
 }
