@@ -7,6 +7,7 @@ require_once __DIR__ . '/../includes/ProjectDepartmentImport.php';
 require_once __DIR__ . '/../includes/ProjectVault.php';
 require_once __DIR__ . '/../includes/commission_explain.php';
 require_once __DIR__ . '/../includes/ProjectPartnerDashboard.php';
+require_once __DIR__ . '/../includes/ProjectAutoReview.php';
 $actor = ps_require_actor();
 $participationOnly = ($_GET['participating'] ?? '') === '1';
 $filterEmployeeId = ps_partner_list_employee_id($actor, $_GET['employee_id'] ?? 0);
@@ -109,7 +110,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['delete_order_id'])) {
     header('Location: ' . BASE_URL . '/project/index.php' . ($backQuery !== '' ? '?' . $backQuery : '')); exit;
 }
 
-// 财务批量操作：按售价确认实收 / 标记交付完成 / 批量审核。逐单独立事务，失败的订单列出原因，不影响其他订单。
+// 财务批量操作：证据核对 / 人工确认交付 / 人工审核。售价不作为收款依据。
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['bulk_action'])) {
     ps_check_csrf();
     $bulkAction = (string)$_POST['bulk_action'];
@@ -139,27 +140,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['bulk_action'])) {
             $orderNo = $row['order_no'];
             if (in_array($row['settlement_status'], ['approved', 'locked'], true)) throw new RuntimeException('已审核');
             if ($bulkAction === 'receipt') {
-                if ((float)$row['receipt_amount'] != 0) throw new RuntimeException('已有实收，未重复登记');
-                $isOffset = ($row['order_kind'] ?? '') === '退款冲减' && (float)$row['contract_amount'] < 0;
-                if ($row['price_source'] === 'missing' || ((float)$row['contract_amount'] <= 0 && !$isOffset)) throw new RuntimeException('售价待补');
-                if (mb_strpos($row['trade_status'], '关闭') !== false || mb_strpos($row['trade_status'], '退款') !== false) throw new RuntimeException('店铺状态为“' . $row['trade_status'] . '”，请逐单核对');
-                db()->prepare("INSERT INTO project_cash_movements (order_id,movement_type,amount,note,review_status,submitted_by_type,submitted_by_id,reviewed_by_admin,reviewed_at) VALUES (?,'receipt',?,'批量按售价确认实收','approved','admin',?,?,NOW())")
-                    ->execute([$orderId, $row['contract_amount'], $actor['id'], $actor['id']]);
-                ps_recalculate_cash($orderId);
-                ps_audit('cash', (int)db()->lastInsertId(), 'bulk_receipt', $actor, ['order_id' => $orderId, 'amount' => $row['contract_amount']]);
+                $review = pa_check_order($orderId, true, true);
+                if (!$review['applied']) throw new RuntimeException(implode('；', array_column($review['reasons'], 'text')) ?: '尚未满足自动结算条件');
             } elseif ($bulkAction === 'finish') {
                 if ($row['delivery_status'] === 'finished') throw new RuntimeException('已是完成状态');
                 db()->prepare("UPDATE project_orders SET delivery_status='finished',row_version=row_version+1 WHERE id=?")->execute([$orderId]);
                 // 自动通过待审的交付完成申请
                 db()->prepare("UPDATE project_order_requests SET status='approved', reviewer_id=?, reviewed_at=NOW(), review_note='批量标记交付完成时自动通过' WHERE order_id=? AND request_type='delivery_completion' AND status='pending'")
                     ->execute([$actor['id'], $orderId]);
-
-                // 若尚未确认实收且已有售价，自动按售价确认实收，以便计算分成
-                if ((float)$row['receipt_amount'] == 0 && (float)$row['contract_amount'] > 0) {
-                    db()->prepare("INSERT INTO project_cash_movements (order_id,movement_type,amount,note,review_status,submitted_by_type,submitted_by_id,reviewed_by_admin,reviewed_at) VALUES (?,'receipt',?,'交付完成自动按售价确认实收','approved','admin',?,?,NOW())")
-                        ->execute([$orderId, $row['contract_amount'], $actor['id'], $actor['id']]);
-                    ps_recalculate_cash($orderId);
-                }
 
                 ps_audit('order', $orderId, 'bulk_finish', $actor, []);
 
@@ -169,7 +157,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['bulk_action'])) {
                     $targetMonth = date('Y-m');
                 }
                 try {
-                    ps_approve_order($orderId, $actor, $targetMonth);
+                    pa_check_order($orderId, true, true);
                 } catch (Throwable $approveEx) {
                     // 若前置条件（如域名待确认、SSL待补录）未满足，仅标记已交付完成，暂不锁定审核
                 }
@@ -340,6 +328,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         ps_audit('order', $id, 'create', $actor, ['order_no' => $no, 'order_kind' => $orderKind, 'program_template_id' => $programTemplate['id'] ?? null, 'domain_template_id' => $domainTemplate['id'] ?? null, 'server_template_id' => $serverTemplate['id'] ?? null, 'receipt_unconfirmed' => $actor['role'] !== 'finance']);
         ps_sync_existing_shop_order($id, $no, $shop);
         db()->commit();
+        pa_after_save([$id]);
         if ($custPhone !== '' || $custDomain !== '' || $serverExpiry !== '') {
             try {
                 require_once __DIR__ . '/../includes/ProjectSheetEdit.php';
@@ -355,15 +344,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     } catch (Throwable $e) { if (db()->inTransaction()) db()->rollBack(); $error = $e instanceof PDOException ? '订单号已存在或数据保存失败' : $e->getMessage(); }
 }
 
-// 交易成功且超期无人审核的订单：自动标记为交付完成
+// GET 只展示核对结果；自动核对由上传完成、显式 POST 或定时任务执行。
 $autoFinishInfo = null;
-if (empty($_SESSION['ps_last_auto_finish_time']) || time() - (int)$_SESSION['ps_last_auto_finish_time'] > 60) {
-    $_SESSION['ps_last_auto_finish_time'] = time();
-    $autoRes = ps_auto_finish_trade_success_orders();
-    if ($autoRes['finished'] > 0) {
-        $autoFinishInfo = "系统已自动将 {$autoRes['finished']} 笔交易成功满 10 天且未审核的订单标记为完成" . ($autoRes['approved'] > 0 ? "（其中 {$autoRes['approved']} 笔已自动核算提成并生成快照）" : "") . "。";
-    }
-}
 
 // 列表筛选：月份 + 业务 + 待办 + 关键字（订单号/客户/付款昵称/项目账号的类型·说明·地址·账号·备注）。
 $filterBusiness = (string)($_GET['filter_business'] ?? '');
@@ -403,7 +385,9 @@ if ($actor['role'] === 'finance') {
     $params[] = $actor['employee_id'];
     if (!$participationOnly) $params[] = $actor['employee_id'];
 }
-$sql = "SELECT o.*, COALESCE(s.price_source,'missing') price_source, COALESCE(s.payment_nickname,'') payment_nickname, r.domain_mode,
+$reviewSelect = pa_storage_available() ? 'a.state auto_review_state,a.policy_version auto_review_policy,a.checked_row_version auto_review_version,a.checked_source_at auto_review_source_at,a.reasons_json auto_review_reasons,a.checked_at auto_review_checked_at,' : 'NULL auto_review_state,';
+$reviewJoin = pa_storage_available() ? ' LEFT JOIN project_auto_reviews a ON a.order_id=o.id' : '';
+$sql = "SELECT o.*, " . $reviewSelect . " s.synced_at source_synced_at,COALESCE(s.price_source,'missing') price_source, COALESCE(s.payment_nickname,'') payment_nickname, r.domain_mode,
     (SELECT COUNT(*) FROM project_costs c WHERE c.order_id=o.id AND c.review_status='pending') pending_costs,
     (SELECT COALESCE(SUM(c.amount),0) FROM project_costs c WHERE c.order_id=o.id AND c.review_status='approved') approved_costs,
     (SELECT COUNT(*) FROM project_cash_movements m WHERE m.order_id=o.id AND m.review_status='pending') pending_cash,
@@ -412,13 +396,22 @@ $sql = "SELECT o.*, COALESCE(s.price_source,'missing') price_source, COALESCE(s.
     (SELECT COUNT(*) FROM project_participants p WHERE p.order_id=o.id AND p.commission_group='technical') tech_count,
     EXISTS (SELECT 1 FROM project_department_orders d WHERE d.order_id=o.id) is_department_order,
     (SELECT GROUP_CONCAT(e.name ORDER BY p.commission_group DESC,p.id SEPARATOR '、') FROM project_participants p JOIN employees e ON e.id=p.employee_id WHERE p.order_id=o.id) people
-    FROM project_orders o LEFT JOIN project_order_sources s ON s.order_id=o.id LEFT JOIN project_order_resources r ON r.order_id=o.id
+    FROM project_orders o LEFT JOIN project_order_sources s ON s.order_id=o.id LEFT JOIN project_order_resources r ON r.order_id=o.id" . $reviewJoin . "
     WHERE " . implode(' AND ', $where) . ' ORDER BY o.' . $dateBasis . ' DESC,o.id DESC';
 $q = db()->prepare($sql);
 $q->execute($params);
 $orders = $q->fetchAll();
 if ($participationOnly && $filterBusiness !== '') $orders = array_values(array_filter($orders, function ($row) use ($filterBusiness) { return ps_partner_business_bucket($row['project_type']) === $filterBusiness; }));
-foreach ($orders as $i => $row) $orders[$i]['todos'] = ps_order_todos($row);
+foreach ($orders as $i => $row) {
+    $orders[$i]['auto_review'] = pa_view($row);
+    $orders[$i]['todos'] = ps_order_todos($row);
+    if ($orders[$i]['auto_review']['reasons']) $orders[$i]['todos'] = array_map(function ($reason) { return [$reason['text'], $reason['kind'] === 'exception' ? 'danger' : 'warning']; }, $orders[$i]['auto_review']['reasons']);
+    elseif (in_array($orders[$i]['auto_review']['state'], ['ready','auto_passed','settled'], true)) $orders[$i]['todos'] = [];
+}
+$reviewCounts = [];
+foreach ($orders as $row) $reviewCounts[$row['auto_review']['state']] = ($reviewCounts[$row['auto_review']['state']] ?? 0) + 1;
+$filterReview = (string)($_GET['check'] ?? '');
+if (in_array($filterReview, ['wait_sync','wait_data','exception','ready','auto_passed','settled','queued'], true)) $orders = array_values(array_filter($orders, function ($row) use ($filterReview) { return $row['auto_review']['state'] === $filterReview; }));
 if ($filterState === 'todo') $orders = array_values(array_filter($orders, function ($row) { return (bool)$row['todos']; }));
 $totals = ['contract' => 0.0, 'receipt' => 0.0, 'cost' => 0.0, 'todo' => 0];
 foreach ($orders as $row) {
@@ -474,6 +467,7 @@ include __DIR__ . '/../includes/header.php';
 $resourceHint = function ($t) { return trim($t['name'] . ' ' . $t['specification']) . ' · ¥' . money($t['price']); };
 ?>
 <div class="project-intake-page">
+<div class="card mb-3" style="background:linear-gradient(115deg,#eef8f2,#fff9ef);border-color:#d4e5dc"><div class="card-body d-flex align-items-center justify-content-between flex-wrap" style="gap:12px"><div><strong style="color:#2e6450"><i class="fas fa-shield-alt mr-1"></i> 系统核对，让分成更清楚</strong><div class="small text-muted mt-1">资料齐全自动核算；缺流水、缺资料和异常分别提示。售价不代替实收，付款不代替交付。</div></div><?php if($actor['role']==='finance'): ?><a class="btn btn-outline-primary btn-sm" href="<?php echo BASE_URL; ?>/project/review.php?month=<?php echo e($month); ?>">查看系统核对</a><?php endif; ?></div></div>
 <div class="project-hero mb-3"><div><div class="project-eyebrow">项目合作结算中心 · 订单入口</div><h2><?php if ($actor['role'] === 'finance'): echo e($page_title); else: $hour = (int)date('G'); echo ($hour < 11 ? '早上好' : ($hour < 14 ? '中午好' : ($hour < 18 ? '下午好' : '晚上好'))) . '，' . e($display_name); endif; ?></h2><p><?php echo $actor['role'] === 'customer_service' ? '客服录入买家与成交信息并指定技术；技术在同一订单号补资源和成本，双方看到的是同一张结算单。' : ($actor['role'] === 'technical' ? '打开本人参与的订单补技术资料与成本；先建单时可在结算单关联客服。' : '客服与技术共用一张订单结算单。输入订单号即可从店铺 / ETMLL 流水带出买家与售价，标准成本从成本中心带入。'); ?> 实收由财务确认。</p></div><div class="project-hero-actions"><?php if ($allowedBusinesses): ?><button class="btn btn-light" type="button" id="manualOrderToggle" aria-controls="manual-order" aria-expanded="<?php echo $openEntry ? 'true' : 'false'; ?>"><i class="fas fa-pen mr-1"></i> <span><?php echo $openEntry ? '收起在线录单' : '在线录入订单'; ?></span></button><a class="btn btn-outline-light" href="<?php echo BASE_URL; ?>/project/import.php?business=<?php echo rawurlencode($selectedBusiness); ?>"><i class="fas fa-file-excel mr-1"></i> 批量导入 Excel</a><?php endif; ?><?php if ($departmentImportBusiness): ?><a class="btn btn-outline-light" href="<?php echo BASE_URL; ?>/project/import.php?scope=department&amp;business=<?php echo rawurlencode($departmentImportBusiness); ?>"><i class="fas fa-users mr-1"></i> 网站售后部门订单</a><?php endif; ?><?php if ($actor['role'] === 'finance'): ?><a class="btn btn-outline-light" href="<?php echo BASE_URL; ?>/project/settings.php#cost-center">成本中心</a><?php endif; ?></div></div>
 <?php include __DIR__ . '/../includes/renewal_due_widget.php'; ?>
 <?php include __DIR__ . '/../includes/domain_missing_widget.php'; ?>
@@ -593,6 +587,7 @@ $resourceHint = function ($t) { return trim($t['name'] . ' ' . $t['specification
   if ($participationOnly && $filterBusiness !== '' && !isset($filterCatalog[$filterBusiness])) $filterCatalog[$filterBusiness] = [];
   ?>
   <div class="col-md-2 mb-2"><label class="small text-muted mb-1" for="filterBusiness">业务</label><select class="form-control" name="filter_business" id="filterBusiness"><option value="">全部业务</option><?php foreach ($filterCatalog as $businessName => $definition): ?><option value="<?php echo e($businessName); ?>" <?php echo $filterBusiness === $businessName ? 'selected' : ''; ?>><?php echo e($businessName); ?></option><?php endforeach; ?></select></div>
+  <div class="col-md-2 mb-2"><label class="small text-muted mb-1" for="filterCheck">系统核对</label><select class="form-control" id="filterCheck" name="check"><option value="">全部核对状态</option><?php foreach(['wait_sync','wait_data','exception','ready','auto_passed','settled','queued'] as $checkState): $checkMeta=pa_state_meta($checkState); ?><option value="<?php echo e($checkState); ?>" <?php echo $filterReview===$checkState?'selected':''; ?>><?php echo e($checkMeta[0]); ?>（<?php echo (int)($reviewCounts[$checkState]??0); ?>）</option><?php endforeach; ?></select></div>
   <div class="col-md-2 mb-2"><label class="small text-muted mb-1" for="filterState">状态</label><select class="form-control" name="state" id="filterState"><option value="">全部</option><option value="unfinished" <?php echo $filterState === 'unfinished' ? 'selected' : ''; ?>>交付未完成</option><option value="finished" <?php echo $filterState === 'finished' ? 'selected' : ''; ?>>交付已完成</option><option value="pending_delivery" <?php echo $filterState === 'pending_delivery' ? 'selected' : ''; ?>>待交付审核</option><option value="pending_upgrade" <?php echo $filterState === 'pending_upgrade' ? 'selected' : ''; ?>>待升级审核</option><option value="todo" <?php echo $filterState === 'todo' ? 'selected' : ''; ?>>有待办</option><option value="open" <?php echo $filterState === 'open' ? 'selected' : ''; ?>>未审核</option><option value="approved" <?php echo $filterState === 'approved' ? 'selected' : ''; ?>>已审核</option></select></div>
   <div class="col-md-3 mb-2"><label class="small text-muted mb-1" for="filterQ">搜索（订单号 / 客户 / 付款昵称 / 项目账号）</label><input class="form-control" type="search" name="q" id="filterQ" value="<?php echo e($keyword); ?>" placeholder="订单号、客户、账号、IP、备注…"></div>
   <div class="col-md-2 mb-2"><button class="btn btn-outline-primary btn-block">筛选</button></div>
@@ -601,8 +596,8 @@ $resourceHint = function ($t) { return trim($t['name'] . ' ' . $t['specification
 <?php $isFinance = $actor['role'] === 'finance'; ?>
 <?php if ($isFinance && ($corrPendingCount = ps_corr_pending_count()) > 0): ?><div class="alert alert-warning"><i class="fas fa-flag mr-1"></i>有 <?php echo (int)$corrPendingCount; ?> 条分成更正申请待处理，<a class="alert-link" href="<?php echo BASE_URL; ?>/project/corrections.php">点此查看</a>。</div><?php endif; ?>
 <?php if ($canDeleteOrders): ?><form method="post" id="bulkForm"><input type="hidden" name="csrf" value="<?php echo e(ps_csrf_token()); ?>"><input type="hidden" name="return_query" value="<?php echo e(http_build_query(array_intersect_key($_GET, array_flip(['month','date_basis','filter_business','state','q','page','employee_id','participating'])))); ?>"><?php endif; ?>
-<div class="card"><div class="card-header d-flex justify-content-between align-items-center flex-wrap" style="gap:8px"><span>订单列表（共 <?php echo (int)$totalOrders; ?> 单<?php if ($totalPages > 1): ?>，第 <?php echo (int)$page; ?>/<?php echo (int)$totalPages; ?> 页<?php endif; ?>）</span><?php if ($canDeleteOrders && $orders): ?><div class="project-bulk-bar"><span class="small text-muted" id="bulkCount">已选 0 单</span><?php if ($isFinance): ?><button class="btn btn-sm btn-outline-success" name="bulk_action" value="receipt" onclick="return confirm('按售价为所选订单确认实收？已有实收、售价待补或店铺交易关闭的订单会跳过。')">按售价确认实收</button><button class="btn btn-sm btn-outline-success" name="bulk_action" value="finish">标记交付完成</button><input type="month" name="bulk_month" class="form-control form-control-sm" style="width:150px" value="<?php echo e($month); ?>" aria-label="分成归属月份"><button class="btn btn-sm btn-success" name="bulk_action" value="approve" onclick="return confirm('审核所选订单并生成项目分成？不满足条件的订单会跳过并列出原因。')">批量审核</button><?php endif; ?><button class="btn btn-sm btn-outline-danger" name="bulk_action" value="delete" onclick="return confirm('删除所选订单？将连同实收流水、成本、参与人和分成快照一并删除，不可恢复；已审核的订单会跳过并列出原因。')">批量删除</button></div><?php endif; ?></div><div class="table-responsive"><table class="table table-hover mb-0 project-order-table">
-  <thead><tr><?php if ($canDeleteOrders): ?><th style="width:34px"><input type="checkbox" id="bulkAll" aria-label="全选"></th><?php endif; ?><th>订单号 / 付款昵称</th><th>业务</th><th>日期</th><th>参与人</th><th class="text-right">售价</th><th class="text-right">净实收</th><th class="text-right">直接成本</th><th class="text-right">预计分成</th><th>待办</th><th>状态</th><th></th></tr></thead><tbody>
+<div class="card"><div class="card-header d-flex justify-content-between align-items-center flex-wrap" style="gap:8px"><span>订单列表（共 <?php echo (int)$totalOrders; ?> 单<?php if ($totalPages > 1): ?>，第 <?php echo (int)$page; ?>/<?php echo (int)$totalPages; ?> 页<?php endif; ?>）</span><?php if ($canDeleteOrders && $orders): ?><div class="project-bulk-bar"><span class="small text-muted" id="bulkCount">已选 0 单</span><?php if ($isFinance): ?><button class="btn btn-sm btn-outline-success" name="bulk_action" value="receipt" onclick="return confirm('根据收退款证据和规则核对所选订单？只有资料齐全的未结算订单会自动处理，不会按售价登记实收。')">系统核对</button><button class="btn btn-sm btn-outline-success" name="bulk_action" value="finish">标记交付完成</button><input type="month" name="bulk_month" class="form-control form-control-sm" style="width:150px" value="<?php echo e($month); ?>" aria-label="分成归属月份"><button class="btn btn-sm btn-success" name="bulk_action" value="approve" onclick="return confirm('审核所选订单并生成项目分成？不满足条件的订单会跳过并列出原因。')">批量审核</button><?php endif; ?><button class="btn btn-sm btn-outline-danger" name="bulk_action" value="delete" onclick="return confirm('删除所选订单？将连同实收流水、成本、参与人和分成快照一并删除，不可恢复；已审核的订单会跳过并列出原因。')">批量删除</button></div><?php endif; ?></div><div class="table-responsive"><table class="table table-hover mb-0 project-order-table">
+  <thead><tr><?php if ($canDeleteOrders): ?><th style="width:34px"><input type="checkbox" id="bulkAll" aria-label="全选"></th><?php endif; ?><th>订单号 / 付款昵称</th><th>业务</th><th>日期</th><th>参与人</th><th class="text-right">售价</th><th class="text-right">净实收</th><th class="text-right">直接成本</th><th class="text-right">预计分成</th><th>系统核对／待补事项</th><th>结算状态</th><th></th></tr></thead><tbody>
   <?php foreach ($pageOrders as $order): ?><tr>
     <?php if ($canDeleteOrders): ?><td><?php if (!in_array($order['settlement_status'], ['approved','locked'], true)): ?><input type="checkbox" name="ids[]" value="<?php echo (int)$order['id']; ?>" class="bulk-item" aria-label="选择 <?php echo e($order['order_no']); ?>"><?php endif; ?></td><?php endif; ?>
     <td><strong><?php echo e($order['order_no']); ?></strong><?php if (!empty($order['is_department_order'])): ?> <span class="badge badge-success">部门订单</span><?php endif; ?><div class="small text-muted"><?php echo e($order['payment_nickname'] ?: ($order['customer_name'] ?: '—')); ?></div><?php if (isset($credentialHits[(int)$order['id']])): ?><div class="small"><span class="badge badge-info">项目账号命中</span> <?php echo e($credentialHits[(int)$order['id']]); ?></div><?php endif; ?></td>
@@ -613,7 +608,7 @@ $resourceHint = function ($t) { return trim($t['name'] . ' ' . $t['specification
     <td class="text-right">¥<?php echo money((float)$order['receipt_amount'] - (float)$order['refund_amount']); ?></td>
     <td class="text-right">¥<?php echo money($order['approved_costs']); ?></td>
     <td class="text-right small text-nowrap"><?php foreach ($commissionCells[(int)$order['id']] ?? [] as $cell): ?><div><span class="text-muted"><?php echo e($cell['name']); ?></span> <?php if ($cell['amount'] === null): ?><span class="text-muted">待配置</span><?php else: ?><a href="#" class="calc-open" title="点击查看计算过程" data-order="<?php echo (int)$order['id']; ?>" data-employee="<?php echo (int)$cell['employee_id']; ?>" data-group="<?php echo e($cell['group']); ?>"><?php echo $cell['estimated'] ? '预计 ' : ''; ?>¥<?php echo money($cell['amount']); ?></a><?php endif; ?></div><?php endforeach; ?><?php if (empty($commissionCells[(int)$order['id']])): ?><span class="text-muted">—</span><?php endif; ?></td>
-    <td><?php foreach ($order['todos'] as [$text, $level]): ?><span class="badge badge-<?php echo e($level); ?> mr-1 mb-1"><?php echo e($text); ?></span><?php endforeach; ?><?php if (!$order['todos']): ?><span class="text-muted small">—</span><?php endif; ?></td>
+    <td style="min-width:190px;max-width:280px"><span class="badge badge-<?php echo e($order['auto_review']['tone']); ?> mb-1"><?php echo e($order['auto_review']['label']); ?></span><?php foreach (array_slice($order['todos'],0,2) as [$text, $level]): ?><div class="small text-muted" style="white-space:normal"><?php echo e($text); ?></div><?php endforeach; ?><?php if (count($order['todos'])>2): ?><div class="small text-muted">另有 <?php echo count($order['todos'])-2; ?> 项，打开结算单查看</div><?php endif; ?></td>
     <td class="text-nowrap">
       <?php echo e(ps_label('settlement', $order['settlement_status'])); ?>
       <div><?php echo $order['delivery_status'] === 'finished' ? '<span class="badge badge-success">已交付完成</span>' : '<span class="badge badge-light border">交付未完成</span>'; ?></div>

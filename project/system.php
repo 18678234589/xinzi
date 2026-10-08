@@ -126,18 +126,7 @@ foreach (ps_business_catalog() as $bizName => $bizDef):
 </tbody></table></div>
 <button class="btn btn-primary">保存审核人配置</button></form></div></div>
 
-<?php $autoDays = (int)ps_setting_get('auto_finish_days', 10); ?>
-<div id="auto-finish" class="card mb-3"><div class="card-header d-flex justify-content-between align-items-center"><span>无人审核超时自动完成</span><span class="badge badge-info"><?php echo $autoDays > 0 ? "满 {$autoDays} 天自动完成" : '已关闭'; ?></span></div><div class="card-body">
-<p class="text-muted small">对于没有人审核的订单，系统将在订单状态为<strong>【交易成功】</strong>满指定天数后，自动将交付状态标记为已完成，自动确认实收并纳入当月项目核算提成。</p>
-<form method="post" class="form-inline"><input type="hidden" name="csrf" value="<?php echo $csrf; ?>"><input type="hidden" name="action" value="auto_finish">
-<label class="mr-2">订单交易成功满：</label>
-<div class="input-group input-group-sm mr-2" style="width:120px">
-    <input type="number" class="form-control" name="auto_finish_days" value="<?php echo $autoDays; ?>" min="0" max="365">
-    <div class="input-group-append"><span class="input-group-text">天</span></div>
-</div>
-<span class="text-muted small mr-3">（默认 10 天；设为 0 表示不自动完成）</span>
-<button class="btn btn-sm btn-primary">保存天数设置</button>
-</form></div></div>
+<div id="auto-finish" class="card mb-3"><div class="card-header">证据自动核对</div><div class="card-body"><p class="small text-muted">已停用“交易成功满若干天就自动完成、按售价确认实收”的旧方式。现在按收退款证据、交付、成本及规则中心自动核对；缺资料与异常分别提示，不覆盖历史已结算金额。</p><a class="btn btn-primary" style="color:#fff" href="<?php echo BASE_URL; ?>/project/review.php">打开系统自动核对</a></div></div>
 
 <div id="contact" class="card mb-3"><div class="card-header">客户联系方式权限</div><div class="card-body">
 <p class="text-muted small">手机号、微信号、邮箱在页面上打码显示为 <code>155***3252</code>、<code>ab***23</code>，数据库保存原文。财务 / 管理员始终看完整信息；技术与客服只能打开自己参与的订单。</p>

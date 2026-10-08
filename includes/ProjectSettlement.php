@@ -967,117 +967,17 @@ function ps_review_order_request($requestId, $decision, $actor, $reviewNote, arr
 }
 
 /**
- * 自动将交易成功满 N 天（默认 10 天）且未审核的订单标记为交付完成
- * @param int|null $days 超时天数，默认从系统设置读取（默认10天）
+ * 旧任务兼容入口：改用证据自动核对，绝不按天数推断交付或按售价登记实收。
+ * @param int|null $days 保留旧调用签名，不再作为审核依据
  * @return array ['finished' => int, 'approved' => int, 'orders' => array]
  */
 function ps_auto_finish_trade_success_orders($days = null)
 {
-    $pdo = db();
-    if ($days === null) {
-        $days = (int)ps_setting_get('auto_finish_days', 10);
-    }
-    if ($days <= 0) return ['finished' => 0, 'approved' => 0, 'orders' => []];
-
-    $sql = "SELECT o.id, o.order_no, o.order_date, o.contract_amount, o.receipt_amount, o.project_type, o.created_at,
-                   s.trade_status, s.synced_at
-            FROM project_orders o
-            JOIN project_order_sources s ON s.order_id = o.id
-            WHERE o.delivery_status = 'unfinished'
-              AND o.settlement_status IN ('draft', 'review')
-              AND s.trade_status LIKE '%交易成功%'
-              AND (
-                  DATEDIFF(CURDATE(), o.order_date) >= ?
-                  OR o.created_at <= DATE_SUB(NOW(), INTERVAL ? DAY)
-                  OR (s.synced_at IS NOT NULL AND s.synced_at <= DATE_SUB(NOW(), INTERVAL ? DAY))
-              )
-            ORDER BY o.order_date ASC, o.id ASC
-            LIMIT 200";
-    $stmt = $pdo->prepare($sql);
-    $stmt->execute([$days, $days, $days]);
-    $candidates = $stmt->fetchAll();
-
-    if (!$candidates) return ['finished' => 0, 'approved' => 0, 'orders' => []];
-
-    $systemActor = ['id' => 0, 'username' => 'system', 'role' => 'finance', 'type' => 'system'];
-    $finishedCount = 0;
-    $approvedCount = 0;
-    $processed = [];
-
-    foreach ($candidates as $row) {
-        $orderId = (int)$row['id'];
-        $nested = $pdo->inTransaction();
-        if ($nested) $pdo->exec("SAVEPOINT ps_auto_finish_{$orderId}");
-        else $pdo->beginTransaction();
-
-        try {
-            // 1. 标记交付完成
-            $upd = $pdo->prepare("UPDATE project_orders SET delivery_status='finished', row_version=row_version+1 WHERE id=? AND delivery_status='unfinished'");
-            $upd->execute([$orderId]);
-            if ($upd->rowCount() === 0) {
-                if ($nested) $pdo->exec("RELEASE SAVEPOINT ps_auto_finish_{$orderId}");
-                else $pdo->commit();
-                continue;
-            }
-
-            // 2. 自动通过该订单待审的交付申请
-            $pdo->prepare("UPDATE project_order_requests SET status='approved', reviewer_id=NULL, reviewed_at=NOW(), review_note='交易成功满{$days}天系统自动标记完成' WHERE order_id=? AND request_type='delivery_completion' AND status='pending'")
-                ->execute([$orderId]);
-
-            // 3. 若尚未确认实收且已有售价，自动按售价确认实收
-            if ((float)$row['receipt_amount'] == 0 && (float)$row['contract_amount'] > 0) {
-                $pdo->prepare("INSERT INTO project_cash_movements (order_id, movement_type, amount, note, review_status, submitted_by_type, submitted_by_id, reviewed_at) VALUES (?, 'receipt', ?, '交易成功自动按售价确认实收', 'approved', 'system', 0, NOW())")
-                    ->execute([$orderId, $row['contract_amount']]);
-                ps_recalculate_cash($orderId);
-            }
-
-            ps_audit('order', $orderId, 'auto_finish_trade_success', $systemActor, [
-                'days' => $days,
-                'trade_status' => $row['trade_status'],
-                'order_date' => $row['order_date']
-            ]);
-
-            $finishedCount++;
-            $wasApproved = false;
-
-            // 4. 尝试自动核算并生成分成快照
-            $targetMonth = substr($row['order_date'], 0, 7);
-            if (!preg_match('/^\d{4}-(0[1-9]|1[0-2])$/', $targetMonth)) {
-                $targetMonth = date('Y-m');
-            }
-            try {
-                $lockCheck = $pdo->prepare("SELECT status FROM project_payroll_periods WHERE period=?");
-                $lockCheck->execute([$targetMonth]);
-                if ($lockCheck->fetchColumn() === 'locked') {
-                    $targetMonth = ps_next_open_month($targetMonth);
-                }
-                ps_approve_order($orderId, $systemActor, $targetMonth);
-                $approvedCount++;
-                $wasApproved = true;
-            } catch (Throwable $e) {
-                // 前置条件未满足（如定制技术未选、资源未确认），保留交付已完成状态
-            }
-
-            if ($nested) $pdo->exec("RELEASE SAVEPOINT ps_auto_finish_{$orderId}");
-            else $pdo->commit();
-
-            $processed[] = [
-                'id' => $orderId,
-                'order_no' => $row['order_no'],
-                'approved' => $wasApproved
-            ];
-        } catch (Throwable $e) {
-            if ($nested) $pdo->exec("ROLLBACK TO SAVEPOINT ps_auto_finish_{$orderId}");
-            elseif ($pdo->inTransaction()) $pdo->rollBack();
-            error_log("自动完成订单 #{$orderId} 失败: " . $e->getMessage());
-        }
-    }
-
-    return [
-        'finished' => $finishedCount,
-        'approved' => $approvedCount,
-        'orders' => $processed
-    ];
+    // Compatibility for existing jobs. Age or sale amount is never payment/delivery evidence.
+    require_once __DIR__ . '/ProjectAutoReview.php';
+    if (!pa_storage_available() || !ps_setting_get('auto_review_enabled', false)) return ['finished' => 0, 'approved' => 0, 'orders' => []];
+    $result = pa_batch(200, true, true);
+    return ['finished' => 0, 'approved' => $result['applied'], 'orders' => [], 'review' => $result];
 }
 
 /** 退款发生在订单所属月份之后的金额（按退款生效月份判断）；这部分在退款月补扣，不进入订单所属月份的分成。 */

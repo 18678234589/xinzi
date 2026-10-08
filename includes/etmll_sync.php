@@ -98,6 +98,19 @@ function etmll_map_order(array $o): array
         '数据来源'   => 'ETMLL自动同步',
     ];
 
+    // Independent source payment evidence, never inferred from total_amount / sale price.
+    $raw['__financial_source__'] = '';
+    $raw['买家实际支付金额'] = '';
+    $raw['__actual_pay_time__'] = '';
+    $raw['支付宝交易号'] = trim((string)($o['alipay_no'] ?? ''));
+    $actualPaid = $o['buyer_paid_amount'] ?? null;
+    $actualPayTime = trim((string)($o['order_pay_time'] ?? ''));
+    if (is_numeric($actualPaid) && (float)$actualPaid > 0 && preg_match('/^\d{4}-\d{2}-\d{2} [0-2]\d:[0-5]\d:[0-5]\d/', $actualPayTime)) {
+        $raw['__financial_source__'] = 'etmll_paid';
+        $raw['买家实际支付金额'] = round((float)$actualPaid, 2);
+        $raw['__actual_pay_time__'] = substr($actualPayTime, 0, 19);
+    }
+
     // 入账为负数 = 退款单，与手动上传的 __is_refund__ 口径一致（供订单页"只看退款"筛选）
     if ($amount < 0) {
         $raw['__is_refund__'] = '1';
@@ -137,25 +150,31 @@ function etmll_sync_run(bool $dryRun = false): array
     etmll_sync_state_table($pdo);
     $epdo = etmll_connect(true);
     $src = $epdo->query("SELECT o.id,o.order_no,o.total_amount,o.refund_amount,o.raw_status,
-        o.product_title,o.order_pay_time,o.shipping_time,o.created_at,o.shop_name,
+        o.product_title,o.order_pay_time,o.shipping_time,o.created_at,o.shop_name,o.buyer_paid_amount,o.alipay_no,
         o.merchant_order_no,o.commission,o.proxy_amount,m.name AS merchant_name,p.name AS partner_name
         FROM `order` o LEFT JOIN merchant m ON m.id=o.merchant_id LEFT JOIN partner p ON p.id=o.partner_id
         WHERE o.status=0 AND COALESCE(o.order_pay_time,o.created_at)>='" . date('Y-m-d', strtotime('-1 year')) . "' ORDER BY o.id ASC");
     try {
-        return etmll_sync_orders($pdo, $src, $dryRun);
+        $result = etmll_sync_orders($pdo, $src, $dryRun);
     } finally {
         $src->closeCursor();
     }
+    if (!$dryRun) {
+        require_once __DIR__ . '/ProjectAutoReview.php';
+        try { if (pa_storage_available()) $result['auto_review'] = pa_batch(200, (bool)ps_setting_get('auto_review_enabled', false), true); }
+        catch (Throwable $e) { error_log('auto_review_after_etmll: ' . $e->getMessage()); }
+    }
+    return $result;
 }
 
 /** 来源字段签名不含每次变化的同步时间，也不包含人工附加字段。 */
 function etmll_sync_signature($amount, $date, $shop, $orderNo, array $raw): string
 {
     $data = [number_format((float)$amount, 2, '.', ''), (string)$date, (string)$shop, (string)$orderNo];
-    foreach (['__shop__','__order_status__','__trade_time__','订单编号','店铺','商品标题','订单状态','付款时间','发货时间','商户','合伙人公司','商家订单号','数据来源'] as $key) {
+    foreach (['__shop__','__order_status__','__trade_time__','订单编号','店铺','商品标题','订单状态','付款时间','发货时间','商户','合伙人公司','商家订单号','数据来源','__financial_source__','__actual_pay_time__','支付宝交易号'] as $key) {
         $data[] = trim((string)($raw[$key] ?? ''));
     }
-    foreach (['__original_price__','订单金额','退款金额','佣金','代垫金额'] as $key) {
+    foreach (['__original_price__','订单金额','退款金额','佣金','代垫金额','买家实际支付金额'] as $key) {
         $data[] = number_format((float)($raw[$key] ?? 0), 2, '.', '');
     }
     $data[] = (int)($raw['__etmll_id__'] ?? 0);

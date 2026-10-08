@@ -259,6 +259,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             ps_approve_order($id, $actor, (string)($_POST['payroll_month'] ?? ''));
         } else throw new RuntimeException('操作无效');
         if (db()->inTransaction()) db()->commit();
+        require_once __DIR__ . '/../includes/ProjectAutoReview.php';
+        pa_after_save([$id]);
         header('Location: ' . BASE_URL . '/project/order.php?id=' . $id . '&saved=1'); exit;
     } catch (Throwable $e) { if (db()->inTransaction()) db()->rollBack(); $error = $e->getMessage(); }
 }
@@ -343,6 +345,7 @@ if ($pendingUpgradeReq) $todos[] = ['产品升级待审核', 'primary'];
 $page_title = '订单结算单 ' . $order['order_no'];
 include __DIR__ . '/../includes/header.php';
 ?>
+<?php include __DIR__ . '/../includes/auto_review_card.php'; ?>
 <div class="d-flex justify-content-between align-items-center mb-3"><h4 class="mb-0">订单结算单 <small class="text-muted"><?php echo e($order['order_no']); ?></small></h4><a class="btn btn-outline-secondary btn-sm" href="<?php echo BASE_URL; ?>/project/index.php">返回订单</a></div>
 <?php if ($error): ?><div class="alert alert-danger"><?php echo e($error); ?></div><?php endif; ?>
 <?php if (strpos((string)$order['order_no'], 'WX-') === 0 && $canEdit): ?>

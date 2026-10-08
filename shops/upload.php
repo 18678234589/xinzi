@@ -270,6 +270,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             $rawMap[$hdr] = $row[$ci] ?? '';
                         }
                         $rawMap['__shop__'] = $shop['name'];
+                        // Server-written provenance: only explicit payment columns may confirm receipts.
+                        $rawMap['__financial_source__'] = 'shop_statement';
+                        $rawMap['__statement_uploaded_at__'] = date('Y-m-d H:i:s');
                         // 始终存储原始售价，供异常订单对比使用（售价匹配，非利润匹配）
                         if ($originalPrice > 0) {
                             $rawMap['__original_price__'] = $originalPrice;

@@ -906,6 +906,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $importReport = ps_import_result_save($resultFileId, $preview, $importedLines, $actor, $operator, $imported);
                 if ($nested) $pdo->exec('RELEASE SAVEPOINT project_order_import');
                 else $pdo->commit();
+                // Import remains successful even when financial evidence needs supplementation.
+                require_once __DIR__ . '/../includes/ProjectAutoReview.php';
+                try {
+                    $reviewIds = [];
+                    foreach (array_slice($ready, 0, 25) as $reviewEntry) {
+                        $reviewLookup = $pdo->prepare('SELECT id FROM project_orders WHERE order_no=?');
+                        $reviewLookup->execute([$reviewEntry[0]['order_no']]);
+                        if ($reviewId = (int)$reviewLookup->fetchColumn()) $reviewIds[] = $reviewId;
+                    }
+                    pa_after_save($reviewIds);
+                } catch (Throwable $reviewError) { error_log('auto_review_import_followup: ' . $reviewError->getMessage()); }
                 // Ancillary renewal data cannot roll back or block valid financial orders.
                 require_once __DIR__ . '/../includes/ProjectRenewalImport.php';
                 if (pr_ready()) {
