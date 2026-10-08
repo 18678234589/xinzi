@@ -385,7 +385,7 @@ if ($actor['role'] === 'finance') {
     $params[] = $actor['employee_id'];
     if (!$participationOnly) $params[] = $actor['employee_id'];
 }
-$reviewSelect = pa_storage_available() ? 'a.state auto_review_state,a.policy_version auto_review_policy,a.checked_row_version auto_review_version,a.checked_source_at auto_review_source_at,a.reasons_json auto_review_reasons,a.checked_at auto_review_checked_at,' : 'NULL auto_review_state,';
+$reviewSelect = pa_storage_available() ? 'a.state auto_review_state,a.policy_version auto_review_policy,a.checked_row_version auto_review_version,a.checked_source_at auto_review_source_at,a.reasons_json auto_review_reasons,a.evidence_json auto_review_evidence,a.checked_at auto_review_checked_at,' : 'NULL auto_review_state,';
 $reviewJoin = pa_storage_available() ? ' LEFT JOIN project_auto_reviews a ON a.order_id=o.id' : '';
 $sql = "SELECT o.*, " . $reviewSelect . " s.synced_at source_synced_at,COALESCE(s.price_source,'missing') price_source, COALESCE(s.payment_nickname,'') payment_nickname, r.domain_mode,
     (SELECT COUNT(*) FROM project_costs c WHERE c.order_id=o.id AND c.review_status='pending') pending_costs,
@@ -404,6 +404,7 @@ $orders = $q->fetchAll();
 if ($participationOnly && $filterBusiness !== '') $orders = array_values(array_filter($orders, function ($row) use ($filterBusiness) { return ps_partner_business_bucket($row['project_type']) === $filterBusiness; }));
 foreach ($orders as $i => $row) {
     $orders[$i]['auto_review'] = pa_view($row);
+    $orders[$i]['monthly_allowance_verified'] = $orders[$i]['auto_review']['state'] !== 'queued' && !empty((json_decode($row['auto_review_evidence']??'{}',true)?:[])['monthly_allowance_rules']);
     $orders[$i]['todos'] = ps_order_todos($row);
     if ($orders[$i]['auto_review']['reasons']) $orders[$i]['todos'] = array_map(function ($reason) { return [$reason['text'], $reason['kind'] === 'exception' ? 'danger' : 'warning']; }, $orders[$i]['auto_review']['reasons']);
     elseif (in_array($orders[$i]['auto_review']['state'], ['ready','auto_passed','settled'], true)) $orders[$i]['todos'] = [];
@@ -608,7 +609,7 @@ $resourceHint = function ($t) { return trim($t['name'] . ' ' . $t['specification
     <td class="text-right">¥<?php echo money((float)$order['receipt_amount'] - (float)$order['refund_amount']); ?></td>
     <td class="text-right">¥<?php echo money($order['approved_costs']); ?></td>
     <td class="text-right small text-nowrap"><?php foreach ($commissionCells[(int)$order['id']] ?? [] as $cell): ?><div><span class="text-muted"><?php echo e($cell['name']); ?></span> <?php if ($cell['amount'] === null): ?><span class="text-muted">待配置</span><?php else: ?><a href="#" class="calc-open" title="点击查看计算过程" data-order="<?php echo (int)$order['id']; ?>" data-employee="<?php echo (int)$cell['employee_id']; ?>" data-group="<?php echo e($cell['group']); ?>"><?php echo $cell['estimated'] ? '预计 ' : ''; ?>¥<?php echo money($cell['amount']); ?></a><?php endif; ?></div><?php endforeach; ?><?php if (empty($commissionCells[(int)$order['id']])): ?><span class="text-muted">—</span><?php endif; ?></td>
-    <td style="min-width:190px;max-width:280px"><span class="badge badge-<?php echo e($order['auto_review']['tone']); ?> mb-1"><?php echo e($order['auto_review']['label']); ?></span><?php foreach (array_slice($order['todos'],0,2) as [$text, $level]): ?><div class="small text-muted" style="white-space:normal"><?php echo e($text); ?></div><?php endforeach; ?><?php if (count($order['todos'])>2): ?><div class="small text-muted">另有 <?php echo count($order['todos'])-2; ?> 项，打开结算单查看</div><?php endif; ?></td>
+    <td style="min-width:190px;max-width:280px"><?php if($order['monthly_allowance_verified']): ?><span class="badge badge-success mb-1">月度单量补助已核验</span><div class="small text-muted">只按月计入一次；利润分成另核实收</div><?php endif; ?><span class="badge badge-<?php echo e($order['auto_review']['tone']); ?> mb-1"><?php echo e($order['auto_review']['label']); ?></span><?php foreach (array_slice($order['todos'],0,2) as [$text, $level]): ?><div class="small text-muted" style="white-space:normal"><?php echo e($text); ?></div><?php endforeach; ?><?php if (count($order['todos'])>2): ?><div class="small text-muted">另有 <?php echo count($order['todos'])-2; ?> 项，打开结算单查看</div><?php endif; ?></td>
     <td class="text-nowrap">
       <?php echo e(ps_label('settlement', $order['settlement_status'])); ?>
       <div><?php echo $order['delivery_status'] === 'finished' ? '<span class="badge badge-success">已交付完成</span>' : '<span class="badge badge-light border">交付未完成</span>'; ?></div>

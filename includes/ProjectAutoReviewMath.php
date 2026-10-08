@@ -1,6 +1,6 @@
 <?php
 /** Deterministic review policy. No database, network, AI or clock side effects. */
-const PA_POLICY_VERSION = '2026-10-07.3';
+const PA_POLICY_VERSION = '2026-10-08.1';
 
 function pa_cents($value)
 {
@@ -24,6 +24,7 @@ function pa_payment_evidence(array $sources, $shop, $asof = null)
         if (!is_array($raw)) continue;
         $isEtmll = ($raw['__financial_source__'] ?? '') === 'etmll_paid';
         $trusted = ($raw['__financial_source__'] ?? '') === 'shop_statement' || $isEtmll;
+        if ((int)($raw['__etmll_observed_refund_cents__'] ?? 0) > (pa_cents($raw['退款金额'] ?? 0) ?? 0)) $warnings['linked_refund_conflict'] = '居间最新退款额与店铺导出不一致；保留原数据，待核对退款，不能按旧利润自动通过';
         // ETMLL's total_amount / __original_price__ are sale amounts, not payment evidence.
         $status = trim((string)($raw['__order_status__'] ?? $raw['订单状态'] ?? ''));
         if (preg_match('/退款中|退款申请|退款处理中|售后中|交易关闭/', $status)) $warnings['source_after_sale'] = '交易来源存在退款或关闭状态，需要核对实际收退款';
@@ -130,11 +131,12 @@ function pa_evaluate(array $ctx)
             $hasPeople = true;
             if (!empty($group['missing_rule'])) $add('rule_' . $key, '参与人的业务／岗位／订单类型尚未匹配有效分成规则', 'exception');
             if (abs((float)$group['weight'] - 1.0) > 0.000001) $add('weight_' . $key, '同组参与人分配权重合计必须为 100%', 'exception');
-            if ((float)($group['subsidy'] ?? 0) > 0 || !empty($group['subsidy_rule'])) $subsidy = true;
+            if ((float)($group['subsidy'] ?? 0) > 0) $subsidy = true;
             foreach ($group['people'] as $person) {
                 $rule = $person['rule'] ?? [];
                 if (!empty($rule['allow_negative'])) $allowNegative = true;
                 if ((float)($rule['rate'] ?? 0) !== 0.0 || (isset($rule['low_profit_threshold']) && $rule['low_profit_threshold'] !== '')) $incomeDependent = true;
+                if (array_key_exists('review_allow_no_receipt', $rule) && !$rule['review_allow_no_receipt']) $incomeDependent = true;
                 if ((float)($rule['min_contract_amount'] ?? 0) > 0 && (float)$o['contract_amount'] <= 0) $add('subsidy_sale', '补助有售价门槛，需先补齐售价，不能先按零金额结算');
             }
         }
@@ -142,7 +144,9 @@ function pa_evaluate(array $ctx)
         if ($incomeDependent && (float)$summary['income'] > 0 && (float)$o['contract_amount'] <= 0) $add('sale_for_share', '比例分成须先补齐有效售价，避免成本下限和服务费误算');
         foreach ($ctx['cash'] as $cash) if ($cash['review_status']==='approved' && ($cash['movement_type']??'')==='receipt' && preg_match('/定金|分期|尾款未收|预付款/',(string)($cash['note']??'')) && $receipt<(int)round((float)$o['contract_amount']*100)) $add('partial_receipt','存在尚未收齐的定金／分期收款，需财务确认结算口径','exception');
         $missingReceipt = $receipt === 0 && $e['paid_cents'] === null;
+        if (!empty($ctx['monthly_income_required'])) $incomeDependent = true;
         $noReceiptAllowance = $subsidy && !$incomeDependent;
+        if ($missingReceipt && !empty($ctx['monthly_income_required'])) $add('monthly_profit_receipt', '月度利润分成仍需真实实收；单量补助独立按月核验，不会按零收入锁定分成', 'sync');
         if ($missingReceipt && !$noReceiptAllowance) $add('receipt_missing', $e['matched_sources'] ? '已匹配订单来源，但尚无明确实付字段或已核验收款；比例分成须等实收' : '尚未匹配可信收款流水；售价仅用于预估', 'sync');
         if ((float)$summary['income'] <= 0 && !$noReceiptAllowance && !($allowNegative && (float)$summary['income'] < 0)) $add('income', '没有可结算净实收，需核对收退款', $missingReceipt ? 'sync' : 'exception');
         if (!$missingReceipt && (float)$summary['profit'] < 0 && !$allowNegative && !($noReceiptAllowance && (float)$summary['income'] === 0.0)) $add('negative_profit', '贡献利润为负，需要财务核对成本及适用规则', 'exception');

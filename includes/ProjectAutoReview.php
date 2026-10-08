@@ -2,6 +2,7 @@
 require_once __DIR__ . '/ProjectSettlement.php';
 require_once __DIR__ . '/ProjectRefundTrash.php';
 require_once __DIR__ . '/ProjectAutoReviewMath.php';
+require_once __DIR__ . '/ProjectReviewPolicy.php';
 
 function pa_storage_available()
 {
@@ -65,6 +66,12 @@ function pa_context($orderId, $lock = false)
     $virtual = $order;
     if ((float)$order['receipt_amount'] === 0.0 && $payment['paid_cents'] !== null) $virtual['receipt_amount'] = $payment['paid_cents'] / 100;
     $summary = ps_summary($virtual, $costs, $people);
+    foreach ($summary['groups'] as &$group) {
+        foreach ($group['people'] as &$person) if (!empty($person['rule'])) $person['rule']['review_allow_no_receipt'] = prp_allow_no_receipt('order', $person['rule']);
+        unset($person);
+    }
+    unset($group);
+    $reviewPolicy = prp_order_context($order);
     $q = $p->prepare("SELECT COUNT(*) FROM project_order_requests WHERE order_id=? AND status='pending'"); $q->execute([$orderId]); $requests = (int)$q->fetchColumn();
     $refundWhere = 'order_id=? OR order_no=?'; $refundParams = [$orderId, $order['order_no']];
     if (!empty($source['payment_reference'])) { $refundWhere .= ' OR source_payment_reference=?'; $refundParams[] = $source['payment_reference']; }
@@ -77,6 +84,8 @@ function pa_context($orderId, $lock = false)
         'pending_requests' => $requests, 'pending_refunds' => $refunds, 'snapshot_count' => $snapshots, 'period_status' => $period,
         'technical_count' => count(array_filter($people, function ($person) { return $person['commission_group'] === 'technical'; })),
         'later_refund' => ps_refund_later($orderId, $order['order_date']), 'today' => date('Y-m-d'),
+        'monthly_income_required' => $reviewPolicy['monthly_income_required'],
+        'monthly_allowance_rules' => $reviewPolicy['monthly_allowance_rules'],
     ];
 }
 
@@ -95,6 +104,8 @@ function pa_evidence(array $ctx)
     return [
         'policy_version' => PA_POLICY_VERSION, 'order_id' => (int)$ctx['order']['id'], 'business' => $ctx['order']['project_type'],
         'order_month' => substr($ctx['order']['order_date'], 0, 7), 'delivery_status' => $ctx['order']['delivery_status'],
+        'monthly_allowance_rules' => $ctx['monthly_allowance_rules'] ?? [],
+        'monthly_income_required' => !empty($ctx['monthly_income_required']),
         'receipt' => (float)$ctx['order']['receipt_amount'], 'refund' => (float)$ctx['order']['refund_amount'],
         'direct_cost' => (float)$ctx['summary']['direct_cost'], 'service_fee' => (float)$ctx['summary']['service_fee'], 'income_for_calculation' => (float)$ctx['summary']['income'],
         'cash_ids' => array_map('intval', array_column($ctx['cash'], 'id')), 'cost_ids' => array_map('intval', array_column($ctx['costs'], 'id')),

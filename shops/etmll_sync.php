@@ -20,8 +20,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $result  = etmll_sync_run(false);
             $success = "同步完成：已核对 {$result['scanned']} 条来源记录，新增 {$result['inserted']} 条、更新 {$result['updated']} 条、关联已有流水 {$result['linked_existing']} 条"
                      . ($result['project_filled'] > 0 ? "；已自动补全 {$result['project_filled']} 张项目订单" : '')
-                     . "；项目状态更新 {$result['project_status_updated']} 条、已有流水状态更新 {$result['linked_status_updated']} 条";
-            if ($result['inserted']+$result['updated']+$result['linked_existing']+$result['project_filled']+$result['project_status_updated']+$result['linked_status_updated'] === 0) $notice = '已成功核对，但来源没有新变化。此同步读取居间系统数据库，不会直接连接淘宝；若淘宝已成功而此处仍待发货，请在居间系统导入最新淘宝订单导出表，再同步。';
+                     . "；项目状态更新 {$result['project_status_updated']} 条、已有流水状态更新 {$result['linked_status_updated']} 条、退款证据更新 {$result['linked_evidence_updated']} 条";
+            if ($result['inserted']+$result['updated']+$result['linked_existing']+$result['project_filled']+$result['project_status_updated']+$result['linked_status_updated']+$result['linked_evidence_updated'] === 0) $notice = '已成功核对，但来源没有新变化。此同步读取居间系统数据库，不会直接连接淘宝；若淘宝已成功而此处仍待发货，请在居间系统导入最新淘宝订单导出表，再同步。';
             try {
                 ps_audit('etmll_sync',0,'sync',['type'=>'admin','id'=>(int)$_SESSION['admin_id']],$result);
             } catch (Throwable $auditError) {

@@ -17,10 +17,15 @@
  *                    当月可填写金额覆盖默认值（如网站客服每月不同的“补单提成”）
  *   attendance_bonus 全勤奖：默认不发，财务在规则中心“全勤奖审批”批准后按批准金额计入（考勤仅作建议：请假 <4 小时全额、≥4 小时减半、≥8 小时不发）
  *   manual           手工调整：当月逐人填写（上月漏记、未接入系统的业务提成等）
+ *   legacy_sheet     原系统单量补贴（精确还原旧 referral_order staff_match）：门控列（接单客服）出现本人姓名 → 整表归属本人，
+ *                    再按计列规则去重计数 × 每单金额；门控不通过则 0 元并写明原因（网站售后部单量补贴 ¥1、拍建站链接 ¥0.5）
+ *   legacy_module    原系统单模块（直接调用旧引擎）：按员工 algorithms/config_<id>.json 里的同名模块实时计算，配置改动自动跟随，
+ *                    找不到该模块时回退到规则参数里的创建时快照 params.module；订单范围与 legacy_sheet 相同（网站售后部部门共享由 dept_config 决定）
  *   sales_package    营业额阶梯薪酬：按月营业额落档，底薪（按考勤折算）+ 营业额 × 比例 + 单量补助 + 老客户找回加成 − 好评率罚款（平面设计）
  * 固定补助可标记“另行支付”（如法人补助），单列展示、不计入应结算金额。
  */
 require_once __DIR__ . '/ProjectSettlement.php';
+require_once __DIR__ . '/SalaryCalculator.php';
 
 function ps_monthly_types()
 {
@@ -34,6 +39,8 @@ function ps_monthly_types()
         'base_fee' => '固定服务费（按考勤折算）',
         'attendance_bonus' => '全勤奖',
         'manual' => '手工调整（每月填写）',
+        'legacy_sheet' => '原系统单量补贴（接单客服门控计列）',
+        'legacy_module' => '原系统单模块（直接调用旧引擎）',
         'profit_pool' => '部门利润池分配',
         'perf_rank' => '绩效排名固定服务费（原系统客服绩效）',
         'order_count' => '部门单量提成（按订单数）',
@@ -191,6 +198,104 @@ function ps_sales_package_calc($params, $orders, $reviewRate = null)
     $reviewMin = (float)($params['review_min'] ?? 0);
     if ($reviewRate !== null && $reviewMin > 0 && (float)$reviewRate < $reviewMin) $items[] = ['好评率罚款', -(float)($params['review_penalty'] ?? 0), '本月好评率 ' . rtrim(rtrim(number_format((float)$reviewRate, 2, '.', ''), '0'), '.') . '% 低于 ' . rtrim(rtrim(number_format($reviewMin, 2, '.', ''), '0'), '.') . '%'];
     return ['revenue' => $revenue, 'tier' => $tier, 'base' => (float)$tier['base'], 'tier_text' => $tierText, 'items' => $items];
+}
+
+/**
+ * 原系统单量补贴（legacy_sheet）的订单范围：精确复制 salaries/settle.php loadEmployeeOrdersWithDept 的取数——
+ * 1) 本人当月个人订单（按核验月归属；排除异常、已删除、旧部门物理拆分行）；
+ * 2) 所在部门汇总行（employee_id=0、order_scope='department'、__dept__=部门名）：本人出现在 __dept_modules__ 时虚拟拆分一行；
+ * 3)（可选）后端/技术合作人员：raw_data."后端"（或环境配置订单 raw_data."技术"）= 本人的订单，按 id 去重追加。
+ * 与旧引擎 $c['orders'] 同构，供门控与计列扫描（含 raw_data、order_no、order_amount）。
+ */
+function ps_legacy_sheet_orders($month, $employeeId, $deptName, $backendName = '', $allowNoReceipt = false)
+{
+    static $cache = [];
+    $key = $month . '|' . $employeeId . '|' . $deptName . '|' . $backendName . '|' . (int)$allowNoReceipt;
+    if (isset($cache[$key])) return $cache[$key];
+    // 计薪月份 = 核验月：未核验订单不计入；遗留数据（无核验标记且已核验）按 order_date 归月
+    $creditSql = "(JSON_UNQUOTE(JSON_EXTRACT(raw_data, '$.__verified_month__')) = ?"
+        . " OR ("
+        . "  (raw_data IS NULL OR JSON_UNQUOTE(JSON_EXTRACT(raw_data, '$.__verified_month__')) IS NULL"
+        . "   OR JSON_UNQUOTE(JSON_EXTRACT(raw_data, '$.__verified_month__')) = '')"
+        . "  AND (raw_data IS NULL OR JSON_UNQUOTE(JSON_EXTRACT(raw_data, '$.__order_status__')) IS NULL"
+        . "   OR JSON_UNQUOTE(JSON_EXTRACT(raw_data, '$.__order_status__')) = ''"
+        . "   OR JSON_UNQUOTE(JSON_EXTRACT(raw_data, '$.__order_status__')) <> '未核验')"
+        . "  AND DATE_FORMAT(order_date, '%Y-%m') = ?"
+        . " ))";
+    if ($allowNoReceipt) {
+        // 月度单量不依赖交易流水；已归属其他核验月的订单不能跨月再计一次。
+        $creditSql = "(JSON_UNQUOTE(JSON_EXTRACT(raw_data, '$.__verified_month__')) = ? OR ("
+            . "(raw_data IS NULL OR JSON_UNQUOTE(JSON_EXTRACT(raw_data, '$.__verified_month__')) IS NULL OR JSON_UNQUOTE(JSON_EXTRACT(raw_data, '$.__verified_month__'))='')"
+            . " AND DATE_FORMAT(order_date,'%Y-%m')=?))";
+    }
+    $ostmt = db()->prepare(
+        "SELECT *, order_amount, order_date, project FROM orders
+         WHERE employee_id = ? AND $creditSql
+         AND COALESCE(is_abnormal, 0) = 0
+         AND COALESCE(is_deleted, 0) = 0
+         AND (raw_data IS NULL OR raw_data NOT LIKE '%\"__from_dept__\"%')
+         ORDER BY order_date"
+    );
+    $ostmt->execute([$employeeId, $month, $month]);
+    $orders = $ostmt->fetchAll();
+    if ($deptName !== '') {
+        // 部门订单不按 is_abnormal 过滤：部门汇总行是分成基数来源，异常标记是其固有特征
+        // 部门名走 gen_dept 虚拟列索引（2026-10 性能修复：原 JSON_EXTRACT 全表扫 9.8 万行要 14s，导致报酬页 504）
+        $dstmt = db()->prepare(
+            "SELECT *, order_amount, order_date, project, raw_data FROM orders
+             WHERE employee_id = 0 AND order_scope = 'department'
+             AND $creditSql
+             AND COALESCE(is_deleted, 0) = 0
+             AND gen_dept = ?"
+        );
+        $dstmt->execute([$month, $month, $deptName]);
+        foreach ($dstmt->fetchAll() as $do) {
+            $rd = is_string($do['raw_data'] ?? '') ? json_decode($do['raw_data'], true) : ($do['raw_data'] ?? []);
+            if (!is_array($rd)) $rd = [];
+            $modules = $rd['__dept_modules__'] ?? null;
+            if (!is_array($modules)) continue;
+            $myModule = null;
+            foreach ($modules as $m) {
+                if ((int)($m['employee_id'] ?? 0) === (int)$employeeId) {
+                    $myModule = trim($m['module'] ?? '');
+                    break;
+                }
+            }
+            if ($myModule === null) continue; // 本人不参与此部门订单
+            $vRaw = $rd;
+            $vRaw['__from_dept__'] = $deptName;
+            $virtualRow = $do;
+            $virtualRow['employee_id'] = $employeeId;
+            $virtualRow['project'] = $myModule;
+            $virtualRow['raw_data'] = json_encode($vRaw, JSON_UNESCAPED_UNICODE);
+            $orders[] = $virtualRow;
+        }
+    }
+    if ($backendName !== '') {
+        // 后端/技术名走 gen_backend、gen_tech 虚拟列索引（2026-10 性能修复：原 JSON_EXTRACT 全表扫）
+        $bstmt = db()->prepare(
+            "SELECT *, order_amount, order_date, project FROM orders
+             WHERE $creditSql
+             AND COALESCE(is_deleted, 0) = 0
+             AND ( gen_backend = ?
+                   OR (project LIKE '%环境配置%' AND gen_tech = ?) )
+             ORDER BY order_date"
+        );
+        $bstmt->execute([$month, $month, $backendName, $backendName]);
+        $seen = [];
+        foreach ($orders as $o) $seen[(int)$o['id']] = true;
+        foreach ($bstmt->fetchAll() as $bo) {
+            if (isset($seen[(int)$bo['id']])) continue;
+            $seen[(int)$bo['id']] = true;
+            $orders[] = $bo;
+        }
+    }
+    if ($allowNoReceipt && $deptName === '网站售后部') {
+        require_once __DIR__ . '/ProjectReviewPolicy.php';
+        $orders = array_merge($orders, prp_project_quantity_rows($month,(int)$employeeId,$orders));
+    }
+    $cache[$key] = $orders;
+    return $orders;
 }
 
 /**
@@ -416,6 +521,137 @@ function ps_monthly_results($month, $forceLive = false, $context = null)
             $total = count($counted) + ($extra !== null ? (float)$extra['value'] : 0);
             $unit = (float)($p['amount'] ?? 0);
             $add($rule['employee_id'], $rule, $total * $unit, sprintf('系统内 %d 单%s = %s 单 × ¥%s', count($counted), $extra !== null ? ' + 未录入系统 ' . rtrim(rtrim(money_plain($extra['value']), '0'), '.') . ' 单' . ($extra['note'] !== '' ? '（' . $extra['note'] . '）' : '') : '', rtrim(rtrim(money_plain($total), '0'), '.'), money_plain($unit)));
+        } elseif ($type === 'legacy_sheet') {
+            // 原系统单量补贴（referral_order staff_match 精确还原，旧 SalaryCalculator::calcReferralOrder）：
+            // 第一步门控：订单范围内门控列（接单客服）按逗号拆分出现本人姓名 → 整表归属本人；
+            // 第二步计列（不看逐单人）：配置计数列的按该列关键词筛选 + order_no 去重；
+            // 未配置计数列的按 付费旺旺+日期 去重（两列都非空才计），均排除退款（__is_refund__=1 或金额为负）。
+            if ($rule['employee_id'] === null) continue;
+            $eid = (int)$rule['employee_id'];
+            $nameQuery = db()->prepare('SELECT name FROM employees WHERE id=?');
+            $nameQuery->execute([$eid]);
+            $employeeName = trim((string)$nameQuery->fetchColumn());
+            if ($employeeName === '') continue;
+            require_once __DIR__ . '/ProjectReviewPolicy.php';
+            $allowNoReceipt = prp_allow_no_receipt('monthly', $rule);
+            $orders = ps_legacy_sheet_orders($month, $eid, (string)($p['dept'] ?? ''), trim((string)($p['backend'] ?? '')), $allowNoReceipt);
+            $getCol = function ($rd, $colName) {
+                if (isset($rd[$colName])) return trim($rd[$colName]);
+                foreach ($rd as $k => $v) {
+                    if (mb_strpos($k, $colName) !== false) return trim($v);
+                }
+                return '';
+            };
+            $gateColumn = trim((string)($p['gate_column'] ?? '')) ?: '接单客服';
+            $ownsTable = false;
+            foreach ($orders as $o) {
+                $rd = is_string($o['raw_data'] ?? '') ? json_decode($o['raw_data'], true) : ($o['raw_data'] ?? []);
+                if (!is_array($rd)) $rd = [];
+                $kefu = $getCol($rd, $gateColumn);
+                if ($kefu === '') continue;
+                $names = array_map('trim', explode(',', $kefu));
+                if (in_array($employeeName, $names, true)) { $ownsTable = true; break; }
+            }
+            if (!$ownsTable) {
+                // 0 元行保留并写明原因（与旧系统一致），避免看起来像漏算
+                $add($eid, $rule, 0, sprintf('0.00（%s无匹配%s的订单）', $gateColumn, $employeeName), true);
+                continue;
+            }
+            $parts = [];
+            $total = 0.0;
+            foreach ((array)($p['counters'] ?? []) as $counter) {
+                $filterColumn = trim((string)($counter['column'] ?? ''));
+                $filterKeywords = array_filter(array_map('trim', explode('+', (string)($counter['keywords'] ?? ''))));
+                $filterMatch = ($counter['match'] ?? 'all') === 'any' ? 'any' : 'all';
+                $unit = (float)($counter['unit'] ?? 0);
+                $dedupByOrderNo = $filterColumn !== '';
+                $cnt = 0;
+                $seen = [];
+                foreach ($orders as $o) {
+                    $rd = is_string($o['raw_data'] ?? '') ? json_decode($o['raw_data'], true) : ($o['raw_data'] ?? []);
+                    if (!is_array($rd)) $rd = [];
+                    // 排除退款订单
+                    if ((isset($rd['__is_refund__']) && $rd['__is_refund__'] === '1') || (float)($o['order_amount'] ?? 0) < 0) continue;
+                    if (preg_match('/交易关闭|退款成功|全额退款|退款中|售后中/u', (string)($rd['__order_status__'] ?? ''))) continue;
+                    if ($dedupByOrderNo) {
+                        // 按 order_no 去重（避免多模块上传导致重复行），先去重后筛关键词（与旧引擎一致）
+                        $ono = trim($o['order_no'] ?? '');
+                        if ($ono !== '' && isset($seen[$ono])) continue;
+                        $val = $getCol($rd, $filterColumn);
+                        if ($val === '') continue;
+                        if (!empty($filterKeywords)) {
+                            // 与旧引擎一致：any=至少命中一个（初值 false），all=全部命中（初值 true）
+                            if ($filterMatch === 'any') {
+                                $match = false;
+                                foreach ($filterKeywords as $kw) {
+                                    if (mb_strpos($val, $kw) !== false) { $match = true; break; }
+                                }
+                            } else {
+                                $match = true;
+                                foreach ($filterKeywords as $kw) {
+                                    if (mb_strpos($val, $kw) === false) { $match = false; break; }
+                                }
+                            }
+                            if (!$match) continue;
+                        }
+                        if ($ono !== '') $seen[$ono] = true;
+                        $cnt++;
+                    } else {
+                        // 单量补贴：同旺旺同日期只算 1 单；旺旺或日期为空的不计入
+                        $wangwang = $getCol($rd, '旺旺');
+                        $dateVal = $getCol($rd, '日期');
+                        if ($wangwang === '' || $dateVal === '') continue;
+                        $key = $wangwang . '|' . $dateVal;
+                        if (isset($seen[$key])) continue;
+                        $seen[$key] = true;
+                        $cnt++;
+                    }
+                }
+                $amount = round($cnt * $unit, 2);
+                $total += $amount;
+                $label = trim((string)($counter['name'] ?? '')) ?: ($filterColumn !== '' ? $filterColumn : '单量');
+                $unitText = rtrim(rtrim(money_plain($unit), '0'), '.');
+                if ($filterColumn !== '' && !empty($filterKeywords)) {
+                    $kwLabel = ($filterMatch === 'any' ? '含任一“' : '含全部“') . implode('+', $filterKeywords) . '”';
+                    $parts[] = sprintf('%s %d 单 × ¥%s = ¥%s（%s列%s）', $label, $cnt, $unitText, money_plain($amount), $filterColumn, $kwLabel);
+                } else {
+                    $parts[] = sprintf('%s（旺旺+日期去重）%d 单 × ¥%s = ¥%s', $label, $cnt, $unitText, money_plain($amount));
+                }
+            }
+            $add($eid, $rule, $total, sprintf('%s匹配%s：%s', $gateColumn, $employeeName, implode('；', $parts)) . ($allowNoReceipt ? '；无流水单量自动核验，按月只计一次；利润分成另核实收' : ''), true);
+        } elseif ($type === 'legacy_module') {
+            // 原系统单模块（直接调用旧引擎，任务十）：按员工算法配置里同名模块实时解析调用（配置改动自动跟随），
+            // 配置里找不到时回退到规则参数保存的创建时快照；订单范围与 legacy_sheet 相同
+            //（settle.php loadEmployeeOrdersWithDept 口径：部门共享由 config/dept_config.php 决定，与个人配置 dept_share 无关）。
+            if ($rule['employee_id'] === null) continue;
+            $eid = (int)$rule['employee_id'];
+            $empQuery = db()->prepare('SELECT id, name, department FROM employees WHERE id=?');
+            $empQuery->execute([$eid]);
+            $emp = $empQuery->fetch();
+            if (!$emp || trim((string)$emp['name']) === '') continue;
+            $want = trim((string)($p['module_name'] ?? ''));
+            $module = null;
+            $cfg = SalaryCalculator::readModulesConfig($eid);
+            if ($want !== '' && $cfg && !empty($cfg['modules'])) {
+                foreach ($cfg['modules'] as $mod) {
+                    if (!($mod['enabled'] ?? true)) continue;
+                    if (trim((string)($mod['name'] ?? '')) === $want) { $module = $mod; break; }
+                }
+            }
+            if ($module === null && is_array($p['module'] ?? null)) $module = $p['module'];
+            if ($module === null || trim((string)($module['type'] ?? '')) === '') {
+                $add($eid, $rule, 0, sprintf('0.00（算法中心未找到该员工配置的模块「%s」，请在算法中心核对模块名）', $want), true);
+                continue;
+            }
+            $orders = ps_legacy_sheet_orders($month, $eid, (string)($emp['department'] ?? ''), trim((string)$emp['name']));
+            $orderTotal = 0.0;
+            foreach ($orders as $o) $orderTotal += (float)($o['order_amount'] ?? 0);
+            $res = SalaryCalculator::runModuleFor((string)$module['type'], $module['config'] ?? [], $emp, $orders, $orderTotal, $month, (string)($module['name'] ?? $want));
+            if (!is_array($res) || !isset($res['amount'])) {
+                $add($eid, $rule, 0, sprintf('0.00（旧引擎执行「%s」未返回结果）', trim((string)($module['name'] ?? $want))), true);
+                continue;
+            }
+            $add($eid, $rule, round((float)$res['amount'], 2), trim((string)($module['name'] ?? $want)) . '：' . (($res['formula'] ?? '') !== '' ? $res['formula'] : '旧引擎无公式说明'), true);
         } elseif ($type === 'fixed') {
             if ($rule['employee_id'] === null) continue;
             $override = $inputs[(int)$rule['id']][(int)$rule['employee_id']] ?? null;
@@ -532,6 +768,37 @@ function ps_monthly_params_from_input($type, $input)
         if (!$tiers) throw new RuntimeException('请至少填写一档');
         usort($tiers, function ($a, $b) { return $a['upto'] <=> $b['upto']; });
         return ['tiers' => $tiers, 'big_threshold' => $num($input['big_threshold'] ?? '50', '大单门槛'), 'returning_rate' => $num($input['returning_rate'] ?? '0', '老客户找回比例') / 100, 'review_min' => $num($input['review_min'] ?? '0', '好评率门槛'), 'review_penalty' => $num($input['review_penalty'] ?? '0', '好评率罚款')];
+    }
+    if ($type === 'legacy_sheet') {
+        // 计列每行 5 项：名称,计数列(空=按 付费旺旺+日期 去重),关键词(+分隔),匹配(any=任一/all=全部),每单金额
+        $counters = [];
+        foreach (array_filter(array_map('trim', preg_split('/[\r\n]+/', (string)($input['legacy_counters'] ?? ''))), 'strlen') as $line) {
+            $cells = array_map('trim', preg_split('/[,，]/u', $line));
+            if (count($cells) < 5) throw new RuntimeException('计列每行填 5 项：名称,计数列,关键词,匹配(any|all),每单金额，如 拍建站链接,拍建站,网站链接+小程序链接,any,0.5');
+            $counters[] = ['name' => $cells[0], 'column' => $cells[1], 'keywords' => $cells[2], 'match' => $cells[3] === 'any' ? 'any' : 'all', 'unit' => $num($cells[4], '每单金额')];
+        }
+        if (!$counters) throw new RuntimeException('请至少填写一条计列');
+        return ['dept' => trim((string)($input['legacy_dept'] ?? '')), 'gate_column' => trim((string)($input['legacy_gate'] ?? '')) ?: '接单客服', 'counters' => $counters];
+    }
+    if ($type === 'legacy_module') {
+        // 原系统单模块：旧配置模块名必填（运行时按该员工 algorithms/config_<id>.json 的同名模块实时计算）；
+        // 可选粘贴模块 JSON 快照（{"type":...,"name":...,"config":{...}}）作为配置缺失时的兜底与列表展示。
+        $moduleName = trim((string)($input['legacy_module_name'] ?? ''));
+        if ($moduleName === '') throw new RuntimeException('请填写旧配置模块名（与算法中心里该员工配置的模块名称一致）');
+        $module = null;
+        $raw = trim((string)($input['legacy_module'] ?? ''));
+        if ($raw !== '') {
+            $decoded = json_decode($raw, true);
+            if (!is_array($decoded) || trim((string)($decoded['type'] ?? '')) === '') {
+                throw new RuntimeException('模块配置快照必须是包含 type 的模块 JSON，如 {"type":"per_order","name":"每笔订单奖励5元","config":{...}}');
+            }
+            $module = [
+                'name'   => trim((string)($decoded['name'] ?? '')) ?: $moduleName,
+                'type'   => trim((string)$decoded['type']),
+                'config' => is_array($decoded['config'] ?? null) ? $decoded['config'] : [],
+            ];
+        }
+        return ['module_name' => $moduleName, 'module' => $module];
     }
     if ($type === 'manual' || $type === 'perf_rank') return [];
     if ($type === 'profit_pool') {

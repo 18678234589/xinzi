@@ -290,7 +290,8 @@ function etmll_sync_orders(PDO $pdo, iterable $sourceRows, bool $dryRun = false)
         $pendingMarks = [];
         $addShop = $pdo->prepare('INSERT INTO shops (name,sort) VALUES (?,99)');
         $statusOnly = $pdo->prepare('UPDATE orders SET raw_data=? WHERE id=? AND COALESCE(is_deleted,0)=0');
-        $result = ['dry_run'=>$dryRun,'scanned'=>0,'inserted'=>0,'updated'=>0,'linked_existing'=>0,'project_filled'=>0,'project_status_updated'=>0,'linked_status_updated'=>0,
+        $sourceEvidenceChanged = $pdo->prepare("UPDATE project_order_sources s JOIN project_orders o ON o.id=s.order_id SET s.synced_at=NOW() WHERE o.order_no=? AND (o.shop='' OR o.shop=?) AND o.settlement_status NOT IN ('approved','locked')");
+        $result = ['dry_run'=>$dryRun,'scanned'=>0,'inserted'=>0,'updated'=>0,'linked_existing'=>0,'project_filled'=>0,'project_status_updated'=>0,'linked_status_updated'=>0,'linked_evidence_updated'=>0,
             'skipped_existing'=>0,'skipped_done'=>0,'skipped_unpaid'=>0,'skipped_no_shop'=>0,'skipped_deleted'=>0,
             'skipped_missing_local'=>0,'by_shop'=>[],'by_shop_updated'=>[],'by_shop_linked'=>[],'new_shops'=>[]];
         $newShops = [];
@@ -351,12 +352,17 @@ function etmll_sync_orders(PDO $pdo, iterable $sourceRows, bool $dryRun = false)
                         $old = $read->fetch(PDO::FETCH_ASSOC);
                         $merged = $old ? (json_decode((string)$old['raw_data'], true) ?: []) : [];
                         $nextStatus = (string)$raw['__order_status__'];
+                        $statusChanged = false;
                         if ($old && ps_shop_status_rank($nextStatus) > ps_shop_status_rank($merged['__order_status__'] ?? '')) {
                             $merged['__order_status__'] = $merged['订单状态'] = $nextStatus;
                             $merged['__etmll_linked_id__'] = $eid;
-                            $statusOnly->execute([json_encode($merged, JSON_UNESCAPED_UNICODE), $legacyId]);
+                            $statusChanged = true;
                             $result['linked_status_updated']++;
                         }
+                        $observedRefund = (int)round((float)($o['refund_amount'] ?? 0)*100);
+                        $evidenceChanged = $old && (int)($merged['__etmll_observed_refund_cents__'] ?? 0) !== $observedRefund;
+                        if ($evidenceChanged) { $merged['__etmll_observed_refund_cents__'] = $observedRefund; $result['linked_evidence_updated']++; $sourceEvidenceChanged->execute([$m['order_no'],$m['shop']]); }
+                        if ($old && ($statusChanged || $evidenceChanged)) $statusOnly->execute([json_encode($merged, JSON_UNESCAPED_UNICODE), $legacyId]);
                     }
                 }
                 if ($isLink) {

@@ -8,7 +8,7 @@ $line = ['at' => date('Y-m-d H:i:s'), 'dry' => $dry];
 try {
     $pull = etmll_sync_run($dry);
     $line['pull'] = ['scanned' => $pull['scanned'], 'inserted' => $pull['inserted'], 'updated' => $pull['updated'], 'linked' => $pull['linked_existing'],
-        'project_filled' => $pull['project_filled'], 'project_status_updated' => $pull['project_status_updated'], 'linked_status_updated' => $pull['linked_status_updated']];
+        'project_filled' => $pull['project_filled'], 'project_status_updated' => $pull['project_status_updated'], 'linked_status_updated' => $pull['linked_status_updated'], 'linked_evidence_updated' => $pull['linked_evidence_updated']];
 } catch (Throwable $e) { $line['pull_error'] = mb_substr($e->getMessage(), 0, 160); }
 try {
     $push = etmll_push_run($dry, false);
