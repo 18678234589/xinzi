@@ -12,12 +12,24 @@
                         $siteTypeQuery->execute([$record['order_no']]);
                         $siteBaseType = $siteTypeQuery->fetchColumn();
                     }
-                    if ($record['order_no'] !== '' && psp_is_website($record['project_type']) && (!$siteBaseType || psp_is_website($siteBaseType))) {
+                    // 同付款号的附加项行（SSL / 安全证书 / 补差价等）并回原单，不算另一个网站，也不需要网站项目标识
+                    $isSiteAddon = $record['order_no'] !== '' && psp_is_website($record['project_type']) && psp_is_addon_program($lookup($row, 'program_name')) && trim((string)($fixSiteKeys[$record['line']] ?? '')) === '' && $lookup($row, 'site_project_key') === '' && $lookup($row, 'detail:website_url') === '';
+                    if ($isSiteAddon) $record['warning'] .= ($record['warning'] ? '；' : '') . '附加项“' . ($lookup($row, 'program_name') ?: '未写程序名称') . '”并入同号订单（不另算网站）';
+                    if (!$isSiteAddon && $record['order_no'] !== '' && psp_is_website($record['project_type']) && (!$siteBaseType || psp_is_website($siteBaseType))) {
                         $siteBase = $record['order_no'];
                         $record['site_external_no'] = $siteBase;
                         $siteSeq[$siteBase] = ($siteSeq[$siteBase] ?? 0) + 1;
                         $rawSiteKey = trim((string)($fixSiteKeys[$record['line']] ?? ''));
                         if ($rawSiteKey === '') $rawSiteKey = $lookup($row, 'site_project_key') ?: $lookup($row, 'detail:website_url');
+                        if ($rawSiteKey !== '') $siteExplicit[$siteBase] = true;
+                        elseif ($siteSeq[$siteBase] > 1 && empty($siteExplicit[$siteBase])) {
+                            // 同一付款号有多个网站、表格没有域名 / 网站项目标识：按表格顺序自动标识（第 1 个网站同时补上标识），财务核对付款分配
+                            $rawSiteKey = 'auto-' . $siteSeq[$siteBase];
+                            $record['site_key_auto'] = true;
+                            $firstIndex = $seen[$siteBase] ?? null;
+                            if ($firstIndex !== null && isset($preview[$firstIndex]) && empty($preview[$firstIndex]['site_key']) && !empty($preview[$firstIndex]['site_external_no'])) { $preview[$firstIndex]['site_key'] = 'auto-1'; $preview[$firstIndex]['site_key_auto'] = true; $siteSeenKeys[$siteBase]['auto-1'] = true; }
+                            $record['warning'] .= ($record['warning'] ? '；' : '') . '同一付款号有多个网站但表里没有域名 / 网站项目标识：已按表格顺序标为第 ' . $siteSeq[$siteBase] . ' 个网站';
+                        }
                         $record['site_key'] = $rawSiteKey !== '' ? psp_key($rawSiteKey) : '';
                         if ($record['site_key'] !== '') {
                             if (isset($siteSeenKeys[$siteBase][$record['site_key']])) {

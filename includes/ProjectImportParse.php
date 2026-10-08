@@ -83,6 +83,24 @@ function ps_import_split_joined_names($text, $employeesByName)
     return $parts && count($parts) >= 2 ? $parts : null;
 }
 
+/** 未登记的名字是否像某位合作人员（包含、被包含或只差一个字）：像的多半是写错了姓名，必须拦下提示；不像的（如“大连”）才可忽略。 */
+function ps_import_name_resembles_employee($name, $employeesByName)
+{
+    $name = trim((string)$name);
+    if (mb_strlen($name) < 2) return false;
+    foreach (array_keys($employeesByName) as $known) {
+        $known = (string)$known;
+        if ($known === '') continue;
+        if (mb_strpos($known, $name) !== false || mb_strpos($name, $known) !== false) return true;
+        if (mb_strlen($known) === mb_strlen($name)) {
+            $diff = 0;
+            for ($i = 0, $n = mb_strlen($name); $i < $n; $i++) if (mb_substr($name, $i, 1) !== mb_substr($known, $i, 1)) $diff++;
+            if ($diff <= 1) return true;
+        }
+    }
+    return false;
+}
+
 /**
  * 宽松解析人员列（用于制作技术 / 协作技术）：不在人员名单中的写法（常见是把项目名称填进了技术列）不拦截整行，
  * 放进 $unknown 由调用方提示并忽略；重名等真正需要区分的人员问题仍抛出。

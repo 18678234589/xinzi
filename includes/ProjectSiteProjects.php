@@ -6,6 +6,14 @@ function psp_is_website($business)
     return in_array(ps_business_normalize((string)$business), ['网站模板', 'AI网站定制'], true);
 }
 
+/** 网站表里同付款号的“附加项”行（SSL / 安全证书 / 域名 / 环境配置 / 补差价等）：不是另一个网站，并回原单，不需要网站项目标识。 */
+function psp_is_addon_program($programName)
+{
+    $name = mb_strtolower(trim((string)$programName), 'UTF-8');
+    if ($name === '') return true;
+    return (bool)preg_match('/ssl|https|证书|域名|环境|配置|上传资料|补差价|差价|加语言|加急|加购|修改网站|网站修改|空间|服务器/u', $name);
+}
+
 function psp_key($raw)
 {
     $key = mb_strtolower(trim(preg_replace('/\s+/u', ' ', (string)$raw)), 'UTF-8');

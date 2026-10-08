@@ -318,15 +318,16 @@
 - `ps_import_file_mark` L186–194
 - 加载：`require_once __DIR__ . '/../classes/SimpleXLSX.php';`
 
-## includes/ProjectImportParse.php (181 行, 12.5 KB)
+## includes/ProjectImportParse.php (199 行, 13.3 KB)
 
 - `ps_import_date` L3–30
 - `ps_import_names` L36–65
 - `ps_import_split_joined_names` L68–84
-- `ps_import_names_lenient` L90–103
-- `ps_import_autofill_details` L109–120
-- `ps_import_fix_guide` L126–159
-- `ps_import_followup_rows` L165–180
+- `ps_import_name_resembles_employee` L87–102
+- `ps_import_names_lenient` L108–121
+- `ps_import_autofill_details` L127–138
+- `ps_import_fix_guide` L144–177
+- `ps_import_followup_rows` L183–198
 
 ## includes/ProjectImportResult.php (62 行, 3.7 KB)
 
@@ -537,19 +538,20 @@
 - `pon_rename` L17–50
 - 加载：`require_once __DIR__ . '/ProjectOrderSource.php';`
 
-## includes/ProjectOrderSource.php (230 行, 15.6 KB)
+## includes/ProjectOrderSource.php (238 行, 16.1 KB)
 
 - `ps_source_record` L4–8
 - `ps_payment_reference_order_no` L11–16
-- `ps_customer_intake_conflicts` L18–33
-- `ps_customer_intake_conflict_detail` L36–47
-- `ps_save_customer_intake` L50–100
-- `ps_source_nickname` L102–112
-- `ps_shop_status_rank` L119–129
-- `ps_sync_project_status_latest` L132–143
-- `ps_sync_project_from_shop_order` L145–178
-- `ps_sync_existing_shop_order` L180–194
-- `ps_shop_order_lookup` L200–229
+- `ps_customer_intake_blocking` L19–22
+- `ps_customer_intake_conflicts` L24–41
+- `ps_customer_intake_conflict_detail` L44–55
+- `ps_save_customer_intake` L58–108
+- `ps_source_nickname` L110–120
+- `ps_shop_status_rank` L127–137
+- `ps_sync_project_status_latest` L140–151
+- `ps_sync_project_from_shop_order` L153–186
+- `ps_sync_existing_shop_order` L188–202
+- `ps_shop_order_lookup` L208–237
 - 加载：`require_once __DIR__ . '/ProjectSettlement.php';`
 
 ## includes/ProjectOrderSplit.php (81 行, 4.1 KB)
@@ -785,20 +787,21 @@
 
 - `ps_shop_statement_merge` L3–22
 
-## includes/ProjectSiteProjects.php (125 行, 7.5 KB)
+## includes/ProjectSiteProjects.php (133 行, 8 KB)
 
 - `psp_is_website` L4–7
-- `psp_key` L9–14
-- `psp_child_no` L16–21
-- `psp_lookup` L23–28
-- `psp_order` L30–35
-- `psp_members` L37–45
-- `psp_register` L47–58
-- `psp_allocation_hash` L60–65
-- `psp_validate_allocation` L67–83
-- `psp_verify` L85–106
-- `psp_verification` L108–113
-- `psp_approve_guard` L115–124
+- `psp_is_addon_program` L10–15
+- `psp_key` L17–22
+- `psp_child_no` L24–29
+- `psp_lookup` L31–36
+- `psp_order` L38–43
+- `psp_members` L45–53
+- `psp_register` L55–66
+- `psp_allocation_hash` L68–73
+- `psp_validate_allocation` L75–91
+- `psp_verify` L93–114
+- `psp_verification` L116–121
+- `psp_approve_guard` L123–132
 - 加载：`require_once __DIR__ . '/ProjectAutoReview.php';`
 
 ## includes/ProjectSystem.php (275 行, 15 KB)
@@ -2062,22 +2065,22 @@
 - 加载：`require_once (dirname(__DIR__, 1)) . '/../includes/ProjectImportClassification.php';`
 - 加载：`require_once (dirname(__DIR__, 1)) . '/../classes/SimpleXLSX.php';`
 
-## project/import/02_read_sheets.php (157 行, 14.3 KB)
+## project/import/02_read_sheets.php (158 行, 14.4 KB)
 
 
-## project/import/03a_order_no_and_split.php (122 行, 11.4 KB)
+## project/import/03a_order_no_and_split.php (134 行, 13.2 KB)
 
 
-## project/import/03b_date_amount_status.php (242 行, 24.5 KB)
+## project/import/03b_date_amount_status.php (248 行, 25.2 KB)
 
 
-## project/import/03c_people_resources.php (104 行, 10.9 KB)
+## project/import/03c_people_resources.php (110 行, 11.8 KB)
 
 
-## project/import/04_merge_items.php (31 行, 3 KB)
+## project/import/04_merge_items.php (32 行, 3.2 KB)
 
 
-## project/import/04_merge_rows.php (90 行, 7.1 KB)
+## project/import/04_merge_rows.php (95 行, 7.8 KB)
 
 - 加载：`require_once (dirname(__DIR__, 1)) . '/../includes/ProjectOrderFix.php';`
 
@@ -2092,7 +2095,7 @@
 ## project/import/commit/part_1.php (56 行, 4.9 KB)
 
 
-## project/import/commit/part_2.php (244 行, 23.6 KB)
+## project/import/commit/part_2.php (245 行, 24.3 KB)
 
 - 加载：`require_once (dirname((dirname(__DIR__, 1)), 1)) . '/../includes/dup_feedback.php';`
 - 加载：`require_once (dirname((dirname(__DIR__, 1)), 1)) . '/../includes/ProjectAutoReview.php';`
@@ -2945,19 +2948,193 @@
 ## storage/private/imports/202609_f92364832082efa6e3a25adf.csv.php (5 行, 0.6 KB)
 
 
+## storage/private/imports/202610_04431543089c366dfde61e5f.csv.php (15 行, 1.3 KB)
+
+
+## storage/private/imports/202610_097b8106091f00f440af455e.xlsx.php (103 行, 18 KB)
+
+
+## storage/private/imports/202610_0b76a1233e925559da651f37.xlsx.php (2194 行, 701.5 KB)
+
+
+## storage/private/imports/202610_0d63db9768c1956d72e60766.xlsx.php (1945 行, 508.9 KB)
+
+
+## storage/private/imports/202610_12700d744bca36fac75741ea.xlsx.php (632 行, 184.7 KB)
+
+
 ## storage/private/imports/202610_12ab708c75bd1824536863de.csv.php (5 行, 0.6 KB)
+
+
+## storage/private/imports/202610_15729e8d6a675fb78a8d6a84.xlsx.php (34 行, 28 KB)
+
+
+## storage/private/imports/202610_173fffb4e0620612aec79369.xlsx.php (407 行, 91.8 KB)
+
+
+## storage/private/imports/202610_19e7dea3ce31074650703330.xls.php (19133 行, 5341.5 KB)
+
+
+## storage/private/imports/202610_1c11824880afd7c470ca1d26.xlsx.php (194 行, 51.7 KB)
+
+
+## storage/private/imports/202610_2b3fbf9889b0cdd65feea3f8.xlsx.php (43 行, 10.3 KB)
+
+
+## storage/private/imports/202610_2d7317e36d5f30fcf4ba593f.xlsx.php (45 行, 10.1 KB)
+
+
+## storage/private/imports/202610_31091cd01e3eb7a4c941d317.xlsx.php (407 行, 91.8 KB)
+
+
+## storage/private/imports/202610_36a104d8ef750ad886f83a9f.xlsx.php (28603 行, 9098.9 KB)
+
+
+## storage/private/imports/202610_3df9cc6b59ed498a3d3c5c53.xlsx.php (47 行, 11 KB)
+
+
+## storage/private/imports/202610_3f3587cc959a0c1d31dda0f7.csv.php (19 行, 1 KB)
+
+
+## storage/private/imports/202610_424caec3b5b37ebe5e5fbd0d.xls.php (4329 行, 377 KB)
+
+
+## storage/private/imports/202610_4aedc6906cd46dc5e6fbea43.xlsx.php (218 行, 46.7 KB)
+
+
+## storage/private/imports/202610_4e35e693ff51f3476032a48d.xlsx.php (200 行, 46.1 KB)
+
+
+## storage/private/imports/202610_4f01592db5a4286c30c45a68.xlsx.php (103 行, 18 KB)
+
+
+## storage/private/imports/202610_526bde0730db528decb0e27b.xlsx.php (32483 行, 8335.3 KB)
+
+
+## storage/private/imports/202610_5306b59c3314ac7749785df3.xlsx.php (606 行, 167.3 KB)
+
+
+## storage/private/imports/202610_5f1302aca4c474b1ca6c2365.xlsx.php (9978 行, 2659.7 KB)
+
+
+## storage/private/imports/202610_61ac3e19e13a88cb09be3c74.xlsx.php (54 行, 10.7 KB)
+
+
+## storage/private/imports/202610_62a63daaf922d1d218a4f98a.xlsx.php (3676 行, 1060.2 KB)
+
+
+## storage/private/imports/202610_72242fba0152598971a5722b.xlsx.php (61 行, 13.6 KB)
+
+
+## storage/private/imports/202610_745cfca69b9ef95b47d0030f.xlsx.php (103 行, 18 KB)
+
+
+## storage/private/imports/202610_7560af8e4d46918b152f599a.xlsx.php (43 行, 10.3 KB)
+
+
+## storage/private/imports/202610_779344d349bf267d6a396121.xlsx.php (49 行, 12.3 KB)
+
+
+## storage/private/imports/202610_79fc49ebb4739d68121f626a.xlsx.php (632 行, 184.7 KB)
 
 
 ## storage/private/imports/202610_7a6db89a3b352fdaaedadb32.csv.php (5 行, 0.6 KB)
 
 
+## storage/private/imports/202610_7c8bf3f26bdca79e44200703.xlsx.php (34 行, 27.9 KB)
+
+
+## storage/private/imports/202610_8526d7a259cb07719ef62716.xlsx.php (59 行, 16.6 KB)
+
+
+## storage/private/imports/202610_88965a47dd9ac60c397f2fb4.xlsx.php (574 行, 167.4 KB)
+
+
+## storage/private/imports/202610_8ba225fe71ba72f0bdcf485b.xlsx.php (61 行, 13.2 KB)
+
+
+## storage/private/imports/202610_8dcfd0a71a07e0ad67f5ba5d.xlsx.php (66 行, 272.1 KB)
+
+
+## storage/private/imports/202610_8e6eeeb9b2105c652b338d1f.xlsx.php (1877 行, 418.4 KB)
+
+
+## storage/private/imports/202610_927866920b895fb2fcf4c755.csv.php (15 行, 1.3 KB)
+
+
+## storage/private/imports/202610_9ddb88cdba404f0809a1df2a.xlsx.php (43 行, 10.3 KB)
+
+
+## storage/private/imports/202610_a226402ba81169ea72a38d31.xlsx.php (9978 行, 2659.7 KB)
+
+
+## storage/private/imports/202610_aa0c0cb75af6d322c409dc85.xlsx.php (7028 行, 2038.3 KB)
+
+
 ## storage/private/imports/202610_b08b15fc82ff300e846212d7.csv.php (5 行, 0.6 KB)
+
+
+## storage/private/imports/202610_b42deebdb40bf5e2a6ce6c0d.xlsx.php (15404 行, 4503.8 KB)
+
+
+## storage/private/imports/202610_b9196db6078359ac39660d0b.xlsx.php (200 行, 46.1 KB)
+
+
+## storage/private/imports/202610_ba6569eb393bc4131e72eb31.xlsx.php (32 行, 30.1 KB)
+
+
+## storage/private/imports/202610_bde4143227362639ba579007.xlsx.php (113 行, 25.7 KB)
+
+
+## storage/private/imports/202610_c3ea6dbbde94ed7ea65bfaef.xls.php (3920 行, 990.5 KB)
+
+
+## storage/private/imports/202610_c50c44e54ca5b65ae902960c.xlsx.php (103 行, 18 KB)
+
+
+## storage/private/imports/202610_c749059c4f1fa2f86d24f1e6.xlsx.php (106 行, 23.7 KB)
+
+
+## storage/private/imports/202610_c760fc2eb37743393d9ab27d.xlsx.php (100 行, 24.5 KB)
+
+
+## storage/private/imports/202610_ce3025c09a451f8a519c9340.xlsx.php (3683 行, 1151.1 KB)
+
+
+## storage/private/imports/202610_d0b1de2158ae5a5186e3f98b.xlsx.php (45 行, 10.1 KB)
+
+
+## storage/private/imports/202610_d4c775ef2b8e266723b2fbf3.xlsx.php (1080 行, 320.2 KB)
+
+
+## storage/private/imports/202610_d8a1590c57de8ef641abfaa5.xlsx.php (105 行, 24.7 KB)
+
+
+## storage/private/imports/202610_e35c021bb361bcad5b4e22b6.xlsx.php (55 行, 13.3 KB)
+
+
+## storage/private/imports/202610_e4fbaba01257f71a3c21f942.xlsx.php (162 行, 27.4 KB)
+
+
+## storage/private/imports/202610_e796b1d959efacd651ffce5e.csv.php (15 行, 1.3 KB)
+
+
+## storage/private/imports/202610_f7192fd0a3b57af832e4057f.xls.php (390 行, 80.5 KB)
+
+
+## storage/private/imports/202610_f99384071888f18352bd7d90.xlsx.php (103 行, 18 KB)
 
 
 ## storage/private/imports/bid_test_0c7e0cfd18.xlsx.php (48 行, 13.8 KB)
 
 
+## storage/private/imports/bid_test_203a149bbc.xlsx.php (48 行, 13.8 KB)
+
+
 ## storage/private/imports/bid_test_56cf67d93e.xlsx.php (48 行, 13.8 KB)
+
+
+## storage/private/imports/bid_test_749417a546.xlsx.php (48 行, 13.8 KB)
 
 
 ## storage/private/imports/bid_test_76b56a4873.xlsx.php (48 行, 13.8 KB)
@@ -2966,10 +3143,16 @@
 ## storage/private/imports/bid_test_7ddf62aee5.xlsx.php (48 行, 13.8 KB)
 
 
+## storage/private/imports/bid_test_80650eb819.xlsx.php (48 行, 13.8 KB)
+
+
 ## storage/private/imports/followup_test_000b6c260c.csv.php (10 行, 0.7 KB)
 
 
 ## storage/private/imports/followup_test_2db58edee3.csv.php (10 行, 0.7 KB)
+
+
+## storage/private/imports/followup_test_5dc5d99080.csv.php (10 行, 0.7 KB)
 
 
 ## storage/private/imports/followup_test_9c2a3d7243.csv.php (10 行, 0.7 KB)
@@ -2979,6 +3162,9 @@
 
 
 ## storage/private/imports/graphic_test_0a9bb3c7ec.csv.php (9 行, 0.5 KB)
+
+
+## storage/private/imports/graphic_test_25dd00dda5.csv.php (9 行, 0.5 KB)
 
 
 ## storage/private/imports/graphic_test_31ac96e249.csv.php (9 行, 0.5 KB)
@@ -2993,7 +3179,16 @@
 ## storage/private/imports/index.php (2 行, 0 KB)
 
 
+## storage/private/imports/lenient_test_2f6723418c.csv.php (7 行, 0.8 KB)
+
+
 ## storage/private/imports/lenient_test_5f95646a71.csv.php (7 行, 0.8 KB)
+
+
+## storage/private/imports/lenient_test_70c0b49d17.csv.php (7 行, 0.8 KB)
+
+
+## storage/private/imports/lenient_test_768055ae54.csv.php (7 行, 0.8 KB)
 
 
 ## storage/private/imports/lenient_test_c6a0f7eae0.csv.php (7 行, 0.8 KB)
@@ -3020,6 +3215,9 @@
 ## storage/private/imports/replay_test_9d54a00af8.csv.php (7 行, 0.6 KB)
 
 
+## storage/private/imports/replay_test_dd1d861cfb.csv.php (9 行, 0.9 KB)
+
+
 ## storage/private/imports/replay_test_e7ac7f15a6.csv.php (7 行, 0.6 KB)
 
 
@@ -3029,10 +3227,22 @@
 ## storage/private/imports/split_test_15cef948ec.csv.php (4 行, 0.2 KB)
 
 
+## storage/private/imports/split_test_49fecab96e.csv.php (4 行, 0.2 KB)
+
+
 ## storage/private/imports/split_test_568a97a0c3.csv.php (4 行, 0.1 KB)
 
 
+## storage/private/imports/split_test_7109a95187.csv.php (4 行, 0.2 KB)
+
+
 ## storage/private/imports/split_test_718d57df04.csv.php (4 行, 0.1 KB)
+
+
+## storage/private/imports/split_test_92f1be538c.csv.php (4 行, 0.1 KB)
+
+
+## storage/private/imports/split_test_96234ad729.csv.php (4 行, 0.1 KB)
 
 
 ## storage/private/imports/split_test_9aa7a5b762.csv.php (4 行, 0.2 KB)
@@ -3059,10 +3269,16 @@
 ## storage/private/imports/trademark_flow_470a0af800.xlsx.php (68 行, 17.9 KB)
 
 
+## storage/private/imports/trademark_flow_649379e64b.xlsx.php (68 行, 17.9 KB)
+
+
 ## storage/private/imports/trademark_flow_6a80934def.xlsx.php (64 行, 19.5 KB)
 
 
 ## storage/private/imports/trademark_flow_6eb6883cb1.xlsx.php (186 行, 40.4 KB)
+
+
+## storage/private/imports/trademark_flow_78f05ec7af.xlsx.php (83 行, 21.9 KB)
 
 
 ## storage/private/imports/trademark_flow_7ad6d795aa.xlsx.php (157 行, 39.9 KB)
@@ -3077,7 +3293,16 @@
 ## storage/private/imports/trademark_flow_d7135f9f20.xlsx.php (64 行, 19.5 KB)
 
 
+## storage/private/imports/trademark_flow_e1cd207075.xlsx.php (64 行, 19.5 KB)
+
+
+## storage/private/imports/trademark_flow_e9775c575d.xlsx.php (157 行, 39.9 KB)
+
+
 ## storage/private/imports/trademark_flow_f1bef5115b.xlsx.php (64 行, 19.5 KB)
+
+
+## storage/private/imports/trademark_flow_f647c60c3f.xlsx.php (186 行, 40.4 KB)
 
 
 ## storage/private/imports/trademark_flow_fa8edb461c.xlsx.php (83 行, 21.9 KB)
@@ -3153,6 +3378,11 @@
 ## tests/graphic_design_package_smoke.php (53 行, 4.5 KB)
 
 - 加载：`require_once __DIR__ . '/../includes/ProjectMonthly.php';`
+
+## tests/import_failure_avoidance_smoke.php (105 行, 9.6 KB)
+
+- 加载：`require_once __DIR__ . '/../includes/ProjectIntake.php';`
+- 加载：`include __DIR__ . '/../project/import.php';`
 
 ## tests/import_followup_smoke.php (69 行, 6.3 KB)
 

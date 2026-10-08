@@ -13,6 +13,8 @@
                     $external = (string)($siteRow['site_external_no'] ?? '');
                     if ($external === '' || ($siteSeq[$external] ?? 0) < 2) continue;
                     $keys = $siteKeysByExternal[$external] ?? [];
+                    $autoKeys = array_filter($keys, function ($k) { return strpos((string)$k, 'auto-') === 0; });
+                    if ($autoKeys && count($autoKeys) !== count($keys)) $keys[] = '';
                     if (in_array('', $keys, true) || count(array_unique($keys)) !== count($keys)) {
                         $siteRow['base_valid'] = false; $siteRow['status'] = '需确认网站项目';
                         $siteRow['error'] = trim(($siteRow['error'] ?? '') . '；同一付款号的每个网站须填写互不相同的“网站项目标识”（建议用域名）'
@@ -31,6 +33,9 @@
                 if (empty($mergedRow['base_valid']) || empty($mergedRow['existing_snapshot'])) continue;
                 $conflicts = ps_customer_intake_conflicts($mergedRow['existing_snapshot'], $mergedRow);
                 if ($selectedBusiness === '商标' && $actor['role'] === 'technical') $conflicts = array_values(array_intersect($conflicts, ['售价']));
+                $softConflicts = $conflicts;
+                $conflicts = ps_customer_intake_blocking($conflicts);
+                if (!$conflicts && $softConflicts) $mergedRow['warning'] = trim(($mergedRow['warning'] ?? '') . '；与原单的' . implode('、', $softConflicts) . '写法不同（售价一致，按同一笔订单关联，沿用原单的值）：' . ps_customer_intake_conflict_detail($mergedRow['existing_snapshot'], $mergedRow, $softConflicts), '；');
                 if ($conflicts) { $mergedRow['base_valid'] = false; $mergedRow['status'] = '需处理'; $mergedRow['error'] = '原单与上传表的' . implode('、', $conflicts) .
     '不一致，请由财务核对'; $mergedRow['conflict_detail'] = ps_customer_intake_conflict_detail($mergedRow['existing_snapshot'], $mergedRow, $conflicts) . ($sameAsPrev &&
     (in_array('店铺', $conflicts, true) || in_array('付款昵称', $conflicts, true)) ? '。这一行的店铺、付款昵称与上一行完全相同，可能是整列下拉填充时带下来的，请对照备注列核对'

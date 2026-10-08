@@ -1,5 +1,11 @@
 <?php
-                    $cs = ps_import_names($lookup($row, 'customer_service'), $employeesByName, $selectedBusiness);
+                    // 技术人员上传时，客服列写了非人名（如“大连”）不拦整行：忽略并提示；客服上传仍严格校验本人姓名
+                    $unknownCs = [];
+                    if ($actor['role'] === 'technical' && !$departmentMode) {
+                        $cs = ps_import_names_lenient($lookup($row, 'customer_service'), $employeesByName, $selectedBusiness, $unknownCs);
+                        foreach ($unknownCs as $unknownCsName) if (ps_import_name_resembles_employee($unknownCsName, $employeesByName)) ps_import_names($lookup($row, 'customer_service'), $employeesByName, $selectedBusiness); // 像合作人员的写法（多半是写错姓名）仍拦截
+                        if ($unknownCs) $record['warning'] .= ($record['warning'] ? '；' : '') . '客服列写的“' . implode('、', $unknownCs) . '”不是合作人员，已忽略';
+                    } else $cs = ps_import_names($lookup($row, 'customer_service'), $employeesByName, $selectedBusiness);
                     // 技术列写的不是合作人员（常见是把项目名称填进了“制作技术”）：不拦整行，提示后忽略；客服列仍严格校验
                     $unknownTech = [];
                     $front = ps_import_names_lenient($lookup($row, 'frontend'), $employeesByName, $selectedBusiness, $unknownTech);

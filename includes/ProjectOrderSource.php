@@ -15,6 +15,12 @@ function ps_payment_reference_order_no($business, $reference)
     return 'WX-' . strtoupper(substr(hash('sha256', ps_business_normalize($business) . '|' . mb_strtolower($reference)), 0, 24));
 }
 
+/** 只有售价 / 支付流水号对不上才拦截关联；店铺、付款昵称写法不同而售价一致（同一笔订单）时只提示，沿用原单的值。 */
+function ps_customer_intake_blocking(array $conflicts)
+{
+    return array_intersect($conflicts, ['售价', '支付流水号']) ? array_values($conflicts) : [];
+}
+
 function ps_customer_intake_conflicts($existing, $input)
 {
     $conflicts = [];
@@ -27,7 +33,9 @@ function ps_customer_intake_conflicts($existing, $input)
     if ($shop !== '' && $existingShop !== '' && $shop !== $existingShop && mb_strpos($shop, $existingShop) === false && mb_strpos($existingShop, $shop) === false) $conflicts[] = '店铺';
     $priceSource = $existing['price_source'] ?? ((float)($existing['contract_amount'] ?? 0) > 0 ? 'manual' : 'missing');
     if ($price !== '' && $priceSource !== 'missing' && (int)round((float)$price * 100) !== (int)round((float)$existing['contract_amount'] * 100)) $conflicts[] = '售价';
-    if ($nickname !== '' && (string)($existing['payment_nickname'] ?? '') !== '' && $nickname !== (string)$existing['payment_nickname']) $conflicts[] = '付款昵称';
+    // 昵称一方包含另一方（如“wujunrong885”与“wujunrong885  老客户Angel”）视为同一人
+    $existingNick = (string)($existing['payment_nickname'] ?? '');
+    if ($nickname !== '' && $existingNick !== '' && $nickname !== $existingNick && mb_stripos($nickname, $existingNick) === false && mb_stripos($existingNick, $nickname) === false) $conflicts[] = '付款昵称';
     if ($paymentReference !== '' && (string)($existing['payment_reference'] ?? '') !== '' && $paymentReference !== (string)$existing['payment_reference']) $conflicts[] = '支付流水号';
     return $conflicts;
 }

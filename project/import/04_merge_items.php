@@ -20,6 +20,7 @@
                         $target['renewal_extras'] = array_values(array_unique(array_merge($target['renewal_extras'] ?? [], $record['renewal_extras'] ?? [])));
                         foreach (['payment_nickname', 'contact_note', 'resource_note', 'order_kind', 'program_name', 'shop'] as $field) if (($target[$field] ?? '') === '' && ($record
     [$field] ?? '') !== '') $target[$field] = $record[$field];
+                        foreach (['site_external_no', 'site_key', 'site_key_auto'] as $siteField) if (empty($target[$siteField]) && !empty($record[$siteField])) $target[$siteField] = $record[$siteField];
                         if (!$target['program_template_id'] && $record['program_template_id']) $target['program_template_id'] = $record['program_template_id'];
                         if ($record['domain_mode'] === 'template' && $target['domain_mode'] !== 'template') { $target['domain_mode'] = 'template'; $target['domain_template_id'] = $record
     ['domain_template_id']; $target['status'] = $record['status']; }

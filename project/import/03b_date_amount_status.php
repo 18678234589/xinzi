@@ -30,6 +30,12 @@
                         $record['warning'] .= ($record['warning'] ? '；' : '') . '表无日期列，已按导入当天记单';
                     }
                     $record['contract_amount'] = str_replace([',','¥','￥',' '], '', $lookup($row, 'contract_amount'));
+                    // 售价写成算式（如 640+260）：按求和计，并提示核对
+                    if (preg_match('/^\d+(?:\.\d+)?(?:[+＋]\d+(?:\.\d+)?)+$/u', $record['contract_amount'])) {
+                        $amountExpression = $record['contract_amount'];
+                        $record['contract_amount'] = number_format(array_sum(array_map('floatval', preg_split('/[+＋]/u', $amountExpression))), 2, '.', '');
+                        $record['warning'] .= ($record['warning'] ? '；' : '') . '售价写的是算式“' . $amountExpression . '”，已按合计 ¥' . $record['contract_amount'] . ' 计算，请核对';
+                    }
                     if (preg_match('/^\d+\.\d{3,}$/', $record['contract_amount'])) $record['contract_amount'] = number_format((float)$record['contract_amount'], 2, '.', '');
                     if (!empty($record['split_parent'])) {
                         $parentAmount = (float)$record['split_parent']['contract_amount'];

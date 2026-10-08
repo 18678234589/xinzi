@@ -15,7 +15,7 @@
     ,'locked'], true)) throw new RuntimeException('第 ' . $row['line'] . ' 行订单状态已变化，请重新预览');
                         if ($departmentMode && !ps_department_import_is_order((int)$existing['id']) && $actor['role'] !== 'finance') throw new RuntimeException('第 ' . $row['line'
     ] . ' 行同号订单不是网站售后部门订单');
-                        if (array_intersect(ps_customer_intake_conflicts($existing, $row), $selectedBusiness === '商标' && $actor['role'] === 'technical' ? ['售价'] : ['店铺'
+                        if (array_intersect(ps_customer_intake_blocking(ps_customer_intake_conflicts($existing, $row)), $selectedBusiness === '商标' && $actor['role'] === 'technical' ? ['售价'] : ['店铺'
     , '售价', '付款昵称', '支付流水号'])) throw new RuntimeException('第 ' . $row['line'] . ' 行买家资料与原单不一致，请重新核对');
                         $orderId = (int)$existing['id'];
                         // 同号二次上传只补缺失的分成组；已有技术或客服不改人、不改权重。
@@ -106,6 +106,7 @@
                     }
                     if (!empty($row['existing_order_id'])) throw new RuntimeException('第 ' . $row['line'] . ' 行原订单已变化，请重新预览');
                     $noteParts = [];
+                    if (!empty($row['split_parent'])) $noteParts[] = '分单：原单 ' . $row['split_parent']['project_type'] . ' ¥' . number_format((float)$row['split_parent']['contract_amount'], 2, '.', '') . '（' . ($row['split_parent_no'] ?? '') . '），本单 ' . $row['project_type'] . ' ¥' . ($row['contract_amount'] === '' ? '待补' : $row['contract_amount']) . (($row['contract_amount'] !== '' && abs((float)$row['contract_amount'] - (float)$row['split_parent']['contract_amount']) < 0.005) ? '（与原单金额相同：若是同一笔订单被两个业务各录一次，请财务确认是否都计提成）' : '');
                     if ($row['payment_nickname'] !== '') $noteParts[] = '付款昵称：' . $row['payment_nickname'];
                     if (($row['business_text'] ?? '') !== '') $noteParts[] = '业务说明：' . $row['business_text'];
                     if ($row['contact_note'] !== '') $noteParts[] = '客户联系方式：' . $row['contact_note'];
