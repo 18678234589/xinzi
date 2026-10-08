@@ -1,0 +1,1 @@
+(function(){var s=document.getElementById('tmOtherTemplate'),l=document.getElementById('tmOtherLabel');if(!s)return;function f(){var k=s.options[s.selectedIndex].getAttribute('data-kind');l.textContent=k==='variable'?'实际成本金额（元）':'个数';}s.addEventListener('change',f);f();})();

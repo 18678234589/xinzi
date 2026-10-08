@@ -476,6 +476,9 @@
 - `poi_linked_template` L210–214
 - `poi_select_program` L217–231
 
+## includes/ProjectOrderList.php (123 行, 10.3 KB)
+
+
 ## includes/ProjectOrderNo.php (51 行, 3 KB)
 
 - `pon_is_internal` L8–11
@@ -1566,7 +1569,7 @@
 
 - 加载：`require_once __DIR__ . '/../includes/ProjectImportUndo.php';`
 
-## project/index.php (861 行, 99.5 KB)
+## project/index.php (90 行, 7.6 KB)
 
 - 加载：`require_once __DIR__ . '/../includes/ProjectIntake.php';`
 - 加载：`require_once __DIR__ . '/../includes/ProjectOrderSplit.php';`
@@ -1578,15 +1581,61 @@
 - 加载：`require_once __DIR__ . '/../includes/commission_explain.php';`
 - 加载：`require_once __DIR__ . '/../includes/ProjectPartnerDashboard.php';`
 - 加载：`require_once __DIR__ . '/../includes/ProjectAutoReview.php';`
-- 加载：`require_once __DIR__ . '/../includes/ProjectJointIntake.php';`
-- 加载：`require_once __DIR__ . '/../includes/ProjectSheetEdit.php';`
-- 加载：`include __DIR__ . '/../includes/header.php';`
-- 加载：`include __DIR__ . '/../includes/renewal_due_widget.php';`
-- 加载：`include __DIR__ . '/../includes/domain_missing_widget.php';`
-- 加载：`include __DIR__ . '/../includes/renewal_info_popup.php';`
-- 加载：`include __DIR__ . '/../includes/finance_taobao_card.php';`
-- 加载：`include __DIR__ . '/../includes/rule_algo_card.php';`
-- 加载：`include __DIR__ . '/../includes/footer.php';`
+- 加载：`include __DIR__ . '/index/actions/delete.php';`
+- 加载：`include __DIR__ . '/index/actions/bulk.php';`
+- 加载：`include __DIR__ . '/index/actions/create.php';`
+- 加载：`include __DIR__ . '/../includes/ProjectOrderList.php';`
+- 加载：`include __DIR__ . '/index/view.php';`
+
+## project/index/actions/bulk.php (73 行, 4.7 KB)
+
+
+## project/index/actions/create.php (171 行, 17.8 KB)
+
+- 加载：`require_once (dirname(__DIR__, 2)) . '/../includes/ProjectJointIntake.php';`
+- 加载：`require_once (dirname(__DIR__, 2)) . '/../includes/ProjectSheetEdit.php';`
+
+## project/index/actions/delete.php (34 行, 2 KB)
+
+
+## project/index/view.php (5 行, 0.5 KB)
+
+- 加载：`include (dirname(__DIR__, 1)) . '/../includes/header.php';`
+- 加载：`include __DIR__ . '/view/section_1.php';`
+- 加载：`include __DIR__ . '/view/section_2.php';`
+- 加载：`include __DIR__ . '/view/section_3.php';`
+
+## project/index/view/js_1.php (15 行, 1 KB)
+
+
+## project/index/view/js_2.php (25 行, 1.6 KB)
+
+
+## project/index/view/js_4.php (134 行, 10.9 KB)
+
+
+## project/index/view/js_5.php (42 行, 3.2 KB)
+
+
+## project/index/view/section_1.php (4 行, 2.6 KB)
+
+
+## project/index/view/section_2.php (82 行, 22.5 KB)
+
+- 加载：`include (dirname((dirname(__DIR__, 1)), 1)) . '/../includes/renewal_due_widget.php';`
+- 加载：`include (dirname((dirname(__DIR__, 1)), 1)) . '/../includes/domain_missing_widget.php';`
+- 加载：`include (dirname((dirname(__DIR__, 1)), 1)) . '/../includes/renewal_info_popup.php';`
+- 加载：`include (dirname((dirname(__DIR__, 1)), 1)) . '/../includes/finance_taobao_card.php';`
+- 加载：`include (dirname((dirname(__DIR__, 1)), 1)) . '/../includes/rule_algo_card.php';`
+- 加载：`include (dirname((dirname(__DIR__, 1)), 1)) . '/index/view/js_1.php';`
+
+## project/index/view/section_3.php (74 行, 15.1 KB)
+
+- 加载：`include (dirname((dirname(__DIR__, 1)), 1)) . '/index/view/js_2.php';`
+- 加载：`include (dirname((dirname(__DIR__, 1)), 1)) . '/../assets/js/project_index_3.js';`
+- 加载：`include (dirname((dirname(__DIR__, 1)), 1)) . '/index/view/js_4.php';`
+- 加载：`include (dirname((dirname(__DIR__, 1)), 1)) . '/index/view/js_5.php';`
+- 加载：`include (dirname((dirname(__DIR__, 1)), 1)) . '/../includes/footer.php';`
 
 ## project/knowledge.php (38 行, 5.2 KB)
 
@@ -1671,22 +1720,154 @@
 - 加载：`include __DIR__ . '/../includes/header.php';`
 - 加载：`include __DIR__ . '/../includes/footer.php';`
 
-## project/order.php (880 行, 97.9 KB)
+## project/order.php (9 行, 0.5 KB)
 
 - 加载：`require_once __DIR__ . '/../includes/ProjectBusiness.php';`
 - 加载：`require_once __DIR__ . '/../includes/ProjectIntake.php';`
 - 加载：`require_once __DIR__ . '/../includes/ProjectOrderSource.php';`
 - 加载：`require_once __DIR__ . '/../includes/commission_explain.php';`
-- 加载：`require_once __DIR__ . '/../includes/ProjectOrderNo.php';`
-- 加载：`require_once __DIR__ . '/../includes/ProjectTrademarkCost.php';`
-- 加载：`require_once __DIR__ . '/../includes/ProjectAutoReview.php';`
-- 加载：`include __DIR__ . '/../includes/header.php';`
-- 加载：`include __DIR__ . '/../includes/auto_review_card.php';`
-- 加载：`include __DIR__ . '/../includes/order_credentials_card.php';`
-- 加载：`include __DIR__ . '/../includes/order_renewal_card.php';`
-- 加载：`require __DIR__ . '/../includes/project_order_items_view.php';`
-- 加载：`require_once __DIR__ . '/../includes/ProjectTrademarkCost.php';`
-- 加载：`include __DIR__ . '/../includes/footer.php';`
+- 加载：`include __DIR__ . '/order/context.php';`
+- 加载：`include __DIR__ . '/order/view.php';`
+
+## project/order/actions/cash/add_cash.php (14 行, 1.3 KB)
+
+
+## project/order/actions/cash/review_cash.php (12 行, 0.8 KB)
+
+
+## project/order/actions/cost/add_cost.php (31 行, 2.9 KB)
+
+
+## project/order/actions/cost/confirm_resources.php (7 行, 0.5 KB)
+
+
+## project/order/actions/cost/link_item_cost.php (6 行, 0.3 KB)
+
+
+## project/order/actions/cost/review_cost.php (11 行, 0.8 KB)
+
+
+## project/order/actions/cost/tm_cost.php (7 行, 0.5 KB)
+
+- 加载：`require_once (dirname(__DIR__, 3)) . '/../includes/ProjectTrademarkCost.php';`
+
+## project/order/actions/cost/void_cost.php (11 行, 0.7 KB)
+
+
+## project/order/actions/delivery_upgrade/apply_delivery_completion.php (10 行, 0.4 KB)
+
+
+## project/order/actions/delivery_upgrade/apply_product_upgrade.php (35 行, 1.9 KB)
+
+
+## project/order/actions/delivery_upgrade/review_delivery_completion.php (8 行, 0.4 KB)
+
+
+## project/order/actions/delivery_upgrade/review_product_upgrade.php (13 行, 0.7 KB)
+
+
+## project/order/actions/dispatch.php (77 行, 6.7 KB)
+
+- 加载：`include (dirname(__DIR__, 2)) . '/order/actions/cost/link_item_cost.php';`
+- 加载：`include (dirname(__DIR__, 2)) . '/order/actions/order_meta/save_customer_intake.php';`
+- 加载：`include (dirname(__DIR__, 2)) . '/order/actions/order_meta/set_order_kind.php';`
+- 加载：`include (dirname(__DIR__, 2)) . '/order/actions/participants/add_counterpart.php';`
+- 加载：`include (dirname(__DIR__, 2)) . '/order/actions/participants/assign_backend.php';`
+- 加载：`include (dirname(__DIR__, 2)) . '/order/actions/participants/claim_backend.php';`
+- 加载：`include (dirname(__DIR__, 2)) . '/order/actions/order_meta/save_technical_details.php';`
+- 加载：`include (dirname(__DIR__, 2)) . '/order/actions/order_meta/rename_order_no.php';`
+- 加载：`include (dirname(__DIR__, 2)) . '/order/actions/order_meta/update_order.php';`
+- 加载：`include (dirname(__DIR__, 2)) . '/order/actions/cost/confirm_resources.php';`
+- 加载：`include (dirname(__DIR__, 2)) . '/order/actions/cash/add_cash.php';`
+- 加载：`include (dirname(__DIR__, 2)) . '/order/actions/cash/review_cash.php';`
+- 加载：`include (dirname(__DIR__, 2)) . '/order/actions/participants/add_participant.php';`
+- 加载：`include (dirname(__DIR__, 2)) . '/order/actions/participants/remove_participant.php';`
+- 加载：`include (dirname(__DIR__, 2)) . '/order/actions/cost/add_cost.php';`
+- 加载：`include (dirname(__DIR__, 2)) . '/order/actions/cost/tm_cost.php';`
+- 加载：`include (dirname(__DIR__, 2)) . '/order/actions/cost/review_cost.php';`
+- 加载：`include (dirname(__DIR__, 2)) . '/order/actions/cost/void_cost.php';`
+- 加载：`include (dirname(__DIR__, 2)) . '/order/actions/order_meta/post_adjustment.php';`
+- 加载：`include (dirname(__DIR__, 2)) . '/order/actions/delivery_upgrade/apply_delivery_completion.php';`
+- 加载：`include (dirname(__DIR__, 2)) . '/order/actions/delivery_upgrade/review_delivery_completion.php';`
+- 加载：`include (dirname(__DIR__, 2)) . '/order/actions/delivery_upgrade/apply_product_upgrade.php';`
+- 加载：`include (dirname(__DIR__, 2)) . '/order/actions/delivery_upgrade/review_product_upgrade.php';`
+- 加载：`include (dirname(__DIR__, 2)) . '/order/actions/order_meta/submit_commission_correction.php';`
+- 加载：`include (dirname(__DIR__, 2)) . '/order/actions/order_meta/approve_order.php';`
+- 加载：`require_once (dirname(__DIR__, 2)) . '/../includes/ProjectAutoReview.php';`
+
+## project/order/actions/order_meta/approve_order.php (5 行, 0.2 KB)
+
+
+## project/order/actions/order_meta/post_adjustment.php (9 行, 0.8 KB)
+
+
+## project/order/actions/order_meta/rename_order_no.php (5 行, 0.2 KB)
+
+- 加载：`require_once (dirname(__DIR__, 3)) . '/../includes/ProjectOrderNo.php';`
+
+## project/order/actions/order_meta/save_customer_intake.php (5 行, 0.2 KB)
+
+
+## project/order/actions/order_meta/save_technical_details.php (13 行, 1.1 KB)
+
+
+## project/order/actions/order_meta/set_order_kind.php (10 行, 0.7 KB)
+
+
+## project/order/actions/order_meta/submit_commission_correction.php (21 行, 1.7 KB)
+
+
+## project/order/actions/order_meta/update_order.php (11 行, 1.1 KB)
+
+
+## project/order/actions/participants/add_counterpart.php (17 行, 1.6 KB)
+
+
+## project/order/actions/participants/add_participant.php (16 行, 1.4 KB)
+
+
+## project/order/actions/participants/assign_backend.php (6 行, 0.3 KB)
+
+
+## project/order/actions/participants/claim_backend.php (4 行, 0.1 KB)
+
+
+## project/order/actions/participants/remove_participant.php (9 行, 0.5 KB)
+
+
+## project/order/context.php (134 行, 8.1 KB)
+
+- 加载：`include (dirname(__DIR__, 1)) . '/order/actions/dispatch.php';`
+
+## project/order/view.php (4 行, 0.4 KB)
+
+- 加载：`include (dirname(__DIR__, 1)) . '/../includes/header.php';`
+- 加载：`include __DIR__ . '/view/section_1.php';`
+- 加载：`include __DIR__ . '/view/section_2.php';`
+- 加载：`include __DIR__ . '/view/section_3.php';`
+- 加载：`include __DIR__ . '/view/section_4.php';`
+
+## project/order/view/section_1.php (140 行, 21.7 KB)
+
+- 加载：`include (dirname((dirname(__DIR__, 1)), 1)) . '/../includes/auto_review_card.php';`
+
+## project/order/view/section_2.php (174 行, 19.9 KB)
+
+- 加载：`include (dirname((dirname(__DIR__, 1)), 1)) . '/../assets/js/project_order_1.js';`
+- 加载：`include (dirname((dirname(__DIR__, 1)), 1)) . '/../includes/order_credentials_card.php';`
+- 加载：`include (dirname((dirname(__DIR__, 1)), 1)) . '/../includes/order_renewal_card.php';`
+- 加载：`require (dirname((dirname(__DIR__, 1)), 1)) . '/../includes/project_order_items_view.php';`
+
+## project/order/view/section_3.php (129 行, 22.2 KB)
+
+- 加载：`require_once (dirname((dirname(__DIR__, 1)), 1)) . '/../includes/ProjectTrademarkCost.php';`
+- 加载：`include (dirname((dirname(__DIR__, 1)), 1)) . '/../assets/js/project_order_2.js';`
+- 加载：`include (dirname((dirname(__DIR__, 1)), 1)) . '/../assets/js/project_order_3.js';`
+- 加载：`include (dirname((dirname(__DIR__, 1)), 1)) . '/../assets/js/project_order_4.js';`
+
+## project/order/view/section_4.php (3 行, 0.7 KB)
+
+- 加载：`include (dirname((dirname(__DIR__, 1)), 1)) . '/../includes/footer.php';`
 
 ## project/order_fix_api.php (26 行, 1.5 KB)
 

@@ -1,0 +1,1 @@
+(function(){var mode=document.getElementById('confirmDomainMode'),wrap=document.getElementById('confirmDomainTemplateWrap'),template=document.getElementById('confirmDomainTemplate');if(!mode)return;mode.addEventListener('change',function(){var use=mode.value==='template';wrap.hidden=!use;template.required=use;});})();

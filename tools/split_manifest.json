@@ -516,6 +516,398 @@
       "dir": ""
     },
     {
+      "parent": "project/order/actions/dispatch.php",
+      "path": "project/order/actions/cost/link_item_cost.php",
+      "call": "/* split: project/order/actions/cost/link_item_cost.php */ include (dirname(__DIR__, 2)) . '/order/actions/cost/link_item_cost.php';",
+      "prefix": "<?php\n",
+      "suffix": "",
+      "dir": "(dirname(__DIR__, 3))"
+    },
+    {
+      "parent": "project/order/actions/dispatch.php",
+      "path": "project/order/actions/order_meta/save_customer_intake.php",
+      "call": "/* split: project/order/actions/order_meta/save_customer_intake.php */ include (dirname(__DIR__, 2)) . '/order/actions/order_meta/save_customer_intake.php';",
+      "prefix": "<?php\n",
+      "suffix": "",
+      "dir": "(dirname(__DIR__, 3))"
+    },
+    {
+      "parent": "project/order/actions/dispatch.php",
+      "path": "project/order/actions/order_meta/set_order_kind.php",
+      "call": "/* split: project/order/actions/order_meta/set_order_kind.php */ include (dirname(__DIR__, 2)) . '/order/actions/order_meta/set_order_kind.php';",
+      "prefix": "<?php\n",
+      "suffix": "",
+      "dir": "(dirname(__DIR__, 3))"
+    },
+    {
+      "parent": "project/order/actions/dispatch.php",
+      "path": "project/order/actions/participants/add_counterpart.php",
+      "call": "/* split: project/order/actions/participants/add_counterpart.php */ include (dirname(__DIR__, 2)) . '/order/actions/participants/add_counterpart.php';",
+      "prefix": "<?php\n",
+      "suffix": "",
+      "dir": "(dirname(__DIR__, 3))"
+    },
+    {
+      "parent": "project/order/actions/dispatch.php",
+      "path": "project/order/actions/participants/assign_backend.php",
+      "call": "/* split: project/order/actions/participants/assign_backend.php */ include (dirname(__DIR__, 2)) . '/order/actions/participants/assign_backend.php';",
+      "prefix": "<?php\n",
+      "suffix": "",
+      "dir": "(dirname(__DIR__, 3))"
+    },
+    {
+      "parent": "project/order/actions/dispatch.php",
+      "path": "project/order/actions/participants/claim_backend.php",
+      "call": "/* split: project/order/actions/participants/claim_backend.php */ include (dirname(__DIR__, 2)) . '/order/actions/participants/claim_backend.php';",
+      "prefix": "<?php\n",
+      "suffix": "",
+      "dir": "(dirname(__DIR__, 3))"
+    },
+    {
+      "parent": "project/order/actions/dispatch.php",
+      "path": "project/order/actions/order_meta/save_technical_details.php",
+      "call": "/* split: project/order/actions/order_meta/save_technical_details.php */ include (dirname(__DIR__, 2)) . '/order/actions/order_meta/save_technical_details.php';",
+      "prefix": "<?php\n",
+      "suffix": "",
+      "dir": "(dirname(__DIR__, 3))"
+    },
+    {
+      "parent": "project/order/actions/dispatch.php",
+      "path": "project/order/actions/order_meta/rename_order_no.php",
+      "call": "/* split: project/order/actions/order_meta/rename_order_no.php */ include (dirname(__DIR__, 2)) . '/order/actions/order_meta/rename_order_no.php';",
+      "prefix": "<?php\n",
+      "suffix": "",
+      "dir": "(dirname(__DIR__, 3))"
+    },
+    {
+      "parent": "project/order/actions/dispatch.php",
+      "path": "project/order/actions/order_meta/update_order.php",
+      "call": "/* split: project/order/actions/order_meta/update_order.php */ include (dirname(__DIR__, 2)) . '/order/actions/order_meta/update_order.php';",
+      "prefix": "<?php\n",
+      "suffix": "",
+      "dir": "(dirname(__DIR__, 3))"
+    },
+    {
+      "parent": "project/order/actions/dispatch.php",
+      "path": "project/order/actions/cost/confirm_resources.php",
+      "call": "/* split: project/order/actions/cost/confirm_resources.php */ include (dirname(__DIR__, 2)) . '/order/actions/cost/confirm_resources.php';",
+      "prefix": "<?php\n",
+      "suffix": "",
+      "dir": "(dirname(__DIR__, 3))"
+    },
+    {
+      "parent": "project/order/actions/dispatch.php",
+      "path": "project/order/actions/cash/add_cash.php",
+      "call": "/* split: project/order/actions/cash/add_cash.php */ include (dirname(__DIR__, 2)) . '/order/actions/cash/add_cash.php';",
+      "prefix": "<?php\n",
+      "suffix": "",
+      "dir": "(dirname(__DIR__, 3))"
+    },
+    {
+      "parent": "project/order/actions/dispatch.php",
+      "path": "project/order/actions/cash/review_cash.php",
+      "call": "/* split: project/order/actions/cash/review_cash.php */ include (dirname(__DIR__, 2)) . '/order/actions/cash/review_cash.php';",
+      "prefix": "<?php\n",
+      "suffix": "",
+      "dir": "(dirname(__DIR__, 3))"
+    },
+    {
+      "parent": "project/order/actions/dispatch.php",
+      "path": "project/order/actions/participants/add_participant.php",
+      "call": "/* split: project/order/actions/participants/add_participant.php */ include (dirname(__DIR__, 2)) . '/order/actions/participants/add_participant.php';",
+      "prefix": "<?php\n",
+      "suffix": "",
+      "dir": "(dirname(__DIR__, 3))"
+    },
+    {
+      "parent": "project/order/actions/dispatch.php",
+      "path": "project/order/actions/participants/remove_participant.php",
+      "call": "/* split: project/order/actions/participants/remove_participant.php */ include (dirname(__DIR__, 2)) . '/order/actions/participants/remove_participant.php';",
+      "prefix": "<?php\n",
+      "suffix": "",
+      "dir": "(dirname(__DIR__, 3))"
+    },
+    {
+      "parent": "project/order/actions/dispatch.php",
+      "path": "project/order/actions/cost/add_cost.php",
+      "call": "/* split: project/order/actions/cost/add_cost.php */ include (dirname(__DIR__, 2)) . '/order/actions/cost/add_cost.php';",
+      "prefix": "<?php\n",
+      "suffix": "",
+      "dir": "(dirname(__DIR__, 3))"
+    },
+    {
+      "parent": "project/order/actions/dispatch.php",
+      "path": "project/order/actions/cost/tm_cost.php",
+      "call": "/* split: project/order/actions/cost/tm_cost.php */ include (dirname(__DIR__, 2)) . '/order/actions/cost/tm_cost.php';",
+      "prefix": "<?php\n",
+      "suffix": "",
+      "dir": "(dirname(__DIR__, 3))"
+    },
+    {
+      "parent": "project/order/actions/dispatch.php",
+      "path": "project/order/actions/cost/review_cost.php",
+      "call": "/* split: project/order/actions/cost/review_cost.php */ include (dirname(__DIR__, 2)) . '/order/actions/cost/review_cost.php';",
+      "prefix": "<?php\n",
+      "suffix": "",
+      "dir": "(dirname(__DIR__, 3))"
+    },
+    {
+      "parent": "project/order/actions/dispatch.php",
+      "path": "project/order/actions/cost/void_cost.php",
+      "call": "/* split: project/order/actions/cost/void_cost.php */ include (dirname(__DIR__, 2)) . '/order/actions/cost/void_cost.php';",
+      "prefix": "<?php\n",
+      "suffix": "",
+      "dir": "(dirname(__DIR__, 3))"
+    },
+    {
+      "parent": "project/order/actions/dispatch.php",
+      "path": "project/order/actions/order_meta/post_adjustment.php",
+      "call": "/* split: project/order/actions/order_meta/post_adjustment.php */ include (dirname(__DIR__, 2)) . '/order/actions/order_meta/post_adjustment.php';",
+      "prefix": "<?php\n",
+      "suffix": "",
+      "dir": "(dirname(__DIR__, 3))"
+    },
+    {
+      "parent": "project/order/actions/dispatch.php",
+      "path": "project/order/actions/delivery_upgrade/apply_delivery_completion.php",
+      "call": "/* split: project/order/actions/delivery_upgrade/apply_delivery_completion.php */ include (dirname(__DIR__, 2)) . '/order/actions/delivery_upgrade/apply_delivery_completion.php';",
+      "prefix": "<?php\n",
+      "suffix": "",
+      "dir": "(dirname(__DIR__, 3))"
+    },
+    {
+      "parent": "project/order/actions/dispatch.php",
+      "path": "project/order/actions/delivery_upgrade/review_delivery_completion.php",
+      "call": "/* split: project/order/actions/delivery_upgrade/review_delivery_completion.php */ include (dirname(__DIR__, 2)) . '/order/actions/delivery_upgrade/review_delivery_completion.php';",
+      "prefix": "<?php\n",
+      "suffix": "",
+      "dir": "(dirname(__DIR__, 3))"
+    },
+    {
+      "parent": "project/order/actions/dispatch.php",
+      "path": "project/order/actions/delivery_upgrade/apply_product_upgrade.php",
+      "call": "/* split: project/order/actions/delivery_upgrade/apply_product_upgrade.php */ include (dirname(__DIR__, 2)) . '/order/actions/delivery_upgrade/apply_product_upgrade.php';",
+      "prefix": "<?php\n",
+      "suffix": "",
+      "dir": "(dirname(__DIR__, 3))"
+    },
+    {
+      "parent": "project/order/actions/dispatch.php",
+      "path": "project/order/actions/delivery_upgrade/review_product_upgrade.php",
+      "call": "/* split: project/order/actions/delivery_upgrade/review_product_upgrade.php */ include (dirname(__DIR__, 2)) . '/order/actions/delivery_upgrade/review_product_upgrade.php';",
+      "prefix": "<?php\n",
+      "suffix": "",
+      "dir": "(dirname(__DIR__, 3))"
+    },
+    {
+      "parent": "project/order/actions/dispatch.php",
+      "path": "project/order/actions/order_meta/submit_commission_correction.php",
+      "call": "/* split: project/order/actions/order_meta/submit_commission_correction.php */ include (dirname(__DIR__, 2)) . '/order/actions/order_meta/submit_commission_correction.php';",
+      "prefix": "<?php\n",
+      "suffix": "",
+      "dir": "(dirname(__DIR__, 3))"
+    },
+    {
+      "parent": "project/order/actions/dispatch.php",
+      "path": "project/order/actions/order_meta/approve_order.php",
+      "call": "/* split: project/order/actions/order_meta/approve_order.php */ include (dirname(__DIR__, 2)) . '/order/actions/order_meta/approve_order.php';",
+      "prefix": "<?php\n",
+      "suffix": "",
+      "dir": "(dirname(__DIR__, 3))"
+    },
+    {
+      "parent": "project/order/context.php",
+      "path": "project/order/actions/dispatch.php",
+      "call": "/* split: project/order/actions/dispatch.php */ include (dirname(__DIR__, 1)) . '/order/actions/dispatch.php';",
+      "prefix": "<?php\n",
+      "suffix": "",
+      "dir": "(dirname(__DIR__, 2))"
+    },
+    {
+      "parent": "project/order.php",
+      "path": "project/order/context.php",
+      "call": "/* split: project/order/context.php */ include __DIR__ . '/order/context.php';",
+      "prefix": "<?php\n",
+      "suffix": "",
+      "dir": "(dirname(__DIR__, 1))"
+    },
+    {
+      "parent": "project/order/view/section_2.php",
+      "path": "assets/js/project_order_1.js",
+      "call": "<?php /* split: assets/js/project_order_1.js */ include (dirname((dirname(__DIR__, 1)), 1)) . '/../assets/js/project_order_1.js'; ?>",
+      "prefix": "",
+      "suffix": "",
+      "dir": "(__DIR__ . '/../../project')"
+    },
+    {
+      "parent": "project/order/view/section_3.php",
+      "path": "assets/js/project_order_2.js",
+      "call": "<?php /* split: assets/js/project_order_2.js */ include (dirname((dirname(__DIR__, 1)), 1)) . '/../assets/js/project_order_2.js'; ?>",
+      "prefix": "",
+      "suffix": "",
+      "dir": "(__DIR__ . '/../../project')"
+    },
+    {
+      "parent": "project/order/view/section_3.php",
+      "path": "assets/js/project_order_3.js",
+      "call": "<?php /* split: assets/js/project_order_3.js */ include (dirname((dirname(__DIR__, 1)), 1)) . '/../assets/js/project_order_3.js'; ?>",
+      "prefix": "",
+      "suffix": "",
+      "dir": "(__DIR__ . '/../../project')"
+    },
+    {
+      "parent": "project/order/view/section_3.php",
+      "path": "assets/js/project_order_4.js",
+      "call": "<?php /* split: assets/js/project_order_4.js */ include (dirname((dirname(__DIR__, 1)), 1)) . '/../assets/js/project_order_4.js'; ?>",
+      "prefix": "",
+      "suffix": "",
+      "dir": "(__DIR__ . '/../../project')"
+    },
+    {
+      "parent": "project/order.php",
+      "path": "project/order/view.php",
+      "call": "/* split: project/order/view.php */ include __DIR__ . '/order/view.php';",
+      "prefix": "<?php\n",
+      "suffix": "",
+      "dir": "(dirname(__DIR__, 1))"
+    },
+    {
+      "parent": "project/order/view.php",
+      "path": "project/order/view/section_4.php",
+      "call": "<?php /* split: project/order/view/section_4.php */ include __DIR__ . '/view/section_4.php'; ?>",
+      "prefix": "",
+      "suffix": "",
+      "dir": "(dirname(__DIR__, 1))"
+    },
+    {
+      "parent": "project/order/view.php",
+      "path": "project/order/view/section_3.php",
+      "call": "<?php /* split: project/order/view/section_3.php */ include __DIR__ . '/view/section_3.php'; ?>",
+      "prefix": "",
+      "suffix": "",
+      "dir": "(dirname(__DIR__, 1))"
+    },
+    {
+      "parent": "project/order/view.php",
+      "path": "project/order/view/section_2.php",
+      "call": "<?php /* split: project/order/view/section_2.php */ include __DIR__ . '/view/section_2.php'; ?>",
+      "prefix": "",
+      "suffix": "",
+      "dir": "(dirname(__DIR__, 1))"
+    },
+    {
+      "parent": "project/order/view.php",
+      "path": "project/order/view/section_1.php",
+      "call": "<?php /* split: project/order/view/section_1.php */ include __DIR__ . '/view/section_1.php'; ?>",
+      "prefix": "",
+      "suffix": "",
+      "dir": "(dirname(__DIR__, 1))"
+    },
+    {
+      "parent": "project/index.php",
+      "path": "project/index/actions/delete.php",
+      "call": "/* split: project/index/actions/delete.php */ include __DIR__ . '/index/actions/delete.php';",
+      "prefix": "<?php\n",
+      "suffix": "",
+      "dir": "(dirname(__DIR__, 2))"
+    },
+    {
+      "parent": "project/index.php",
+      "path": "project/index/actions/bulk.php",
+      "call": "/* split: project/index/actions/bulk.php */ include __DIR__ . '/index/actions/bulk.php';",
+      "prefix": "<?php\n",
+      "suffix": "",
+      "dir": "(dirname(__DIR__, 2))"
+    },
+    {
+      "parent": "project/index.php",
+      "path": "project/index/actions/create.php",
+      "call": "/* split: project/index/actions/create.php */ include __DIR__ . '/index/actions/create.php';",
+      "prefix": "<?php\n",
+      "suffix": "",
+      "dir": "(dirname(__DIR__, 2))"
+    },
+    {
+      "parent": "project/index.php",
+      "path": "includes/ProjectOrderList.php",
+      "call": "/* split: includes/ProjectOrderList.php */ include __DIR__ . '/../includes/ProjectOrderList.php';",
+      "prefix": "<?php\n",
+      "suffix": "",
+      "dir": "(__DIR__ . '/../project')"
+    },
+    {
+      "parent": "project/index/view/section_2.php",
+      "path": "project/index/view/js_1.php",
+      "call": "<?php /* split: project/index/view/js_1.php */ include (dirname((dirname(__DIR__, 1)), 1)) . '/index/view/js_1.php'; ?>",
+      "prefix": "",
+      "suffix": "",
+      "dir": "(dirname(__DIR__, 2))"
+    },
+    {
+      "parent": "project/index/view/section_3.php",
+      "path": "project/index/view/js_2.php",
+      "call": "<?php /* split: project/index/view/js_2.php */ include (dirname((dirname(__DIR__, 1)), 1)) . '/index/view/js_2.php'; ?>",
+      "prefix": "",
+      "suffix": "",
+      "dir": "(dirname(__DIR__, 2))"
+    },
+    {
+      "parent": "project/index/view/section_3.php",
+      "path": "assets/js/project_index_3.js",
+      "call": "<?php /* split: assets/js/project_index_3.js */ include (dirname((dirname(__DIR__, 1)), 1)) . '/../assets/js/project_index_3.js'; ?>",
+      "prefix": "",
+      "suffix": "",
+      "dir": "(__DIR__ . '/../../project')"
+    },
+    {
+      "parent": "project/index/view/section_3.php",
+      "path": "project/index/view/js_4.php",
+      "call": "<?php /* split: project/index/view/js_4.php */ include (dirname((dirname(__DIR__, 1)), 1)) . '/index/view/js_4.php'; ?>",
+      "prefix": "",
+      "suffix": "",
+      "dir": "(dirname(__DIR__, 2))"
+    },
+    {
+      "parent": "project/index/view/section_3.php",
+      "path": "project/index/view/js_5.php",
+      "call": "<?php /* split: project/index/view/js_5.php */ include (dirname((dirname(__DIR__, 1)), 1)) . '/index/view/js_5.php'; ?>",
+      "prefix": "",
+      "suffix": "",
+      "dir": "(dirname(__DIR__, 2))"
+    },
+    {
+      "parent": "project/index.php",
+      "path": "project/index/view.php",
+      "call": "/* split: project/index/view.php */ include __DIR__ . '/index/view.php';",
+      "prefix": "<?php\n",
+      "suffix": "",
+      "dir": "(dirname(__DIR__, 1))"
+    },
+    {
+      "parent": "project/index/view.php",
+      "path": "project/index/view/section_3.php",
+      "call": "<?php /* split: project/index/view/section_3.php */ include __DIR__ . '/view/section_3.php'; ?>",
+      "prefix": "",
+      "suffix": "",
+      "dir": "(dirname(__DIR__, 1))"
+    },
+    {
+      "parent": "project/index/view.php",
+      "path": "project/index/view/section_2.php",
+      "call": "<?php /* split: project/index/view/section_2.php */ include __DIR__ . '/view/section_2.php'; ?>",
+      "prefix": "",
+      "suffix": "",
+      "dir": "(dirname(__DIR__, 1))"
+    },
+    {
+      "parent": "project/index/view.php",
+      "path": "project/index/view/section_1.php",
+      "call": "<?php /* split: project/index/view/section_1.php */ include __DIR__ . '/view/section_1.php'; ?>",
+      "prefix": "",
+      "suffix": "",
+      "dir": "(dirname(__DIR__, 1))"
+    },
+    {
       "parent": "project/import/view.php",
       "path": "assets/css/project_import_1.css",
       "call": "<?php /* split: assets/css/project_import_1.css */ include __DIR__ . '/../../assets/css/project_import_1.css'; ?>",
