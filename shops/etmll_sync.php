@@ -19,8 +19,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if ($action === 'sync') {
             $result  = etmll_sync_run(false);
             $success = "同步完成：已核对 {$result['scanned']} 条来源记录，新增 {$result['inserted']} 条、更新 {$result['updated']} 条、关联已有流水 {$result['linked_existing']} 条"
-                     . ($result['project_filled'] > 0 ? "；已自动补全 {$result['project_filled']} 张项目订单" : '');
-            if ($result['inserted']+$result['updated']+$result['linked_existing']+$result['project_filled'] === 0) $notice = '已核对的订单信息没有新的变化。可查看下方来源最新付款时间，确认新订单是否已进入 ETMLL。';
+                     . ($result['project_filled'] > 0 ? "；已自动补全 {$result['project_filled']} 张项目订单" : '')
+                     . "；项目状态更新 {$result['project_status_updated']} 条、已有流水状态更新 {$result['linked_status_updated']} 条";
+            if ($result['inserted']+$result['updated']+$result['linked_existing']+$result['project_filled']+$result['project_status_updated']+$result['linked_status_updated'] === 0) $notice = '已成功核对，但来源没有新变化。此同步读取居间系统数据库，不会直接连接淘宝；若淘宝已成功而此处仍待发货，请在居间系统导入最新淘宝订单导出表，再同步。';
             try {
                 ps_audit('etmll_sync',0,'sync',['type'=>'admin','id'=>(int)$_SESSION['admin_id']],$result);
             } catch (Throwable $auditError) {
@@ -105,6 +106,13 @@ include __DIR__ . '/../includes/header.php';
     </div>
 </div>
 <div class="alert alert-light border mb-3"><i class="fas fa-clock text-info"></i> ETMLL 来源最新付款：<strong><?php echo e(substr((string)$status['latest_source_paid'],0,19) ?: '暂无付款记录'); ?></strong>。同步会读取来源现有订单；尚未进入来源库的新订单，需先在 ETMLL 完成导入。</div>
+<?php $pull = $status['last_pull']; ?>
+<div class="alert <?php echo !$pull || $pull['run_status'] !== 'success' || strtotime($pull['finished_at'] ?: $pull['started_at']) < time()-900 ? 'alert-warning' : 'alert-info'; ?> mb-3">
+    <i class="fas fa-heartbeat"></i> 最近拉取：<?php echo e($pull ? ($pull['finished_at'] ?: $pull['started_at']) : '暂无运行记录'); ?>
+    · <?php echo e($pull ? (['success'=>'核对完成','failed'=>'同步失败，请检查任务日志','running'=>'正在同步'][$pull['run_status']] ?? '待检查') : '请运行一次同步'); ?>。
+    超过 15 分钟没有完成记录时，请检查定时任务。零新增不代表失败，状态更新也会单独统计。
+</div>
+<div class="alert alert-light border mb-3">状态来源说明：居间系统目前依赖淘宝订单表导入，并非淘宝实时接口。请导出包含已有订单最新状态的表格；重复导入用于更新，不需新建订单。本系统每 5 分钟自动拉取，保留人工金额及已结算记录。</div>
 
 <?php $pushSince = etmll_push_since(); ?>
 <div class="card mb-3 border-info">

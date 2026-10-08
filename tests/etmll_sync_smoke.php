@@ -44,6 +44,8 @@ $pdo->exec("INSERT INTO etmll_sync_state (etmll_order_id,order_no,shop,order_amo
 $pdo->exec("INSERT INTO project_orders (order_no,project_type,order_date) VALUES ('ETM-PROJECT','AI网站定制','2026-09-23')");
 $projectId = (int)$pdo->lastInsertId();
 ps_source_record($projectId,'missing','','');
+$pdo->prepare("UPDATE project_order_sources SET trade_status=?,status_source='shop_upload' WHERE order_id=?")
+    ->execute(['买家已付款,等待卖家发货', $projectId]);
 $pdo->exec("INSERT INTO project_orders (order_no,project_type,order_date,contract_amount,settlement_status) VALUES ('ETM-PERSONAL','AI网站定制','2026-09-23',900,'locked')");
 
 $before = (int)$pdo->query('SELECT COUNT(*) FROM orders')->fetchColumn();
@@ -53,6 +55,8 @@ etmll_check((int)$pdo->query('SELECT COUNT(*) FROM orders')->fetchColumn()===$be
 $result = etmll_sync_orders($pdo,$source,false);
 etmll_check($result['inserted']===$preview['inserted'] && $result['updated']===$preview['updated'],'preview and real sync must agree');
 etmll_check($result['project_filled']===1,'existing shop flow must fill later-created project');
+etmll_check($result['project_status_updated']===1,'existing pending project status must advance to success');
+etmll_check($result['linked_status_updated']===2,'linked manual flow statuses must advance without replacing money');
 etmll_check($result['skipped_deleted']===1 && $result['skipped_missing_local']===1 && $result['skipped_unpaid']===1 && $result['skipped_no_shop']===1,'skips must be explained');
 etmll_check((int)$pdo->query("SELECT COUNT(*) FROM orders WHERE order_no='ETM-PERSONAL' AND order_scope='department'")->fetchColumn()===1,'personal order cannot block shop flow');
 etmll_check((int)$pdo->query("SELECT COUNT(*) FROM orders WHERE order_no='ETM-NEW' AND shop='ETMLL测试店A'")->fetchColumn()===1,'duplicate source numbers must not create duplicate flows');
@@ -67,6 +71,16 @@ etmll_check((float)$project['contract_amount']===100.0 && (float)$project['recei
 etmll_check((float)$pdo->query("SELECT contract_amount FROM project_orders WHERE order_no='ETM-PERSONAL'")->fetchColumn()===900.0,'locked project must stay unchanged');
 $repeat = etmll_sync_orders($pdo,$source,false);
 etmll_check($repeat['inserted']===0 && $repeat['updated']===0 && $repeat['linked_existing']===0 && $repeat['project_filled']===0,'repeat sync must be idempotent');
+etmll_check($repeat['project_status_updated']===0 && $repeat['linked_status_updated']===0,'repeat status sync must be idempotent');
+$source[11]['raw_status'] = '买家已付款,等待卖家发货';
+etmll_sync_orders($pdo,$source,false);
+etmll_check($pdo->query('SELECT trade_status FROM project_order_sources WHERE order_id='.$projectId)->fetchColumn()==='交易成功','older source export cannot downgrade successful project');
+$source[11]['raw_status'] = '交易关闭';
+$source[11]['refund_amount'] = 100;
+$closedProject = etmll_sync_orders($pdo,$source,false);
+etmll_check($closedProject['project_status_updated']===1 && $pdo->query('SELECT trade_status FROM project_order_sources WHERE order_id='.$projectId)->fetchColumn()==='交易关闭','negative refund source must also propagate closure');
+$source[11]['raw_status'] = '交易成功'; $source[11]['refund_amount'] = 0;
+etmll_sync_orders($pdo,$source,false);
 $source[7]['raw_status'] = '交易成功';
 $paidLater = etmll_sync_orders($pdo,$source,false);
 etmll_check($paidLater['inserted']===1,'unpaid order must sync when later paid');
@@ -76,4 +90,24 @@ $restored = etmll_sync_orders($pdo,$source,false);
 etmll_check($restored['updated']===1,'source correction must update again');
 $raw = json_decode($pdo->query('SELECT raw_data FROM orders WHERE id=' . $updatedId)->fetchColumn(),true);
 etmll_check(empty($raw['__is_refund__']),'cleared refund must not retain old refund flag');
-echo "ETMLL sync smoke OK: insert/update/link, scoped dedupe, refunds, project fill, preview and repeat sync; temporary tables only\n";
+$sql = etmll_source_select_sql('2025-10-08');
+etmll_check(strpos($sql,'o.status IN (0,1)')!==false,'verified source orders must remain synchronizable');
+etmll_check(strpos($sql,'o.order_create_time')!==false && strpos($sql,'COALESCE(o.order_pay_time')===false,'old payment timestamp cannot mask newer creation timestamp');
+etmll_check(strpos($sql,'o.buyer_paid_amount,o.alipay_no')!==false,'payment evidence must remain in scheduled source selection');
+try { etmll_source_select_sql("2025-10-08' OR 1=1"); throw new RuntimeException('invalid boundary accepted'); }
+catch (InvalidArgumentException $e) { }
+$pdo->exec("CREATE TEMPORARY TABLE merchant (id INT PRIMARY KEY,name VARCHAR(50))");
+$pdo->exec("CREATE TEMPORARY TABLE partner (id INT PRIMARY KEY,name VARCHAR(50))");
+$pdo->exec("CREATE TEMPORARY TABLE `order` (id INT PRIMARY KEY,order_no VARCHAR(50),total_amount DECIMAL(10,2),refund_amount DECIMAL(10,2),raw_status VARCHAR(50),
+    product_title VARCHAR(50),order_pay_time DATETIME,shipping_time DATETIME,created_at DATETIME,order_create_time DATETIME,shop_name VARCHAR(50),buyer_paid_amount DECIMAL(10,2),alipay_no VARCHAR(50),
+    merchant_order_no VARCHAR(50),commission DECIMAL(10,2),proxy_amount DECIMAL(10,2),merchant_id INT,partner_id INT,status INT)");
+$pdo->exec("INSERT INTO `order` (id,order_no,status,created_at,order_pay_time,buyer_paid_amount,alipay_no) VALUES
+    (1,'CURRENT',0,'2026-09-01','2026-09-01',88,'PAY-1'),
+    (2,'VERIFIED',1,'2026-09-01','2026-09-01',99,'PAY-2'),
+    (3,'DELETED',2,'2026-09-01','2026-09-01',100,'PAY-3'),
+    (4,'OLD-PAY-NEW-CREATE',0,'2026-09-01','2020-01-01',120,'PAY-4'),
+    (5,'TOO-OLD',0,'2020-01-01','2020-01-01',10,'PAY-5')");
+$selected = $pdo->query($sql)->fetchAll(PDO::FETCH_ASSOC);
+etmll_check(array_column($selected,'order_no')===['CURRENT','VERIFIED','OLD-PAY-NEW-CREATE'],'actual SQL must include verified/new creation and exclude deleted/old orders');
+etmll_check((float)$selected[1]['buyer_paid_amount']===99.0 && $selected[1]['alipay_no']==='PAY-2','actual SQL must return payment evidence fields');
+echo "ETMLL sync smoke OK: insert/update/link, scoped dedupe, refunds, pending-to-success/closed status, manual/locked protections, preview, repeat sync and query coverage; temporary tables only\n";

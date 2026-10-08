@@ -7,7 +7,7 @@
  *   raw_data 保存 __shop__ / __trade_time__ / __original_price__ / __order_status__ / __etmll_id__
  *   及原始业务字段（商品标题/佣金/合伙人公司等），供订单详情弹窗展示。
  * 增量规则：按店铺+订单号匹配店铺流水；个人订单不阻止店铺同步。已同步来源仍检查变化。
- * 更新规则：仅刷新 ETMLL 来源流水；手动上传的已有流水只关联与补全项目空字段；回收站不恢复。
+ * 更新规则：刷新 ETMLL 来源流水；手动流水保留金额与备注，交易状态可前进；项目空字段补齐且未结算状态持续推进；回收站不恢复。
  * 金额规则：交易关闭按退款单记负数（总额为0时按退款额入账）；部分退款记净额（总额-退款）；其余记订单总额。
  * 退款标记：入账为负数的订单 raw_data 写 __is_refund__=1，供"只看退款"筛选使用；净额为正的部分退款靠"退款金额"字段展示角标。
  */
@@ -144,20 +144,50 @@ function etmll_sync_state_table(PDO $pdo)
  * @param bool $dryRun true=只统计不写入
  * @return array inserted/by_shop/new_shops 等统计
  */
+function etmll_source_select_sql(string $since): string
+{
+    if (!preg_match('/^\d{4}-\d{2}-\d{2}$/D', $since)) throw new InvalidArgumentException('Invalid sync boundary');
+    // 0=待核销，1=已核销；核销不是删除。任一真实订单时间命中范围即可，不能让旧付款时间掩盖新订单。
+    return "SELECT o.id,o.order_no,o.total_amount,o.refund_amount,o.raw_status,
+        o.product_title,o.order_pay_time,o.shipping_time,o.created_at,o.shop_name,o.buyer_paid_amount,o.alipay_no,
+        o.merchant_order_no,o.commission,o.proxy_amount,m.name AS merchant_name,p.name AS partner_name
+        FROM `order` o LEFT JOIN merchant m ON m.id=o.merchant_id LEFT JOIN partner p ON p.id=o.partner_id
+        WHERE o.status IN (0,1) AND (o.order_pay_time>='$since' OR o.order_create_time>='$since' OR o.created_at>='$since') ORDER BY o.id ASC";
+}
+
+function etmll_sync_runs_table(PDO $pdo): void
+{
+    $pdo->exec("CREATE TABLE IF NOT EXISTS etmll_sync_runs (
+        id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+        started_at DATETIME NOT NULL, finished_at DATETIME NULL,
+        run_status VARCHAR(20) NOT NULL DEFAULT 'running',
+        result_json TEXT NULL, error_class VARCHAR(100) NULL,
+        INDEX idx_finished (finished_at)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+}
+
 function etmll_sync_run(bool $dryRun = false): array
 {
     $pdo = db();
     etmll_sync_state_table($pdo);
-    $epdo = etmll_connect(true);
-    $src = $epdo->query("SELECT o.id,o.order_no,o.total_amount,o.refund_amount,o.raw_status,
-        o.product_title,o.order_pay_time,o.shipping_time,o.created_at,o.shop_name,o.buyer_paid_amount,o.alipay_no,
-        o.merchant_order_no,o.commission,o.proxy_amount,m.name AS merchant_name,p.name AS partner_name
-        FROM `order` o LEFT JOIN merchant m ON m.id=o.merchant_id LEFT JOIN partner p ON p.id=o.partner_id
-        WHERE o.status=0 AND COALESCE(o.order_pay_time,o.created_at)>='" . date('Y-m-d', strtotime('-1 year')) . "' ORDER BY o.id ASC");
+    $runId = null; $src = null;
+    if (!$dryRun) {
+        etmll_sync_runs_table($pdo);
+        $pdo->exec("INSERT INTO etmll_sync_runs (started_at) VALUES (NOW())");
+        $runId = (int)$pdo->lastInsertId();
+    }
     try {
+        $epdo = etmll_connect(true);
+        $src = $epdo->query(etmll_source_select_sql(date('Y-m-d', strtotime('-1 year'))));
         $result = etmll_sync_orders($pdo, $src, $dryRun);
+        if ($runId) $pdo->prepare("UPDATE etmll_sync_runs SET finished_at=NOW(),run_status='success',result_json=? WHERE id=?")
+            ->execute([json_encode($result, JSON_UNESCAPED_UNICODE), $runId]);
+    } catch (Throwable $e) {
+        if ($runId) $pdo->prepare("UPDATE etmll_sync_runs SET finished_at=NOW(),run_status='failed',error_class=? WHERE id=?")
+            ->execute([substr(get_class($e), 0, 100), $runId]);
+        throw $e;
     } finally {
-        $src->closeCursor();
+        if ($src) $src->closeCursor();
     }
     if (!$dryRun) {
         require_once __DIR__ . '/ProjectAutoReview.php';
@@ -259,7 +289,8 @@ function etmll_sync_orders(PDO $pdo, iterable $sourceRows, bool $dryRun = false)
         $matchNew = $pdo->prepare("SELECT id,COALESCE(is_deleted,0) AS deleted FROM orders WHERE employee_id=0 AND order_scope='department' AND shop=? AND order_no=? ORDER BY COALESCE(is_deleted,0),id DESC LIMIT 1 FOR UPDATE");
         $pendingMarks = [];
         $addShop = $pdo->prepare('INSERT INTO shops (name,sort) VALUES (?,99)');
-        $result = ['dry_run'=>$dryRun,'scanned'=>0,'inserted'=>0,'updated'=>0,'linked_existing'=>0,'project_filled'=>0,
+        $statusOnly = $pdo->prepare('UPDATE orders SET raw_data=? WHERE id=? AND COALESCE(is_deleted,0)=0');
+        $result = ['dry_run'=>$dryRun,'scanned'=>0,'inserted'=>0,'updated'=>0,'linked_existing'=>0,'project_filled'=>0,'project_status_updated'=>0,'linked_status_updated'=>0,
             'skipped_existing'=>0,'skipped_done'=>0,'skipped_unpaid'=>0,'skipped_no_shop'=>0,'skipped_deleted'=>0,
             'skipped_missing_local'=>0,'by_shop'=>[],'by_shop_updated'=>[],'by_shop_linked'=>[],'new_shops'=>[]];
         $newShops = [];
@@ -314,6 +345,19 @@ function etmll_sync_orders(PDO $pdo, iterable $sourceRows, bool $dryRun = false)
                     $result['by_shop_updated'][$m['shop']] = ($result['by_shop_updated'][$m['shop']] ?? 0) + 1;
                 } else {
                     if ($own) $result['skipped_done']++; else $result['skipped_existing']++;
+                    // 手动上传的店铺流水保留售价、日期、人员和备注；只推进已匹配同店同单的状态。
+                    if (!$own && !$dryRun) {
+                        $read->execute([$legacyId]);
+                        $old = $read->fetch(PDO::FETCH_ASSOC);
+                        $merged = $old ? (json_decode((string)$old['raw_data'], true) ?: []) : [];
+                        $nextStatus = (string)$raw['__order_status__'];
+                        if ($old && ps_shop_status_rank($nextStatus) > ps_shop_status_rank($merged['__order_status__'] ?? '')) {
+                            $merged['__order_status__'] = $merged['订单状态'] = $nextStatus;
+                            $merged['__etmll_linked_id__'] = $eid;
+                            $statusOnly->execute([json_encode($merged, JSON_UNESCAPED_UNICODE), $legacyId]);
+                            $result['linked_status_updated']++;
+                        }
+                    }
                 }
                 if ($isLink) {
                     $result['linked_existing']++;
@@ -334,6 +378,9 @@ function etmll_sync_orders(PDO $pdo, iterable $sourceRows, bool $dryRun = false)
                 // 已存在的流水同样尝试补全后来创建的项目订单，保护人工与已审核数据。
                 if (!$dryRun && isset($projectNos[$m['order_no']]) && $m['amount'] > 0) {
                     if (ps_sync_project_from_shop_order($legacyId,$m['order_no'],$m['shop'],$raw,(float)$o['total_amount'])) $result['project_filled']++;
+                }
+                if (!$dryRun && isset($projectNos[$m['order_no']])) {
+                    if (ps_sync_project_status_latest($m['order_no'], $m['shop'], $raw['__order_status__'])) $result['project_status_updated']++;
                 }
             }
             if (!$dryRun) {
@@ -365,13 +412,13 @@ function etmll_sync_status(): array
 
     etmll_sync_state_table($pdo);
 
-    $sourceInfo = $epdo->query("SELECT COUNT(*) AS c,MAX(created_at) AS latest_created,MAX(order_pay_time) AS latest_paid FROM `order` WHERE status=0")->fetch(PDO::FETCH_ASSOC);
+    $sourceInfo = $epdo->query("SELECT COUNT(*) AS c,MAX(created_at) AS latest_created,MAX(order_pay_time) AS latest_paid FROM `order` WHERE status IN (0,1)")->fetch(PDO::FETCH_ASSOC);
     $etmllTotal = (int)$sourceInfo['c'];
 
     $etmllByShop = [];
     foreach ($epdo->query("SELECT COALESCE(NULLIF(TRIM(o.`shop_name`), ''), TRIM(m.`name`)) AS shop, COUNT(*) AS c
                            FROM `order` o LEFT JOIN `merchant` m ON m.`id` = o.`merchant_id`
-                           WHERE o.`status` = 0 GROUP BY shop ORDER BY c DESC") as $r) {
+                           WHERE o.`status` IN (0,1) GROUP BY shop ORDER BY c DESC") as $r) {
         if ($r['shop'] !== '') {
             $etmllByShop[$r['shop']] = (int)$r['c'];
         }
@@ -407,7 +454,11 @@ function etmll_sync_status(): array
         return $b['etmll'] <=> $a['etmll'];
     });
 
+    $lastPull = null;
+    try { $lastPull = $pdo->query('SELECT started_at,finished_at,run_status,result_json FROM etmll_sync_runs ORDER BY id DESC LIMIT 1')->fetch(PDO::FETCH_ASSOC) ?: null; }
+    catch (PDOException $e) { if ($e->getCode() !== '42S02') throw $e; }
     return [
+        'last_pull' => $lastPull,
         'etmll_total'  => $etmllTotal,
         'local_total'  => $localTotal,
         'synced_total' => (int)$syncInfo['c'],
