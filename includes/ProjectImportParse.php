@@ -158,7 +158,7 @@ function ps_import_fix_guide($message, $business = '')
     , '王宁　王宁、朱俊英'],
         ['/位重名/u', 'duplicate', '姓名有重名', '系统里有同名的人，无法确定是哪一位。请联系财务在人员管理里区分（如加部门后缀），再按区分后的姓名填写。'
     , '王宁（标书）'],
-        ['/须指定接单技术/u', 'tech_missing', '没写接单技术', '客服上传新订单时，“技术”列须写接单技术的姓名；写了但仍提示的，是该姓名不在人员名单里（写错字或还没登记），请核对或联系财务添加。'
+        ['/须指定接单技术/u', 'tech_missing', '没写接单技术', '客服上传新订单时须有接单技术：在预览页该行的“选择接单技术”下拉框直接选，再点“应用补填并重新核对”即可，不用改表格；表格里写了姓名仍提示的，是该姓名不在人员名单里（写错字或还没登记）。'
     , '石凯新'],
         ['/还没有开通项目账号/u', 'tech_account', '技术还没开通账号', '表格里写的技术还没有项目账号，请联系财务开通后重新上传；或确认技术姓名是否写对。'
     , ''],
@@ -195,4 +195,16 @@ function ps_import_followup_rows($preview, $keepAll = false)
     ), 'text' => mb_substr($text, 0, 60), 'need_order' => $needOrder, 'need_date' => $needDate, 'error' => (string)($row['error'] ?? '')];
     }
     return $rows;
+}
+
+/** 订单号格子里写的是“对公”（对公收款没有店铺订单号）：返回 true，并取出其后跟的对公交易号（没有则为空）。 */
+function ps_import_public_transfer($raw, &$reference)
+{
+    $reference = '';
+    $text = trim((string)$raw);
+    if (!preg_match('/^(?:公对公|对公转账|对公收款|对公付款|对公|公账转账|公账)[\s:：,，、#＃\-—]*(.*)$/u', $text, $m)) return false;
+    $rest = trim($m[1]);
+    // 后面跟的若是长串字母 / 数字就是对公交易号；其余文字（如“对公 微信代写”）当备注丢弃
+    if ($rest !== '' && preg_match('/^[A-Za-z0-9\-_]{6,60}$/', $rest)) $reference = $rest;
+    return true;
 }

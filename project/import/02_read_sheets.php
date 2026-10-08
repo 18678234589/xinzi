@@ -40,6 +40,7 @@
             $fixDates = in_array($action, ['repair_preview', 'followup'], true) ? (array)($_POST['fix_date'] ?? []) : [];
             $fixPaymentReferences = in_array($action, ['repair_preview', 'followup'], true) ? (array)($_POST['fix_payment_reference'] ?? []) : [];
             $fixSiteKeys = in_array($action, ['repair_preview', 'followup'], true) ? (array)($_POST['fix_site_key'] ?? []) : [];
+            $fixTechnical = in_array($action, ['repair_preview', 'followup'], true) ? (array)($_POST['fix_technical'] ?? []) : [];
             $sheetReport = [];
             $usedSheets = 0;
             $totalRows = 0;
@@ -48,6 +49,11 @@
                 ? ps_department_import_people($actor, $selectedBusiness, $action === 'preview' ? (array)($_POST['dept_people'] ?? []) : array_keys((array)($_SESSION['project_import_people'
     ] ?? [])))
                 : [];
+            // 部门代录没选默认参与人、表格也没写姓名时，默认记为上传人本人（上传人本身属于网站售后部），避免整批“没有售后参与人”
+            $departmentDefaultSelf = false;
+            if ($departmentMode && !$departmentDefaults && $actor['role'] !== 'finance' && !empty($actor['employee_id'])) {
+                try { $departmentDefaults = ps_department_import_people($actor, $selectedBusiness, [(int)$actor['employee_id']]); $departmentDefaultSelf = (bool)$departmentDefaults; } catch (RuntimeException $e) { $departmentDefaults = []; }
+            }
             $employeesByName = ps_import_employee_index();
             $actorName = null;
             if ($actor['role'] !== 'finance') { $nameQuery = db()->prepare('SELECT name FROM employees WHERE id=?'); $nameQuery->execute([(int)$actor['employee_id']]); $actorName =

@@ -11,13 +11,21 @@
                     $existingQuery->execute([$row['order_no']]);
                     $existing = $existingQuery->fetch();
                     if ($existing) {
-                        if (ps_business_normalize($existing['project_type']) !== ($row['project_type'] ?? $selectedBusiness) || in_array($existing['settlement_status'], ['approved'
+                        if ((ps_business_normalize($existing['project_type']) !== ($row['project_type'] ?? $selectedBusiness) && (int)($row['join_parent']['id'] ?? 0) !== (int)$existing['id']) || in_array($existing['settlement_status'], ['approved'
     ,'locked'], true)) throw new RuntimeException('第 ' . $row['line'] . ' 行订单状态已变化，请重新预览');
                         if ($departmentMode && !ps_department_import_is_order((int)$existing['id']) && $actor['role'] !== 'finance') throw new RuntimeException('第 ' . $row['line'
     ] . ' 行同号订单不是网站售后部门订单');
-                        if (array_intersect(ps_customer_intake_blocking(ps_customer_intake_conflicts($existing, $row)), $selectedBusiness === '商标' && $actor['role'] === 'technical' ? ['售价'] : ['店铺'
+                        $commitConflicts = ps_customer_intake_blocking(ps_customer_intake_conflicts($existing, $row));
+                        $priceVerdict = null;
+                        if (in_array('售价', $commitConflicts, true)) { // 与预览同一套店铺流水裁决（防止预览后数据变化）
+                            $priceVerdict = poj_price_verdict(['id' => (int)$existing['id'], 'order_no' => $row['order_no'], 'contract_amount' => $existing['contract_amount'], 'price_source' => $existing['price_source']], $row['contract_amount'], $row['order_no']);
+                            if (in_array($priceVerdict['verdict'], ['adopt_sheet', 'keep_system'], true)) $commitConflicts = ps_customer_intake_blocking(array_values(array_diff($commitConflicts, ['售价'])));
+                            else $priceVerdict = null;
+                        }
+                        if (array_intersect($commitConflicts, $selectedBusiness === '商标' && $actor['role'] === 'technical' ? ['售价'] : ['店铺'
     , '售价', '付款昵称', '支付流水号'])) throw new RuntimeException('第 ' . $row['line'] . ' 行买家资料与原单不一致，请重新核对');
                         $orderId = (int)$existing['id'];
+                        if ($priceVerdict && $priceVerdict['verdict'] === 'adopt_sheet' && poj_apply_price($orderId, $row['contract_amount'], $priceVerdict['flow'], $actor, ['line' => $row['line']])) $existing['contract_amount'] = $row['contract_amount'];
                         // 同号二次上传只补缺失的分成组；已有技术或客服不改人、不改权重。
                         $missing = [];
                         foreach (['technical', 'customer_service'] as $groupKey) if ($row['people'][$groupKey] && !ps_import_group_taken($orderId, $groupKey)) $missing[$groupKey] =
@@ -38,6 +46,15 @@
                             $kindUpdate->execute([$row['order_kind'], $orderId]);
                             if ($kindUpdate->rowCount()) ps_audit('order', $orderId, 'import_order_kind', $actor, ['line' => $row['line'], 'from' => '普通订单', 'to' => $row['order_kind'
     ]]);
+                        }
+                        // 共同接单：同一笔销售（跨业务金额相同）或同业务共同客服，本人加入原订单的分成组并重新均分该组权重
+                        $alreadyIn = $pdo->prepare('SELECT 1 FROM project_participants WHERE order_id=? AND employee_id=? LIMIT 1');
+                        $alreadyIn->execute([$orderId, (int)$actor['employee_id']]);
+                        if (!empty($row['join_parent']) && !$alreadyIn->fetchColumn()) { // 上面补缺失分成组时已把本人记进空着的组，就不再重复加入
+                            $joinTarget = poj_join_target((int)$actor['employee_id'], $existing['project_type'], $orderId, $actor['role']);
+                            poj_join_group($orderId, (int)$actor['employee_id'], $joinTarget['group'], $joinTarget['role'], $actor, ['line' => $row['line'], 'reason' => '同一笔销售只记一次', 'from_business' => $row['project_type']]);
+                        } elseif (!empty($row['join_group']) && $row['join_group'] === 'customer_service') {
+                            poj_join_group($orderId, (int)$actor['employee_id'], 'customer_service', (string)($row['join_role'] ?? '客服'), $actor, ['line' => $row['line'], 'reason' => '同一订单多位客服分摊']);
                         }
                         if ($actor['role'] !== 'finance' && !$departmentMode) {
                             $access = $pdo->prepare('SELECT 1 FROM project_participants WHERE order_id=? AND employee_id=?');
@@ -98,7 +115,7 @@
                         }
                         if (!empty($row['renewal_extras'])) $pdo->prepare("UPDATE project_orders SET note=CONCAT_WS('；', NULLIF(note,''), ?) WHERE id=?")->execute([implode('；',
     $row['renewal_extras']), $orderId]);
-                        poi_save($orderId, $row['items'] ?? [], (int)$_SESSION['project_import_file'], $actor);
+                        if (empty($row['join_parent'])) poi_save($orderId, $row['items'] ?? [], (int)$_SESSION['project_import_file'], $actor);
                         ps_audit('order', $orderId, 'import_supplement', $actor, ['line' => $row['line'], 'order_no' => $row['order_no']]);
                         if ($departmentMode) ps_department_import_record($orderId, $actor);
                         $imported++;

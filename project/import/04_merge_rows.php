@@ -35,6 +35,16 @@
                 if ($selectedBusiness === '商标' && $actor['role'] === 'technical') $conflicts = array_values(array_intersect($conflicts, ['售价']));
                 $softConflicts = $conflicts;
                 $conflicts = ps_customer_intake_blocking($conflicts);
+                // 售价不一致时用店铺流水价当裁判：流水价等于表格价则更正系统价，等于系统价则沿用系统价，都不必财务核对
+                if (in_array('售价', $conflicts, true)) {
+                    $priceVerdict = poj_price_verdict($mergedRow['existing_snapshot'], $mergedRow['contract_amount'] ?? '', (string)$mergedRow['order_no']);
+                    if (in_array($priceVerdict['verdict'], ['adopt_sheet', 'keep_system'], true)) {
+                        $mergedRow['price_verdict'] = $priceVerdict['verdict'];
+                        $mergedRow['warning'] = trim(($mergedRow['warning'] ?? '') . '；售价以店铺流水价 ¥' . number_format((float)$priceVerdict['flow'], 2, '.', '') . ' 为准：' . ($priceVerdict['verdict'] === 'adopt_sheet' ? '系统原价 ¥' . number_format((float)$mergedRow['existing_snapshot']['contract_amount'], 2, '.', '') . ' 将更正为表格价' : '表格价 ¥' . $mergedRow['contract_amount'] . ' 与流水不符，沿用系统原价'), '；');
+                        $conflicts = ps_customer_intake_blocking(array_values(array_diff($conflicts, ['售价'])));
+                        $softConflicts = array_values(array_diff($softConflicts, ['售价']));
+                    }
+                }
                 if (!$conflicts && $softConflicts) $mergedRow['warning'] = trim(($mergedRow['warning'] ?? '') . '；与原单的' . implode('、', $softConflicts) . '写法不同（售价一致，按同一笔订单关联，沿用原单的值）：' . ps_customer_intake_conflict_detail($mergedRow['existing_snapshot'], $mergedRow, $softConflicts), '；');
                 if ($conflicts) { $mergedRow['base_valid'] = false; $mergedRow['status'] = '需处理'; $mergedRow['error'] = '原单与上传表的' . implode('、', $conflicts) .
     '不一致，请由财务核对'; $mergedRow['conflict_detail'] = ps_customer_intake_conflict_detail($mergedRow['existing_snapshot'], $mergedRow, $conflicts) . ($sameAsPrev &&

@@ -221,7 +221,7 @@
 - `pa_evaluate` L71–189
 - `pa_state_meta` L191–201
 
-## includes/ProjectBusiness.php (377 行, 30.1 KB)
+## includes/ProjectBusiness.php (377 行, 30.2 KB)
 
 - `ps_business_catalog` L8–46
 - `ps_business_account_products` L49–55
@@ -318,7 +318,7 @@
 - `ps_import_file_mark` L186–194
 - 加载：`require_once __DIR__ . '/../classes/SimpleXLSX.php';`
 
-## includes/ProjectImportParse.php (199 行, 13.3 KB)
+## includes/ProjectImportParse.php (211 行, 14.1 KB)
 
 - `ps_import_date` L3–30
 - `ps_import_names` L36–65
@@ -328,6 +328,7 @@
 - `ps_import_autofill_details` L127–138
 - `ps_import_fix_guide` L144–177
 - `ps_import_followup_rows` L183–198
+- `ps_import_public_transfer` L201–210
 
 ## includes/ProjectImportResult.php (62 行, 3.7 KB)
 
@@ -528,6 +529,19 @@
 - `poi_sync_costs` L174–208
 - `poi_linked_template` L210–214
 - `poi_select_program` L217–231
+
+## includes/ProjectOrderJoin.php (138 行, 9.1 KB)
+
+- `poj_amount_value` L12–18
+- `poj_same_sale_allowed` L21–36
+- `poj_group_weights_equal` L39–46
+- `poj_join_target` L49–65
+- `poj_join_group` L68–85
+- `poj_technician_choices` L88–99
+- `poj_price_verdict` L109–124
+- `poj_apply_price` L127–137
+- 加载：`require_once __DIR__ . '/ProjectOrderSplit.php';`
+- 加载：`require_once __DIR__ . '/ProjectBusiness.php';`
 
 ## includes/ProjectOrderList.php (136 行, 10.3 KB)
 
@@ -2051,10 +2065,11 @@
 - 加载：`include __DIR__ . '/import/06_followup.php';`
 - 加载：`include __DIR__ . '/import/view.php';`
 
-## project/import/01_context.php (82 行, 5.8 KB)
+## project/import/01_context.php (83 行, 5.8 KB)
 
 - 加载：`require_once (dirname(__DIR__, 1)) . '/../includes/ProjectIntake.php';`
 - 加载：`require_once (dirname(__DIR__, 1)) . '/../includes/ProjectOrderSplit.php';`
+- 加载：`require_once (dirname(__DIR__, 1)) . '/../includes/ProjectOrderJoin.php';`
 - 加载：`require_once (dirname(__DIR__, 1)) . '/../includes/ProjectSiteProjects.php';`
 - 加载：`require_once (dirname(__DIR__, 1)) . '/../includes/ProjectTrademarkCost.php';`
 - 加载：`require_once (dirname(__DIR__, 1)) . '/../includes/ProjectBusiness.php';`
@@ -2065,22 +2080,22 @@
 - 加载：`require_once (dirname(__DIR__, 1)) . '/../includes/ProjectImportClassification.php';`
 - 加载：`require_once (dirname(__DIR__, 1)) . '/../classes/SimpleXLSX.php';`
 
-## project/import/02_read_sheets.php (158 行, 14.4 KB)
+## project/import/02_read_sheets.php (164 行, 15 KB)
 
 
-## project/import/03a_order_no_and_split.php (134 行, 13.2 KB)
+## project/import/03a_order_no_and_split.php (158 行, 15.7 KB)
 
 
 ## project/import/03b_date_amount_status.php (248 行, 25.2 KB)
 
 
-## project/import/03c_people_resources.php (110 行, 11.8 KB)
+## project/import/03c_people_resources.php (135 行, 14.3 KB)
 
 
 ## project/import/04_merge_items.php (32 行, 3.2 KB)
 
 
-## project/import/04_merge_rows.php (95 行, 7.8 KB)
+## project/import/04_merge_rows.php (105 行, 9 KB)
 
 - 加载：`require_once (dirname(__DIR__, 1)) . '/../includes/ProjectOrderFix.php';`
 
@@ -2095,7 +2110,7 @@
 ## project/import/commit/part_1.php (56 行, 4.9 KB)
 
 
-## project/import/commit/part_2.php (245 行, 24.3 KB)
+## project/import/commit/part_2.php (262 行, 26.5 KB)
 
 - 加载：`require_once (dirname((dirname(__DIR__, 1)), 1)) . '/../includes/dup_feedback.php';`
 - 加载：`require_once (dirname((dirname(__DIR__, 1)), 1)) . '/../includes/ProjectAutoReview.php';`
@@ -2112,7 +2127,7 @@
 - 加载：`include (dirname(__DIR__, 1)) . '/import/04_merge_rows.php';`
 - 加载：`include (dirname(__DIR__, 1)) . '/import/05_commit.php';`
 
-## project/import/view.php (161 行, 24 KB)
+## project/import/view.php (161 行, 24.5 KB)
 
 - 加载：`include (dirname(__DIR__, 1)) . '/../includes/header.php';`
 - 加载：`include __DIR__ . '/../../assets/css/project_import_1.css';`
@@ -2128,7 +2143,7 @@
 ## project/import/view/render_15.php (8 行, 1.3 KB)
 
 
-## project/import/view/render_62.php (9 行, 1.6 KB)
+## project/import/view/render_62.php (9 行, 2 KB)
 
 
 ## project/import/view/render_63.php (10 行, 1.6 KB)
@@ -2948,181 +2963,91 @@
 ## storage/private/imports/202609_f92364832082efa6e3a25adf.csv.php (5 行, 0.6 KB)
 
 
-## storage/private/imports/202610_04431543089c366dfde61e5f.csv.php (15 行, 1.3 KB)
+## storage/private/imports/avoid_0a257b3876.csv.php (4 行, 0.3 KB)
 
 
-## storage/private/imports/202610_097b8106091f00f440af455e.xlsx.php (103 行, 18 KB)
+## storage/private/imports/avoid_18dce99234.csv.php (4 行, 0.5 KB)
 
 
-## storage/private/imports/202610_0b76a1233e925559da651f37.xlsx.php (2194 行, 701.5 KB)
+## storage/private/imports/avoid_24c9c8624e.csv.php (4 行, 0.2 KB)
 
 
-## storage/private/imports/202610_0d63db9768c1956d72e60766.xlsx.php (1945 行, 508.9 KB)
+## storage/private/imports/avoid_2bef4271b4.csv.php (4 行, 0.3 KB)
 
 
-## storage/private/imports/202610_12700d744bca36fac75741ea.xlsx.php (632 行, 184.7 KB)
+## storage/private/imports/avoid_38e0f10de7.csv.php (4 行, 0.3 KB)
 
 
-## storage/private/imports/202610_12ab708c75bd1824536863de.csv.php (5 行, 0.6 KB)
+## storage/private/imports/avoid_4237b6d388.csv.php (4 行, 0.3 KB)
 
 
-## storage/private/imports/202610_15729e8d6a675fb78a8d6a84.xlsx.php (34 行, 28 KB)
+## storage/private/imports/avoid_4ccb380024.csv.php (4 行, 0.3 KB)
 
 
-## storage/private/imports/202610_173fffb4e0620612aec79369.xlsx.php (407 行, 91.8 KB)
+## storage/private/imports/avoid_52b7fda4d2.csv.php (4 行, 0.3 KB)
 
 
-## storage/private/imports/202610_19e7dea3ce31074650703330.xls.php (19133 行, 5341.5 KB)
+## storage/private/imports/avoid_5de4380413.csv.php (4 行, 0.3 KB)
 
 
-## storage/private/imports/202610_1c11824880afd7c470ca1d26.xlsx.php (194 行, 51.7 KB)
+## storage/private/imports/avoid_62248f91fb.csv.php (4 行, 0.3 KB)
 
 
-## storage/private/imports/202610_2b3fbf9889b0cdd65feea3f8.xlsx.php (43 行, 10.3 KB)
+## storage/private/imports/avoid_72b688682c.csv.php (4 行, 0.3 KB)
 
 
-## storage/private/imports/202610_2d7317e36d5f30fcf4ba593f.xlsx.php (45 行, 10.1 KB)
+## storage/private/imports/avoid_7573f14177.csv.php (4 行, 0.3 KB)
 
 
-## storage/private/imports/202610_31091cd01e3eb7a4c941d317.xlsx.php (407 行, 91.8 KB)
+## storage/private/imports/avoid_82991a587a.csv.php (4 行, 0.3 KB)
 
 
-## storage/private/imports/202610_36a104d8ef750ad886f83a9f.xlsx.php (28603 行, 9098.9 KB)
+## storage/private/imports/avoid_9186fffe33.csv.php (4 行, 0.5 KB)
 
 
-## storage/private/imports/202610_3df9cc6b59ed498a3d3c5c53.xlsx.php (47 行, 11 KB)
+## storage/private/imports/avoid_9b19206b68.csv.php (4 行, 0.3 KB)
 
 
-## storage/private/imports/202610_3f3587cc959a0c1d31dda0f7.csv.php (19 行, 1 KB)
+## storage/private/imports/avoid_a3b63b5a75.csv.php (4 行, 0.3 KB)
 
 
-## storage/private/imports/202610_424caec3b5b37ebe5e5fbd0d.xls.php (4329 行, 377 KB)
+## storage/private/imports/avoid_aa0e43f35b.csv.php (4 行, 0.3 KB)
 
 
-## storage/private/imports/202610_4aedc6906cd46dc5e6fbea43.xlsx.php (218 行, 46.7 KB)
+## storage/private/imports/avoid_af9f1855c0.csv.php (4 行, 0.3 KB)
 
 
-## storage/private/imports/202610_4e35e693ff51f3476032a48d.xlsx.php (200 行, 46.1 KB)
+## storage/private/imports/avoid_b01009c142.csv.php (4 行, 0.3 KB)
 
 
-## storage/private/imports/202610_4f01592db5a4286c30c45a68.xlsx.php (103 行, 18 KB)
+## storage/private/imports/avoid_b27f1baae7.csv.php (4 行, 0.3 KB)
 
 
-## storage/private/imports/202610_526bde0730db528decb0e27b.xlsx.php (32483 行, 8335.3 KB)
+## storage/private/imports/avoid_b4111a1266.csv.php (4 行, 0.2 KB)
 
 
-## storage/private/imports/202610_5306b59c3314ac7749785df3.xlsx.php (606 行, 167.3 KB)
+## storage/private/imports/avoid_b93051da5e.csv.php (4 行, 0.3 KB)
 
 
-## storage/private/imports/202610_5f1302aca4c474b1ca6c2365.xlsx.php (9978 行, 2659.7 KB)
+## storage/private/imports/avoid_c4af824818.csv.php (4 行, 0.5 KB)
 
 
-## storage/private/imports/202610_61ac3e19e13a88cb09be3c74.xlsx.php (54 行, 10.7 KB)
+## storage/private/imports/avoid_ca24ce1b51.csv.php (4 行, 0.3 KB)
 
 
-## storage/private/imports/202610_62a63daaf922d1d218a4f98a.xlsx.php (3676 行, 1060.2 KB)
+## storage/private/imports/avoid_d35171aada.csv.php (4 行, 0.3 KB)
 
 
-## storage/private/imports/202610_72242fba0152598971a5722b.xlsx.php (61 行, 13.6 KB)
+## storage/private/imports/avoid_d71100606e.csv.php (4 行, 0.3 KB)
 
 
-## storage/private/imports/202610_745cfca69b9ef95b47d0030f.xlsx.php (103 行, 18 KB)
+## storage/private/imports/avoid_e0427d5d85.csv.php (4 行, 0.5 KB)
 
 
-## storage/private/imports/202610_7560af8e4d46918b152f599a.xlsx.php (43 行, 10.3 KB)
+## storage/private/imports/avoid_e6dfc49608.csv.php (4 行, 0.3 KB)
 
 
-## storage/private/imports/202610_779344d349bf267d6a396121.xlsx.php (49 行, 12.3 KB)
-
-
-## storage/private/imports/202610_79fc49ebb4739d68121f626a.xlsx.php (632 行, 184.7 KB)
-
-
-## storage/private/imports/202610_7a6db89a3b352fdaaedadb32.csv.php (5 行, 0.6 KB)
-
-
-## storage/private/imports/202610_7c8bf3f26bdca79e44200703.xlsx.php (34 行, 27.9 KB)
-
-
-## storage/private/imports/202610_8526d7a259cb07719ef62716.xlsx.php (59 行, 16.6 KB)
-
-
-## storage/private/imports/202610_88965a47dd9ac60c397f2fb4.xlsx.php (574 行, 167.4 KB)
-
-
-## storage/private/imports/202610_8ba225fe71ba72f0bdcf485b.xlsx.php (61 行, 13.2 KB)
-
-
-## storage/private/imports/202610_8dcfd0a71a07e0ad67f5ba5d.xlsx.php (66 行, 272.1 KB)
-
-
-## storage/private/imports/202610_8e6eeeb9b2105c652b338d1f.xlsx.php (1877 行, 418.4 KB)
-
-
-## storage/private/imports/202610_927866920b895fb2fcf4c755.csv.php (15 行, 1.3 KB)
-
-
-## storage/private/imports/202610_9ddb88cdba404f0809a1df2a.xlsx.php (43 行, 10.3 KB)
-
-
-## storage/private/imports/202610_a226402ba81169ea72a38d31.xlsx.php (9978 行, 2659.7 KB)
-
-
-## storage/private/imports/202610_aa0c0cb75af6d322c409dc85.xlsx.php (7028 行, 2038.3 KB)
-
-
-## storage/private/imports/202610_b08b15fc82ff300e846212d7.csv.php (5 行, 0.6 KB)
-
-
-## storage/private/imports/202610_b42deebdb40bf5e2a6ce6c0d.xlsx.php (15404 行, 4503.8 KB)
-
-
-## storage/private/imports/202610_b9196db6078359ac39660d0b.xlsx.php (200 行, 46.1 KB)
-
-
-## storage/private/imports/202610_ba6569eb393bc4131e72eb31.xlsx.php (32 行, 30.1 KB)
-
-
-## storage/private/imports/202610_bde4143227362639ba579007.xlsx.php (113 行, 25.7 KB)
-
-
-## storage/private/imports/202610_c3ea6dbbde94ed7ea65bfaef.xls.php (3920 行, 990.5 KB)
-
-
-## storage/private/imports/202610_c50c44e54ca5b65ae902960c.xlsx.php (103 行, 18 KB)
-
-
-## storage/private/imports/202610_c749059c4f1fa2f86d24f1e6.xlsx.php (106 行, 23.7 KB)
-
-
-## storage/private/imports/202610_c760fc2eb37743393d9ab27d.xlsx.php (100 行, 24.5 KB)
-
-
-## storage/private/imports/202610_ce3025c09a451f8a519c9340.xlsx.php (3683 行, 1151.1 KB)
-
-
-## storage/private/imports/202610_d0b1de2158ae5a5186e3f98b.xlsx.php (45 行, 10.1 KB)
-
-
-## storage/private/imports/202610_d4c775ef2b8e266723b2fbf3.xlsx.php (1080 行, 320.2 KB)
-
-
-## storage/private/imports/202610_d8a1590c57de8ef641abfaa5.xlsx.php (105 行, 24.7 KB)
-
-
-## storage/private/imports/202610_e35c021bb361bcad5b4e22b6.xlsx.php (55 行, 13.3 KB)
-
-
-## storage/private/imports/202610_e4fbaba01257f71a3c21f942.xlsx.php (162 行, 27.4 KB)
-
-
-## storage/private/imports/202610_e796b1d959efacd651ffce5e.csv.php (15 行, 1.3 KB)
-
-
-## storage/private/imports/202610_f7192fd0a3b57af832e4057f.xls.php (390 行, 80.5 KB)
-
-
-## storage/private/imports/202610_f99384071888f18352bd7d90.xlsx.php (103 行, 18 KB)
+## storage/private/imports/avoid_fd64edf027.csv.php (4 行, 0.3 KB)
 
 
 ## storage/private/imports/bid_test_0c7e0cfd18.xlsx.php (48 行, 13.8 KB)
@@ -3138,6 +3063,9 @@
 
 
 ## storage/private/imports/bid_test_76b56a4873.xlsx.php (48 行, 13.8 KB)
+
+
+## storage/private/imports/bid_test_795c43c576.xlsx.php (48 行, 13.8 KB)
 
 
 ## storage/private/imports/bid_test_7ddf62aee5.xlsx.php (48 行, 13.8 KB)
@@ -3390,6 +3318,11 @@
 - 加载：`include __DIR__ . '/../project/import.php';`
 - 加载：`include __DIR__ . '/../includes/import_followup_modal.php';`
 - 加载：`include __DIR__ . '/../includes/import_followup_modal.php';`
+
+## tests/import_join_smoke.php (145 行, 13.5 KB)
+
+- 加载：`require_once __DIR__ . '/../includes/ProjectIntake.php';`
+- 加载：`include __DIR__ . '/../project/import.php';`
 
 ## tests/import_lenient_people_smoke.php (62 行, 5.3 KB)
 
@@ -3784,6 +3717,13 @@
 - 加载：`require_once __DIR__ . '/code_structure.php';`
 - 加载：`include . "`\n";`
 
+## tools/import_amount_diff.php (72 行, 5.2 KB)
+
+- `ir_preview` L9–27
+- 加载：`require_once $root . '/includes/ProjectIntake.php';`
+- 加载：`require_once $root . '/includes/ProjectSystem.php';`
+- 加载：`include $root . '/project/import.php';`
+
 ## tools/import_reconcile.php (69 行, 5.5 KB)
 
 - `ir_preview` L14–31
@@ -3801,6 +3741,12 @@
 ## tools/merge_duplicate_orders_20261008.php (76 行, 6.1 KB)
 
 - 加载：`require_once __DIR__ . '/../includes/ProjectIntake.php';`
+
+## tools/merge_same_sale_children.php (82 行, 6.2 KB)
+
+- 加载：`require_once __DIR__ . '/../includes/ProjectIntake.php';`
+- 加载：`require_once __DIR__ . '/../includes/ProjectOrderJoin.php';`
+- 加载：`require_once __DIR__ . '/../includes/ProjectImportUndo.php';`
 
 ## tools/recover_project_import.php (46 行, 3.1 KB)
 

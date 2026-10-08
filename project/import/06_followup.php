@@ -17,7 +17,7 @@ foreach ($preview as $previewRow) {
     }
 }
 $templateUrl = $selectedBusiness ? '?business=' . rawurlencode($selectedBusiness) . '&scope=' . ($departmentMode ? 'department' : 'personal') . '&download=1' : '';
-$repairableCount = count(array_filter($preview, function ($row) use ($isSkipRow) { return !$isSkipRow($row) && (empty($row['order_no']) || empty($row['order_date'])); }));
+$repairableCount = count(array_filter($preview, function ($row) use ($isSkipRow) { return !$isSkipRow($row) && (empty($row['order_no']) || empty($row['order_date']) || !empty($row['need_technical'])); }));
 $siteKeyFixCount = count(array_filter($preview, function ($row) use ($isSkipRow) { return !$isSkipRow($row) && !empty($row['site_external_no']); }));
 $suggestedDates = []; $lastDateBySheet = [];
 foreach ($preview as $previewRow) {

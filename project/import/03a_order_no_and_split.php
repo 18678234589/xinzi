@@ -4,6 +4,12 @@
                     if ($record['project_type'] !== $selectedBusiness) $record['warning'] .= ($record['warning'] ? '；' : '') . '按产品/技术岗位自动归入“' . $record['project_type'
     ] . '”分成方案';
                     $record['order_no'] = ps_order_no_resolve($lookup($row, 'order_no'));
+                    // 对公收款：订单号格子写“对公”，无需店铺订单号，只认对公交易号（可写在订单号格“对公 xxxx”、交易号列，或在预览页补填）
+                    $publicReference = '';
+                    if (ps_import_public_transfer($lookup($row, 'order_no'), $publicReference)) {
+                        $record['order_no'] = '';
+                        $record['public_transfer'] = true;
+                    }
                     if ($record['order_no'] !== $lookup($row, 'order_no') && $lookup($row, 'order_no') !== '') $record['warning'] .= ($record['warning'] ? '；' : '') . '订单号“'
     . mb_substr($lookup($row, 'order_no'), 0, 40) . '”按“' . $record['order_no'] . '”识别（已去掉标签 / 备注，同号不会重复建单）';
                     $siteBaseType = null;
@@ -64,6 +70,10 @@
     ;
                     }
                     $record['payment_reference'] = trim((string)($fixPaymentReferences[$record['line']] ?? $lookup($row, 'payment_reference')));
+                    if ($record['payment_reference'] === '' && $publicReference !== '') $record['payment_reference'] = $publicReference;
+                    if (!empty($record['public_transfer']) && $record['order_no'] === '' && trim((string)($fixOrderNos[$record['line']] ?? '')) === '') {
+                        $record['warning'] .= ($record['warning'] ? '；' : '') . '对公收款：无需订单号，只需对公交易号' . ($record['payment_reference'] !== '' ? '，已按对公交易号生成内部关联号' : '，请在本行填写对公交易号');
+                    }
                     if (mb_strlen($record['payment_reference']) > 200) throw new RuntimeException('微信交易流水号或支付订单号过长');
                     if ($record['order_no'] === '' && trim((string)($fixOrderNos[$record['line']] ?? '')) !== '') {
                         $record['order_no'] = trim((string)$fixOrderNos[$record['line']]);
@@ -100,6 +110,19 @@
     . $existing['project_type'] . '”和分成规则，不重复建单；改类目请由财务核对'); }
                         if (pos_parent_of((int)$existing['id']) || strpos($record['order_no'], 'WX-') === 0) throw new RuntimeException('该订单号已属于其他业务，请联系财务核对'
     );
+                        // 同一笔销售只记一次：另一业务已按相同金额录过（如软文代写与微信代写同一笔），本人加入原订单，不再另建一张重复分单
+                        $joinSameSale = !$coCustomerService && !$departmentMode && $actor['role'] !== 'finance'
+                            && poj_same_sale_allowed($existing['project_type'], $record['project_type'], poj_amount_value($lookup($row, 'contract_amount')), $record['order_no'], $existing['contract_amount']);
+                        if ($joinSameSale) { // 本人此前已按旧规则建过这笔订单的分单子单：继续沿用，不再同时加入原单造成重复
+                            $exists->execute([pos_child_order_no($record['order_no'], $record['project_type'], 0)]);
+                            $joinSameSale = !$exists->fetch();
+                        }
+                        if ($joinSameSale) {
+                            $record['join_parent'] = ['id' => (int)$existing['id'], 'project_type' => $existing['project_type']];
+                            $record['join_target'] = poj_join_target((int)$actor['employee_id'], $existing['project_type'], (int)$existing['id'], $actor['role']);
+                            $record['existing_order_id'] = (int)$existing['id'];
+                            $record['warning'] .= ($record['warning'] ? '；' : '') . '同一笔销售只记一次：此单已由“' . $existing['project_type'] . '”按相同金额录入，本人将作为“' . $record['join_target']['role'] . '”加入原订单，不另建分单、不重复计金额';
+                        } else {
                         // 他人用另一业务录过的同号订单：本人这份另建分单子单（各记各的金额与业务规则），不再被拦
                         $record['split_parent_id'] = (int)$existing['id'];
                         $record['split_parent_no'] = $record['order_no'];
@@ -109,6 +132,7 @@
                         $exists->execute([$record['order_no']]);
                         $existing = $exists->fetch();
                         $record['existing_order_id'] = $existing ? (int)$existing['id'] : 0;
+                        }
                     }
                     if ($existing) {
                         if (in_array($existing['settlement_status'], ['approved','locked'], true)) { $record['skip_status'] = ps_import_order_visible((int)$existing['id'], $actor)

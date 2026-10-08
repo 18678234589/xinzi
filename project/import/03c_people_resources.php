@@ -22,12 +22,20 @@
                         else $record['people']['technical'][$id] = ['id' => $id, 'role' => $peopleLabels['backend'], 'name' => $name];
                     }
                     $record['people'] = ps_import_website_people_roles($record['people'], $record['project_type']);
+                    if (!empty($record['join_parent'])) { // 同一笔销售：只记本人加入原订单的那一份，不沿用表格里写的其他人
+                        $joinSelfId = (int)$actor['employee_id'];
+                        $record['people'] = ['technical' => [], 'customer_service' => []];
+                        $record['people'][$record['join_target']['group']][$joinSelfId] = ['id' => $joinSelfId, 'role' => $record['join_target']['role'], 'name' => $actorName ?? '本人'];
+                    }
                     if ($departmentMode) {
                         $namedIds = array_values(array_unique(array_merge(array_keys($record['people']['customer_service']), array_keys($record['people']['technical']))));
                         if ($namedIds) {
                             $namedPeople = ps_department_import_people($actor, $selectedBusiness, $namedIds);
                             $record['people'] = ['technical' => [], 'customer_service' => $namedPeople];
-                        } elseif ($departmentDefaults) $record['people'] = ['technical' => [], 'customer_service' => $departmentDefaults];
+                        } elseif ($departmentDefaults) {
+                            $record['people'] = ['technical' => [], 'customer_service' => $departmentDefaults];
+                            if ($departmentDefaultSelf) $record['warning'] .= ($record['warning'] ? '；' : '') . '表格没写售后参与人，已默认记为上传人本人';
+                        }
                     }
                     if ($actor['role'] !== 'finance' && !$departmentMode) {
                         $selfId = (int)$actor['employee_id'];
@@ -62,11 +70,28 @@
                         // 商标：资料专员、提交专员各自上传同一单，技术组按岗位区分，同岗位无人即可加入
                         $trademarkRoleOpen = function () use ($selectedBusiness, $group, $record, $actor) { return $selectedBusiness === '商标' && $group === 'technical' && ps_trademark_technical_role_open
     ((int)$record['existing_order_id'], (int)$actor['employee_id'], $record['people']['technical'][(int)$actor['employee_id']]['role']) !== null; };
-                        if (!empty($record['attach_check']) && ps_import_group_taken((int)$record['existing_order_id'], $group) && !$trademarkRoleOpen()) throw new RuntimeException
+                        if (!empty($record['attach_check']) && empty($record['join_parent']) && ps_import_group_taken((int)$record['existing_order_id'], $group) && !$trademarkRoleOpen()) {
+                            // 同一订单多位客服分摊：非商标、原单客服权重均分时，本人作为共同客服加入，不必再交财务核对
+                            if ($group !== 'customer_service' || $selectedBusiness === '商标' || pos_parent_of((int)$record['existing_order_id']) || !poj_group_weights_equal((int)$record['existing_order_id'], $group)) throw new RuntimeException
     ('该订单号已存在且已有' . ($group === 'technical' ? '对接编辑 / 技术' : '客服') . '，本人尚未被关联；请由财务核对');
+                            $record['join_group'] = $group;
+                            $record['join_role'] = $record['people'][$group][(int)$actor['employee_id']]['role'];
+                            $record['warning'] .= ($record['warning'] ? '；' : '') . '此单已有其他客服，本人将作为共同客服加入，该订单客服分成按人数均分，请核对';
+                        }
                     }
                     if (!$existing && $actor['role'] === 'customer_service' && ps_business_requires_technical($selectedBusiness)) {
-                        if (!$record['people']['technical'] && !$unknownTech) throw new RuntimeException('客服导入新订单须指定接单技术');
+                        if (!$record['people']['technical'] && !$unknownTech) {
+                            // 预览页里直接选接单技术，不必改表格重新上传
+                            $pickedTechnical = (int)($fixTechnical[$record['line']] ?? 0);
+                            $technicianChoices = poj_technician_choices($selectedBusiness);
+                            if ($pickedTechnical && isset($technicianChoices[$pickedTechnical])) {
+                                $record['people']['technical'][$pickedTechnical] = ['id' => $pickedTechnical, 'role' => ps_employee_default_role($pickedTechnical, $selectedBusiness, 'technical') ?? $peopleLabels['frontend'], 'name' => $technicianChoices[$pickedTechnical]];
+                                $record['warning'] .= ($record['warning'] ? '；' : '') . '接单技术由上传人在预览中选择：' . $technicianChoices[$pickedTechnical];
+                            } else {
+                                $record['need_technical'] = true;
+                                throw new RuntimeException('客服导入新订单须指定接单技术（在本行下拉框直接选择即可，无需改表格）');
+                            }
+                        }
                         // 技术列写的是资料员等非合作人员（如负责传资料的同事）：照常导入，订单暂不记技术
                         if (!$record['people']['technical']) $record['warning'] .= ($record['warning'] ? '；' : '') . '订单暂无接单技术，如需记技术提成请财务在结算单补录'
     ;

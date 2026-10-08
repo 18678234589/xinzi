@@ -66,6 +66,6 @@ foreach ($ids as $fid) {
 ksort($out); $tot = 0; foreach ($out as $rows) $tot += count($rows);
 echo "金额不一致的订单号合计 $tot\n";
 foreach ($out as $cat => $rows) {
-    echo "\n【$cat】 ", count($rows), " 个\n";
+    echo "\n【{$cat}】 ", count($rows), " 个\n";
     foreach (array_slice($rows, 0, (int)($argv[2] ?? 4)) as $r) printf("   #%d %s %s %s 表格%.2f 库内%.2f（%d 张：%s）流水[%s] %s\n", $r[0], $r[1], $r[2], mb_substr($r[3], 0, 24), $r[4], $r[5], $r[6], $r[7], $r[8], $r[9]);
 }

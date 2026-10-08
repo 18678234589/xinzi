@@ -2,6 +2,7 @@
 require_once (dirname(__DIR__, 1)) . '/../includes/ProjectIntake.php';
 poi_ensure();
 require_once (dirname(__DIR__, 1)) . '/../includes/ProjectOrderSplit.php';
+require_once (dirname(__DIR__, 1)) . '/../includes/ProjectOrderJoin.php';
 require_once (dirname(__DIR__, 1)) . '/../includes/ProjectSiteProjects.php';
 require_once (dirname(__DIR__, 1)) . '/../includes/ProjectTrademarkCost.php';
 require_once (dirname(__DIR__, 1)) . '/../includes/ProjectBusiness.php';
