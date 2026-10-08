@@ -37,10 +37,16 @@ try {
     item_check(empty($all[2]['cost_id']),'冲突明细保留，须核对');
     try { poi_link_cost($id,$all[2]['id'],$all[1]['cost_id'],$actor); throw new RuntimeException('重复关联未阻止'); }
     catch(RuntimeException $e) { item_check(strpos($e->getMessage(),'不能重复关联')!==false,'不让同一成本重复抵扣'); }
+    poi_save($id,poi_from_row('HTTPS',200,[],[],$templates,11),0,$actor);
+    item_check(count(ps_costs($id))===2,'未知HTTPS没有猜成本');
+    poi_save($id,poi_from_row('HTTPS',200,['成本'],[160],$templates,11),0,$actor);
+    $https=array_values(array_filter(poi_items($id),function($i){return $i['item_name']==='HTTPS';}))[0];
+    item_check($https['category']==='plugin' && $https['cost_id'],'二次补充明确成本后识别软件并补齐成本');
+    item_check(count(ps_costs($id))===3,'补充只增加缺失软件成本一次');
     $pdo->prepare("UPDATE project_orders SET settlement_status='locked' WHERE id=?")->execute([$id]);
     $oldCosts=ps_costs($id);
     poi_save($id,poi_from_row('证书维护说明',0,[],[],$templates,10),0,$actor,true);
-    item_check(count(poi_items($id))===4,'锁定历史单允许仅补商品展示');
+    item_check(count(poi_items($id))===5,'锁定历史单允许仅补商品展示');
     item_check(ps_costs($id)===$oldCosts,'历史展示修复不改成本和金额');
     $pdo->rollBack();
     echo "PASS $checks storage checks; all fixtures rolled back\n";

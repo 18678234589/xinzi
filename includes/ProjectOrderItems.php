@@ -147,8 +147,8 @@ function poi_save($orderId, $items, $fileId, $actor, $metadataOnly = false)
         $find->execute([$orderId,$item['item_key']]); $old = $find->fetch();
         // 新上传只填空值，不偷偷覆盖已有明细 / 已审核成本；更正走结算单的正式审核。
         if ($old) {
-            db()->prepare('UPDATE project_order_items SET sale_amount=COALESCE(sale_amount,?),reported_cost=COALESCE(reported_cost,?),technical_cost=COALESCE(technical_cost,?) WHERE id=?')
-                ->execute([$item['sale_amount'],$item['reported_cost'],$item['technical_cost'],$old['id']]);
+            db()->prepare('UPDATE project_order_items SET sale_amount=COALESCE(sale_amount,?),reported_cost=COALESCE(reported_cost,?),technical_cost=COALESCE(technical_cost,?),category=IF(template_id IS NULL AND cost_id IS NULL,?,category),template_id=IF(cost_id IS NULL,COALESCE(template_id,?),template_id) WHERE id=?')
+                ->execute([$item['sale_amount'],$item['reported_cost'],$item['technical_cost'],$item['category'],$item['template_id'],$old['id']]);
             continue;
         }
         db()->prepare('INSERT INTO project_order_items (order_id,item_key,item_name,category,sale_amount,reported_cost,technical_cost,template_id,source_file_id,source_line,resource_hint) VALUES (?,?,?,?,?,?,?,?,?,?,?)')
