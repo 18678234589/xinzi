@@ -3784,6 +3784,13 @@
 - 加载：`require_once __DIR__ . '/code_structure.php';`
 - 加载：`include . "`\n";`
 
+## tools/import_reconcile.php (69 行, 5.5 KB)
+
+- `ir_preview` L14–31
+- 加载：`require_once __DIR__ . '/../includes/ProjectIntake.php';`
+- 加载：`require_once __DIR__ . '/../includes/ProjectSystem.php';`
+- 加载：`include __DIR__ . '/../project/import.php';`
+
 ## tools/import_replay.php (77 行, 5.5 KB)
 
 - `replay_file` L20–52
