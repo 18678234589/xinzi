@@ -67,7 +67,7 @@ function ps_template_cost_status($template, $amount)
     return ((float)$amount <= 500 || $template['category'] === 'program' || ($template['price_mode'] ?? 'fixed') === 'percent') ? 'approved' : 'pending';
 }
 
-function ps_intake_add_template_cost($orderId, $template, $actor, $origin, $quantity = 1)
+function ps_intake_add_template_cost($orderId, $template, $actor, $origin, $quantity = 1, $forceStatus = null)
 {
     $contract = 0.0;
     if (($template['price_mode'] ?? 'fixed') === 'percent') {
@@ -76,7 +76,7 @@ function ps_intake_add_template_cost($orderId, $template, $actor, $origin, $quan
         $contract = (float)$q->fetchColumn();
     }
     [$price, $amount, $supplier] = ps_template_cost_amount($template, $contract, $quantity);
-    $status = ps_template_cost_status($template, $amount);
+    $status = $forceStatus ?? ps_template_cost_status($template, $amount);
     $q = db()->prepare('INSERT INTO project_costs (order_id,template_id,template_version,category,item_name,quantity,unit,unit_price,amount,supplier_amount,cost_kind,is_custom,reason,review_status,submitted_by_employee) VALUES (?,?,?,?,?,?,?,?,?,?,?,0,?,?,?)');
     $q->execute([(int)$orderId, (int)$template['id'], (int)$template['version'], $template['category'], $template['name'] . ($template['specification'] ? ' · ' . $template['specification'] : ''), (float)$quantity, $template['unit'], $price, $amount, $supplier, $template['cost_kind'], $origin, $status, $actor['employee_id'] ?? null]);
     $costId = (int)db()->lastInsertId();

@@ -152,6 +152,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $q = db()->prepare('INSERT INTO project_costs (order_id,template_id,template_version,category,item_name,quantity,unit,unit_price,amount,supplier_amount,cost_kind,is_custom,reason,proof_path,review_status,submitted_by_employee) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)');
             $q->execute($values);
             ps_audit('cost', (int)db()->lastInsertId(), 'create', $actor, ['order_id' => $id, 'amount' => $amount, 'status' => $status ?? 'pending']);
+        } elseif ($action === 'tm_cost') {
+            if (ps_business_normalize($order['project_type']) !== '商标') throw new RuntimeException('商标成本快捷录入只用于商标订单');
+            if (!in_array($actor['role'], ['customer_service', 'technical', 'finance'], true)) throw new RuntimeException('无权限');
+            require_once __DIR__ . '/../includes/ProjectTrademarkCost.php';
+            ptc_user_add($id, (int)($_POST['template_id'] ?? 0), $_POST['quantity'] ?? '', $actor);
         } elseif ($action === 'review_cost') {
             if (!$finance) throw new RuntimeException('无权限');
             $costId = (int)($_POST['cost_id'] ?? 0);
@@ -570,6 +575,21 @@ include __DIR__ . '/../includes/header.php';
 <?php if ($actor['role'] === 'finance' && $canEdit && $cost['review_status'] === 'pending'): ?><form method="post" class="form-inline mt-1"><input type="hidden" name="csrf" value="<?php echo e(ps_csrf_token()); ?>"><input type="hidden" name="action" value="review_cost"><input type="hidden" name="cost_id" value="<?php echo (int)$cost['id']; ?>"><input class="form-control form-control-sm mr-1" name="review_note" placeholder="审核意见"><button class="btn btn-success btn-sm mr-1" name="decision" value="approved">通过</button><button class="btn btn-outline-danger btn-sm" name="decision" value="rejected">驳回</button></form><?php endif; ?><?php if ($actor['role'] === 'finance' && $canEdit && $cost['review_status'] === 'approved'): ?><form method="post" class="form-inline mt-1"><input type="hidden" name="csrf" value="<?php echo e(ps_csrf_token()); ?>"><input type="hidden" name="action" value="void_cost"><input type="hidden" name="cost_id" value="<?php echo (int)$cost['id']; ?>"><input class="form-control form-control-sm mr-1" name="review_note" placeholder="作废原因" required><button class="btn btn-outline-danger btn-sm">作废</button></form><?php endif; ?></td></tr><?php endforeach; ?>
 <?php if (!$costs): ?><tr><td colspan="8" class="text-center text-muted">暂无成本</td></tr><?php endif; ?></tbody></table></div></div>
 
+<?php if ($canEdit && ps_business_normalize($order['project_type']) === '商标' && in_array($actor['role'], ['customer_service', 'technical', 'finance'], true)): require_once __DIR__ . '/../includes/ProjectTrademarkCost.php'; $tmTemplates = ptc_templates(); $tmCount = trim((string)($businessDetails['trademark_count'] ?? '')); $tmServices = array_values(array_filter($tmTemplates, function ($t) { return ptc_kind($t) === 'service'; })); $tmOthers = array_values(array_filter($tmTemplates, function ($t) { return in_array(ptc_kind($t), ['extra', 'variable'], true); })); ?>
+<div class="card mb-3 border-primary"><div class="card-header"><i class="fas fa-copyright mr-1"></i> 商标成本快捷录入 <span class="text-muted small">（单价来自成本中心，选一下即可）</span></div><div class="card-body">
+<?php if (!$tmTemplates): ?><div class="text-muted">成本中心还没有商标成本项目，请联系财务添加。</div><?php else: ?>
+<?php if ($tmServices): ?><form method="post" class="form-row align-items-end mb-2"><input type="hidden" name="csrf" value="<?php echo e(ps_csrf_token()); ?>"><input type="hidden" name="action" value="tm_cost">
+<div class="form-group col-md-5 mb-1"><label>服务项目（每件）</label><select class="form-control" name="template_id"><?php foreach ($tmServices as $t): ?><option value="<?php echo (int)$t['id']; ?>"><?php echo e(ptc_keyword($t) . ' · ¥' . money($t['price']) . '/件'); ?></option><?php endforeach; ?></select></div>
+<div class="form-group col-md-3 mb-1"><label>商标件数</label><input class="form-control" type="number" step="1" min="1" name="quantity" value="<?php echo e(is_numeric($tmCount) && (float)$tmCount > 0 ? $tmCount : '1'); ?>" required></div>
+<div class="form-group col-md-4 mb-1"><button class="btn btn-primary btn-block">设为本单服务成本</button></div></form><small class="text-muted d-block mb-3">选的服务项目 × 件数入账；重新选择会替换原来的服务成本。</small><?php endif; ?>
+<?php if ($tmOthers): ?><form method="post" class="form-row align-items-end"><input type="hidden" name="csrf" value="<?php echo e(ps_csrf_token()); ?>"><input type="hidden" name="action" value="tm_cost">
+<div class="form-group col-md-5 mb-1"><label>附加项 / 按实际金额</label><select class="form-control" name="template_id" id="tmOtherTemplate"><?php foreach ($tmOthers as $t): ?><option value="<?php echo (int)$t['id']; ?>" data-kind="<?php echo e(ptc_kind($t)); ?>"><?php echo e($t['name'] . ($t['specification'] !== '' ? ' · ' . $t['specification'] : '') . (ptc_kind($t) === 'variable' ? ' · 填实际金额' : ' · ¥' . money($t['price']) . '/' . $t['unit'])); ?></option><?php endforeach; ?></select></div>
+<div class="form-group col-md-3 mb-1"><label id="tmOtherLabel">数量</label><input class="form-control" type="number" step="0.01" min="0.01" name="quantity" id="tmOtherQty" required></div>
+<div class="form-group col-md-4 mb-1"><button class="btn btn-outline-primary btn-block">追加</button></div></form>
+<small class="text-muted d-block">成品商标、国际商标、法务外包每单报价不同：向供应商 / 法务问清后填实际金额，金额进财务审核。</small>
+<script>(function(){var s=document.getElementById('tmOtherTemplate'),l=document.getElementById('tmOtherLabel');if(!s)return;function f(){var k=s.options[s.selectedIndex].getAttribute('data-kind');l.textContent=k==='variable'?'实际成本金额（元）':'个数';}s.addEventListener('change',f);f();})();</script><?php endif; ?>
+<?php endif; ?></div></div>
+<?php endif; ?>
 <?php if ($canEdit && ($actor['role'] === 'technical' || $actor['role'] === 'finance')): ?>
 <div class="card mb-3"><div class="card-header">＋添加项目成本</div><div class="card-body"><form method="post" enctype="multipart/form-data" class="form-row align-items-end">
 <input type="hidden" name="csrf" value="<?php echo e(ps_csrf_token()); ?>"><input type="hidden" name="action" value="add_cost">

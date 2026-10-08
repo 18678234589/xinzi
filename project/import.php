@@ -132,6 +132,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $knownShops = db()->query('SELECT name FROM shops')->fetchAll(PDO::FETCH_COLUMN);
             $seen = [];
             $wxSeq = []; // 无订单号行的同键序号：同一张表里完全相同的行也各得一个稳定的内部号
+            $siteSeq = []; // 网站表同一订单号的多行（一个客户做多个网站）：第 2、3… 个网站各记一张订单 订单号#2、#3
             $blankRows = [];
             $preview = [];
             $exists = db()->prepare('SELECT o.id,o.project_type,o.settlement_status,o.shop,o.contract_amount,o.order_date,s.payment_nickname,s.payment_reference,s.price_source FROM project_orders o LEFT JOIN project_order_sources s ON s.order_id=o.id WHERE o.order_no=? LIMIT 1');
@@ -315,6 +316,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     if ($record['project_type'] !== $selectedBusiness) $record['warning'] .= ($record['warning'] ? '；' : '') . '按产品/技术岗位自动归入“' . $record['project_type'] . '”分成方案';
                     $record['order_no'] = ps_order_no_resolve($lookup($row, 'order_no'));
                     if ($record['order_no'] !== $lookup($row, 'order_no') && $lookup($row, 'order_no') !== '') $record['warning'] .= ($record['warning'] ? '；' : '') . '订单号“' . mb_substr($lookup($row, 'order_no'), 0, 40) . '”按“' . $record['order_no'] . '”识别（已去掉标签 / 备注，同号不会重复建单）';
+                    if ($record['order_no'] !== '' && in_array($selectedBusiness, ['网站模板', 'AI网站定制'], true) && $lookup($row, 'program_name') !== '') {
+                        $siteBase = $record['order_no'];
+                        $siteSeq[$siteBase] = ($siteSeq[$siteBase] ?? 0) + 1;
+                        if ($siteSeq[$siteBase] > 1) {
+                            $record['order_no'] = $siteBase . '#' . $siteSeq[$siteBase];
+                            $record['multi_site_parent_no'] = $siteBase;
+                            $record['warning'] .= ($record['warning'] ? '；' : '') . '同一订单号的第 ' . $siteSeq[$siteBase] . ' 个网站，另记一张订单（订单号 ' . $record['order_no'] . '），售价、域名、成本各记各的';
+                        }
+                    }
                     $record['payment_reference'] = trim((string)($fixPaymentReferences[$record['line']] ?? $lookup($row, 'payment_reference')));
                     if (mb_strlen($record['payment_reference']) > 200) throw new RuntimeException('微信交易流水号或支付订单号过长');
                     if ($record['order_no'] === '' && trim((string)($fixOrderNos[$record['line']] ?? '')) !== '') {
@@ -341,14 +351,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $existing = $exists->fetch();
                     $record['existing_order_id'] = $existing ? (int)$existing['id'] : 0;
                     $record['resource_locked'] = false;
-                    if ($existing && ps_business_normalize($existing['project_type']) !== $record['project_type']) {
-                        if (ps_import_order_visible((int)$existing['id'], $actor)) { $record['skip_status'] = '已导入过'; throw new RuntimeException('此单已在项目订单中，保留原业务“' . $existing['project_type'] . '”和分成规则，不重复建单；改类目请由财务核对'); }
+                    // 同一订单号客户一次付款、由多位商标客服分别录入：后录入的客服另记自己那份（同业务分单）
+                    $coCustomerService = $existing && $selectedBusiness === '商标' && $actor['role'] === 'customer_service' && !$departmentMode
+                        && ps_business_normalize($existing['project_type']) === $record['project_type']
+                        && !ps_import_order_visible((int)$existing['id'], $actor) && ps_import_group_taken((int)$existing['id'], 'customer_service');
+                    if ($existing && (ps_business_normalize($existing['project_type']) !== $record['project_type'] || $coCustomerService)) {
+                        if (!$coCustomerService && ps_import_order_visible((int)$existing['id'], $actor)) { $record['skip_status'] = '已导入过'; throw new RuntimeException('此单已在项目订单中，保留原业务“' . $existing['project_type'] . '”和分成规则，不重复建单；改类目请由财务核对'); }
                         if (pos_parent_of((int)$existing['id']) || strpos($record['order_no'], 'WX-') === 0) throw new RuntimeException('该订单号已属于其他业务，请联系财务核对');
                         // 他人用另一业务录过的同号订单：本人这份另建分单子单（各记各的金额与业务规则），不再被拦
                         $record['split_parent_id'] = (int)$existing['id'];
                         $record['split_parent_no'] = $record['order_no'];
                         $record['split_parent'] = ['id' => (int)$existing['id'], 'order_no' => $existing['order_no'] ?? $record['order_no'], 'project_type' => $existing['project_type'], 'contract_amount' => $existing['contract_amount'], 'order_date' => $existing['order_date'] ?? null];
-                        $record['order_no'] = pos_child_order_no($record['split_parent_no'], $record['project_type']);
+                        $record['order_no'] = pos_child_order_no($record['split_parent_no'], $record['project_type'], $coCustomerService ? (int)$actor['employee_id'] : 0);
                         $exists->execute([$record['order_no']]);
                         $existing = $exists->fetch();
                         $record['existing_order_id'] = $existing ? (int)$existing['id'] : 0;
@@ -405,10 +419,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         $parentAmount = (float)$record['split_parent']['contract_amount'];
                         if (!is_numeric($record['contract_amount']) || (float)$record['contract_amount'] <= 0) {
                             // 设计师等“同单另一岗位”的业务：表里不写售价，沿用设计客服已录入的原单售价，用于本人的月营业额
-                            if (empty($businessDefinition['price_from_order']) || $parentAmount <= 0) throw new RuntimeException('同号订单已由其他业务录入，本行是分单，请填写本人这份的金额');
-                            $record['contract_amount'] = number_format($parentAmount, 2, '.', '');
-                            $record['warning'] .= ($record['warning'] ? '；' : '') . '同号订单已由“' . $record['split_parent']['project_type'] . '”业务录入：本行未写售价，沿用原单售价 ¥' . $record['contract_amount'] . '，另记“' . $record['project_type'] . '”用于本人月营业额，请财务核对';
-                        } else $record['warning'] .= ($record['warning'] ? '；' : '') . pos_summary_text($record['split_parent'], $record['project_type'], $record['contract_amount']);
+                            if (!empty($businessDefinition['price_from_order']) && $parentAmount > 0) {
+                                $record['contract_amount'] = number_format($parentAmount, 2, '.', '');
+                                $record['warning'] .= ($record['warning'] ? '；' : '') . '同号订单已由“' . $record['split_parent']['project_type'] . '”业务录入：本行未写售价，沿用原单售价 ¥' . $record['contract_amount'] . '，另记“' . $record['project_type'] . '”用于本人月营业额，请财务核对';
+                            } else {
+                                // 技术表常不带售价：照常建分单，售价留空待补（客服或财务补填，分单合计须与客户实付一致）
+                                $record['contract_amount'] = '';
+                                $record['warning'] .= ($record['warning'] ? '；' : '') . '同号订单已由其他业务 / 客服录入，本行作为分单加入；表里没写售价，分单售价待补（原单 ¥' . number_format($parentAmount, 2, '.', '') . '，合计须与客户实付一致）';
+                            }
+                        } else $record['warning'] .= ($record['warning'] ? '；' : '') . pos_summary_text($record['split_parent'], $record['project_type'], $record['contract_amount'], $record['order_no']);
                     }
                     $status = $lookup($row, 'status');
                     $record['delivery_status'] = ps_import_delivery_status($status, $selectedBusiness);
@@ -897,7 +916,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     if (is_numeric($row['ssl_used']) && (float)$row['ssl_used'] > 0) $noteParts[] = 'SSL 实际成本报备：¥' . $row['ssl_used'] . '（待技术补充成本凭证）';
                     $insertOrder->execute([$row['order_no'], $row['payment_nickname'], $row['project_type'], $row['order_kind'] ?? '', $row['shop'], $row['contract_amount'] === '' ? 0 : $row['contract_amount'], $row['order_date'], $row['delivery_status'], implode('；', $noteParts), $actor['role'] === 'finance' ? $actor['id'] : null]);
                     $orderId = (int)$pdo->lastInsertId();
-                    if (count($row['lines'] ?? []) > 1 && !empty($actor['employee_id'])) { try { require_once __DIR__ . '/../includes/dup_feedback.php'; pd_ask($orderId, $row['order_no'], (int)$actor['employee_id'], $row['lines'], $row['contract_amount']); } catch (Throwable $e) { /* 通知失败不影响导入 */ } }
+                    if (!empty($row['multi_site_parent_no'])) {
+                        $siteParent = $pdo->prepare('SELECT id FROM project_orders WHERE order_no=?');
+                        $siteParent->execute([(string)$row['multi_site_parent_no']]);
+                        if (($siteParentId = (int)$siteParent->fetchColumn()) && $siteParentId !== $orderId) pos_link($siteParentId, $orderId, $actor);
+                    }
                     if (!empty($row['split_parent_id'])) {
                         $parentCheck = $pdo->prepare('SELECT id FROM project_orders WHERE id=? AND order_no=?');
                         $parentCheck->execute([(int)$row['split_parent_id'], (string)$row['split_parent_no']]);
@@ -905,6 +928,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         pos_link((int)$row['split_parent_id'], $orderId, $actor);
                         ps_audit('order', (int)$row['split_parent_id'], 'split_child_added', $actor, ['child_order_id' => $orderId, 'business' => $row['project_type'], 'amount' => $row['contract_amount']]);
                     }
+                    if (count($row['lines'] ?? []) > 1 && !empty($actor['employee_id'])) { try { require_once __DIR__ . '/../includes/dup_feedback.php'; pd_ask($orderId, $row['order_no'], (int)$actor['employee_id'], $row['lines'], $row['contract_amount']); } catch (Throwable $e) { /* 通知失败不影响导入 */ } }
                     ps_source_record($orderId, $row['contract_amount'] === '' ? 'missing' : 'manual', $row['payment_nickname'], $row['trade_status'] ?? '', $row['payment_reference'] ?? '');
                     $writeBusiness = $row['project_type'] ?? $selectedBusiness;
                     ps_save_business_details($orderId, $writeBusiness, $actor['role'] === 'customer_service' && $writeBusiness === '网站模板' ? ps_business_details($writeBusiness, []) : $row['details']);
@@ -914,8 +938,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     if ($programTemplate) ps_intake_add_template_cost($orderId, $programTemplate, $actor, 'Excel 第' . $row['line'] . '行：程序套餐');
                     if ($domainTemplate) ps_intake_add_template_cost($orderId, $domainTemplate, $actor, 'Excel 第' . $row['line'] . '行：域名');
                     if ($serverTemplate) ps_intake_add_template_cost($orderId, $serverTemplate, $actor, 'Excel 第' . $row['line'] . '行：服务器');
+                    if ($writeBusiness === '商标' && (($row['direct_cost'] ?? '') === '' || (float)$row['direct_cost'] == 0)) ptc_apply($orderId, $row['details']['trademark_count'] ?? '', $actor, 'Excel 第' . $row['line'] . '行', implode(' ', [$row['details']['trademark_name'] ?? '', $row['details']['service_type'] ?? '', $row['contact_note'] ?? '', $row['business_text'] ?? '', $row['resource_note'] ?? '']));
                     if (($row['direct_cost'] ?? '') !== '' && (float)$row['direct_cost'] != 0) {
-                    if ($writeBusiness === '商标') ptc_apply($orderId, $row['details']['trademark_count'] ?? '', $actor, 'Excel 第' . $row['line'] . '行');
                         // 部门结算表的稿费 / 杂志社费用：¥500 以内自动通过，超过的由财务审核（与成本中心模板阈值一致）。
                         $costAmount = round((float)$row['direct_cost'], 2);
                         $costStatus = abs($costAmount) <= 500 ? 'approved' : 'pending';

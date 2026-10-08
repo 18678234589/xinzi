@@ -23,10 +23,10 @@ function pos_ensure()
     $done = true;
 }
 
-/** 子单订单号：原订单号~业务名，同一业务重复上传得到同一个号，不会重复建单。 */
-function pos_child_order_no($parentNo, $business)
+/** 子单订单号：原订单号~业务名（同业务的另一位客服再加 #员工号），同一人重复上传得到同一个号，不会重复建单。 */
+function pos_child_order_no($parentNo, $business, $employeeId = 0)
 {
-    return trim((string)$parentNo) . '~' . trim((string)$business);
+    return trim((string)$parentNo) . '~' . trim((string)$business) . ((int)$employeeId > 0 ? '#' . (int)$employeeId : '');
 }
 
 /** 订单所属的原订单（分单子单返回原单行，否则返回 null）。 */
@@ -62,16 +62,16 @@ function pos_evidence_order_no($order)
 }
 
 /** 分单提示文字：列出原单与已有分单，并给出含本行的合计，供上传人核对。 */
-function pos_summary_text($parent, $newBusiness, $newAmount)
+function pos_summary_text($parent, $newBusiness, $newAmount, $ownChildNo = '')
 {
     $parts = [$parent['project_type'] . ' ¥' . number_format((float)$parent['contract_amount'], 2, '.', '')];
     $total = (float)$parent['contract_amount'];
     foreach (pos_children_of((int)$parent['id']) as $child) {
-        if (ps_business_normalize($child['project_type']) === $newBusiness) continue;
+        if ($child['order_no'] === $ownChildNo) continue;
         $parts[] = $child['project_type'] . ' ¥' . number_format((float)$child['contract_amount'], 2, '.', '');
         $total += (float)$child['contract_amount'];
     }
     $parts[] = $newBusiness . ' ¥' . number_format((float)$newAmount, 2, '.', '') . '（本行）';
     $total += (float)$newAmount;
-    return '同号订单已被其他业务录入，本行作为分单加入：' . implode(' + ', $parts) . ' = ¥' . number_format($total, 2, '.', '') . '，请核对合计与客户实付';
+    return '同号订单已由其他业务 / 客服录入，本行作为分单加入：' . implode(' + ', $parts) . ' = ¥' . number_format($total, 2, '.', '') . '，请核对合计与客户实付';
 }
