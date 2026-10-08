@@ -7,6 +7,7 @@
  */
 require_once __DIR__ . '/ProjectOrderSplit.php';
 require_once __DIR__ . '/ProjectBusiness.php';
+require_once __DIR__ . '/ProjectOrderSource.php';
 
 /** 售价单元格 → 金额（支持“640+260”算式、¥ 和千分位）；不是金额返回 null。 */
 function poj_amount_value($raw)

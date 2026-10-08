@@ -11,6 +11,13 @@ require_once __DIR__ . '/../includes/ProjectImportUndo.php';
 $commit = in_array('--commit', $argv, true);
 $actor = ['type' => 'system', 'id' => 0, 'role' => 'finance'];
 $pdo = db();
+// 备份目录：先试项目 .deploy，写不进去（线上 www 用户常无权限）就用系统临时目录；演练时也先验证能写，避免提交时才发现
+$backupDir = null;
+foreach ([__DIR__ . '/../.deploy', rtrim(sys_get_temp_dir(), '/') . '/same_sale_backup'] as $candidate) {
+    if (!is_dir($candidate)) @mkdir($candidate, 0775, true);
+    if (is_dir($candidate) && @file_put_contents($candidate . '/.write_test', 'ok') !== false) { @unlink($candidate . '/.write_test'); $backupDir = $candidate; break; }
+}
+if ($backupDir === null) { fwrite(STDERR, "没有可写的备份目录，已中止\n"); exit(1); }
 pos_ensure(); $owned = pu_owned_tables(); // 建表语句会隐式提交事务，放在 beginTransaction 之前
 $backup = []; $merged = 0; $kept = [];
 $pairs = $pdo->query("SELECT sp.parent_order_id pid, sp.child_order_id cid FROM project_order_splits sp ORDER BY sp.child_order_id")->fetchAll();
@@ -64,10 +71,8 @@ try {
     foreach ($kept as [$no, $why]) $reasons[$why] = ($reasons[$why] ?? 0) + 1;
     foreach ($reasons as $why => $n) echo "  保留原因（$n 张）：$why\n";
     if ($commit) {
-        $dir = __DIR__ . '/../.deploy';
-        if (!is_dir($dir)) mkdir($dir, 0775, true);
-        $file = $dir . '/same_sale_children_backup_' . date('Ymd_His') . '.json';
-        file_put_contents($file, json_encode($backup, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT));
+        $file = $backupDir . '/same_sale_children_backup_' . date('Ymd_His') . '.json';
+        if (file_put_contents($file, json_encode($backup, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT)) === false) throw new RuntimeException('备份文件写入失败，已回滚：' . $file);
         $pdo->commit();
         echo "已提交；删除前的数据备份在 $file\n";
     } else {

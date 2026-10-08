@@ -1,7 +1,7 @@
 <?php
 // 只读核对：以原上传人身份回放已上传的原始表格（事务内全部回滚），再逐订单号核对系统：
 //   OK 订单已在系统且上传人已关联、金额一致；ABSENT 系统里没有；NOT_LINKED 有单但上传人没关联；
-//   OTHER_BIZ_ONLY 只在别的业务下有单；AMOUNT_DIFF 金额对不上；BOTH 未关联且金额对不上。
+//   JOINED 订单记在别的业务下（同一笔销售只记一次），上传人已作为参与人加入；OTHER_BIZ_ONLY 只在别的业务下有单且上传人没加入；AMOUNT_DIFF 金额对不上；BOTH 未关联且金额对不上。
 // 用法：php tools/import_reconcile.php 文件ID,文件ID... [--detail]
 if (PHP_SAPI !== 'cli') { http_response_code(403); exit; }
 require_once __DIR__ . '/../includes/ProjectIntake.php';
@@ -48,13 +48,20 @@ foreach ($ids as $fid) {
         $g['lines'][] = (int)$r['line'] % 10000; unset($g);
     }
     $family = in_array($f['business_name'], ['网站模板', 'AI网站定制'], true) ? ['网站模板', 'AI网站定制'] : [$f['business_name']];
-    $c = ['OK' => 0, 'ABSENT' => 0, 'NOT_LINKED' => 0, 'OTHER_BIZ_ONLY' => 0, 'AMOUNT_DIFF' => 0, 'BOTH' => 0]; $bad = [];
+    $c = ['OK' => 0, 'JOINED' => 0, 'ABSENT' => 0, 'NOT_LINKED' => 0, 'OTHER_BIZ_ONLY' => 0, 'AMOUNT_DIFF' => 0, 'BOTH' => 0]; $bad = [];
     foreach ($groups as $no => $g) {
         $esc = addcslashes($no, '\\%_');
         $find->execute([$no, $esc . '~%']); $all = $find->fetchAll();
         if (!$all) { $find->execute(['订单编号：' . $no, '订单编号：' . $esc . '%']); $all = $find->fetchAll(); }
         $os = array_values(array_filter($all, function ($o) use ($family) { return in_array($o['project_type'], $family, true); }));
-        if (!$os) { $k = $all ? 'OTHER_BIZ_ONLY' : 'ABSENT'; $c[$k]++; $bad[] = [$k, $no, $g, 0]; continue; }
+        if (!$os) {
+            $joined = false;
+            foreach ($all as $o) { $part->execute([$o['id'], (int)$f['employee_id']]); if ($part->fetchColumn()) $joined = true; }
+            $k = !$all ? 'ABSENT' : ($joined ? 'JOINED' : 'OTHER_BIZ_ONLY');
+            $c[$k]++;
+            if ($k !== 'JOINED') $bad[] = [$k, $no, $g, 0];
+            continue;
+        }
         $linked = false; $dbsum = 0.0;
         foreach ($os as $o) { $dbsum += (float)$o['contract_amount']; $part->execute([$o['id'], (int)$f['employee_id']]); if ($part->fetchColumn()) $linked = true; }
         $amtOk = $g['blank'] === $g['rows'] || abs($dbsum - $g['sum']) < 0.01;
@@ -62,7 +69,7 @@ foreach ($ids as $fid) {
         $c[$k]++; if ($k !== 'OK') $bad[] = [$k, $no, $g, $dbsum];
     }
     foreach ($c as $k => $v) $totals[$k] = ($totals[$k] ?? 0) + $v;
-    printf("#%d %s｜%s｜%s%s\n   订单号 %d：正常 %d，系统没有 %d，只在别的业务有 %d，未关联 %d，金额不符 %d，未关联且金额不符 %d\n", $fid, $f['emp'], $f['business_name'], mb_substr($f['original_name'], 0, 24), $error !== '' ? '｜回放出错：' . mb_substr($error, 0, 60) : '', count($groups), $c['OK'], $c['ABSENT'], $c['OTHER_BIZ_ONLY'], $c['NOT_LINKED'], $c['AMOUNT_DIFF'], $c['BOTH']);
+    printf("#%d %s｜%s｜%s%s\n   订单号 %d：正常 %d，已加入别的业务原单 %d，系统没有 %d，只在别的业务有 %d，未关联 %d，金额不符 %d，未关联且金额不符 %d\n", $fid, $f['emp'], $f['business_name'], mb_substr($f['original_name'], 0, 24), $error !== '' ? '｜回放出错：' . mb_substr($error, 0, 60) : '', count($groups), $c['OK'], $c['JOINED'], $c['ABSENT'], $c['OTHER_BIZ_ONLY'], $c['NOT_LINKED'], $c['AMOUNT_DIFF'], $c['BOTH']);
     if ($detail) foreach ($bad as [$k, $no, $g, $dbsum]) printf("      %-15s %-28s 表格 %d 行合计 %s｜系统合计 %s｜行 %s\n", $k, mb_substr($no, 0, 28), $g['rows'], $g['blank'] === $g['rows'] ? '未写' : $g['sum'], $dbsum, implode(',', array_slice($g['lines'], 0, 4)));
 }
 echo "\n合计 ", json_encode($totals, JSON_UNESCAPED_UNICODE), "\n";
