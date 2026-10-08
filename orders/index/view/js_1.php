@@ -1,0 +1,1 @@
+alert('<?php echo e(urldecode($_GET['msg'] ?? '导入完成')); ?>');

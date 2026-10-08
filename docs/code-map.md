@@ -29,12 +29,48 @@
 - 加载：`include __DIR__ . '/../includes/header.php';`
 - 加载：`include __DIR__ . '/../includes/footer.php';`
 
-## attendance/month.php (622 行, 38.2 KB)
+## attendance/month.php (2 行, 0.2 KB)
 
-- 加载：`require_once __DIR__ . '/../includes/auth.php';`
-- 加载：`require_once __DIR__ . '/../classes/SimpleXLSX.php';`
-- 加载：`include __DIR__ . '/../includes/header.php';`
-- 加载：`include __DIR__ . '/../includes/footer.php';`
+- 加载：`include __DIR__ . '/month/context.php';`
+- 加载：`include __DIR__ . '/month/view.php';`
+
+## attendance/month/actions/batch_delete.php (16 行, 0.7 KB)
+
+
+## attendance/month/actions/delete.php (8 行, 0.3 KB)
+
+
+## attendance/month/actions/dispatch.php (21 行, 0.8 KB)
+
+- 加载：`include (dirname(__DIR__, 2)) . '/month/actions/manual_add.php';`
+- 加载：`include (dirname(__DIR__, 2)) . '/month/actions/delete.php';`
+- 加载：`include (dirname(__DIR__, 2)) . '/month/actions/batch_delete.php';`
+- 加载：`include (dirname(__DIR__, 2)) . '/month/actions/upload.php';`
+
+## attendance/month/actions/manual_add.php (23 行, 1.1 KB)
+
+
+## attendance/month/actions/upload.php (277 行, 18.9 KB)
+
+
+## attendance/month/context.php (41 行, 1.3 KB)
+
+- 加载：`require_once (dirname(__DIR__, 1)) . '/../includes/auth.php';`
+- 加载：`require_once (dirname(__DIR__, 1)) . '/../classes/SimpleXLSX.php';`
+- 加载：`include (dirname(__DIR__, 1)) . '/month/actions/dispatch.php';`
+
+## attendance/month/view.php (4 行, 0.2 KB)
+
+- 加载：`include (dirname(__DIR__, 1)) . '/../includes/header.php';`
+- 加载：`include __DIR__ . '/view/section_1.php';`
+
+## attendance/month/view/js_1.php (52 行, 2.4 KB)
+
+
+## attendance/month/view/section_1.php (203 行, 12.8 KB)
+
+- 加载：`include (dirname((dirname(__DIR__, 1)), 1)) . '/month/view/js_1.php';`
+- 加载：`include (dirname((dirname(__DIR__, 1)), 1)) . '/../includes/footer.php';`
 
 ## attendance/year.php (89 行, 3.9 KB)
 
@@ -72,14 +108,52 @@
 - 加载：`include __DIR__ . '/../includes/header.php';`
 - 加载：`include __DIR__ . '/../includes/footer.php';`
 
-## employees/algorithm.php (884 行, 49.4 KB)
+## employees/algorithm.php (3 行, 0.2 KB)
 
-- `renderModuleForm` L366–466
-- 加载：`require_once __DIR__ . '/../includes/auth.php';`
-- 加载：`require_once __DIR__ . '/../includes/SalaryCalculator.php';`
+- 加载：`require_once __DIR__ . '/algorithm/helpers/renderModuleForm.php';`
+- 加载：`include __DIR__ . '/algorithm/context.php';`
+- 加载：`include __DIR__ . '/algorithm/view.php';`
+
+## employees/algorithm/actions/dispatch.php (10 行, 0.4 KB)
+
+- 加载：`include (dirname(__DIR__, 2)) . '/algorithm/actions/save.php';`
+- 加载：`include (dirname(__DIR__, 2)) . '/algorithm/actions/reset.php';`
+
+## employees/algorithm/actions/reset.php (6 行, 0.2 KB)
+
+
+## employees/algorithm/actions/save.php (83 行, 4.2 KB)
+
+
+## employees/algorithm/context.php (44 行, 1.7 KB)
+
+- 加载：`require_once (dirname(__DIR__, 1)) . '/../includes/auth.php';`
+- 加载：`require_once (dirname(__DIR__, 1)) . '/../includes/SalaryCalculator.php';`
+- 加载：`include (dirname(__DIR__, 1)) . '/algorithm/actions/dispatch.php';`
 - 加载：`include $deptConfigFile;`
 - 加载：`include $deptFeeFile;`
-- 加载：`include __DIR__ . '/../includes/header.php';`
+
+## employees/algorithm/helpers/renderModuleForm.php (103 行, 6.9 KB)
+
+- `renderModuleForm` L2–102
+
+## employees/algorithm/view.php (4 行, 0.2 KB)
+
+- 加载：`include (dirname(__DIR__, 1)) . '/../includes/header.php';`
+- 加载：`include __DIR__ . '/view/section_1.php';`
+
+## employees/algorithm/view/js_2.php (66 行, 4.5 KB)
+
+- 加载：`include __DIR__ . '/js_2/content.php';`
+
+## employees/algorithm/view/js_2/content.php (341 行, 17.8 KB)
+
+
+## employees/algorithm/view/section_1.php (233 行, 12.9 KB)
+
+- 加载：`include (dirname((dirname(__DIR__, 1)), 1)) . '/../assets/css/employees_algorithm_1.css';`
+- 加载：`require_once (dirname((dirname(__DIR__, 1)), 1)) . '/algorithm/helpers/renderModuleForm.php';`
+- 加载：`include (dirname((dirname(__DIR__, 1)), 1)) . '/algorithm/view/js_2.php';`
 
 ## employees/index.php (242 行, 12.6 KB)
 
@@ -213,46 +287,14 @@
 - 加载：`require_once __DIR__ . '/ProjectMonthly.php';`
 - 加载：`require_once __DIR__ . '/ProjectRefundTrash.php';`
 
-## includes/ProjectGovernance.php (529 行, 32.4 KB)
+## includes/ProjectGovernance.php (10 行, 0.7 KB)
 
-- `pg_member` L7–13
-- `pg_require_member` L15–21
-- `pg_require_contribution_editor` L27–38
-- `pg_actor_columns` L41–45
-- `pg_uploaded_files` L48–57
-- `pg_kind_label` L59–62
-- `pg_review_label` L64–67
-- `pg_can_review` L69–75
-- `pg_validate_date` L77–87
-- `pg_idea_policy` L89–100
-- `pg_holiday_dates` L103–112
-- `pg_idea_deadline` L115–126
-- `pg_message` L129–134
-- `pg_workdays_between` L137–145
-- `pg_sync_reminders` L156–192
-- `pg_oversight_policy` L195–201
-- `pg_oversight_tasks` L204–215
-- `pg_oversight_done_by` L221–229
-- `pg_committee_unit_plan` L234–241
-- `pg_oversight_done` L244–247
-- `pg_committee_team_units` L254–267
-- `pg_committee_members` L269–272
-- `pg_sync_oversight_penalties` L275–296
-- `pg_unread_messages` L299–308
-- `pg_workdays_in` L311–319
-- `pg_chair_pool_amount` L322–330
-- `pg_chair_term` L339–367
-- `pg_sync_idea_penalties` L370–393
-- `pg_idea_window_status` L399–416
-- `pg_election_schedule` L419–423
-- `pg_sync_election_notices` L425–440
-- `pg_quarter_start` L442–447
-- `pg_active_rotation` L449–455
-- `pg_chair_pool` L457–485
-- `pg_private_dir` L488–491
-- `pg_store_evidence` L494–503
-- `pg_save_evidence_file` L506–528
 - 加载：`require_once __DIR__ . '/ProjectSettlement.php';`
+- 加载：`require_once __DIR__ . '/governance/member_auth.php';`
+- 加载：`require_once __DIR__ . '/governance/ideas_reminders.php';`
+- 加载：`require_once __DIR__ . '/governance/oversight.php';`
+- 加载：`require_once __DIR__ . '/governance/chair_elections.php';`
+- 加载：`require_once __DIR__ . '/governance/private_files.php';`
 
 ## includes/ProjectGovernanceRuleAccess.php (22 行, 1 KB)
 
@@ -973,6 +1015,58 @@
 - 加载：`require_once __DIR__ . '/lib/cs_perf_rank.php';`
 - 加载：`require_once __DIR__ . '/lib/cs_perf_import.php';`
 
+## includes/governance/chair_elections.php (191 行, 12 KB)
+
+- `pg_unread_messages` L4–13
+- `pg_workdays_in` L16–24
+- `pg_chair_pool_amount` L27–35
+- `pg_chair_term` L44–72
+- `pg_sync_idea_penalties` L75–98
+- `pg_idea_window_status` L104–121
+- `pg_election_schedule` L124–128
+- `pg_sync_election_notices` L130–145
+- `pg_quarter_start` L147–152
+- `pg_active_rotation` L154–160
+- `pg_chair_pool` L162–190
+
+## includes/governance/ideas_reminders.php (107 行, 7.1 KB)
+
+- `pg_idea_policy` L3–14
+- `pg_holiday_dates` L17–26
+- `pg_idea_deadline` L29–40
+- `pg_message` L43–48
+- `pg_workdays_between` L51–59
+- `pg_sync_reminders` L70–106
+
+## includes/governance/member_auth.php (85 行, 3.4 KB)
+
+- `pg_member` L4–10
+- `pg_require_member` L12–18
+- `pg_require_contribution_editor` L24–35
+- `pg_actor_columns` L38–42
+- `pg_uploaded_files` L45–54
+- `pg_kind_label` L56–59
+- `pg_review_label` L61–64
+- `pg_can_review` L66–72
+- `pg_validate_date` L74–84
+
+## includes/governance/oversight.php (106 行, 6.9 KB)
+
+- `pg_oversight_policy` L4–10
+- `pg_oversight_tasks` L13–24
+- `pg_oversight_done_by` L30–38
+- `pg_committee_unit_plan` L43–50
+- `pg_oversight_done` L53–56
+- `pg_committee_team_units` L63–76
+- `pg_committee_members` L78–81
+- `pg_sync_oversight_penalties` L84–105
+
+## includes/governance/private_files.php (45 行, 2.4 KB)
+
+- `pg_private_dir` L4–7
+- `pg_store_evidence` L10–19
+- `pg_save_evidence_file` L22–44
+
 ## includes/header.php (226 行, 24 KB)
 
 - 加载：`require_once __DIR__ . '/ProjectVault.php';`
@@ -1606,18 +1700,146 @@
 - 加载：`include __DIR__ . '/../includes/header.php';`
 - 加载：`include __DIR__ . '/../includes/footer.php';`
 
-## orders/index.php (2520 行, 155.6 KB)
+## orders/index.php (5 行, 0.3 KB)
 
-- `applyOrderVerification` L73–219
-- `parseOrderDate` L954–986
-- `ensureProjectColumn` L988–1071
-- 加载：`require_once __DIR__ . '/../includes/auth.php';`
-- 加载：`require_once __DIR__ . '/../includes/SalaryCalculator.php';`
-- 加载：`require_once __DIR__ . '/../classes/SimpleXLSX.php';`
+- 加载：`require_once __DIR__ . '/index/helpers/applyOrderVerification.php';`
+- 加载：`require_once __DIR__ . '/index/helpers/parseOrderDate.php';`
+- 加载：`require_once __DIR__ . '/index/helpers/ensureProjectColumn.php';`
+- 加载：`include __DIR__ . '/index/context.php';`
+- 加载：`include __DIR__ . '/index/view.php';`
+
+## orders/index/actions/batch_delete.php (26 行, 1.3 KB)
+
+
+## orders/index/actions/delete.php (21 行, 1 KB)
+
+
+## orders/index/actions/delete_group.php (40 行, 1.7 KB)
+
+
+## orders/index/actions/delete_months.php (45 行, 2.4 KB)
+
+
+## orders/index/actions/delete_project.php (48 行, 2.4 KB)
+
+
+## orders/index/actions/dispatch.php (24 行, 1.6 KB)
+
+- 加载：`include (dirname(__DIR__, 2)) . '/index/actions/manual_add.php';`
+- 加载：`include (dirname(__DIR__, 2)) . '/index/actions/upload.php';`
+- 加载：`include (dirname(__DIR__, 2)) . '/index/actions/delete.php';`
+- 加载：`include (dirname(__DIR__, 2)) . '/index/actions/batch_delete.php';`
+- 加载：`include (dirname(__DIR__, 2)) . '/index/actions/delete_group.php';`
+- 加载：`include (dirname(__DIR__, 2)) . '/index/actions/delete_months.php';`
+- 加载：`include (dirname(__DIR__, 2)) . '/index/actions/delete_project.php';`
+- 加载：`include (dirname(__DIR__, 2)) . '/index/actions/verify_status.php';`
+- 加载：`include (dirname(__DIR__, 2)) . '/index/actions/verify_pending.php';`
+
+## orders/index/actions/manual_add.php (22 行, 1.1 KB)
+
+
+## orders/index/actions/upload.php (4 行, 0.2 KB)
+
+- 加载：`include __DIR__ . '/upload/part_1.php';`
+- 加载：`include __DIR__ . '/upload/part_2.php';`
+
+## orders/index/actions/upload/parse_rows.php (4 行, 0.2 KB)
+
+- 加载：`include __DIR__ . '/parse_rows/part_1.php';`
+- 加载：`include __DIR__ . '/parse_rows/part_2.php';`
+
+## orders/index/actions/upload/parse_rows/fields.php (184 行, 12.2 KB)
+
 - 加载：`include $deptConfigFile;`
 - 加载：`include $deptFeeFile) : [];`
-- 加载：`include __DIR__ . '/../includes/header.php';`
-- 加载：`include __DIR__ . '/../includes/footer.php';`
+
+## orders/index/actions/upload/parse_rows/part_1.php (3 行, 0 KB)
+
+
+## orders/index/actions/upload/parse_rows/part_2.php (228 行, 15.2 KB)
+
+- 加载：`include __DIR__ . '/fields.php';`
+
+## orders/index/actions/upload/part_1.php (6 行, 0.2 KB)
+
+
+## orders/index/actions/upload/part_2.php (5 行, 0.2 KB)
+
+- 加载：`include __DIR__ . '/part_2/body.php';`
+
+## orders/index/actions/upload/part_2/body.php (4 行, 0.2 KB)
+
+- 加载：`include __DIR__ . '/parts/part_1.php';`
+- 加载：`include __DIR__ . '/parts/part_2.php';`
+
+## orders/index/actions/upload/part_2/parts/part_1.php (9 行, 0.4 KB)
+
+
+## orders/index/actions/upload/part_2/parts/part_2.php (11 行, 0.7 KB)
+
+- 加载：`include __DIR__ . '/../../parse_rows.php';`
+
+## orders/index/actions/verify_pending.php (29 行, 1.5 KB)
+
+
+## orders/index/actions/verify_status.php (71 行, 3.7 KB)
+
+
+## orders/index/context.php (344 行, 16.7 KB)
+
+- 加载：`require_once (dirname(__DIR__, 1)) . '/../includes/auth.php';`
+- 加载：`require_once (dirname(__DIR__, 1)) . '/../includes/SalaryCalculator.php';`
+- 加载：`require_once (dirname(__DIR__, 1)) . '/../classes/SimpleXLSX.php';`
+- 加载：`require_once (dirname(__DIR__, 1)) . '/index/helpers/applyOrderVerification.php';`
+- 加载：`include (dirname(__DIR__, 1)) . '/index/actions/dispatch.php';`
+- 加载：`require_once (dirname(__DIR__, 1)) . '/index/helpers/parseOrderDate.php';`
+- 加载：`require_once (dirname(__DIR__, 1)) . '/index/helpers/ensureProjectColumn.php';`
+
+## orders/index/helpers/applyOrderVerification.php (149 行, 8 KB)
+
+- `applyOrderVerification` L2–148
+
+## orders/index/helpers/ensureProjectColumn.php (86 行, 5.3 KB)
+
+- `ensureProjectColumn` L2–85
+
+## orders/index/helpers/parseOrderDate.php (35 行, 1.4 KB)
+
+- `parseOrderDate` L2–34
+
+## orders/index/view.php (4 行, 0.4 KB)
+
+- 加载：`include (dirname(__DIR__, 1)) . '/../includes/header.php';`
+- 加载：`include __DIR__ . '/view/section_1.php';`
+- 加载：`include __DIR__ . '/view/section_2.php';`
+- 加载：`include __DIR__ . '/view/section_3.php';`
+- 加载：`include __DIR__ . '/view/section_4.php';`
+
+## orders/index/view/js_1.php (1 行, 0.1 KB)
+
+
+## orders/index/view/js_2.php (318 行, 13.1 KB)
+
+
+## orders/index/view/js_3.php (67 行, 2.9 KB)
+
+
+## orders/index/view/section_1.php (279 行, 22.4 KB)
+
+- 加载：`include (dirname((dirname(__DIR__, 1)), 1)) . '/index/view/js_1.php';`
+
+## orders/index/view/section_2.php (225 行, 17.6 KB)
+
+
+## orders/index/view/section_3.php (240 行, 22.4 KB)
+
+- 加载：`include (dirname((dirname(__DIR__, 1)), 1)) . '/index/view/js_2.php';`
+- 加载：`include (dirname((dirname(__DIR__, 1)), 1)) . '/index/view/js_3.php';`
+- 加载：`include (dirname((dirname(__DIR__, 1)), 1)) . '/../assets/css/orders_index_4.css';`
+
+## orders/index/view/section_4.php (31 行, 1.8 KB)
+
+- 加载：`include (dirname((dirname(__DIR__, 1)), 1)) . '/../includes/footer.php';`
 
 ## orders/pending.php (329 行, 17.6 KB)
 
@@ -1633,17 +1855,86 @@
 - 加载：`include __DIR__ . '/../includes/header.php';`
 - 加载：`include __DIR__ . '/../includes/footer.php';`
 
-## performance/index.php (534 行, 32.4 KB)
+## performance/index.php (2 行, 0.2 KB)
 
-- 加载：`require_once __DIR__ . '/../includes/auth.php';`
-- 加载：`include __DIR__ . '/../includes/header.php';`
-- 加载：`include __DIR__ . '/../includes/footer.php';`
+- 加载：`include __DIR__ . '/index/context.php';`
+- 加载：`include __DIR__ . '/index/view.php';`
 
-## performance/month.php (527 行, 39.6 KB)
+## performance/index/actions/dispatch.php (13 行, 0.8 KB)
 
-- 加载：`require_once __DIR__ . '/../includes/auth.php';`
-- 加载：`include __DIR__ . '/../includes/header.php';`
-- 加载：`include __DIR__ . '/../includes/footer.php';`
+- 加载：`include (dirname(__DIR__, 2)) . '/index/actions/member_exclude.php';`
+- 加载：`include (dirname(__DIR__, 2)) . '/index/actions/member_include.php';`
+- 加载：`include (dirname(__DIR__, 2)) . '/index/actions/import.php';`
+- 加载：`include (dirname(__DIR__, 2)) . '/index/actions/upload_delete.php';`
+
+## performance/index/actions/import.php (13 行, 0.9 KB)
+
+
+## performance/index/actions/member_exclude.php (9 行, 0.3 KB)
+
+
+## performance/index/actions/member_include.php (9 行, 0.3 KB)
+
+
+## performance/index/actions/upload_delete.php (14 行, 0.6 KB)
+
+
+## performance/index/context.php (119 行, 5.3 KB)
+
+- 加载：`require_once (dirname(__DIR__, 1)) . '/../includes/auth.php';`
+- 加载：`include (dirname(__DIR__, 1)) . '/index/actions/dispatch.php';`
+
+## performance/index/view.php (4 行, 0.2 KB)
+
+- 加载：`include (dirname(__DIR__, 1)) . '/../includes/header.php';`
+- 加载：`include __DIR__ . '/view/section_1.php';`
+
+## performance/index/view/section_1.php (313 行, 19.9 KB)
+
+- 加载：`include (dirname((dirname(__DIR__, 1)), 1)) . '/../includes/footer.php';`
+- 加载：`include (dirname((dirname(__DIR__, 1)), 1)) . '/../assets/js/performance_index_1.js';`
+
+## performance/month.php (2 行, 0.2 KB)
+
+- 加载：`include __DIR__ . '/month/context.php';`
+- 加载：`include __DIR__ . '/month/view.php';`
+
+## performance/month/actions/assign.php (39 行, 2.4 KB)
+
+
+## performance/month/actions/delete_pending.php (6 行, 0.2 KB)
+
+
+## performance/month/actions/dispatch.php (12 行, 0.6 KB)
+
+- 加载：`include (dirname(__DIR__, 2)) . '/month/actions/save.php';`
+- 加载：`include (dirname(__DIR__, 2)) . '/month/actions/assign.php';`
+- 加载：`include (dirname(__DIR__, 2)) . '/month/actions/delete_pending.php';`
+
+## performance/month/actions/save.php (34 行, 2 KB)
+
+
+## performance/month/context.php (62 行, 2.7 KB)
+
+- 加载：`require_once (dirname(__DIR__, 1)) . '/../includes/auth.php';`
+- 加载：`include (dirname(__DIR__, 1)) . '/month/actions/dispatch.php';`
+
+## performance/month/view.php (4 行, 0.4 KB)
+
+- 加载：`include (dirname(__DIR__, 1)) . '/../includes/header.php';`
+- 加载：`include __DIR__ . '/view/section_1.php';`
+- 加载：`include __DIR__ . '/view/section_2.php';`
+- 加载：`include __DIR__ . '/view/section_3.php';`
+
+## performance/month/view/section_1.php (98 行, 7 KB)
+
+
+## performance/month/view/section_2.php (243 行, 21.3 KB)
+
+
+## performance/month/view/section_3.php (49 行, 3.4 KB)
+
+- 加载：`include (dirname((dirname(__DIR__, 1)), 1)) . '/../includes/footer.php';`
 
 ## performance/schemes.php (454 行, 28.7 KB)
 
@@ -2298,18 +2589,70 @@
 - 加载：`include __DIR__ . '/../includes/header.php';`
 - 加载：`include __DIR__ . '/../includes/footer.php';`
 
-## salaries/settle.php (1109 行, 66.8 KB)
+## salaries/settle.php (6 行, 0.4 KB)
 
-- `calcFullAttendanceBonus` L24–54
-- `calcProratedBaseSalary` L61–93
-- `applyProratedBaseSalary` L97–143
-- `loadEmployeeOrdersWithDept` L157–257
-- 加载：`require_once __DIR__ . '/../includes/auth.php';`
-- 加载：`require_once __DIR__ . '/../includes/SalaryCalculator.php';`
-- 加载：`include __DIR__ . '/../config/insurance.php';`
-- 加载：`include __DIR__ . '/../config/dept_config.php';`
-- 加载：`include __DIR__ . '/../includes/header.php';`
-- 加载：`include __DIR__ . '/../includes/footer.php';`
+- 加载：`require_once __DIR__ . '/settle/helpers/calcFullAttendanceBonus.php';`
+- 加载：`require_once __DIR__ . '/settle/helpers/calcProratedBaseSalary.php';`
+- 加载：`require_once __DIR__ . '/settle/helpers/applyProratedBaseSalary.php';`
+- 加载：`require_once __DIR__ . '/settle/helpers/loadEmployeeOrdersWithDept.php';`
+- 加载：`include __DIR__ . '/settle/context.php';`
+- 加载：`include __DIR__ . '/settle/view.php';`
+
+## salaries/settle/actions/dispatch.php (10 行, 0.4 KB)
+
+- 加载：`include (dirname(__DIR__, 2)) . '/settle/actions/preview.php';`
+- 加载：`include (dirname(__DIR__, 2)) . '/settle/actions/settle.php';`
+
+## salaries/settle/actions/preview.php (244 行, 13.6 KB)
+
+
+## salaries/settle/actions/settle.php (166 行, 9.6 KB)
+
+
+## salaries/settle/context.php (67 行, 3.5 KB)
+
+- 加载：`require_once (dirname(__DIR__, 1)) . '/../includes/auth.php';`
+- 加载：`require_once (dirname(__DIR__, 1)) . '/../includes/SalaryCalculator.php';`
+- 加载：`include (dirname(__DIR__, 1)) . '/../config/insurance.php';`
+- 加载：`include (dirname(__DIR__, 1)) . '/../config/dept_config.php';`
+- 加载：`require_once (dirname(__DIR__, 1)) . '/settle/helpers/calcFullAttendanceBonus.php';`
+- 加载：`require_once (dirname(__DIR__, 1)) . '/settle/helpers/calcProratedBaseSalary.php';`
+- 加载：`require_once (dirname(__DIR__, 1)) . '/settle/helpers/applyProratedBaseSalary.php';`
+- 加载：`require_once (dirname(__DIR__, 1)) . '/settle/helpers/loadEmployeeOrdersWithDept.php';`
+- 加载：`include (dirname(__DIR__, 1)) . '/settle/actions/dispatch.php';`
+
+## salaries/settle/helpers/applyProratedBaseSalary.php (49 行, 2.7 KB)
+
+- `applyProratedBaseSalary` L2–48
+
+## salaries/settle/helpers/calcFullAttendanceBonus.php (33 行, 1.2 KB)
+
+- `calcFullAttendanceBonus` L2–32
+
+## salaries/settle/helpers/calcProratedBaseSalary.php (35 行, 2.1 KB)
+
+- `calcProratedBaseSalary` L2–34
+
+## salaries/settle/helpers/loadEmployeeOrdersWithDept.php (103 行, 4.9 KB)
+
+- `loadEmployeeOrdersWithDept` L2–102
+
+## salaries/settle/view.php (4 行, 0.3 KB)
+
+- 加载：`include (dirname(__DIR__, 1)) . '/../includes/header.php';`
+- 加载：`include __DIR__ . '/view/section_1.php';`
+- 加载：`include __DIR__ . '/view/section_2.php';`
+
+## salaries/settle/view/js_1.php (83 行, 3.5 KB)
+
+
+## salaries/settle/view/section_1.php (91 行, 6.2 KB)
+
+
+## salaries/settle/view/section_2.php (252 行, 19.2 KB)
+
+- 加载：`include (dirname((dirname(__DIR__, 1)), 1)) . '/../includes/footer.php';`
+- 加载：`include (dirname((dirname(__DIR__, 1)), 1)) . '/settle/view/js_1.php';`
 
 ## shops/etmll_sync.php (238 行, 16 KB)
 
@@ -2325,17 +2668,76 @@
 - 加载：`include __DIR__ . '/../includes/header.php';`
 - 加载：`include __DIR__ . '/../includes/footer.php';`
 
-## shops/upload.php (956 行, 66.2 KB)
+## shops/upload.php (4 行, 0.3 KB)
 
-- `extract_order_status` L25–39
-- `ensureShopColumn` L44–55
-- 加载：`require_once __DIR__ . '/../includes/auth.php';`
-- 加载：`require_once __DIR__ . '/../includes/SalaryCalculator.php';`
-- 加载：`require_once __DIR__ . '/../includes/ProjectOrderSource.php';`
-- 加载：`require_once __DIR__ . '/../classes/SimpleXLSX.php';`
-- 加载：`require_once __DIR__ . '/../includes/ProjectShopState.php';`
-- 加载：`include __DIR__ . '/../includes/header.php';`
-- 加载：`include __DIR__ . '/../includes/footer.php';`
+- 加载：`require_once __DIR__ . '/upload/helpers/extract_order_status.php';`
+- 加载：`require_once __DIR__ . '/upload/helpers/ensureShopColumn.php';`
+- 加载：`include __DIR__ . '/upload/context.php';`
+- 加载：`include __DIR__ . '/upload/view.php';`
+
+## shops/upload/actions/batch_delete.php (19 行, 0.8 KB)
+
+
+## shops/upload/actions/delete_month.php (16 行, 0.7 KB)
+
+
+## shops/upload/actions/delete_order.php (11 行, 0.4 KB)
+
+
+## shops/upload/actions/dispatch.php (17 行, 1 KB)
+
+- 加载：`include (dirname(__DIR__, 2)) . '/upload/actions/delete_order.php';`
+- 加载：`include (dirname(__DIR__, 2)) . '/upload/actions/batch_delete.php';`
+- 加载：`include (dirname(__DIR__, 2)) . '/upload/actions/delete_month.php';`
+- 加载：`include (dirname(__DIR__, 2)) . '/upload/actions/manual_add.php';`
+- 加载：`include (dirname(__DIR__, 2)) . '/upload/actions/upload.php';`
+
+## shops/upload/actions/manual_add.php (17 行, 0.7 KB)
+
+
+## shops/upload/actions/upload.php (257 行, 18.5 KB)
+
+- 加载：`require_once (dirname(__DIR__, 2)) . '/../includes/ProjectShopState.php';`
+
+## shops/upload/context.php (99 行, 4.3 KB)
+
+- 加载：`require_once (dirname(__DIR__, 1)) . '/../includes/auth.php';`
+- 加载：`require_once (dirname(__DIR__, 1)) . '/../includes/SalaryCalculator.php';`
+- 加载：`require_once (dirname(__DIR__, 1)) . '/../includes/ProjectOrderSource.php';`
+- 加载：`require_once (dirname(__DIR__, 1)) . '/../classes/SimpleXLSX.php';`
+- 加载：`require_once (dirname(__DIR__, 1)) . '/upload/helpers/extract_order_status.php';`
+- 加载：`require_once (dirname(__DIR__, 1)) . '/upload/helpers/ensureShopColumn.php';`
+- 加载：`include (dirname(__DIR__, 1)) . '/upload/actions/dispatch.php';`
+
+## shops/upload/helpers/ensureShopColumn.php (14 行, 0.4 KB)
+
+- `ensureShopColumn` L2–13
+
+## shops/upload/helpers/extract_order_status.php (17 行, 0.5 KB)
+
+- `extract_order_status` L2–16
+
+## shops/upload/view.php (4 行, 0.3 KB)
+
+- 加载：`include (dirname(__DIR__, 1)) . '/../includes/header.php';`
+- 加载：`include __DIR__ . '/view/section_1.php';`
+- 加载：`include __DIR__ . '/view/section_2.php';`
+- 加载：`include __DIR__ . '/view/section_3.php';`
+
+## shops/upload/view/section_1.php (104 行, 6.7 KB)
+
+
+## shops/upload/view/section_2.php (130 行, 10.8 KB)
+
+- 加载：`include __DIR__ . '/section_2/content.php';`
+
+## shops/upload/view/section_2/content.php (183 行, 17.5 KB)
+
+
+## shops/upload/view/section_3.php (24 行, 0.9 KB)
+
+- 加载：`include (dirname((dirname(__DIR__, 1)), 1)) . '/../assets/js/shops_upload_1.js';`
+- 加载：`include (dirname((dirname(__DIR__, 1)), 1)) . '/../includes/footer.php';`
 
 ## storage/private/imports/202610_17ae2071d11e95622ea6dac5.csv.php (5 行, 0.6 KB)
 
