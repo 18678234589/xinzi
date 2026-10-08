@@ -25,6 +25,7 @@ function ps_expected_snapshot_rows($order, $summary, $source = [])
             if (($closed || ($income <= 0 && (float)$order['contract_amount'] > 0)) && $person['calc']) {
                 // 退款冲减可以是负分成，取消/全退订单不再获得正分成或计单补助。
                 $person['calc']['share'] = min(0.0, (float)$person['calc']['share']);
+                $person['calc']['share_exact'] = min(0.0, (float)($person['calc']['share_exact'] ?? $person['calc']['share']));
                 $person['calc']['base'] = min(0.0, (float)$person['calc']['base']);
                 $person['calc']['subsidy'] = 0.0;
             }
@@ -44,7 +45,7 @@ function ps_expected_snapshot_rows($order, $summary, $source = [])
                 'service_fee' => $calc['fee_part'], 'contribution_profit' => $calc['base'],
                 'calc_mode' => $calc['mode'], 'rule_id' => (int)$rule['id'], 'rate' => $calc['rate'],
                 'commission_amount' => ($shares[$i] ?? 0) / 100 + $calc['subsidy'],
-                'commission_exact' => (float)$calc['share'] + (float)$calc['subsidy'],
+                'commission_exact' => (float)($calc['share_exact'] ?? $calc['share']) + (float)$calc['subsidy'],
                 'subsidy_amount' => $calc['subsidy'],
                 'department_profit' => $income - $deptCost - $deptFee,
                 'department_revenue' => $income - $deptFee,

@@ -358,8 +358,16 @@ function ps_summary($order, $costs, $participants)
         // 补助也是组池的一部分；用分为单位分摊尾差，人数增加不能重复发整单补助。
         foreach (['calc', 'estimated_calc'] as $ck) {
             $subsidyCents = ps_group_subsidy_cents($people, $ck);
-            foreach ($people as $i => $person) if ($people[$i][$ck]) $people[$i][$ck]['subsidy'] = $subsidyCents[$i] / 100;
+            $forAllocation = array_map(function ($p) use ($ck) { $p['calc'] = $p[$ck]; return $p; }, $people);
+            $shareCents = ps_group_share_cents($forAllocation);
+            foreach ($people as $i => $person) if ($people[$i][$ck]) {
+                $people[$i][$ck]['share_exact'] = $people[$i][$ck]['share'];
+                $people[$i][$ck]['share'] = $shareCents[$i] / 100;
+                $people[$i][$ck]['subsidy'] = $subsidyCents[$i] / 100;
+            }
         }
+        $pool = array_sum(array_map(function ($p) { return (float)($p['calc']['share'] ?? 0); }, $people));
+        $estimatedPool = array_sum(array_map(function ($p) { return (float)($p['estimated_calc']['share'] ?? 0); }, $people));
         $subsidy = array_sum(array_map(function ($p) { return (float)($p['calc']['subsidy'] ?? 0); }, $people));
                 $estimated = ps_trademark_piece_calc($estimated, $trademarkCount);
             }
@@ -414,14 +422,6 @@ function ps_allocate_pool_cents($poolCents, $people)
     return $shares;
 }
 
-function ps_settlement_preview($legacyNetAmount, $projectCommission, $legacyTechnicalDeduction = 0, $technicalReconciled = true)
-{
-    if ($legacyNetAmount === null || !$technicalReconciled) return null;
-    $legacyCents = (int)round((float)$legacyNetAmount * 100);
-    $projectCents = (int)round((float)$projectCommission * 100);
-    $deductionCents = (int)round((float)$legacyTechnicalDeduction * 100);
-    return ($legacyCents - $deductionCents + $projectCents) / 100;
-}
 /** 同一组池规则的按单补助仅发一池，独立岗位规则保持原口径。 */
 function ps_group_subsidy_cents($people, $calcKey = 'calc')
 {
@@ -450,6 +450,14 @@ function ps_technical_reconciliation_summary($rows)
     foreach ($rows as $row) {
         if (($row['commission_group'] ?? '') !== 'technical') continue;
         if (!isset($row['legacy_amount'])) { $pending++; continue; }
+function ps_settlement_preview($legacyNetAmount, $projectCommission, $legacyTechnicalDeduction = 0, $technicalReconciled = true)
+{
+    if ($legacyNetAmount === null || !$technicalReconciled) return null;
+    $legacyCents = (int)round((float)$legacyNetAmount * 100);
+    $projectCents = (int)round((float)$projectCommission * 100);
+    $deductionCents = (int)round((float)$legacyTechnicalDeduction * 100);
+    return ($legacyCents - $deductionCents + $projectCents) / 100;
+}
         $deductionCents += (int)round((float)$row['legacy_amount'] * 100);
     }
     return ['pending' => $pending, 'deduction' => $deductionCents / 100];
@@ -601,7 +609,7 @@ function ps_approve_order($orderId, $actor, $payrollMonth)
             foreach ($group['people'] as $i => $person) {
                 $calc = $person['calc'];
                 $subsidyCents = (int)round($calc['subsidy'] * 100);
-                $insert->execute([$orderId, $person['employee_id'], $label, mb_substr((string)$person['role_name'], 0, 80), $sum['income'], $calc['cost_basis'], $calc['fee'], $calc['base'], $person['rule']['id'], $calc['mode'], $calc['rate'], $person['group_weight'], ($shares[$i] + $subsidyCents) / 100, round($calc['share'] + $calc['subsidy'], 6), $subsidyCents / 100, mb_substr($calc['note'], 0, 500), $payrollMonth]);
+                $insert->execute([$orderId, $person['employee_id'], $label, mb_substr((string)$person['role_name'], 0, 80), $sum['income'], $calc['cost_basis'], $calc['fee'], $calc['base'], $person['rule']['id'], $calc['mode'], $calc['rate'], $person['group_weight'], ($shares[$i] + $subsidyCents) / 100, round(($calc['share_exact'] ?? $calc['share']) + $calc['subsidy'], 6), $subsidyCents / 100, mb_substr($calc['note'], 0, 500), $payrollMonth]);
             }
         }
         $pdo->prepare("UPDATE project_orders SET settlement_status='approved',row_version=row_version+1 WHERE id=?")->execute([$orderId]);

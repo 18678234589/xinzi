@@ -52,6 +52,14 @@ $calc=ps_calc_person($ind,1000,100,1000,.5,.03);
 jc_check($calc['subsidy'],10.0,'independent-role subsidy unchanged');
 $website=$template;$website['project_type']='网站模板';$website['rate']=.08;$website['per_order_subsidy']=0;
 jc_check(round(ps_calc_person($website,998,360,998,.5,.03)['share'],2),24.92,'explicit website primary-secondary fee convention preserved');
+$s=ps_summary(['project_type'=>'小程序开发','order_kind'=>'定制','contract_amount'=>100.1,'receipt_amount'=>100.1,'refund_amount'=>0,'order_date'=>'2026-09-20'],[],[
+ ['employee_id'=>990001,'commission_group'=>'customer_service','role_name'=>'客服','group_weight'=>.5],
+ ['employee_id'=>990002,'commission_group'=>'customer_service','role_name'=>'客服','group_weight'=>.5],
+]);
+$p=$s['groups']['customer_service']['people'];
+jc_check((int)round(($p[0]['calc']['share']+$p[0]['calc']['subsidy']+$p[1]['calc']['share']+$p[1]['calc']['subsidy'])*100),1971,'visible amounts conserve odd-cent order total');
+jc_check((int)round(($p[0]['calc']['share']+$p[0]['calc']['subsidy'])*100),985,'first equal participant absorbs rounding adjustment');
+jc_check(isset($p[0]['calc']['share_exact']),true,'unrounded formula retained for monthly rounding');
 $pdo->exec("INSERT INTO employees (id,name,password,department) VALUES (990001,'共同客服甲','temporary-test-only','测试'),(990002,'共同客服乙','temporary-test-only','测试')");
 ps_intake_participants(990001,['customer_service'=>[['id'=>990001,'role'=>'客服'],['id'=>990002,'role'=>'客服']]]);
 $weights=$pdo->query('SELECT group_weight FROM project_participants ORDER BY id')->fetchAll(PDO::FETCH_COLUMN);
