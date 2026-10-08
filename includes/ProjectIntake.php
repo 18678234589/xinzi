@@ -189,12 +189,8 @@ function ps_order_no_resolve($raw)
     $q = db()->prepare('SELECT order_no FROM project_orders WHERE order_no=? LIMIT 1');
     $q->execute([$canonical]);
     if ($exact = $q->fetchColumn()) return $exact;
-    // 只用前缀匹配走 order_no 索引（%…% 会全表扫描）：库里的旧写法是“标签：号码”或“号码 备注”。
-    $escaped = str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], $canonical);
-    $patterns = [$escaped . '%'];
-    foreach (['订单编号', '订单号', '订单', '单号', '编号'] as $label) foreach (['：', ':'] as $colon) foreach (['', ' '] as $space) $patterns[] = $label . $colon . $space . $escaped . '%';
-    $like = db()->prepare('SELECT order_no FROM project_orders WHERE ' . implode(' OR ', array_fill(0, count($patterns), 'order_no LIKE ?')) . ' ORDER BY id LIMIT 20');
-    $like->execute($patterns);
+    $like = db()->prepare('SELECT order_no FROM project_orders WHERE order_no LIKE ? ORDER BY id LIMIT 20');
+    $like->execute(['%' . str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], $canonical) . '%']);
     foreach ($like->fetchAll(PDO::FETCH_COLUMN) as $stored) if (ps_order_no_canonical($stored) === $canonical) return $stored;
     return $canonical;
 }

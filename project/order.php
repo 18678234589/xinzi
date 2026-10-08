@@ -27,9 +27,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 if (!$access->fetchColumn()) throw new RuntimeException('已不再参与此订单，请刷新页面');
             }
         }
-        if ($action === 'link_item_cost') {
+        if ($action === 'add_order_item') {
+            $itemName = trim((string)($_POST['item_name'] ?? ''));
+            if ($itemName === '') throw new RuntimeException('请填写商品 / 服务名称');
+            $sale = poi_money($_POST['item_sale'] ?? '');
+            $items = poi_from_row($itemName, $sale, [], [], ps_intake_templates(null,$order['project_type']), 0);
+            $existingItems = poi_items($id);
+            $total = array_sum(array_map(function($i){return (float)$i['sale_amount'];},$existingItems)) + (float)$sale;
+            if ($total > (float)$order['contract_amount'] + .001) throw new RuntimeException('分项售价合计不能超过整单售价；添加商品不增加整单收入');
+            foreach ($existingItems as $existingItem) if (poi_name($existingItem['item_name'])===poi_name($itemName)) throw new RuntimeException('该商品已在明细中，无需重复添加');
+            poi_save($id,array_merge($existingItems,$items),0,$actor);
+        } elseif ($action === 'link_item_cost') {
             if (!$finance && $actor['role'] !== 'technical') throw new RuntimeException('仅本单技术或财务可确认商品成本');
-            if (!$canEdit) throw new RuntimeException('订单已锁定，不能修改商品成本');
             poi_link_cost($id, (int)($_POST['item_id'] ?? 0), (int)($_POST['cost_id'] ?? 0), $actor);
         } elseif ($action === 'save_customer_intake') {
             $changed = ps_save_customer_intake($id, $_POST, $actor);
