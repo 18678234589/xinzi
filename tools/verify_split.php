@@ -7,6 +7,8 @@ if (in_array('exec', array_map('trim', explode(',', ini_get('disable_functions')
     exit(2);
 }
 $manifest = json_decode(file_get_contents(__DIR__ . '/split_manifest.json'), true);
+$followupPath = __DIR__ . '/split_followups.json';
+$followups = is_file($followupPath) ? json_decode(file_get_contents($followupPath), true) : [];
 $sources = $manifest['sources'];
 if (isset($argv[1]) && $argv[1] === '--entry') {
     $entry = $argv[2] ?? '';
@@ -18,8 +20,16 @@ $failed = false;
 $runtimeKey = PHP_VERSION_ID < 80000 ? 'runtime74' : 'runtime';
 $tokenKey = PHP_VERSION_ID < 80000 ? 'tokens74' : 'tokens';
 if (!empty($manifest[$runtimeKey])) {
+    $expectedRuntime = $manifest[$runtimeKey];
+    foreach (($followups['runtime']['classes'] ?? []) as $class => $methods) {
+        foreach ($methods as $name => $signature) {
+            if (isset($expectedRuntime['classes'][$class][$name])) throw new RuntimeException('Follow-up cannot replace an existing method');
+            $expectedRuntime['classes'][$class][$name] = $signature;
+        }
+        ksort($expectedRuntime['classes'][$class]);
+    }
     exec(escapeshellarg(PHP_BINARY) . ' ' . escapeshellarg(__DIR__ . '/split_runtime.php'), $runtimeOutput, $runtimeStatus);
-    if ($runtimeStatus !== 0 || json_decode(implode("\n", $runtimeOutput), true) !== $manifest[$runtimeKey]) {
+    if ($runtimeStatus !== 0 || json_decode(implode("\n", $runtimeOutput), true) !== $expectedRuntime) {
         fwrite(STDERR, "Runtime functions / class methods changed\n");
         $failed = true;
     }
@@ -27,6 +37,11 @@ if (!empty($manifest[$runtimeKey])) {
 foreach ($sources as $path => $baseline) {
     try {
         $source = split_expand($root, $path, $manifest, $visited);
+        foreach (($followups['entries'][$path]['remove'] ?? []) as $addition) {
+            $source = str_replace("\r\n", "\n", $source);
+            if (substr_count($source, $addition) !== 1) throw new RuntimeException('Documented production follow-up changed');
+            $source = str_replace($addition, '', $source);
+        }
         if (split_symbols($source) !== $baseline['symbols']) throw new RuntimeException('Declaration list changed');
         if (split_token_hash($source) !== $baseline[$tokenKey]) throw new RuntimeException('Token stream / HTML changed');
     } catch (Throwable $e) {

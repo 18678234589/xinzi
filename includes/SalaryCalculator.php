@@ -242,6 +242,41 @@ class SalaryCalculator
         ];
     }
 
+    /**
+     * 新系统月度规则 legacy_module 专用入口：不读个人算法配置、不写 debug 文件，
+     * 直接执行调用方传入的单模块（模块类型/配置由 ProjectMonthly 按员工
+     * algorithms/config_<id>.json 中的同名模块实时解析，缺省时用规则参数里的快照）。
+     * 上下文与 calculate() 保持一致（含考勤字段，供全勤/考勤类模块使用）。
+     *
+     * @return array|null 同 runModule：['amount'=>float, 'formula'=>string, ...]
+     */
+    public static function runModuleFor($type, $moduleConfig, $employee, $orders, $orderTotal, $month, $moduleName = '')
+    {
+        $context = [
+            'employee'     => $employee,
+            'orders'       => $orders,
+            'order_total'  => (float)$orderTotal,
+            'order_count'  => count($orders),
+            'month'        => $month,
+            'base_salary'  => 0.0,
+        ];
+        // 考勤上下文（与 calculate() 相同；独立调用时 get_attendance 可能尚未加载）
+        $attAbsentHours = 0;
+        $attWorkHours   = 0;
+        $monthParts = explode('-', (string)$month);
+        if (count($monthParts) === 2 && function_exists('get_attendance')) {
+            $att = get_attendance((int)($employee['id'] ?? 0), (int)$monthParts[0], (int)$monthParts[1]);
+            if ($att) {
+                $attAbsentHours = (float)$att['absent_hours'];
+                $attWorkHours   = (float)$att['work_hours'];
+            }
+        }
+        $context['absent_hours'] = $attAbsentHours;
+        $context['work_hours']   = $attWorkHours;
+
+        return self::runModule($type, $moduleConfig, $context, $moduleName);
+    }
+
     // ==================== 单模块执行引擎 ====================
 
     private static function runModule($type, $config, $ctx, $moduleName = '')

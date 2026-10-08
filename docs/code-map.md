@@ -878,9 +878,9 @@
 - `pw_award_year` L197–252
 - 加载：`require_once __DIR__ . '/ProjectGovernance.php';`
 
-## includes/SalaryCalculator.php (352 行, 15.3 KB)
+## includes/SalaryCalculator.php (387 行, 16.9 KB)
 
-- `SalaryCalculator` L28–351
+- `SalaryCalculator` L28–386
 - `SalaryCalculator::getLastError` L33–36
 - `SalaryCalculator::dir` L38–47
 - `SalaryCalculator::getConfigFile` L51–54
@@ -890,12 +890,13 @@
 - `SalaryCalculator::hasCustomAlgorithm` L71–74
 - `SalaryCalculator::hasAnyCustomConfig` L79–82
 - `SalaryCalculator::calculate` L97–243
-- `SalaryCalculator::runModule` L247–270
-- `SalaryCalculator::createDefaultAlgorithm` L321–345
-- `SalaryCalculator::readAlgorithm` L347–347
-- `SalaryCalculator::createEmployeeAlgorithm` L348–348
-- `SalaryCalculator::saveEmployeeAlgorithm` L349–349
-- `SalaryCalculator::deleteEmployeeAlgorithm` L350–350
+- `SalaryCalculator::runModuleFor` L253–278
+- `SalaryCalculator::runModule` L282–305
+- `SalaryCalculator::createDefaultAlgorithm` L356–380
+- `SalaryCalculator::readAlgorithm` L382–382
+- `SalaryCalculator::createEmployeeAlgorithm` L383–383
+- `SalaryCalculator::saveEmployeeAlgorithm` L384–384
+- `SalaryCalculator::deleteEmployeeAlgorithm` L385–385
 - 加载：`require_once __DIR__ . '/salary/CalcBaseTrait.php';`
 - 加载：`require_once __DIR__ . '/salary/CalcStandardTrait.php';`
 - 加载：`require_once __DIR__ . '/salary/CalcProfitTrait.php';`
@@ -3423,6 +3424,11 @@
 
 - `require_isolated_test_database` L3–10
 
+## tests/salary_monthly_module_entry.php (24 行, 1.4 KB)
+
+- `get_attendance` L4–8
+- 加载：`require_once __DIR__ . '/../includes/SalaryCalculator.php';`
+
 ## tests/split_source.php (12 行, 0.5 KB)
 
 - `split_test_source` L4–11
@@ -3597,7 +3603,7 @@
 
 - 加载：`require_once $root . '/includes/' . $entry;`
 
-## tools/verify_split.php (45 行, 2.1 KB)
+## tools/verify_split.php (60 行, 3 KB)
 
 - 加载：`require_once __DIR__ . '/code_structure.php';`
 
