@@ -1,6 +1,6 @@
 <?php
 /** Deterministic review policy. No database, network, AI or clock side effects. */
-const PA_POLICY_VERSION = '2026-10-08.3';
+const PA_POLICY_VERSION = '2026-10-08.4';
 
 function pa_cents($value)
 {
