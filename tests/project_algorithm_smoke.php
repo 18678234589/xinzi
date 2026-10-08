@@ -17,6 +17,8 @@ function algorithm_person($summary, $group, $index = 0)
 }
 
 $pdo = db();
+require_once __DIR__ . '/require_isolated_database.php';
+require_isolated_test_database($pdo);
 $pdo->beginTransaction();
 try {
     $adminId = (int)$pdo->query('SELECT id FROM admins ORDER BY id LIMIT 1')->fetchColumn();

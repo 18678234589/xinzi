@@ -17,6 +17,8 @@ if (is_file($templateFile)) {
 }
 
 $pdo = db();
+require_once __DIR__ . '/require_isolated_database.php';
+require_isolated_test_database($pdo);
 $pdo->beginTransaction();
 try {
     // 只用本测试自建的成本模板，避免库里已有的 .com 模板让自动匹配变成“不唯一”。
