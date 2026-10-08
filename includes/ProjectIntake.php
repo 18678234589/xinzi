@@ -1,6 +1,7 @@
 <?php
 require_once __DIR__ . '/ProjectSettlement.php';
 require_once __DIR__ . '/ProjectBusiness.php';
+require_once __DIR__ . '/ProjectOrderItems.php';
 
 function ps_intake_templates($category = null, $business = null)
 {
@@ -26,6 +27,8 @@ function ps_intake_template($id, $category)
 /** 按“程序名称”原文（如“5年JSP展示中级版”“PHP”）匹配程序套餐；无法唯一确定时返回 null 交给人工选择。 */
 function ps_intake_program_suggestion($text, $templates)
 {
+    $matched = poi_template($text, $templates);
+    if ($matched && $matched['category'] === 'program') return $matched;
     $text = preg_replace('/\s+/u', '', (string)$text);
     if ($text === '') return null;
     $years = preg_match('/^(\d+)年/u', $text, $m) ? (int)$m[1] : 1;
@@ -96,6 +99,7 @@ function ps_intake_save_resources($orderId, $sourceType, $sourceLine, $domainTem
  */
 function ps_intake_confirm_resources($orderId, $mode, $domainTemplateId, $serverTemplateId, $actor, $programTemplateId = 0)
 {
+    if (!(int)$programTemplateId) foreach (poi_items($orderId) as $item) if ($item['category']==='program' && $item['template_id']) { $programTemplateId=(int)$item['template_id']; break; }
     $program = (int)$programTemplateId > 0 ? ps_intake_template((int)$programTemplateId, 'program') : null;
     if ($program && $mode === '') $mode = 'none';
     if (!in_array($mode, ['none','template'], true)) throw new RuntimeException('请选择域名使用方式或程序套餐');
@@ -109,11 +113,15 @@ function ps_intake_confirm_resources($orderId, $mode, $domainTemplateId, $server
         $current = 'pending';
     }
     if ($current !== 'pending') throw new RuntimeException('资源已确认，请勿重复添加成本');
+    if ($program) poi_select_program($orderId, $program['id'], $actor);
     db()->prepare('UPDATE project_order_resources SET domain_mode=?,domain_template_id=?,server_template_id=?,program_template_id=? WHERE order_id=?')
         ->execute([$mode, $domain['id'] ?? null, $server['id'] ?? null, $program['id'] ?? null, (int)$orderId]);
-    if ($program) ps_intake_add_template_cost($orderId, $program, $actor, '技术确认：程序套餐');
+    $hasProgramItem = false;
+    if ($program) foreach (poi_items($orderId) as $item) if ((int)$item['template_id']===(int)$program['id']) { $hasProgramItem=true; break; }
+    if ($program && !$hasProgramItem) ps_intake_add_template_cost($orderId, $program, $actor, '技术确认：程序套餐');
     if ($domain) ps_intake_add_template_cost($orderId, $domain, $actor, '技术确认：域名');
     if ($server) ps_intake_add_template_cost($orderId, $server, $actor, '技术确认：服务器');
+    poi_sync_costs($orderId, $actor);
     return ['domain_template_id' => $domain['id'] ?? null, 'server_template_id' => $server['id'] ?? null, 'program_template_id' => $program['id'] ?? null];
 }
 
@@ -181,8 +189,12 @@ function ps_order_no_resolve($raw)
     $q = db()->prepare('SELECT order_no FROM project_orders WHERE order_no=? LIMIT 1');
     $q->execute([$canonical]);
     if ($exact = $q->fetchColumn()) return $exact;
-    $like = db()->prepare('SELECT order_no FROM project_orders WHERE order_no LIKE ? ORDER BY id LIMIT 20');
-    $like->execute(['%' . str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], $canonical) . '%']);
+    // 只用前缀匹配走 order_no 索引（%…% 会全表扫描）：库里的旧写法是“标签：号码”或“号码 备注”。
+    $escaped = str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], $canonical);
+    $patterns = [$escaped . '%'];
+    foreach (['订单编号', '订单号', '订单', '单号', '编号'] as $label) foreach (['：', ':'] as $colon) foreach (['', ' '] as $space) $patterns[] = $label . $colon . $space . $escaped . '%';
+    $like = db()->prepare('SELECT order_no FROM project_orders WHERE ' . implode(' OR ', array_fill(0, count($patterns), 'order_no LIKE ?')) . ' ORDER BY id LIMIT 20');
+    $like->execute($patterns);
     foreach ($like->fetchAll(PDO::FETCH_COLUMN) as $stored) if (ps_order_no_canonical($stored) === $canonical) return $stored;
     return $canonical;
 }

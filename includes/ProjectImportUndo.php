@@ -24,7 +24,8 @@ function pu_blocking_tables()
 /** 导入时随订单自动生成、撤销时一并清理的资料表。 */
 function pu_owned_tables()
 {
-    return ['project_order_details', 'project_order_resources', 'project_order_sources', 'project_costs', 'project_participants', 'project_department_orders', 'project_department_uploaders'];
+    poi_ensure();
+    return ['project_order_items', 'project_order_details', 'project_order_resources', 'project_order_sources', 'project_costs', 'project_participants', 'project_department_orders', 'project_department_uploaders'];
 }
 
 function pu_file_for_actor($fileId, $actor)

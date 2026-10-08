@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . '/../includes/ProjectIntake.php';
+poi_ensure();
 require_once __DIR__ . '/../includes/ProjectOrderSplit.php';
 require_once __DIR__ . '/../includes/ProjectTrademarkCost.php';
 require_once __DIR__ . '/../includes/ProjectBusiness.php';
@@ -683,11 +684,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     if ($record['existing_order_id']) $record['warning'] .= ($record['warning'] ? '；' : '') . '将补充到同一订单号，不会新建订单';
                     if (is_numeric($record['ssl_used']) && (float)$record['ssl_used'] > 0) $record['warning'] .= ($record['warning'] ? '；' : '') . 'SSL 实际成本需创建后补凭证';
                 } catch (RuntimeException $e) { $record['base_valid'] = false; $record['status'] = $record['skip_status'] ?? '需处理'; $record['error'] = $e->getMessage(); }
-                // 同一订单号的多行（加购、补差价、SSL 追加）合并为一张订单：售价与 SSL 相加，参与人取并集。
+                $itemTemplates = $itemTemplates ?? ps_intake_templates(null, $selectedBusiness);
+                $record['items'] = !empty($businessDefinition['program']) ? poi_from_row($record['program_name'], empty($record['amount_from_shop']) ? $record['contract_amount'] : null, $head, $row, $itemTemplates, $record['line'], $record['resource_note'] ?? '') : [];
+                if (!$record['resource_locked']) foreach ($record['items'] as $item) if ($item['category'] === 'program' && $item['template_id']) { $record['program_template_id'] = (int)$item['template_id']; break; }
+                // 同一订单号保留全部商品明细；收款只落在主单，不给证书另建一笔收入。
                 $orderKey = $record['order_no'] ?? '';
                 if ($orderKey !== '' && isset($seen[$orderKey])) {
                     $target = &$preview[$seen[$orderKey]];
                     $target['lines'][] = $record['line'];
+                    $target['items'] = array_merge($target['items'] ?? [], $record['items']);
                     if (empty($record['base_valid']) || empty($target['base_valid'])) {
                         $target['base_valid'] = false;
                         $target['status'] = '需处理';
@@ -828,6 +833,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             try {
                 $insertOrder = $pdo->prepare('INSERT INTO project_orders (order_no,customer_name,project_type,order_kind,shop,contract_amount,receipt_amount,order_date,delivery_status,note,created_by_admin) VALUES (?,?,?,?,?,?,0,?,?,?,?)');
                 foreach ($ready as [$row, $domainTemplate, $serverTemplate, $programTemplate, $forcedMode]) {
+                    if ($programTemplate && !empty($row['items'])) foreach ($row['items'] as &$item) if ($item['category'] === 'program') { $item['template_id'] = (int)$programTemplate['id']; break; }
+                    unset($item);
                     $existingQuery = $pdo->prepare('SELECT o.id,o.project_type,o.settlement_status,o.shop,o.contract_amount,s.payment_nickname,s.payment_reference,s.price_source FROM project_orders o LEFT JOIN project_order_sources s ON s.order_id=o.id WHERE o.order_no=? FOR UPDATE');
                     $existingQuery->execute([$row['order_no']]);
                     $existing = $existingQuery->fetch();
@@ -899,6 +906,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             else $pdo->prepare("UPDATE project_orders SET order_kind=? WHERE id=? AND order_kind=''")->execute([$row['order_kind'], $orderId]);
                         }
                         if (!empty($row['renewal_extras'])) $pdo->prepare("UPDATE project_orders SET note=CONCAT_WS('；', NULLIF(note,''), ?) WHERE id=?")->execute([implode('；', $row['renewal_extras']), $orderId]);
+                        poi_save($orderId, $row['items'] ?? [], (int)$_SESSION['project_import_file'], $actor);
                         ps_audit('order', $orderId, 'import_supplement', $actor, ['line' => $row['line'], 'order_no' => $row['order_no']]);
                         if ($departmentMode) ps_department_import_record($orderId, $actor);
                         $imported++;
@@ -939,6 +947,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     if ($programTemplate) ps_intake_add_template_cost($orderId, $programTemplate, $actor, 'Excel 第' . $row['line'] . '行：程序套餐');
                     if ($domainTemplate) ps_intake_add_template_cost($orderId, $domainTemplate, $actor, 'Excel 第' . $row['line'] . '行：域名');
                     if ($serverTemplate) ps_intake_add_template_cost($orderId, $serverTemplate, $actor, 'Excel 第' . $row['line'] . '行：服务器');
+                    poi_save($orderId, $row['items'] ?? [], (int)$_SESSION['project_import_file'], $actor);
                     if ($writeBusiness === '商标' && (($row['direct_cost'] ?? '') === '' || (float)$row['direct_cost'] == 0)) ptc_apply($orderId, $row['details']['trademark_count'] ?? '', $actor, 'Excel 第' . $row['line'] . '行', implode(' ', [$row['details']['trademark_name'] ?? '', $row['details']['service_type'] ?? '', $row['contact_note'] ?? '', $row['business_text'] ?? '', $row['resource_note'] ?? '']));
                     if (($row['direct_cost'] ?? '') !== '' && (float)$row['direct_cost'] != 0) {
                         // 部门结算表的稿费 / 杂志社费用：¥500 以内自动通过，超过的由财务审核（与成本中心模板阈值一致）。
@@ -1118,7 +1127,7 @@ document.addEventListener('DOMContentLoaded', function () {
 <?php foreach ($preview as $row): $skipRow = $isSkipRow($row); ?><tr class="<?php echo $skipRow ? 'table-secondary text-muted' : (empty($row['base_valid']) ? 'table-danger' : ($row['status'] === '可导入' ? '' : 'table-warning')); ?>">
 <td><small><?php echo count($previewSheets) > 1 && !empty($row['sheet']) ? '【' . e($row['sheet']) . '】' : ''; ?>第 <?php echo e(implode('、', array_map(function ($l) { return (int)$l % 10000; }, $row['lines'] ?? [$row['line']]))); ?> 行</small><br><?php if (empty($row['order_no'])): ?><input class="form-control form-control-sm mt-1" name="fix_order_no[<?php echo (int)$row['line']; ?>]" maxlength="100" placeholder="店铺订单号（有则填）" aria-label="第<?php echo (int)$row['line']; ?>行店铺订单号"><input class="form-control form-control-sm mt-1" name="fix_payment_reference[<?php echo (int)$row['line']; ?>]" maxlength="200" placeholder="或填微信交易流水号 / 支付订单号" aria-label="第<?php echo (int)$row['line']; ?>行微信交易流水号"><small class="text-danger">二者填一个即可；微信流水号生成内部关联号</small><?php else: ?><strong><?php echo e($row['order_no']); ?></strong><?php if (!empty($row['payment_reference'])): ?><br><small>微信流水号：<?php echo e($row['payment_reference']); ?></small><?php endif; ?><?php endif; ?><br><small><?php echo e($row['project_type'] ?? ''); ?></small></td>
 <td><?php if (empty($row['order_date'])): ?><input type="date" class="form-control form-control-sm" name="fix_date[<?php echo (int)$row['line']; ?>]" value="<?php echo e($suggestedDates[(int)$row['line']] ?? ''); ?>" aria-label="第<?php echo (int)$row['line']; ?>行订单日期"><small class="text-warning"><?php echo isset($suggestedDates[(int)$row['line']]) ? '建议上一行日期，请核对' : '请补订单日期'; ?></small><?php else: ?><?php echo e($row['order_date']); ?><?php endif; ?><br><strong>¥<?php echo e(($row['contract_amount'] ?? '') === '' ? '待补' : $row['contract_amount']); ?></strong><?php if ($previewKinds && !empty($row['base_valid'])): $currentKind = ($row['order_kind'] ?? '') !== '' ? $row['order_kind'] : ($row['kind_guess'] ?? ''); ?><br><select class="form-control form-control-sm mt-1 js-kind-choice<?php echo ($row['order_kind'] ?? '') === '' ? ' is-invalid' : ''; ?>" name="kind_choice[<?php echo (int)$row['line']; ?>]" aria-label="订单类型"><option value="">选择订单类型</option><?php foreach ($previewKinds as $k): ?><option value="<?php echo e($k); ?>" <?php echo $currentKind === $k ? 'selected' : ''; ?>><?php echo e($k); ?></option><?php endforeach; ?></select><?php if (($row['order_kind'] ?? '') === '' && !empty($row['kind_guess'])): ?><small class="text-muted"><?php echo !empty($row['kind_from_ai']) ? 'AI 建议' : '按描述猜测'; ?>，请确认</small><?php endif; ?><?php elseif (($row['order_kind'] ?? '') !== ''): ?><br><small class="text-muted"><?php echo e($row['order_kind']); ?></small><?php endif; ?></td>
-<td><small>客服：<?php echo e(implode('、', array_column($row['people']['customer_service'], 'name')) ?: '—'); ?><br>技术：<?php echo e(implode('、', array_column($row['people']['technical'], 'name')) ?: '—'); ?></small></td>
+<td><small>客服：<?php echo e(implode('、', array_column($row['people']['customer_service'], 'name')) ?: '—'); ?><br>技术：<?php echo e(implode('、', array_column($row['people']['technical'], 'name')) ?: '—'); ?></small><?php foreach ($row['items'] ?? [] as $oi): ?><div class="small text-muted mt-1"><?php echo e($oi['item_name']); ?><?php echo $oi['sale_amount']===null ? ' · 整单计价' : ' · ¥' . money($oi['sale_amount']); ?><?php echo $oi['category']==='certificate' ? ' · 证书独立保留' : ''; ?></div><?php endforeach; ?></td>
 <?php if ($businessDefinition['fields']): ?><td><small><?php foreach ($businessDefinition['fields'] as $key => $label): ?><?php echo e($label . '：' . ps_contact_for($actor, ($row['details'][$key] ?? '') ?: '—', $key === 'customer_wechat')); ?><br><?php endforeach; ?></small></td><?php endif; ?>
 <?php if ($resourceSelection && $usesProgram): ?><td><?php if (!empty($row['resource_locked'])): ?><span class="text-muted">原单已确认</span><?php elseif (!empty($row['base_valid'])): ?><select class="form-control form-control-sm" name="program_choice[<?php echo (int)$row['line']; ?>]" aria-label="第<?php echo (int)$row['line']; ?>行程序套餐"><option value="0">不使用程序套餐</option><?php foreach ($programTemplates as $t): ?><option value="<?php echo (int)$t['id']; ?>" <?php echo (int)($row['program_template_id'] ?? 0) === (int)$t['id'] ? 'selected' : ''; ?>><?php echo e($t['name'] . ' · ' . $t['specification'] . ' · ¥' . money($t['price'])); ?></option><?php endforeach; ?></select><small class="text-muted">原表：<?php echo e(($row['program_name'] ?? '') ?: '未写程序名称'); ?></small><?php else: ?>—<?php endif; ?></td><?php endif; ?>
 <?php if ($resourceSelection): ?>

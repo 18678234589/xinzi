@@ -1,6 +1,7 @@
 <?php
 require_once __DIR__ . '/../includes/ProjectBusiness.php';
 require_once __DIR__ . '/../includes/ProjectIntake.php';
+poi_ensure();
 require_once __DIR__ . '/../includes/ProjectOrderSource.php';
 require_once __DIR__ . '/../includes/commission_explain.php';
 $actor = ps_require_actor();
@@ -26,7 +27,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 if (!$access->fetchColumn()) throw new RuntimeException('已不再参与此订单，请刷新页面');
             }
         }
-        if ($action === 'save_customer_intake') {
+        if ($action === 'link_item_cost') {
+            if (!$finance && $actor['role'] !== 'technical') throw new RuntimeException('仅本单技术或财务可确认商品成本');
+            if (!$canEdit) throw new RuntimeException('订单已锁定，不能修改商品成本');
+            poi_link_cost($id, (int)($_POST['item_id'] ?? 0), (int)($_POST['cost_id'] ?? 0), $actor);
+        } elseif ($action === 'save_customer_intake') {
             $changed = ps_save_customer_intake($id, $_POST, $actor);
             ps_audit('order', $id, 'customer_intake', $actor, ['fields' => $changed]);
         } elseif ($action === 'set_order_kind') {
@@ -673,6 +678,7 @@ include __DIR__ . '/../includes/header.php';
 <?php if (!$cashMovements): ?><tr><td colspan="6" class="text-center text-muted">暂无记录</td></tr><?php endif; ?></tbody></table></div>
 <?php if ($canEdit && in_array($actor['role'], ['finance','customer_service'], true)): ?><div class="card-body border-top"><form method="post" class="form-row align-items-end"><input type="hidden" name="csrf" value="<?php echo e(ps_csrf_token()); ?>"><input type="hidden" name="action" value="add_cash"><div class="form-group col-md-2"><label>类型</label><select name="movement_type" class="form-control"><option value="receipt">收款</option><option value="refund">退款</option></select></div><div class="form-group col-md-2"><label>金额</label><input name="amount" type="number" min="0.01" step="0.01" class="form-control" required></div><div class="form-group col-md-6"><label>说明（退款必填）</label><input name="note" maxlength="500" class="form-control" placeholder="付款批次、退款原因等"></div><div class="form-group col-md-2"><button class="btn btn-outline-primary btn-block"><?php echo $actor['role'] === 'finance' ? '记录并确认' : '提交财务审核'; ?></button></div></form></div><?php endif; ?></div>
 
+<?php require __DIR__ . '/../includes/project_order_items_view.php'; ?>
 <div class="card mb-3"><div class="card-header d-flex justify-content-between"><span>项目直接成本</span><span class="text-muted">技术可录入，财务审核特殊成本</span></div><div class="table-responsive"><table class="table mb-0"><thead><tr><th>类型</th><th>项目</th><th>数量</th><th class="text-right">单价</th><th class="text-right">小计</th><th>周期</th><th>凭证</th><th>审核</th></tr></thead><tbody>
 <?php if ($sum['service_fee'] > 0): ?><tr class="table-light"><td>服务费</td><td>店铺服务费（售价 × <?php echo round($sum['service_fee_rate'] * 100, 2); ?>%）</td><td>1 项</td><td class="text-right">¥<?php echo money($sum['service_fee']); ?></td><td class="text-right">¥<?php echo money($sum['service_fee']); ?></td><td>一次性</td><td>订单售价</td><td>系统计算</td></tr><?php endif; ?>
 <?php foreach ($costs as $cost): ?><tr class="<?php echo $cost['review_status'] === 'rejected' ? 'text-muted' : ''; ?>"><td><?php echo e(ps_label('category', $cost['category'])); ?></td><td><?php echo e($cost['item_name']); ?><?php if ($cost['reason']): ?><div class="small text-muted"><?php echo e($cost['reason']); ?></div><?php endif; ?></td><td><?php echo e($cost['quantity'] . ' ' . $cost['unit']); ?></td><td class="text-right">¥<?php echo money($cost['unit_price']); ?></td><td class="text-right">¥<?php echo money($cost['amount']); ?><?php if ($actor['role'] === 'finance' && $cost['supplier_amount'] !== null): ?><div class="small text-muted">采购 ¥<?php echo money($cost['supplier_amount']); ?></div><?php endif; ?></td><td><?php echo e(ps_label('cost_kind', $cost['cost_kind'])); ?></td><td><?php if ($cost['proof_path']): ?><a href="<?php echo BASE_URL; ?>/project/proof.php?id=<?php echo (int)$cost['id']; ?>">查看凭证</a><?php endif; ?></td><td><?php echo e(ps_label('review', $cost['review_status'])); ?><?php if ($cost['review_note'] !== ''): ?><div class="small text-muted"><?php echo e($cost['review_note']); ?></div><?php endif; ?>

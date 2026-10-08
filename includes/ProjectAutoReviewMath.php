@@ -1,6 +1,6 @@
 <?php
 /** Deterministic review policy. No database, network, AI or clock side effects. */
-const PA_POLICY_VERSION = '2026-10-08.2';
+const PA_POLICY_VERSION = '2026-10-08.3';
 
 function pa_cents($value)
 {
@@ -79,6 +79,11 @@ function pa_evaluate(array $ctx)
         if ($kind === 'finance') $waitFinance = true;
     };
     $receipt = (int)round((float)$o['receipt_amount'] * 100);
+    foreach ($ctx['items'] ?? [] as $item) {
+        if (empty($item['cost_id']) || $item['cost_status'] === 'rejected' || $item['cost_status'] === null) {
+            $add('item_cost_' . $item['id'], '商品“' . $item['item_name'] . '”尚未关联有效成本，请在结算单确认；收入不会重复计算');
+        }
+    }
     $refund = (int)round((float)$o['refund_amount'] * 100);
     $ledgerReceipt = 0; $ledgerRefund = 0; $hasEstimate = false;
     foreach ($ctx['cash'] as $cash) {
@@ -126,14 +131,23 @@ function pa_evaluate(array $ctx)
         }
         if (!empty($ctx['catalog']['kind_required']) && trim((string)($o['order_kind'] ?? '')) === '') $add('order_kind', '业务分成类型待确认');
         $ssl = 0; $costSignatures = [];
+        $itemCostKeys = [];
+        foreach ($ctx['items'] ?? [] as $item) if (!empty($item['cost_id'])) $itemCostKeys[(int)$item['cost_id']] = $item['item_key'] ?? ('item:' . $item['id']);
         foreach ($ctx['costs'] as $cost) {
-            if ($cost['review_status'] === 'pending') $add('cost_pending', '成本已登记，等待财务核验；如有凭证可在结算单补充', 'finance');
+            if ($cost['review_status'] === 'pending') {
+                if (isset($itemCostKeys[(int)($cost['id'] ?? 0)]) && empty($cost['is_custom']) && strpos($cost['reason'] ?? '', '商品明细：') === 0 && ($ctx['resource']['domain_mode'] ?? '') === 'pending') $add('item_resource_pending', '商品标准成本已带入，请技术确认套餐与资源；确认后系统自动核对', 'data');
+                else $add('cost_pending', '成本已登记，等待财务核验；如有凭证可在结算单补充', 'finance');
+            }
             if ($cost['review_status'] === 'approved') {
                 if (!empty($cost['is_custom']) && empty($cost['proof_path']) && empty($cost['reviewed_by_admin'])) $add('custom_cost_proof', '请在结算单补充自定义成本凭证，或联系财务核验', 'data');
                 if (isset($cost['quantity'], $cost['unit_price']) && (int)round((float)$cost['quantity'] * (float)$cost['unit_price'] * 100) !== (int)round((float)$cost['amount'] * 100)) $add('cost_arithmetic', '成本数量 × 单价与小计不一致', 'exception');
                 $signature = json_encode([$cost['category'], $cost['item_name'] ?? '', $cost['template_id'] ?? null, $cost['quantity'] ?? 1, $cost['amount'], $cost['cost_kind'] ?? 'one_time']);
-                if (isset($costSignatures[$signature])) $add('cost_duplicate', '存在相同成本明细，请核对是否重复登记', 'exception');
-                $costSignatures[$signature] = true;
+                if (isset($costSignatures[$signature])) {
+                    $firstKey = $itemCostKeys[$costSignatures[$signature]] ?? null;
+                    $nextKey = $itemCostKeys[(int)($cost['id'] ?? 0)] ?? null;
+                    if (!$firstKey || !$nextKey || $firstKey === $nextKey) $add('cost_duplicate', '存在相同成本明细，请核对是否重复登记', 'exception');
+                }
+                $costSignatures[$signature] = (int)($cost['id'] ?? 0);
             }
             if ($cost['review_status'] === 'approved' && $cost['category'] === 'certificate') $ssl += (int)round((float)$cost['amount'] * 100);
         }

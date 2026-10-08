@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__.'/../includes/ProjectAutoReviewMath.php';
+require_once __DIR__.'/../includes/ProjectBusiness.php';
 $n=0;
 function ar_check($name,$actual,$expected){global $n;$n++;if($actual!==$expected)throw new RuntimeException($name.': '.json_encode($actual,JSON_UNESCAPED_UNICODE));}
 function ar_base(){return [
@@ -14,6 +15,11 @@ ar_check('cents',pa_cents('￥1,234.50元'),123450);
 foreach(['1e3','NaN','一百',true,null,[], '12.345','12,34','1,2,3','12 34'] as $v)ar_check('invalid money '.json_encode($v),pa_cents($v),null);
 ar_check('negative cents',pa_cents('-12.30'),-1230);
 ar_state('verified ledger',function(&$x){},'ready');
+ar_state('missing certificate cost is not zero cost',function(&$x){$x['items']=[['id'=>1,'item_name'=>'SSL证书','cost_id'=>null,'cost_status'=>null]];},'wait_data');
+ar_state('linked certificate does not block verified ledger',function(&$x){$x['items']=[['id'=>1,'item_name'=>'SSL证书','cost_id'=>17,'cost_status'=>'approved']];},'ready');
+ar_state('rejected item cost needs correction',function(&$x){$x['items']=[['id'=>1,'item_name'=>'SSL证书','cost_id'=>17,'cost_status'=>'rejected']];},'wait_data');
+ar_state('standard item pending resource is not finance exception',function(&$x){$x['resource']=['domain_mode'=>'pending'];$x['items']=[['id'=>1,'item_key'=>'ssl:1','item_name'=>'SSL证书','cost_id'=>17,'cost_status'=>'pending']];$x['costs']=[['id'=>17,'category'=>'certificate','amount'=>30,'is_custom'=>0,'reason'=>'商品明细：SSL证书','review_status'=>'pending']];},'wait_data');
+ar_state('two legitimate certificate items are not duplicate costs',function(&$x){$x['items']=[['id'=>1,'item_key'=>'ssl:1','item_name'=>'SSL证书','cost_id'=>17,'cost_status'=>'approved'],['id'=>2,'item_key'=>'ssl:2','item_name'=>'SSL证书','cost_id'=>18,'cost_status'=>'approved']];$x['costs']=[['id'=>17,'category'=>'certificate','amount'=>30,'item_name'=>'域名SSL证书','review_status'=>'approved'],['id'=>18,'category'=>'certificate','amount'=>30,'item_name'=>'域名SSL证书','review_status'=>'approved']];},'ready');
 ar_state('sale is not receipt',function(&$x){$x['order']['receipt_amount']=0;$x['cash']=[];$x['summary']['income']=0;},'wait_sync');
 ar_state('ledger mismatch',function(&$x){$x['order']['receipt_amount']=99;},'exception');
 ar_state('unreviewed cash',function(&$x){$x['cash'][]=['review_status'=>'pending'];},'wait_finance');

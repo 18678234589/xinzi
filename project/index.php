@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . '/../includes/ProjectIntake.php';
+poi_ensure();
 require_once __DIR__ . '/../includes/ProjectOrderSplit.php';
 pos_ensure();
 require_once __DIR__ . '/../includes/ProjectImportResult.php';
@@ -64,7 +65,7 @@ $outsourceTemplates = ps_intake_templates('outsourcing');
 $deleteOrderRows = function ($orderId) {
     // 技术对账行挂在分成快照上，先删对账再删快照；order_requests / order_details 有级联，显式删除保持一致
     db()->prepare('DELETE t FROM project_technical_reconciliations t JOIN project_commission_snapshots s ON s.id=t.snapshot_id WHERE s.order_id=?')->execute([$orderId]);
-    foreach (['project_commission_snapshots', 'project_commission_adjustments', 'project_cash_movements', 'project_costs', 'project_participants', 'project_order_sources', 'project_order_resources', 'project_order_requests', 'project_order_details'] as $table) {
+    foreach (['project_order_items', 'project_commission_snapshots', 'project_commission_adjustments', 'project_cash_movements', 'project_costs', 'project_participants', 'project_order_sources', 'project_order_resources', 'project_order_requests', 'project_order_details'] as $table) {
         db()->prepare('DELETE FROM ' . $table . ' WHERE order_id=?')->execute([$orderId]);
     }
     db()->prepare('DELETE FROM project_orders WHERE id=?')->execute([$orderId]);
@@ -614,7 +615,7 @@ $resourceHint = function ($t) { return trim($t['name'] . ' ' . $t['specification
   <?php foreach ($pageOrders as $order): ?><tr>
     <?php if ($canDeleteOrders): ?><td><?php if (!in_array($order['settlement_status'], ['approved','locked'], true)): ?><input type="checkbox" name="ids[]" value="<?php echo (int)$order['id']; ?>" class="bulk-item" aria-label="选择 <?php echo e($order['order_no']); ?>"><?php endif; ?></td><?php endif; ?>
     <td><strong><?php echo e($order['order_no']); ?></strong><?php if (!empty($order['is_department_order'])): ?> <span class="badge badge-success">部门订单</span><?php endif; ?><?php if (!empty($order['split_parent_id']) || !empty($order['split_children'])): ?> <span class="badge badge-info" title="同一订单号由不同业务分别录入，各自按本人金额结算；收款需财务按订单号合并核对">分单</span><?php endif; ?><div class="small text-muted"><?php echo e($order['payment_nickname'] ?: ($order['customer_name'] ?: '—')); ?></div><?php if (isset($credentialHits[(int)$order['id']])): ?><div class="small"><span class="badge badge-info">项目账号命中</span> <?php echo e($credentialHits[(int)$order['id']]); ?></div><?php endif; ?></td>
-    <td><?php echo e($order['project_type']); ?><?php if ($order['order_kind'] !== ''): ?><div class="small text-muted"><?php echo e($order['order_kind']); ?></div><?php endif; ?></td>
+    <td><?php echo e($order['project_type']); ?><?php if ($order['order_kind'] !== ''): ?><div class="small text-muted"><?php echo e($order['order_kind']); ?></div><?php endif; ?><?php foreach (poi_items((int)$order['id']) as $oi): ?><div class="small text-muted"><?php echo e($oi['item_name']); ?><?php echo $oi['sale_amount'] === null ? '' : ' · ¥' . money($oi['sale_amount']); ?></div><?php endforeach; ?></td>
     <td class="text-nowrap"><?php echo e($order['order_date']); ?></td>
     <td class="small"><?php echo e($order['people'] ?: '—'); ?></td>
     <td class="text-right"><?php echo $order['price_source'] === 'missing' ? '<span class="text-muted">待补</span>' : '¥' . money($order['contract_amount']); ?></td>
