@@ -1005,87 +1005,18 @@
 ## includes/footer.php (24 行, 1.4 KB)
 
 
-## includes/functions.php (2859 行, 131.6 KB)
+## includes/functions.php (12 行, 0.9 KB)
 
-- `e` L9–16
-- `extract_order_no` L24–54
-- `extract_shop_from_raw` L61–85
-- `match_shop_name` L95–153
-- `ensureOrderNoColumn` L159–184
-- `money` L189–192
-- `extract_amount` L208–229
-- `parse_ssl_amount` L243–262
-- `domain_years` L276–296
-- `eval_amount_expr` L306–358
-- `get_order_fee_info` L372–483
-- `ensureAttendanceTable` L488–543
-- `get_attendance_hidden_years` L548–555
-- `hide_attendance_year` L560–563
-- `get_attendance_custom_years` L568–575
-- `add_attendance_custom_year` L580–585
-- `get_attendance` L590–595
-- `backfill_pending_attendance` L604–634
-- `get_attendances_by_month` L639–648
-- `get_attendance_years` L653–660
-- `get_attendance_months` L665–674
-- `get_abnormal_orders` L686–1016
-- `json_response` L1021–1027
-- `get_departments` L1033–1045
-- `get_department_list` L1050–1058
-- `get_department` L1063–1068
-- `get_shops` L1073–1081
-- `get_shop_list` L1086–1094
-- `get_shop` L1099–1104
-- `get_employees` L1109–1118
-- `get_employee` L1123–1128
-- `export_csv` L1136–1151
-- `export_excel` L1156–1189
-- `cs_perf_cache` L1198–1204
-- `cs_perf_cache_get` L1205–1210
-- `cs_perf_cache_set` L1211–1215
-- `cs_perf_cache_reset` L1216–1219
-- `ensureCsPerfSchema` L1225–1445
-- `get_cs_perf_participants` L1452–1478
-- `get_cs_perf_excluded` L1484–1494
-- `is_cs_perf_excluded` L1499–1514
-- `exclude_cs_perf_member` L1519–1530
-- `include_cs_perf_member` L1535–1545
-- `get_cs_performance` L1552–1586
-- `get_cs_performance_stores` L1592–1606
-- `cs_perf_conv_derivation` L1617–1624
-- `get_employee_order_aggregate` L1632–1665
-- `get_employee_deal_count` L1671–1674
-- `get_employee_order_total` L1680–1683
-- `get_cs_perf_schemes` L1691–1702
-- `get_cs_perf_scheme` L1707–1722
-- `cs_perf_tiers_parse` L1728–1749
-- `cs_perf_tiers_json` L1754–1769
-- `cs_perf_tier_lookup` L1779–1790
-- `cs_perf_fmt_range` L1795–1803
-- `save_cs_perf_scheme` L1813–1847
-- `delete_cs_perf_scheme` L1852–1872
-- `get_cs_perf_dept_configs` L1879–1891
-- `get_cs_perf_dept_config` L1896–1912
-- `save_cs_perf_dept_config` L1917–1933
-- `delete_cs_perf_dept_config` L1938–1947
-- `cs_perf_scheme_params` L1960–1969
-- `cs_perf_metric_details` L1979–2007
-- `cs_perf_composite_from` L2015–2024
-- `cs_perf_calc` L2037–2044
-- `cs_perf_calc_detail` L2063–2222
-- `cs_perf_rank_detail` L2228–2284
-- `cs_perf_rank_result` L2296–2339
-- `cs_perf_rank_list` L2345–2408
-- `get_cs_perf_target_suggestions` L2417–2466
-- `detect_cs_perf_columns` L2473–2509
-- `parse_percent` L2516–2528
-- `parse_duration_to_seconds` L2538–2560
-- `csv_parse_line` L2568–2590
-- `normalize_cs_wangwang` L2595–2604
-- `import_cs_perf_file` L2621–2849
-- 加载：`include $deptConfigFile;`
-- 加载：`include $deptFeeFile;`
-- 加载：`require_once dirname(__DIR__) . '/classes/SimpleXLSX.php';`
+- 加载：`require_once __DIR__ . '/lib/order_parse.php';`
+- 加载：`require_once __DIR__ . '/lib/attendance.php';`
+- 加载：`require_once __DIR__ . '/lib/abnormal_orders.php';`
+- 加载：`require_once __DIR__ . '/lib/master_data.php';`
+- 加载：`require_once __DIR__ . '/lib/cs_perf_schema.php';`
+- 加载：`require_once __DIR__ . '/lib/cs_perf_members.php';`
+- 加载：`require_once __DIR__ . '/lib/cs_perf_schemes.php';`
+- 加载：`require_once __DIR__ . '/lib/cs_perf_calc.php';`
+- 加载：`require_once __DIR__ . '/lib/cs_perf_rank.php';`
+- 加载：`require_once __DIR__ . '/lib/cs_perf_import.php';`
 
 ## includes/header.php (226 行, 24 KB)
 
@@ -1155,6 +1086,123 @@
 ## includes/kb_chat_examples_card.php (55 行, 4.4 KB)
 
 - 加载：`require_once __DIR__ . '/ProjectKnowledgeSkills.php';`
+
+## includes/lib/abnormal_orders.php (344 行, 15.6 KB)
+
+- `get_abnormal_orders` L13–343
+
+## includes/lib/attendance.php (193 行, 6.9 KB)
+
+- `ensureAttendanceTable` L6–61
+- `get_attendance_hidden_years` L66–73
+- `hide_attendance_year` L78–81
+- `get_attendance_custom_years` L86–93
+- `add_attendance_custom_year` L98–103
+- `get_attendance` L108–113
+- `backfill_pending_attendance` L122–152
+- `get_attendances_by_month` L157–166
+- `get_attendance_years` L171–178
+- `get_attendance_months` L183–192
+
+## includes/lib/cs_perf_calc.php (255 行, 13.4 KB)
+
+- `cs_perf_metric_details` L11–39
+- `cs_perf_composite_from` L47–56
+- `cs_perf_calc` L69–76
+- `cs_perf_calc_detail` L95–254
+
+## includes/lib/cs_perf_import.php (351 行, 19.5 KB)
+
+- `parse_percent` L8–20
+- `parse_duration_to_seconds` L30–52
+- `csv_parse_line` L60–82
+- `normalize_cs_wangwang` L87–96
+- `import_cs_perf_file` L113–341
+- 加载：`require_once dirname((dirname(__DIR__, 1))) . '/classes/SimpleXLSX.php';`
+
+## includes/lib/cs_perf_members.php (242 行, 10.5 KB)
+
+- `get_cs_perf_participants` L8–34
+- `get_cs_perf_excluded` L40–50
+- `is_cs_perf_excluded` L55–70
+- `exclude_cs_perf_member` L75–86
+- `include_cs_perf_member` L91–101
+- `get_cs_performance` L108–142
+- `get_cs_performance_stores` L148–162
+- `cs_perf_conv_derivation` L173–180
+- `get_employee_order_aggregate` L188–221
+- `get_employee_deal_count` L227–230
+- `get_employee_order_total` L236–239
+
+## includes/lib/cs_perf_rank.php (289 行, 15.1 KB)
+
+- `cs_perf_rank_detail` L7–63
+- `cs_perf_rank_result` L75–118
+- `cs_perf_rank_list` L124–187
+- `get_cs_perf_target_suggestions` L196–245
+- `detect_cs_perf_columns` L252–288
+
+## includes/lib/cs_perf_schema.php (256 行, 14.7 KB)
+
+- `cs_perf_cache` L8–14
+- `cs_perf_cache_get` L15–20
+- `cs_perf_cache_set` L21–25
+- `cs_perf_cache_reset` L26–29
+- `ensureCsPerfSchema` L35–255
+
+## includes/lib/cs_perf_schemes.php (286 行, 10.9 KB)
+
+- `get_cs_perf_schemes` L7–18
+- `get_cs_perf_scheme` L23–38
+- `cs_perf_tiers_parse` L44–65
+- `cs_perf_tiers_json` L70–85
+- `cs_perf_tier_lookup` L95–106
+- `cs_perf_fmt_range` L111–119
+- `save_cs_perf_scheme` L129–163
+- `delete_cs_perf_scheme` L168–188
+- `get_cs_perf_dept_configs` L195–207
+- `get_cs_perf_dept_config` L212–228
+- `save_cs_perf_dept_config` L233–249
+- `delete_cs_perf_dept_config` L254–263
+- `cs_perf_scheme_params` L276–285
+
+## includes/lib/master_data.php (177 行, 4.6 KB)
+
+- `json_response` L6–12
+- `get_departments` L18–30
+- `get_department_list` L35–43
+- `get_department` L48–53
+- `get_shops` L58–66
+- `get_shop_list` L71–79
+- `get_shop` L84–89
+- `get_employees` L94–103
+- `get_employee` L108–113
+- `export_csv` L121–136
+- `export_excel` L141–174
+
+## includes/lib/order_amount.php (301 行, 10.6 KB)
+
+- `money` L6–9
+- `extract_amount` L25–46
+- `parse_ssl_amount` L60–79
+- `domain_years` L93–113
+- `eval_amount_expr` L123–175
+- `get_order_fee_info` L189–300
+- 加载：`include $deptConfigFile;`
+- 加载：`include $deptFeeFile;`
+
+## includes/lib/order_parse.php (4 行, 0.2 KB)
+
+- 加载：`require_once __DIR__ . '/order_text.php';`
+- 加载：`require_once __DIR__ . '/order_amount.php';`
+
+## includes/lib/order_text.php (185 行, 7.1 KB)
+
+- `e` L9–16
+- `extract_order_no` L24–54
+- `extract_shop_from_raw` L61–85
+- `match_shop_name` L95–153
+- `ensureOrderNoColumn` L159–184
 
 ## includes/order_credentials_card.php (88 行, 11 KB)
 

@@ -908,6 +908,86 @@
       "dir": "(dirname(__DIR__, 1))"
     },
     {
+      "parent": "includes/functions.php",
+      "path": "includes/lib/order_parse.php",
+      "call": "/* split: includes/lib/order_parse.php */ require_once __DIR__ . '/lib/order_parse.php';",
+      "prefix": "<?php\n",
+      "suffix": "",
+      "dir": "(dirname(__DIR__, 1))"
+    },
+    {
+      "parent": "includes/functions.php",
+      "path": "includes/lib/attendance.php",
+      "call": "/* split: includes/lib/attendance.php */ require_once __DIR__ . '/lib/attendance.php';",
+      "prefix": "<?php\n",
+      "suffix": "",
+      "dir": "(dirname(__DIR__, 1))"
+    },
+    {
+      "parent": "includes/functions.php",
+      "path": "includes/lib/abnormal_orders.php",
+      "call": "/* split: includes/lib/abnormal_orders.php */ require_once __DIR__ . '/lib/abnormal_orders.php';",
+      "prefix": "<?php\n",
+      "suffix": "",
+      "dir": "(dirname(__DIR__, 1))"
+    },
+    {
+      "parent": "includes/functions.php",
+      "path": "includes/lib/master_data.php",
+      "call": "/* split: includes/lib/master_data.php */ require_once __DIR__ . '/lib/master_data.php';",
+      "prefix": "<?php\n",
+      "suffix": "",
+      "dir": "(dirname(__DIR__, 1))"
+    },
+    {
+      "parent": "includes/functions.php",
+      "path": "includes/lib/cs_perf_schema.php",
+      "call": "/* split: includes/lib/cs_perf_schema.php */ require_once __DIR__ . '/lib/cs_perf_schema.php';",
+      "prefix": "<?php\n",
+      "suffix": "",
+      "dir": "(dirname(__DIR__, 1))"
+    },
+    {
+      "parent": "includes/functions.php",
+      "path": "includes/lib/cs_perf_members.php",
+      "call": "/* split: includes/lib/cs_perf_members.php */ require_once __DIR__ . '/lib/cs_perf_members.php';",
+      "prefix": "<?php\n",
+      "suffix": "",
+      "dir": "(dirname(__DIR__, 1))"
+    },
+    {
+      "parent": "includes/functions.php",
+      "path": "includes/lib/cs_perf_schemes.php",
+      "call": "/* split: includes/lib/cs_perf_schemes.php */ require_once __DIR__ . '/lib/cs_perf_schemes.php';",
+      "prefix": "<?php\n",
+      "suffix": "",
+      "dir": "(dirname(__DIR__, 1))"
+    },
+    {
+      "parent": "includes/functions.php",
+      "path": "includes/lib/cs_perf_calc.php",
+      "call": "/* split: includes/lib/cs_perf_calc.php */ require_once __DIR__ . '/lib/cs_perf_calc.php';",
+      "prefix": "<?php\n",
+      "suffix": "",
+      "dir": "(dirname(__DIR__, 1))"
+    },
+    {
+      "parent": "includes/functions.php",
+      "path": "includes/lib/cs_perf_rank.php",
+      "call": "/* split: includes/lib/cs_perf_rank.php */ require_once __DIR__ . '/lib/cs_perf_rank.php';",
+      "prefix": "<?php\n",
+      "suffix": "",
+      "dir": "(dirname(__DIR__, 1))"
+    },
+    {
+      "parent": "includes/functions.php",
+      "path": "includes/lib/cs_perf_import.php",
+      "call": "/* split: includes/lib/cs_perf_import.php */ require_once __DIR__ . '/lib/cs_perf_import.php';",
+      "prefix": "<?php\n",
+      "suffix": "",
+      "dir": "(dirname(__DIR__, 1))"
+    },
+    {
       "parent": "project/import/view.php",
       "path": "assets/css/project_import_1.css",
       "call": "<?php /* split: assets/css/project_import_1.css */ include __DIR__ . '/../../assets/css/project_import_1.css'; ?>",
@@ -962,6 +1042,22 @@
       "prefix": "<?php\n",
       "suffix": "",
       "dir": "(dirname(__DIR__, 1))"
+    },
+    {
+      "parent": "includes/lib/order_parse.php",
+      "path": "includes/lib/order_text.php",
+      "call": "/* split: includes/lib/order_text.php */ require_once __DIR__ . '/order_text.php';",
+      "prefix": "<?php\n",
+      "suffix": "",
+      "dir": ""
+    },
+    {
+      "parent": "includes/lib/order_parse.php",
+      "path": "includes/lib/order_amount.php",
+      "call": "/* split: includes/lib/order_amount.php */ require_once __DIR__ . '/order_amount.php';",
+      "prefix": "<?php\n",
+      "suffix": "",
+      "dir": ""
     },
     {
       "parent": "project/import/view.php",
