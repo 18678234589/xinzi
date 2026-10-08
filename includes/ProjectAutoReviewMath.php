@@ -1,6 +1,6 @@
 <?php
 /** Deterministic review policy. No database, network, AI or clock side effects. */
-const PA_POLICY_VERSION = '2026-10-08.1';
+const PA_POLICY_VERSION = '2026-10-08.2';
 
 function pa_cents($value)
 {
@@ -71,17 +71,18 @@ function pa_payment_evidence(array $sources, $shop, $asof = null)
 function pa_evaluate(array $ctx)
 {
     $o = $ctx['order']; $summary = $ctx['summary']; $e = $ctx['payment'];
-    $reasons = []; $exception = false; $waitSync = false;
-    $add = function ($code, $text, $kind = 'data') use (&$reasons, &$exception, &$waitSync) {
+    $reasons = []; $exception = false; $waitSync = false; $waitFinance = false;
+    $add = function ($code, $text, $kind = 'data') use (&$reasons, &$exception, &$waitSync, &$waitFinance) {
         $reasons[$code] = ['code' => $code, 'text' => $text, 'kind' => $kind];
         if ($kind === 'exception') $exception = true;
         if ($kind === 'sync') $waitSync = true;
+        if ($kind === 'finance') $waitFinance = true;
     };
     $receipt = (int)round((float)$o['receipt_amount'] * 100);
     $refund = (int)round((float)$o['refund_amount'] * 100);
     $ledgerReceipt = 0; $ledgerRefund = 0; $hasEstimate = false;
     foreach ($ctx['cash'] as $cash) {
-        if ($cash['review_status'] === 'pending') $add('cash_pending', '收款或退款尚待核验', 'exception');
+        if ($cash['review_status'] === 'pending') $add('cash_pending', '收款或退款已提交，等待财务核验，无需重复登记', 'finance');
         if ($cash['review_status'] !== 'approved') continue;
         $c = (int)round((float)$cash['amount'] * 100);
         if ($cash['movement_type'] === 'receipt') {
@@ -108,15 +109,15 @@ function pa_evaluate(array $ctx)
         if (!$d || $d->format('Y-m-d') !== $date || $date > $ctx['today']) $add('order_date', '订单日期缺失、无效或晚于今天，请补齐核对');
         if (($ctx['period_status'] ?? '') === 'locked') $add('period_locked', '订单归属月份已锁定，需要财务选择调整月份', 'exception');
         if (($o['delivery_status'] ?? '') !== 'finished') $add('delivery', '尚未确认业务已完成；付款成功不代替交付确认');
-        if (!empty($ctx['pending_requests'])) $add('request_pending', '交付／升级申请尚待审核', 'exception');
+        if (!empty($ctx['pending_requests'])) $add('request_pending', '交付／升级申请已提交，等待审核，无需重复提交', 'finance');
         if (!empty($ctx['catalog']['resources']) && (!$ctx['resource'] || ($ctx['resource']['domain_mode'] ?? 'pending') === 'pending')) $add('resource', '域名、空间等实际资源待技术确认');
         if (!empty($ctx['catalog']['requires_technical']) && empty($ctx['technical_count'])) $add('technical', '尚未指定参与技术');
         if (!empty($ctx['catalog']['kind_required']) && trim((string)($o['order_kind'] ?? '')) === '') $add('order_kind', '业务分成类型待确认');
         $ssl = 0; $costSignatures = [];
         foreach ($ctx['costs'] as $cost) {
-            if ($cost['review_status'] === 'pending') $add('cost_pending', '特殊成本或凭证尚待审核', 'exception');
+            if ($cost['review_status'] === 'pending') $add('cost_pending', '成本已登记，等待财务核验；如有凭证可在结算单补充', 'finance');
             if ($cost['review_status'] === 'approved') {
-                if (!empty($cost['is_custom']) && empty($cost['proof_path']) && empty($cost['reviewed_by_admin'])) $add('custom_cost_proof', '自定义成本缺少凭证或财务核验记录', 'exception');
+                if (!empty($cost['is_custom']) && empty($cost['proof_path']) && empty($cost['reviewed_by_admin'])) $add('custom_cost_proof', '请在结算单补充自定义成本凭证，或联系财务核验', 'data');
                 if (isset($cost['quantity'], $cost['unit_price']) && (int)round((float)$cost['quantity'] * (float)$cost['unit_price'] * 100) !== (int)round((float)$cost['amount'] * 100)) $add('cost_arithmetic', '成本数量 × 单价与小计不一致', 'exception');
                 $signature = json_encode([$cost['category'], $cost['item_name'] ?? '', $cost['template_id'] ?? null, $cost['quantity'] ?? 1, $cost['amount'], $cost['cost_kind'] ?? 'one_time']);
                 if (isset($costSignatures[$signature])) $add('cost_duplicate', '存在相同成本明细，请核对是否重复登记', 'exception');
@@ -153,14 +154,19 @@ function pa_evaluate(array $ctx)
         if ((float)$summary['service_fee_rate'] > 0 && (float)$o['contract_amount'] <= 0 && (float)$summary['income'] > 0) $add('sale_missing', '按售价计服务费的业务，尚缺有效售价');
         if (!$missingReceipt && $refund > max($receipt, $e['paid_cents'] ?? 0) && !$allowNegative) $add('refund_exceeds', '累计退款超过可核对收款，不能自动结算', 'exception');
     }
-    $state = $exception ? 'exception' : ($closed ? 'settled' : ($waitSync ? 'wait_sync' : ($reasons ? 'wait_data' : 'ready')));
+    $state = $exception ? 'exception' : ($closed ? 'settled' : ($waitFinance ? 'wait_finance' : ($waitSync ? 'wait_sync' : ($reasons ? 'wait_data' : 'ready'))));
+    if ($state === 'wait_sync' || $state === 'wait_finance') {
+        $priority = $state === 'wait_sync' ? 'sync' : 'finance';
+        uasort($reasons, function ($a, $b) use ($priority) { return ($a['kind'] !== $priority) <=> ($b['kind'] !== $priority); });
+    }
     return ['state' => $state, 'reasons' => array_values($reasons), 'can_apply' => !$closed && !$reasons, 'receipt_to_add_cents' => $receipt === 0 && !$reasons && $e['paid_cents'] !== null ? $e['paid_cents'] : 0, 'policy_version' => PA_POLICY_VERSION];
 }
 
 function pa_state_meta($state)
 {
     $map = [
-        'wait_sync' => ['待同步流水', 'info'], 'wait_data' => ['待补资料', 'warning'],
+        'wait_sync' => ['等待收款资料同步', 'info'], 'wait_data' => ['待补资料', 'warning'],
+        'wait_finance' => ['等待财务核验', 'info'],
         'exception' => ['异常待财务', 'danger'], 'ready' => ['核对通过·待结算', 'primary'],
         'auto_passed' => ['自动核对通过', 'success'], 'settled' => ['已结算', 'success'],
         'queued' => ['等待系统核对', 'secondary'],

@@ -187,6 +187,7 @@ function ps_role_rule_order_kind($projectType, $group, $role, $orderKind)
 
 function ps_rule($group, $projectType, $orderDate)
 {
+    if (in_array($orderKind, ['模板', '模板订单', '新建站'], true)) return '新订单';
     return ps_rule_for($group, $projectType, $orderDate);
 }
 
@@ -214,10 +215,12 @@ function ps_calc_person($rule, $income, $directCost, $contract, $weight, $busine
     $floorApplied = $minCostRate > 0 && (float)$contract * $minCostRate > (float)$directCost;
     $cost = $floorApplied ? round((float)$contract * $minCostRate, 2) : (float)$directCost;
     $costBasis = $mode === 'individual' ? round($cost * (float)$weight, 2) : round($cost, 2);
-    $feePart = $mode === 'pool' ? round($fee * (float)$weight, 2) : $fee;
+    // 默认组池先扣整单服务费再分成。网站模板核算表另有“主次客服服务费 1.5%”约定，保留该业务明确口径。
+    $feeWeight = $mode === 'pool' && ($rule['project_type'] ?? '') === '网站模板' && ($rule['commission_group'] ?? '') === 'customer_service' ? (float)$weight : 1.0;
+    $feePart = round($fee * $feeWeight, 2);
     $base = round((float)$income - $costBasis - $feePart, 2);
     // 提成按未取整的服务费计算（核算表按月售价合计 × 费率），展示仍用到分的服务费；差额进“分成尾差”。
-    $feeExact = $feeBaseAmount * $feeRate * ($mode === 'pool' ? (float)$weight : 1);
+    $feeExact = $feeBaseAmount * $feeRate * $feeWeight;
     $baseExact = (float)$income - $costBasis - $feeExact;
     $rate = (float)$rule['rate'];
     $min = (float)($rule['min_contract_amount'] ?? 0);
@@ -232,13 +235,15 @@ function ps_calc_person($rule, $income, $directCost, $contract, $weight, $busine
     $lowApplied = !$blocked && $lowThreshold !== null && $subsidy > 0 && $orderProfit < $lowThreshold;
     if ($lowApplied) $subsidy = round((float)($rule['low_profit_subsidy'] ?? 0), 2);
     $note = '(收入 ' . money_plain($income) . ' − 成本 ' . money_plain($costBasis) . ($costNote !== '' ? '〔' . $costNote . '〕' : '') . ($floorApplied ? '〔售价×' . round($minCostRate * 100, 2) . '%〕' : '') . ($mode === 'individual' && (float)$weight < 1 ? '〔分摊 ' . round((float)$weight * 100, 2) . '%〕' : '') . ' − 服务费 ' . money_plain($feePart) . ') × ' . round($rate * 100, 4) . '%' . ($mode === 'pool' && (float)$weight < 1 ? ' × 权重 ' . round((float)$weight * 100, 2) . '%' : '');
-    if ($subsidy > 0) $note .= ' + 每单补助 ' . money_plain($subsidy) . ($lowApplied ? '（售价 − 成本 ' . money_plain($orderProfit) . ' 低于 ' . money_plain($lowThreshold) . '）' : '');
+    if ($subsidy > 0) $note .= ' + 每单补助 ' . money_plain($subsidy) . ($mode === 'pool' && (float)$weight < 1 ? '（整单补助 ' . money_plain($subsidyPool) . ' × 权重 ' . round((float)$weight * 100, 2) . '%）' : '') . ($lowApplied ? '（售价 − 成本 ' . money_plain($orderProfit) . ' 低于 ' . money_plain($lowThreshold) . '）' : '');
     if ($blocked) $note = '售价低于 ¥' . money_plain($min) . '，本单不计分成';
     return ['mode' => $mode, 'fee_rate' => $feeRate, 'fee' => $fee, 'fee_part' => $feePart, 'cost_basis' => $costBasis, 'base' => $base, 'rate' => $rate, 'weight' => (float)$weight, 'share' => $share, 'subsidy' => $subsidy, 'blocked' => $blocked, 'note' => $note,
         // 计算过程弹窗用：把每一步的输入原样带出
         'income' => round((float)$income, 2), 'contract' => round((float)$contract, 2), 'raw_cost' => round((float)$directCost, 2), 'min_cost_rate' => $minCostRate, 'floor_applied' => $floorApplied,
-        'min_contract' => $min, 'allow_negative' => $allowNegative, 'low_applied' => $lowApplied, 'low_threshold' => $lowThreshold, 'order_profit' => $orderProfit, 'income_estimated' => false];
+        'min_contract' => $min, 'allow_negative' => $allowNegative, 'low_applied' => $lowApplied, 'low_threshold' => $lowThreshold, 'order_profit' => $orderProfit, 'income_estimated' => false, 'subsidy_pool' => $subsidyPool];
 }
+    $subsidyPool = $subsidy;
+    $subsidy = round($subsidyPool * ($mode === 'pool' ? (float)$weight : 1), 2);
 
 /**
  * 商标资料专员 / 提交专员按件计：每单补助（规则里的每件单价）× 商标个数。
@@ -258,6 +263,7 @@ function ps_summary($order, $costs, $participants)
 {
     $order = ps_order_asof($order);
     $income = round((float)$order['receipt_amount'] - (float)$order['refund_amount'], 2);
+    $calc['subsidy_pool'] = round((float)($calc['subsidy_pool'] ?? $unit) * $pieces, 2);
     $approvedCost = 0.0;
     $pendingCost = 0.0;
     foreach ($costs as $cost) {
@@ -336,6 +342,7 @@ function ps_summary($order, $costs, $participants)
                 $people[$i]['estimated_calc'] = ps_trademark_piece_calc($people[$i]['estimated_calc'], $trademarkCount);
             }
             if (!$rule) { $missing = true; continue; }
+                    $people[$i][$ck]['subsidy_pool'] = 0.0;
             $pool += $people[$i]['calc']['share'];
             $estimatedPool += $people[$i]['estimated_calc']['share'];
             $subsidy += $people[$i]['calc']['subsidy'];
@@ -348,6 +355,12 @@ function ps_summary($order, $costs, $participants)
             $estimated = $defaultRule ? $estMark(ps_calc_person($defaultRule, $estIncome, $costEst, $contract, 1, $businessFeeRate, $noteEst, $feeBase)) : null;
             if ($order['project_type'] === '商标' && $group === 'technical') {
                 $calc = ps_trademark_piece_calc($calc, $trademarkCount);
+        // 补助也是组池的一部分；用分为单位分摊尾差，人数增加不能重复发整单补助。
+        foreach (['calc', 'estimated_calc'] as $ck) {
+            $subsidyCents = ps_group_subsidy_cents($people, $ck);
+            foreach ($people as $i => $person) if ($people[$i][$ck]) $people[$i][$ck]['subsidy'] = $subsidyCents[$i] / 100;
+        }
+        $subsidy = array_sum(array_map(function ($p) { return (float)($p['calc']['subsidy'] ?? 0); }, $people));
                 $estimated = ps_trademark_piece_calc($estimated, $trademarkCount);
             }
             $pool = $calc ? $calc['share'] : null;
@@ -373,8 +386,8 @@ function ps_group_share_cents($people)
     foreach ($people as $i => $person) {
         $cents[$i] = 0;
         if (empty($person['calc'])) continue;
-        // 同一规则、计提基数相同的组池成员整体分摊（尾差归最高权重者）；基数不同（服务费按权重拆分）时逐人四舍五入。
-        if ($person['calc']['mode'] === 'pool' && !$person['calc']['blocked']) $poolGroups[(int)$person['rule']['id'] . '|' . money_plain($person['calc']['base'])][$i] = $person;
+        // 计提基数和比例相同的组池整体分摊；岗位别名命中不同但等价的规则时也只计一个池。
+        if ($person['calc']['mode'] === 'pool' && !$person['calc']['blocked']) $poolGroups[$person['calc']['rate'] . '|' . (int)!empty($person['rule']['allow_negative']) . '|' . money_plain($person['calc']['base'])][$i] = $person;
         else $cents[$i] = (int)round($person['calc']['share'] * 100);
     }
     foreach ($poolGroups as $members) {
@@ -409,6 +422,26 @@ function ps_settlement_preview($legacyNetAmount, $projectCommission, $legacyTech
     $deductionCents = (int)round((float)$legacyTechnicalDeduction * 100);
     return ($legacyCents - $deductionCents + $projectCents) / 100;
 }
+/** 同一组池规则的按单补助仅发一池，独立岗位规则保持原口径。 */
+function ps_group_subsidy_cents($people, $calcKey = 'calc')
+{
+    $cents = []; $pools = [];
+    foreach ($people as $i => $p) {
+        $c = $p[$calcKey] ?? null;
+        $cents[$i] = (int)round((float)($c['subsidy'] ?? 0) * 100);
+        if (!$c || $c['mode'] !== 'pool' || $c['blocked'] || empty($c['subsidy_pool'])) continue;
+        $pools[money_plain($c['subsidy_pool'])][$i] = $p;
+    }
+    foreach ($pools as $members) {
+        $first = reset($members); $weight = array_sum(array_column($members, 'group_weight'));
+        $total = (int)round($first[$calcKey]['subsidy_pool'] * $weight * 100);
+        $normalized = array_map(function ($p) use ($weight) { return ['group_weight' => $weight > 0 ? $p['group_weight'] / $weight : 0]; }, array_values($members));
+        $shares = ps_allocate_pool_cents($total, $normalized);
+        foreach (array_keys($members) as $n => $i) $cents[$i] = $shares[$n];
+    }
+    return $cents;
+}
+
 
 function ps_technical_reconciliation_summary($rows)
 {

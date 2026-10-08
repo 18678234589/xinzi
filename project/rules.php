@@ -271,6 +271,7 @@ $tiers = $form['params']['tiers'] ?? [];
 while (count($tiers) < 7) $tiers[] = ['from' => '', 'rate' => '', 'base' => ''];
 ?>
 <div class="project-intake-page">
+<?php include __DIR__ . '/../includes/joint_settlement_rules.php'; ?>
 <?php include __DIR__ . '/../includes/review_policy_editor.php'; ?>
 <div class="project-hero mb-3"><div><div class="project-eyebrow">项目合作结算中心 · 财务配置</div><h2>规则中心</h2><p>逐单分成和月度奖励都在这里设置。修改后未审核订单与未锁定月份立即按新规则计算；已审核订单、已锁定月份保留当时的结果。</p></div><div class="project-hero-actions"><a class="btn btn-light" href="#order-rules">逐单分成</a><a class="btn btn-outline-light" href="#monthly">月度规则</a><a class="btn btn-outline-light" href="#preview">本月试算</a><a class="btn btn-outline-light" href="<?php echo BASE_URL; ?>/project/rules.php?domain=welfare">全员福利池规则</a></div></div>
 <?php if ($error): ?><div class="alert alert-danger"><?php echo e($error); ?></div><?php endif; ?>

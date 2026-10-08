@@ -220,7 +220,8 @@ function pa_view(array $row)
     if ($state === 'queued' && in_array($row['settlement_status'], ['approved', 'locked'], true)) $state = 'settled';
     $reasons = $stale ? [] : (json_decode((string)($row['auto_review_reasons'] ?? ''), true) ?: []);
     [$label, $tone] = pa_state_meta($state);
-    return ['state' => $state, 'label' => $label, 'tone' => $tone, 'reasons' => $reasons, 'checked_at' => $row['auto_review_checked_at'] ?? null];
+    $guidance = $state === 'wait_sync' ? '订单已保存。等待财务导入店铺流水或核验收款，系统匹配后会继续核对，无需重复上传。' : ($state === 'wait_finance' ? '资料已提交，正在等待财务核验。这不是报单失败，无需重复提交；有待补凭证时请在结算单补充。' : '');
+    return ['state' => $state, 'label' => $label, 'tone' => $tone, 'reasons' => $reasons, 'guidance' => $guidance, 'checked_at' => $row['auto_review_checked_at'] ?? null];
 }
 
 /** Ancillary review never rolls back or blocks a successful upload/save. */

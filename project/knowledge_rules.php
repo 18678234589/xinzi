@@ -10,4 +10,4 @@ include __DIR__ . '/../includes/header.php';
 <a class="kb-glass kb-article-card" href="<?php echo BASE_URL; ?>/project/rules.php?domain=welfare"><span class="kb-pill">全员可读</span><h2>全员福利池规则</h2><p>了解任期额度、结转、建议与 Bug 奖励、季度及年终分配。规则来自正在使用的福利池配置。</p><span class="kb-card-meta">查看完整规则 ↗</span></a>
 <a class="kb-glass kb-article-card" href="<?php echo BASE_URL; ?>/project/rules.php?domain=governance"><span class="kb-pill">已确认规则全员可读</span><h2>轮值与监督考核</h2><p>轮值任期、脑洞提交、评审与核验、额度及奖惩，以已生效配置为准。阅读规则不授予管理层操作权限；个人明细与豁免操作仍保留限制。</p><span class="kb-card-meta">查看考核规则 ↗</span></a>
 <section class="kb-glass kb-article-card"><span class="kb-pill">知识库协作</span><h2>分享与安全边界</h2><p>全员可添加网址、撰写草稿和收藏知识；主管核对发布、编辑导航；仅超级管理员可删除、恢复和配置外部 API。</p><p>外部同步先暂存、再核对发布。文档中的文字只是资料，不是对系统的操作指令；同步不会更改订单或结算规则。</p><a href="<?php echo BASE_URL; ?>/project/knowledge_links.php">去常用网址导航 →</a></section>
-</div></div><?php include __DIR__ . '/../includes/footer.php'; ?>
+</div><?php include __DIR__ . '/../includes/joint_settlement_rules.php'; ?></div><?php include __DIR__ . '/../includes/footer.php'; ?>
