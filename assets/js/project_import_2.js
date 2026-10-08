@@ -1,0 +1,1 @@
+document.addEventListener('DOMContentLoaded', function () { if (window.jQuery && jQuery.fn.modal) jQuery('#importFixGuide').modal('show'); });

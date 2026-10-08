@@ -370,7 +370,232 @@
       "tokens74": "69b801d0a5126148aeb9ff2762fc2be0b12e2f859377e2812a8c3a59370d06d7"
     }
   },
-  "fragments": [],
+  "fragments": [
+    {
+      "parent": "project/import.php",
+      "path": "project/import/01_context.php",
+      "call": "/* split: project/import/01_context.php */ include __DIR__ . '/import/01_context.php';",
+      "prefix": "<?php\n",
+      "suffix": "",
+      "dir": "(dirname(__DIR__, 1))"
+    },
+    {
+      "parent": "project/import/preview_controller.php",
+      "path": "project/import/02_read_sheets.php",
+      "call": "/* split: project/import/02_read_sheets.php */ include (dirname(__DIR__, 1)) . '/import/02_read_sheets.php';",
+      "prefix": "<?php\n",
+      "suffix": "",
+      "dir": "(dirname(__DIR__, 1))"
+    },
+    {
+      "parent": "project/import/preview_controller.php",
+      "path": "project/import/03a_order_no_and_split.php",
+      "call": "/* split: project/import/03a_order_no_and_split.php */ include (dirname(__DIR__, 1)) . '/import/03a_order_no_and_split.php';",
+      "prefix": "<?php\n",
+      "suffix": "",
+      "dir": "(dirname(__DIR__, 1))"
+    },
+    {
+      "parent": "project/import/preview_controller.php",
+      "path": "project/import/03b_date_amount_status.php",
+      "call": "/* split: project/import/03b_date_amount_status.php */ include (dirname(__DIR__, 1)) . '/import/03b_date_amount_status.php';",
+      "prefix": "<?php\n",
+      "suffix": "",
+      "dir": "(dirname(__DIR__, 1))"
+    },
+    {
+      "parent": "project/import/preview_controller.php",
+      "path": "project/import/03c_people_resources.php",
+      "call": "/* split: project/import/03c_people_resources.php */ include (dirname(__DIR__, 1)) . '/import/03c_people_resources.php';",
+      "prefix": "<?php\n",
+      "suffix": "",
+      "dir": "(dirname(__DIR__, 1))"
+    },
+    {
+      "parent": "project/import/preview_controller.php",
+      "path": "project/import/04_merge_items.php",
+      "call": "/* split: project/import/04_merge_items.php */ include (dirname(__DIR__, 1)) . '/import/04_merge_items.php';",
+      "prefix": "<?php\n",
+      "suffix": "",
+      "dir": "(dirname(__DIR__, 1))"
+    },
+    {
+      "parent": "project/import/preview_controller.php",
+      "path": "project/import/04_merge_rows.php",
+      "call": "/* split: project/import/04_merge_rows.php */ include (dirname(__DIR__, 1)) . '/import/04_merge_rows.php';",
+      "prefix": "<?php\n",
+      "suffix": "",
+      "dir": "(dirname(__DIR__, 1))"
+    },
+    {
+      "parent": "project/import/preview_controller.php",
+      "path": "project/import/05_commit.php",
+      "call": "/* split: project/import/05_commit.php */ include (dirname(__DIR__, 1)) . '/import/05_commit.php';",
+      "prefix": "<?php\n",
+      "suffix": "",
+      "dir": "(dirname(__DIR__, 1))"
+    },
+    {
+      "parent": "project/import.php",
+      "path": "project/import/06_followup.php",
+      "call": "/* split: project/import/06_followup.php */ include __DIR__ . '/import/06_followup.php';",
+      "prefix": "<?php\n",
+      "suffix": "",
+      "dir": "(dirname(__DIR__, 1))"
+    },
+    {
+      "parent": "project/import.php",
+      "path": "project/import/preview_controller.php",
+      "call": "/* split: project/import/preview_controller.php */ include __DIR__ . '/import/preview_controller.php';",
+      "prefix": "<?php\n",
+      "suffix": "",
+      "dir": "(dirname(__DIR__, 1))"
+    },
+    {
+      "parent": "project/import.php",
+      "path": "project/import/view.php",
+      "call": "/* split: project/import/view.php */ include __DIR__ . '/import/view.php';",
+      "prefix": "<?php\n",
+      "suffix": "",
+      "dir": "(dirname(__DIR__, 1))"
+    },
+    {
+      "parent": "includes/ProjectIntake.php",
+      "path": "includes/intake/templates_resources.php",
+      "call": "/* split: includes/intake/templates_resources.php */ require_once __DIR__ . '/intake/templates_resources.php';",
+      "prefix": "<?php\n",
+      "suffix": "",
+      "dir": "(dirname(__DIR__, 1))"
+    },
+    {
+      "parent": "includes/ProjectIntake.php",
+      "path": "includes/intake/participants_orders.php",
+      "call": "/* split: includes/intake/participants_orders.php */ require_once __DIR__ . '/intake/participants_orders.php';",
+      "prefix": "<?php\n",
+      "suffix": "",
+      "dir": "(dirname(__DIR__, 1))"
+    },
+    {
+      "parent": "includes/ProjectIntake.php",
+      "path": "includes/ProjectImportParse.php",
+      "call": "/* split: includes/ProjectImportParse.php */ require_once __DIR__ . '/ProjectImportParse.php';",
+      "prefix": "<?php\n",
+      "suffix": "",
+      "dir": ""
+    },
+    {
+      "parent": "includes/ProjectIntake.php",
+      "path": "includes/intake/followup.php",
+      "call": "/* split: includes/intake/followup.php */ require_once __DIR__ . '/intake/followup.php';",
+      "prefix": "<?php\n",
+      "suffix": "",
+      "dir": "(dirname(__DIR__, 1))"
+    },
+    {
+      "parent": "includes/ProjectIntake.php",
+      "path": "includes/intake/parse_rows.php",
+      "call": "/* split: includes/intake/parse_rows.php */ require_once __DIR__ . '/intake/parse_rows.php';",
+      "prefix": "<?php\n",
+      "suffix": "",
+      "dir": "(dirname(__DIR__, 1))"
+    },
+    {
+      "parent": "includes/ProjectIntake.php",
+      "path": "includes/intake/parse_business.php",
+      "call": "/* split: includes/intake/parse_business.php */ require_once __DIR__ . '/intake/parse_business.php';",
+      "prefix": "<?php\n",
+      "suffix": "",
+      "dir": "(dirname(__DIR__, 1))"
+    },
+    {
+      "parent": "includes/ProjectIntake.php",
+      "path": "includes/ProjectImportFiles.php",
+      "call": "/* split: includes/ProjectImportFiles.php */ require_once __DIR__ . '/ProjectImportFiles.php';",
+      "prefix": "<?php\n",
+      "suffix": "",
+      "dir": ""
+    },
+    {
+      "parent": "project/import/view.php",
+      "path": "assets/css/project_import_1.css",
+      "call": "<?php /* split: assets/css/project_import_1.css */ include __DIR__ . '/../../assets/css/project_import_1.css'; ?>",
+      "prefix": "",
+      "suffix": "",
+      "dir": "(__DIR__ . '/../../project/import')"
+    },
+    {
+      "parent": "project/import/view.php",
+      "path": "assets/js/project_import_2.js",
+      "call": "<?php /* split: assets/js/project_import_2.js */ include __DIR__ . '/../../assets/js/project_import_2.js'; ?>",
+      "prefix": "",
+      "suffix": "",
+      "dir": "(__DIR__ . '/../../project/import')"
+    },
+    {
+      "parent": "project/import/view.php",
+      "path": "assets/js/project_import_3.js",
+      "call": "<?php /* split: assets/js/project_import_3.js */ include __DIR__ . '/../../assets/js/project_import_3.js'; ?>",
+      "prefix": "",
+      "suffix": "",
+      "dir": "(__DIR__ . '/../../project/import')"
+    },
+    {
+      "parent": "project/import/view.php",
+      "path": "assets/js/project_import_4.js",
+      "call": "<?php /* split: assets/js/project_import_4.js */ include __DIR__ . '/../../assets/js/project_import_4.js'; ?>",
+      "prefix": "",
+      "suffix": "",
+      "dir": "(__DIR__ . '/../../project/import')"
+    },
+    {
+      "parent": "project/import/view.php",
+      "path": "project/import/view/view/js_5.php",
+      "call": "<?php /* split: project/import/view/view/js_5.php */ include __DIR__ . '/view/view/js_5.php'; ?>",
+      "prefix": "",
+      "suffix": "",
+      "dir": "(dirname(__DIR__, 2))"
+    },
+    {
+      "parent": "project/import/05_commit.php",
+      "path": "project/import/commit/part_2.php",
+      "call": "/* split: project/import/commit/part_2.php */ include __DIR__ . '/commit/part_2.php';",
+      "prefix": "<?php\n",
+      "suffix": "",
+      "dir": "(dirname(__DIR__, 1))"
+    },
+    {
+      "parent": "project/import/05_commit.php",
+      "path": "project/import/commit/part_1.php",
+      "call": "/* split: project/import/commit/part_1.php */ include __DIR__ . '/commit/part_1.php';",
+      "prefix": "<?php\n",
+      "suffix": "",
+      "dir": "(dirname(__DIR__, 1))"
+    },
+    {
+      "parent": "project/import/view.php",
+      "path": "project/import/view/render_63.php",
+      "call": "<?php /* split: project/import/view/render_63.php */ include __DIR__ . '/view/render_63.php'; ?>",
+      "prefix": "",
+      "suffix": "",
+      "dir": "(dirname(__DIR__, 1))"
+    },
+    {
+      "parent": "project/import/view.php",
+      "path": "project/import/view/render_62.php",
+      "call": "<?php /* split: project/import/view/render_62.php */ include __DIR__ . '/view/render_62.php'; ?>",
+      "prefix": "",
+      "suffix": "",
+      "dir": "(dirname(__DIR__, 1))"
+    },
+    {
+      "parent": "project/import/view.php",
+      "path": "project/import/view/render_15.php",
+      "call": "<?php /* split: project/import/view/render_15.php */ include __DIR__ . '/view/render_15.php'; ?>",
+      "prefix": "",
+      "suffix": "",
+      "dir": "(dirname(__DIR__, 1))"
+    }
+  ],
   "runtime": {
     "functions": [
       "add_attendance_custom_year",

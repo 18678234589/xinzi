@@ -264,6 +264,28 @@
 - `ps_import_website_business` L3–13
 - `ps_import_website_people_roles` L15–46
 
+## includes/ProjectImportFiles.php (188 行, 10.5 KB)
+
+- `ps_import_file_store` L4–14
+- `ps_import_original_name` L17–22
+- `ps_import_file_get` L25–39
+- `ps_import_file_delete` L42–65
+- `ps_import_file_sheets` L68–75
+- `ps_import_file_parse` L77–91
+- `ps_xlsx_sheets` L98–177
+- `ps_import_file_mark` L179–187
+- 加载：`require_once __DIR__ . '/../classes/SimpleXLSX.php';`
+
+## includes/ProjectImportParse.php (161 行, 12.4 KB)
+
+- `ps_import_date` L3–28
+- `ps_import_names` L34–60
+- `ps_import_split_joined_names` L63–79
+- `ps_import_names_lenient` L85–98
+- `ps_import_autofill_details` L104–115
+- `ps_import_fix_guide` L121–141
+- `ps_import_followup_rows` L147–160
+
 ## includes/ProjectImportResult.php (62 行, 3.8 KB)
 
 - `ps_import_upload_actor` L3–13
@@ -283,57 +305,18 @@
 - 加载：`require_once __DIR__ . '/ProjectIntake.php';`
 - 加载：`require_once __DIR__ . '/ProjectImportResult.php';`
 
-## includes/ProjectIntake.php (840 行, 57 KB)
+## includes/ProjectIntake.php (12 行, 0.8 KB)
 
-- `ps_intake_templates` L6–16
-- `ps_intake_template` L18–25
-- `ps_intake_program_suggestion` L28–47
-- `ps_template_cost_amount` L53–64
-- `ps_template_cost_status` L67–71
-- `ps_intake_add_template_cost` L73–88
-- `ps_intake_save_resources` L90–94
-- `ps_intake_confirm_resources` L100–126
-- `ps_employee_default_role` L129–134
-- `ps_intake_participants` L136–157
-- `ps_intake_domain_suggestion` L159–173
-- `ps_order_no_canonical` L176–182
-- `ps_order_no_resolve` L185–200
-- `ps_import_group_taken` L203–208
-- `ps_trademark_technical_role_open` L214–221
-- `ps_trademark_add_technical` L224–233
-- `ps_trademark_fix_row` L239–267
-- `ps_import_date` L269–294
-- `ps_import_names` L300–326
-- `ps_import_split_joined_names` L329–345
-- `ps_import_names_lenient` L351–364
-- `ps_import_autofill_details` L370–381
-- `ps_import_fix_guide` L387–407
-- `ps_import_followup_rows` L413–426
-- `ps_import_followup_save` L429–450
-- `ps_import_followup_get` L453–461
-- `ps_business_import_example_row` L464–480
-- `ps_import_row_is_example` L483–487
-- `ps_import_row_is_data` L490–494
-- `ps_import_headerless_map` L500–543
-- `ps_import_employee_index` L546–556
-- `ps_import_domain_mode` L558–564
-- `ps_import_kind_preference` L566–575
-- `ps_import_kind_preference_save` L577–582
-- `ps_import_business_signature` L585–588
-- `ps_import_business_detect` L591–642
-- `ps_import_business_preference_save` L645–651
-- `ps_import_file_store` L656–666
-- `ps_import_original_name` L669–674
-- `ps_import_file_get` L677–691
-- `ps_import_file_delete` L694–717
-- `ps_import_file_sheets` L720–727
-- `ps_import_file_parse` L729–743
-- `ps_xlsx_sheets` L750–829
-- `ps_import_file_mark` L831–839
 - 加载：`require_once __DIR__ . '/ProjectSettlement.php';`
 - 加载：`require_once __DIR__ . '/ProjectBusiness.php';`
 - 加载：`require_once __DIR__ . '/ProjectOrderItems.php';`
-- 加载：`require_once __DIR__ . '/../classes/SimpleXLSX.php';`
+- 加载：`require_once __DIR__ . '/intake/templates_resources.php';`
+- 加载：`require_once __DIR__ . '/intake/participants_orders.php';`
+- 加载：`require_once __DIR__ . '/ProjectImportParse.php';`
+- 加载：`require_once __DIR__ . '/intake/followup.php';`
+- 加载：`require_once __DIR__ . '/intake/parse_rows.php';`
+- 加载：`require_once __DIR__ . '/intake/parse_business.php';`
+- 加载：`require_once __DIR__ . '/ProjectImportFiles.php';`
 
 ## includes/ProjectJointIntake.php (15 行, 0.7 KB)
 
@@ -1118,6 +1101,51 @@
 ## includes/import_followup_modal.php (59 行, 7.4 KB)
 
 
+## includes/intake/followup.php (37 行, 2.6 KB)
+
+- `ps_import_followup_save` L4–25
+- `ps_import_followup_get` L28–36
+
+## includes/intake/parse_business.php (99 行, 6.8 KB)
+
+- `ps_import_domain_mode` L3–9
+- `ps_import_kind_preference` L11–20
+- `ps_import_kind_preference_save` L22–27
+- `ps_import_business_signature` L30–33
+- `ps_import_business_detect` L36–87
+- `ps_import_business_preference_save` L90–96
+
+## includes/intake/parse_rows.php (97 行, 7.3 KB)
+
+- `ps_business_import_example_row` L4–20
+- `ps_import_row_is_example` L23–27
+- `ps_import_row_is_data` L30–34
+- `ps_import_headerless_map` L40–83
+- `ps_import_employee_index` L86–96
+
+## includes/intake/participants_orders.php (143 行, 8.3 KB)
+
+- `ps_employee_default_role` L4–9
+- `ps_intake_participants` L11–32
+- `ps_intake_domain_suggestion` L34–48
+- `ps_order_no_canonical` L51–57
+- `ps_order_no_resolve` L60–75
+- `ps_import_group_taken` L78–83
+- `ps_trademark_technical_role_open` L89–96
+- `ps_trademark_add_technical` L99–108
+- `ps_trademark_fix_row` L114–142
+
+## includes/intake/templates_resources.php (124 行, 8.2 KB)
+
+- `ps_intake_templates` L3–13
+- `ps_intake_template` L15–22
+- `ps_intake_program_suggestion` L25–44
+- `ps_template_cost_amount` L50–61
+- `ps_template_cost_status` L64–68
+- `ps_intake_add_template_cost` L70–85
+- `ps_intake_save_resources` L87–91
+- `ps_intake_confirm_resources` L97–123
+
 ## includes/joint_settlement_rules.php (8 行, 1.7 KB)
 
 
@@ -1440,27 +1468,99 @@
 - 加载：`include __DIR__ . '/../includes/header.php';`
 - 加载：`include __DIR__ . '/../includes/footer.php';`
 
-## project/import.php (1239 行, 150.6 KB)
+## project/import.php (5 行, 0.4 KB)
 
-- 加载：`require_once __DIR__ . '/../includes/ProjectIntake.php';`
-- 加载：`require_once __DIR__ . '/../includes/ProjectOrderSplit.php';`
-- 加载：`require_once __DIR__ . '/../includes/ProjectSiteProjects.php';`
-- 加载：`require_once __DIR__ . '/../includes/ProjectTrademarkCost.php';`
-- 加载：`require_once __DIR__ . '/../includes/ProjectBusiness.php';`
-- 加载：`require_once __DIR__ . '/../includes/ProjectOrderSource.php';`
-- 加载：`require_once __DIR__ . '/../includes/ProjectAiFallback.php';`
-- 加载：`require_once __DIR__ . '/../includes/ProjectDepartmentImport.php';`
-- 加载：`require_once __DIR__ . '/../includes/ProjectImportResult.php';`
-- 加载：`require_once __DIR__ . '/../includes/ProjectImportClassification.php';`
-- 加载：`require_once __DIR__ . '/../classes/SimpleXLSX.php';`
-- 加载：`require_once __DIR__ . '/../includes/ProjectRenewalImport.php';`
-- 加载：`require_once __DIR__ . '/../includes/ProjectOrderFix.php';`
-- 加载：`require_once __DIR__ . '/../includes/dup_feedback.php';`
-- 加载：`require_once __DIR__ . '/../includes/dup_feedback.php';`
-- 加载：`require_once __DIR__ . '/../includes/ProjectAutoReview.php';`
-- 加载：`require_once __DIR__ . '/../includes/ProjectRenewalImport.php';`
-- 加载：`include __DIR__ . '/../includes/header.php';`
-- 加载：`include __DIR__ . '/../includes/footer.php';`
+- 加载：`include __DIR__ . '/import/01_context.php';`
+- 加载：`include __DIR__ . '/import/preview_controller.php';`
+- 加载：`include __DIR__ . '/import/06_followup.php';`
+- 加载：`include __DIR__ . '/import/view.php';`
+
+## project/import/01_context.php (79 行, 5.7 KB)
+
+- 加载：`require_once (dirname(__DIR__, 1)) . '/../includes/ProjectIntake.php';`
+- 加载：`require_once (dirname(__DIR__, 1)) . '/../includes/ProjectOrderSplit.php';`
+- 加载：`require_once (dirname(__DIR__, 1)) . '/../includes/ProjectSiteProjects.php';`
+- 加载：`require_once (dirname(__DIR__, 1)) . '/../includes/ProjectTrademarkCost.php';`
+- 加载：`require_once (dirname(__DIR__, 1)) . '/../includes/ProjectBusiness.php';`
+- 加载：`require_once (dirname(__DIR__, 1)) . '/../includes/ProjectOrderSource.php';`
+- 加载：`require_once (dirname(__DIR__, 1)) . '/../includes/ProjectAiFallback.php';`
+- 加载：`require_once (dirname(__DIR__, 1)) . '/../includes/ProjectDepartmentImport.php';`
+- 加载：`require_once (dirname(__DIR__, 1)) . '/../includes/ProjectImportResult.php';`
+- 加载：`require_once (dirname(__DIR__, 1)) . '/../includes/ProjectImportClassification.php';`
+- 加载：`require_once (dirname(__DIR__, 1)) . '/../classes/SimpleXLSX.php';`
+
+## project/import/02_read_sheets.php (143 行, 14.2 KB)
+
+
+## project/import/03a_order_no_and_split.php (110 行, 11.3 KB)
+
+
+## project/import/03b_date_amount_status.php (213 行, 24.4 KB)
+
+
+## project/import/03c_people_resources.php (87 行, 10.8 KB)
+
+
+## project/import/04_merge_items.php (24 行, 2.9 KB)
+
+
+## project/import/04_merge_rows.php (79 行, 7.1 KB)
+
+- 加载：`require_once (dirname(__DIR__, 1)) . '/../includes/ProjectOrderFix.php';`
+
+## project/import/05_commit.php (4 行, 0.2 KB)
+
+- 加载：`include __DIR__ . '/commit/part_1.php';`
+- 加载：`include __DIR__ . '/commit/part_2.php';`
+
+## project/import/06_followup.php (30 行, 2.4 KB)
+
+
+## project/import/commit/part_1.php (48 行, 4.9 KB)
+
+- 加载：`require_once (dirname((dirname(__DIR__, 1)), 1)) . '/../includes/dup_feedback.php';`
+
+## project/import/commit/part_2.php (203 行, 23.4 KB)
+
+- 加载：`require_once (dirname((dirname(__DIR__, 1)), 1)) . '/../includes/dup_feedback.php';`
+- 加载：`require_once (dirname((dirname(__DIR__, 1)), 1)) . '/../includes/ProjectAutoReview.php';`
+- 加载：`require_once (dirname((dirname(__DIR__, 1)), 1)) . '/../includes/ProjectRenewalImport.php';`
+
+## project/import/preview_controller.php (127 行, 13.4 KB)
+
+- 加载：`include (dirname(__DIR__, 1)) . '/import/02_read_sheets.php';`
+- 加载：`require_once (dirname(__DIR__, 1)) . '/../includes/ProjectRenewalImport.php';`
+- 加载：`include (dirname(__DIR__, 1)) . '/import/03a_order_no_and_split.php';`
+- 加载：`include (dirname(__DIR__, 1)) . '/import/03b_date_amount_status.php';`
+- 加载：`include (dirname(__DIR__, 1)) . '/import/03c_people_resources.php';`
+- 加载：`include (dirname(__DIR__, 1)) . '/import/04_merge_items.php';`
+- 加载：`include (dirname(__DIR__, 1)) . '/import/04_merge_rows.php';`
+- 加载：`include (dirname(__DIR__, 1)) . '/import/05_commit.php';`
+
+## project/import/view.php (85 行, 23.6 KB)
+
+- 加载：`include (dirname(__DIR__, 1)) . '/../includes/header.php';`
+- 加载：`include __DIR__ . '/../../assets/css/project_import_1.css';`
+- 加载：`include __DIR__ . '/view/render_15.php';`
+- 加载：`include __DIR__ . '/../../assets/js/project_import_2.js';`
+- 加载：`include __DIR__ . '/../../assets/js/project_import_3.js';`
+- 加载：`include __DIR__ . '/view/render_62.php';`
+- 加载：`include __DIR__ . '/view/render_63.php';`
+- 加载：`include __DIR__ . '/../../assets/js/project_import_4.js';`
+- 加载：`include __DIR__ . '/view/view/js_5.php';`
+- 加载：`include (dirname(__DIR__, 1)) . '/../includes/footer.php';`
+
+## project/import/view/render_15.php (2 行, 1.3 KB)
+
+
+## project/import/view/render_62.php (2 行, 1.6 KB)
+
+
+## project/import/view/render_63.php (2 行, 1.6 KB)
+
+
+## project/import/view/view/js_5.php (17 行, 1.7 KB)
+
 
 ## project/import_undo_api.php (26 行, 1.6 KB)
 
