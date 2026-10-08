@@ -1,6 +1,6 @@
 # 大文件拆分完成记录
 
-P0–P6 已完成。仅搬运代码及校正加载路径，调用方继续使用原入口。未部署线上。
+P0–P6 已完成。拆分提交仅搬运代码及校正加载路径，调用方继续使用原入口。已部署至新服务器，发布前保留了线上独有的月度接口；详见文末发布记录。
 
 ## 验证结果
 
@@ -20,7 +20,7 @@ P0–P6 已完成。仅搬运代码及校正加载路径，调用方继续使用
 - 月度规则以同作用域 `includes/monthly/types/` 分片执行，保留唯一入口 `ps_monthly_results()`。循环跳转留在主函数，不新增全局策略函数，满足函数清单完全一致的要求。
 - 页面分片在原作用域加载。静态 JS/CSS 搬到 assets，动态脚本留在视图分片；通过 include 保持原始浏览器输出和执行顺序。
 - 入口级 CLI return 保留在入口。页面原有全局函数提前 require_once，保持函数在动作处理前可用。
-- 原入口和所有 PHP/JS/CSS 分片必须同时发布。现有 deploy_live.sh 仅接收 PHP；发布这些资源时需使用覆盖 JS/CSS 的通道。本次未发布。
+- 原入口和所有 PHP/JS/CSS 分片必须同时发布。现有 deploy_live.sh 仅接收 PHP；本次发布单独覆盖三种文件，并保留主机校验、防覆盖、备份和原子替换流程。先装入全部新增分片与资源，再替换原入口。
 
 ## 重跑命令
 
@@ -35,7 +35,7 @@ C:/BtSoft/php/74/php.exe -d disable_functions= tests/project_monthly_split_compa
 
 `tools/split_manifest.json` 保存搬运基线和分片拓扑。可用 `verify_split.php --entry <原入口>` 做增量检查。后续功能提交不应为通过本次搬运校验而重置基线。
 
-## 拆分结果
+## 纯拆分结果（066cd2c）
 
 16 个原入口加载 244 个分片，全部文件均不超过 400 行、25 KB，最长分片 356 行、最大分片约 24.5 KB。函数及加载关系可在 `docs/code-map.md` 查询。
 
@@ -97,3 +97,14 @@ P0–P6 分别提交为 `6c1b82e`、`0e16a29`、`8a1851e`、`3289033`、`4d32ba9
 | `trademark_upload_flow_202608.php` | 1 |
 | `website_split_import_smoke.php` | 1 |
 | `wechat_writing_smoke.php` | 1 |
+
+## 远程发布记录
+
+- 发布代码版本：`17fe1091f3991b3dd32c71f66268f099b30186b4`，已推送 GitHub `origin/main`。
+- 目标：新服务器 `ai` / `192.168.1.254`，目录 `/www/wwwroot/hezuoshang`，访问入口 `https://me.laibangwo.com`。
+- 线上快照：16 个原文件、244 个新增文件。订单详情和结算文件对应历史提交；列表中额外的订单项目处理在当前版本中保留。SalaryCalculator 仅多出 `runModuleFor()`，已原样保留于独立提交。
+- 服务器演练通过后，正式上传 247 个 PHP、10 个 JS、3 个 CSS。上传前再次核对线上快照，新增依赖先安装，原入口最后替换；没有上传 config、测试或本地连接配置，没有执行数据库迁移或写入测试。
+- PHP 7.4.33 / 8.3.31 的 247 个 PHP 文件语法检查通过；两版运行时清单通过（294 个全局函数、SalaryCalculator 41 个方法），全部 260 个文件的 SHA-256 与发布包一致。
+- 12 个内网请求及公网 HTTPS 登录请求通过：登录页 200、业务页 302 至 `/login.php`，部署期间新增 PHP Fatal/Parse/Uncaught 错误为零。此处为未登录状态的 HTTP 冒烟验证，完整页面输出对比见前面的本地隔离验证。
+- 服务器备份：`/root/deploy_backup_split_20261008_133749_ww89v34f`，包含原文件、发布清单、验证报告及防覆盖回滚程序。
+- 回滚命令（新服务器上执行）：`python3 /root/deploy_backup_split_20261008_133749_ww89v34f/rollback.py`。会先验证当前文件仍为本次发布版本，再恢复 16 个原文件并移除 244 个新增文件；若后来有其他发布则拒绝覆盖。
