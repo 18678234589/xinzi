@@ -234,9 +234,11 @@ trait CalcStandardTrait
         $costSummary = !empty($costDetail) ? '  - ' . implode(' - ', $costDetail) : '';
         // 公式显示手续费扣除
         if ($priceSource === 'selling_price' && $serviceFeeRate > 0) {
-            $formula = sprintf('%s售价¥%.2f-成本¥%.2f-手续费%.2f(售价%.1f%%)=¥%.2f%s，×%.2f%%=%.2f', $rangeLabel, $totalPrice, $totalCost, $serviceFee, $serviceFeeRate*100, $netTotal, $costSummary, $rate*100, $amt);
+            $formula = sprintf('%s售价¥%.2f-成本¥%.2f-手续费%.2f(售价%.1f%%)=¥%.2f%s，×%.2f%%=%.2f', $rangeLabel, $totalPrice, $totalCost, $serviceFee, $serviceFeeRate
+    *100, $netTotal, $costSummary, $rate*100, $amt);
         } elseif ($serviceFeeRate > 0) {
-            $formula = sprintf('%s%.2f-手续费%.2f(%.1f%%)=%.2f%s，×%.2f%%=%.2f', $rangeLabel, $total, $serviceFee, $serviceFeeRate*100, $netTotal, $costSummary, $rate*100, $amt);
+            $formula = sprintf('%s%.2f-手续费%.2f(%.1f%%)=%.2f%s，×%.2f%%=%.2f', $rangeLabel, $total, $serviceFee, $serviceFeeRate*100, $netTotal, $costSummary, $rate*100, $amt
+    );
         } else {
             $formula = sprintf('%s%.2f%s，×%.2f%%=%.2f', $rangeLabel, $total, $costSummary, $rate*100, $amt);
         }

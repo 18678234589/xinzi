@@ -118,22 +118,22 @@ trait CalcAttendanceRewardTrait
     {
         $newReward = (float)($cfg['new_customer_reward'] ?? 50);
         $oldReward = (float)($cfg['old_customer_reward'] ?? 30);
-        
+
         $employeeId = $c['employee']['id'] ?? 0;
-        
+
         // 记录每个旺旺号的客户类型：true=新客户, false=老客户
         $customerTypes = [];
-        
+
         foreach (($c['orders'] ?? []) as $o) {
             if ($o['employee_id'] != $employeeId) continue;
-            
+
             $wangwang = self::extractWangwang($o);
             if ($wangwang === '') continue;
-            
+
             $rawData = is_string($o['raw_data'] ?? '') ? json_decode($o['raw_data'], true) : ($o['raw_data'] ?? []);
             $isRefund = isset($rawData['__is_refund__']) && $rawData['__is_refund__'] === '1';
             if ($isRefund) continue;
-            
+
             // 获取备注内容
             $remark = strtolower(trim($o['remark'] ?? ''));
             $rawRemark = '';
@@ -146,10 +146,10 @@ trait CalcAttendanceRewardTrait
                     }
                 }
             }
-            
+
             // 判断是否新客户：备注包含"新客户"
             $isNewCustomer = strpos($remark, '新客户') !== false || strpos($rawRemark, '新客户') !== false;
-            
+
             // 如果已是新客户，保持不变；否则根据当前订单更新
             if ($isNewCustomer) {
                 $customerTypes[$wangwang] = true;
@@ -158,7 +158,7 @@ trait CalcAttendanceRewardTrait
                 $customerTypes[$wangwang] = false;
             }
         }
-        
+
         // 统计新客户和老客户数量
         $newCount = 0;
         $oldCount = 0;
@@ -169,11 +169,11 @@ trait CalcAttendanceRewardTrait
                 $oldCount++;
             }
         }
-        
+
         $newAmount = $newCount * $newReward;
         $oldAmount = $oldCount * $oldReward;
         $totalAmount = $newAmount + $oldAmount;
-        
+
         $formulaParts = [];
         if ($newCount > 0) {
             $formulaParts[] = sprintf('新客户%d人×¥%.2f=%.2f', $newCount, $newReward, $newAmount);
@@ -185,7 +185,7 @@ trait CalcAttendanceRewardTrait
         if (count($formulaParts) === 0) {
             $formula = '0.00';
         }
-        
+
         return [
             'amount' => round($totalAmount, 2),
             'formula' => $formula,

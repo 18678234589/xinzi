@@ -24,7 +24,8 @@ function renderModuleForm($idx, $type, $cfg)
             $html .= "<div class=\"form-group bg-warning bg-light p-2 rounded border-left-4 border-left-warning\">";
             $html .= "<label><strong>{$f['label']}</strong> ";
             $html .= "<small class=\"text-muted\">上传订单时下拉框会显示此名称</small></label>";
-            $html .= "<div class=\"input-group\"><div class=\"input-group-prepend\"><span class=\"input-group-text bg-warning text-dark\"><i class=\"fas fa-tag\"></i></span></div>";
+            $html .= "<div class=\"input-group\"><div class=\"input-group-prepend\"><span class=\"input-group-text bg-warning text-dark\"><i class=\"fas fa-tag\"></i></span></div>"
+    ;
             $html .= "<input type=\"text\" {$extraAttrs} value=\"" . $displayName . "\" placeholder=\"{$ph}\"></div>";
             $html .= "</div>";
         } elseif ($f['type'] === 'number') {
@@ -35,7 +36,8 @@ function renderModuleForm($idx, $type, $cfg)
             $html .= "<div class=\"input-group\">{$suffix}<input type=\"{$f['type']}\" {$extraAttrs} value=\"" . e($valDisplay) . "\" placeholder=\"{$ph}\"></div>";
             $desc = $f['desc'] ?? '';
             if ($prefilledFromDept) {
-                $desc = '<span class="text-info"><i class="fas fa-info-circle"></i> 已从部门配置(dept_fee.php)预填 ' . ($deptFeeRate * 100) . '%，保存后同步到算法配置</span>';
+                $desc = '<span class="text-info"><i class="fas fa-info-circle"></i> 已从部门配置(dept_fee.php)预填 ' . ($deptFeeRate * 100) . '%，保存后同步到算法配置</span>'
+    ;
             }
             $html .= "<small class=\"text-muted\">{$desc}</small></div>";
         } elseif ($f['type'] === 'select') {
@@ -74,7 +76,8 @@ function renderModuleForm($idx, $type, $cfg)
                     '<input type="number" class="form-control form-control-sm tier-threshold" name="t_threshold['.$idx.']['.$ti.']" value="'.$t['threshold'].'" step="any"></div>'.
                     '<div class="col-5"><label>固定服务费金额</label><div class="input-group input-group-sm">'.
                     '<div class="input-group-prepend"><span class="input-group-text">¥</span></div>'.
-                    '<input type="number" class="form-control tier-base-amount" name="t_base_amount['.$idx.']['.$ti.']" value="'.($t['base_amount']??0).'" step="any" min="0"></div></div>'.
+                    '<input type="number" class="form-control tier-base-amount" name="t_base_amount['.$idx.']['.$ti.']" value="'.($t['base_amount']??0).'" step="any" min="0"></div></div>'
+    .
                     '<div class="col-2 d-flex align-items-end"><button type="button" class="btn btn-outline-danger btn-sm tier-rm-form">×</button></div></div>';
             }
             $html .= '</div></div>';

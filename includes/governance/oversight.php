@@ -12,7 +12,8 @@ function pg_oversight_policy()
 /** 需要监委会提交监督意见的任务：轮值董事长本人录入、未被退回、起算日之后。附截止日（录入后 N 天，节假日顺延）。 */
 function pg_oversight_tasks($policy)
 {
-    $rows = db()->prepare("SELECT r.id,r.owner_employee_id,r.category,r.description,r.reviewer_employee_id,r.created_at,e.name AS owner_name FROM project_governance_records r JOIN employees e ON e.id=r.owner_employee_id WHERE r.record_kind='chair' AND r.created_by_employee_id=r.owner_employee_id AND r.review_state<>'rejected' AND r.created_at>=? ORDER BY r.created_at");
+    $rows = db()->prepare("SELECT r.id,r.owner_employee_id,r.category,r.description,r.reviewer_employee_id,r.created_at,e.name AS owner_name FROM project_governance_records r JOIN employees e ON e.id=r.owner_employee_id WHERE r.record_kind='chair' AND r.created_by_employee_id=r.owner_employee_id AND r.review_state<>'rejected' AND r.created_at>=? ORDER BY r.created_at"
+    );
     $rows->execute([PG_REMINDER_START . ' 00:00:00']);
     $tasks = [];
     foreach ($rows->fetchAll() as $task) {
@@ -32,7 +33,8 @@ function pg_oversight_done_by($task)
     $members = pg_committee_members();
     if ((int)$task['reviewer_employee_id'] > 0 && in_array((int)$task['reviewer_employee_id'], $members, true)) return (int)$task['reviewer_employee_id'];
     if (!$members) return 0;
-    $q = db()->prepare("SELECT owner_employee_id FROM project_governance_records WHERE record_kind='committee' AND owner_employee_id IN (" . implode(',', $members) . ") AND review_state<>'rejected' AND created_at>=? AND created_at<? AND (parent_record_id IS NULL OR parent_record_id=?) ORDER BY created_at LIMIT 1");
+    $q = db()->prepare("SELECT owner_employee_id FROM project_governance_records WHERE record_kind='committee' AND owner_employee_id IN (" . implode(',', $members) . ") AND review_state<>'rejected' AND created_at>=? AND created_at<? AND (parent_record_id IS NULL OR parent_record_id=?) ORDER BY created_at LIMIT 1"
+    );
     $q->execute([$task['created_at'], (new DateTimeImmutable($task['deadline']))->modify('+1 day')->format('Y-m-d 00:00:00'), (int)$task['id']]);
     return (int)$q->fetchColumn();
 }
@@ -66,10 +68,12 @@ function pg_committee_team_units($from, $until)
     if (!$members) return ['units' => 0, 'keys' => []];
     $in = implode(',', $members);
     $keys = [];
-    $q = db()->prepare("SELECT id,parent_record_id FROM project_governance_records WHERE record_kind='committee' AND review_state='approved' AND bonus_delta IS NULL AND owner_employee_id IN ($in) AND record_date>=? AND record_date<?");
+    $q = db()->prepare("SELECT id,parent_record_id FROM project_governance_records WHERE record_kind='committee' AND review_state='approved' AND bonus_delta IS NULL AND owner_employee_id IN ($in) AND record_date>=? AND record_date<?"
+    );
     $q->execute([$from, $until]);
     foreach ($q->fetchAll() as $r) $keys[$r['parent_record_id'] ? 'task:' . (int)$r['parent_record_id'] : 'record:' . (int)$r['id']] = true;
-    $q = db()->prepare("SELECT id FROM project_governance_records WHERE record_kind='chair' AND review_state IN ('approved','rejected') AND reviewer_employee_id IN ($in) AND record_date>=? AND record_date<?");
+    $q = db()->prepare("SELECT id FROM project_governance_records WHERE record_kind='chair' AND review_state IN ('approved','rejected') AND reviewer_employee_id IN ($in) AND record_date>=? AND record_date<?"
+    );
     $q->execute([$from, $until]);
     foreach ($q->fetchAll(PDO::FETCH_COLUMN) as $id) $keys['task:' . (int)$id] = true;
     return ['units' => count($keys), 'keys' => array_keys($keys)];
@@ -77,7 +81,8 @@ function pg_committee_team_units($from, $until)
 
 function pg_committee_members()
 {
-    return array_map('intval', db()->query("SELECT employee_id FROM project_governance_members WHERE governance_role='committee' AND is_active=1 ORDER BY employee_id")->fetchAll(PDO::FETCH_COLUMN));
+    return array_map('intval', db()->query("SELECT employee_id FROM project_governance_members WHERE governance_role='committee' AND is_active=1 ORDER BY employee_id")->fetchAll(PDO
+    ::FETCH_COLUMN));
 }
 
 /** 截止日已过仍未提交监督意见的监委，每项任务每人扣一次（唯一键防重）并发站内信。 */
@@ -97,8 +102,11 @@ function pg_sync_oversight_penalties($date = null)
             if ($insert->rowCount() !== 1) continue;
             $added++;
             $penaltyId = (int)db()->lastInsertId();
-            ps_audit('governance_committee_penalty', $penaltyId, 'auto_apply', ['type' => 'system', 'id' => 0], ['task_record_id' => (int)$task['id'], 'employee_id' => $memberId, 'due' => $task['deadline'], 'amount' => -$policy['penalty']]);
-            pg_message($memberId, 'oversight_penalty', '未按时提交监督意见，已自动扣减 ¥' . money($policy['penalty']), $task['owner_name'] . ' 录入的任务「' . mb_substr($task['category'] === '三天脑洞' ? strtok($task['description'], "\n") : $task['category'], 0, 40) . '」截止 ' . $task['deadline'] . ' 前没有你的监督意见，已按规则从你本任期监委奖励中扣减。如有正当理由，请其他监委写明理由豁免。', '/project/governance_ideas.php#penalties', 'oversight-penalty:' . $penaltyId);
+            ps_audit('governance_committee_penalty', $penaltyId, 'auto_apply', ['type' => 'system', 'id' => 0], ['task_record_id' => (int)$task['id'], 'employee_id' => $memberId, 'due'
+    => $task['deadline'], 'amount' => -$policy['penalty']]);
+            pg_message($memberId, 'oversight_penalty', '未按时提交监督意见，已自动扣减 ¥' . money($policy['penalty']), $task['owner_name'] . ' 录入的任务「' .
+    mb_substr($task['category'] === '三天脑洞' ? strtok($task['description'], "\n") : $task['category'], 0, 40) . '」截止 ' . $task['deadline'] . ' 前没有你的监督意见，已按规则从你本任期监委奖励中扣减。如有正当理由，请其他监委写明理由豁免。'
+    , '/project/governance_ideas.php#penalties', 'oversight-penalty:' . $penaltyId);
         }
     }
     return $added;

@@ -39,7 +39,8 @@ trait CalcProfitTrait
 
         return [
             'amount' => round($amt, 2),
-            'formula' => sprintf('((订单金额¥%.2f - 成本¥%.2f) - 订单金额¥%.2f×%.2f%%) ×%.2f%% = %.2f', $totalPrice, $totalCost, $totalPrice, $serviceFeeRate*100, $commissionRate*100, $amt),
+            'formula' => sprintf('((订单金额¥%.2f - 成本¥%.2f) - 订单金额¥%.2f×%.2f%%) ×%.2f%% = %.2f', $totalPrice, $totalCost, $totalPrice, $serviceFeeRate*100, $commissionRate
+    *100, $amt),
             'type' => 'profit_commission',
         ];
     }

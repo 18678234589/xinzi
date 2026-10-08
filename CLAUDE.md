@@ -19,8 +19,8 @@
 - 验证：`php tools/verify_split.php`、相关测试、同数据渲染对比及 PHP 7.4 语法检查。
 - `tools/split_manifest.json` 是本次搬运基线；后续功能修改应独立提交，不要为让检查通过而重置基线。
 
-## 正在拆分
+## 拆分登记
 
 | 会话 | 文件 | 状态 |
 |---|---|---|
-| 大文件拆分 | `orders/index.php` | 进行中 |
+| 大文件拆分 | P0–P6 全部 16 个入口 | 已完成，锁已释放；见 `docs/split-progress.md` |

@@ -48,7 +48,8 @@ trait CalcTrademarkTrait
 
         return [
             'amount' => round($amt, 2),
-            'formula' => sprintf('((售价¥%.2f - 成本¥%.2f) - 售价¥%.2f×%.2f%%) ×%.2f%% = ¥%.2f', $totalPrice, $totalCost, $totalPrice, $serviceFeeRate*100, $commissionRate*100, $amt),
+            'formula' => sprintf('((售价¥%.2f - 成本¥%.2f) - 售价¥%.2f×%.2f%%) ×%.2f%% = ¥%.2f', $totalPrice, $totalCost, $totalPrice, $serviceFeeRate*100, $commissionRate
+    *100, $amt),
             'type' => 'trademark_commission',
         ];
     }

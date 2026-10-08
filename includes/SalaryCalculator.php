@@ -82,7 +82,7 @@ class SalaryCalculator
     }
 
     // ==================== 核心：计算项目报酬 ====================
-    
+
     /**
      * 计算项目报酬（多模块组合）
      * 
@@ -123,24 +123,24 @@ class SalaryCalculator
         $context['work_hours']   = $attWorkHours;
 
         $configFile = self::getConfigFile($employee['id']);
-        
+
         if (file_exists($configFile)) {
             // 新版：读取 JSON 多模块配置
             $raw = json_decode(file_get_contents($configFile), true);
             if ($raw && !empty($raw['modules'])) {
                 $results = [];
-                
+
                 // DEBUG: 输出配置文件内容
                 error_log("calculate: employee_id={$employee['id']}, order_total=$orderTotal, configFile=$configFile");
-                
+
                 file_put_contents(__DIR__ . '/../debug_config.txt', json_encode($raw['modules'], JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE));
-                
+
                 // 已禁用自动退款扣除
                 // $refundDeduction = self::calcRefundDeduction($context);
                 // if ($refundDeduction !== null && $refundDeduction['amount'] != 0) {
                 //     $results[] = $refundDeduction;
                 // }
-                
+
                 // 再计算各个项目分成模块（排除退款订单）
                 // 先找出 base_salary 模块（自定义固定服务费，覆盖合作人员表固定服务费）
                 $customBase = null;
@@ -243,7 +243,7 @@ class SalaryCalculator
     }
 
     // ==================== 单模块执行引擎 ====================
-    
+
     private static function runModule($type, $config, $ctx, $moduleName = '')
     {
         switch ($type) {
@@ -296,7 +296,7 @@ class SalaryCalculator
 
     // ---- 考勤-全勤奖 ----
 /* split: includes/salary/CalcAttendanceRewardTrait.php */ use CalcAttendanceRewardTrait;
-    
+
 /* split: includes/salary/CalcOrderCustomerTrait.php */ use CalcOrderCustomerTrait;
 
     // ---- 小程序项目分成（利润项目分成 + 新老客户补助）----

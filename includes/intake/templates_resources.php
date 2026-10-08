@@ -17,7 +17,8 @@ function ps_intake_template($id, $category)
     $q = db()->prepare('SELECT * FROM project_cost_templates WHERE id=? AND category=? AND is_active=1 AND requires_proof=0');
     $q->execute([(int)$id, $category]);
     $template = $q->fetch();
-    if (!$template) throw new RuntimeException('所选' . (['domain' => '域名', 'program' => '程序套餐'][$category] ?? '资源') . '成本模板不可用，请刷新后重选');
+    if (!$template) throw new RuntimeException('所选' . (['domain' => '域名', 'program' => '程序套餐'][$category] ?? '资源') . '成本模板不可用，请刷新后重选'
+    );
     return $template;
 }
 
@@ -50,7 +51,8 @@ function ps_intake_program_suggestion($text, $templates)
 function ps_template_cost_amount($template, $contract, $quantity = 1)
 {
     if (($template['price_mode'] ?? 'fixed') === 'percent') {
-        if ((float)$contract <= 0) throw new RuntimeException('“' . $template['name'] . '”按售价的 ' . rtrim(rtrim((string)$template['price'], '0'), '.') . '% 计算，请先填写售价');
+        if ((float)$contract <= 0) throw new RuntimeException('“' . $template['name'] . '”按售价的 ' . rtrim(rtrim((string)$template['price'], '0'), '.') . '% 计算，请先填写售价'
+    );
         $unit = round((float)$contract * (float)$template['price'] / 100, 2);
         $supplier = $template['supplier_price'] !== null ? round((float)$contract * (float)$template['supplier_price'] / 100 * (float)$quantity, 2) : null;
     } else {
@@ -77,17 +79,22 @@ function ps_intake_add_template_cost($orderId, $template, $actor, $origin, $quan
     }
     [$price, $amount, $supplier] = ps_template_cost_amount($template, $contract, $quantity);
     $status = $forceStatus ?? ps_template_cost_status($template, $amount);
-    $q = db()->prepare('INSERT INTO project_costs (order_id,template_id,template_version,category,item_name,quantity,unit,unit_price,amount,supplier_amount,cost_kind,is_custom,reason,review_status,submitted_by_employee) VALUES (?,?,?,?,?,?,?,?,?,?,?,0,?,?,?)');
-    $q->execute([(int)$orderId, (int)$template['id'], (int)$template['version'], $template['category'], $template['name'] . ($template['specification'] ? ' · ' . $template['specification'] : ''), (float)$quantity, $template['unit'], $price, $amount, $supplier, $template['cost_kind'], $origin, $status, $actor['employee_id'] ?? null]);
+    $q = db()->prepare('INSERT INTO project_costs (order_id,template_id,template_version,category,item_name,quantity,unit,unit_price,amount,supplier_amount,cost_kind,is_custom,reason,review_status,submitted_by_employee) VALUES (?,?,?,?,?,?,?,?,?,?,?,0,?,?,?)'
+    );
+    $q->execute([(int)$orderId, (int)$template['id'], (int)$template['version'], $template['category'], $template['name'] . ($template['specification'] ? ' · ' . $template['specification'
+    ] : ''), (float)$quantity, $template['unit'], $price, $amount, $supplier, $template['cost_kind'], $origin, $status, $actor['employee_id'] ?? null]);
     $costId = (int)db()->lastInsertId();
-    ps_audit('cost', $costId, 'create_from_intake', $actor, ['order_id' => (int)$orderId, 'template_id' => (int)$template['id'], 'amount' => $amount, 'status' => $status, 'origin' => $origin]);
+    ps_audit('cost', $costId, 'create_from_intake', $actor, ['order_id' => (int)$orderId, 'template_id' => (int)$template['id'], 'amount' => $amount, 'status' => $status, 'origin'
+    => $origin]);
     return $costId;
 }
 
 function ps_intake_save_resources($orderId, $sourceType, $sourceLine, $domainTemplate, $serverTemplate, $sslAmount, $domainMode = null, $programTemplate = null)
 {
-    $q = db()->prepare('INSERT INTO project_order_resources (order_id,source_type,source_line,domain_mode,domain_template_id,server_template_id,program_template_id,ssl_expected_amount) VALUES (?,?,?,?,?,?,?,?)');
-    $q->execute([(int)$orderId, $sourceType, $sourceLine, $domainMode ?? ($domainTemplate ? 'template' : 'none'), $domainTemplate['id'] ?? null, $serverTemplate['id'] ?? null, $programTemplate['id'] ?? null, $sslAmount !== null && (float)$sslAmount > 0 ? round((float)$sslAmount, 2) : null]);
+    $q = db()->prepare('INSERT INTO project_order_resources (order_id,source_type,source_line,domain_mode,domain_template_id,server_template_id,program_template_id,ssl_expected_amount) VALUES (?,?,?,?,?,?,?,?)'
+    );
+    $q->execute([(int)$orderId, $sourceType, $sourceLine, $domainMode ?? ($domainTemplate ? 'template' : 'none'), $domainTemplate['id'] ?? null, $serverTemplate['id'] ?? null, $programTemplate
+    ['id'] ?? null, $sslAmount !== null && (float)$sslAmount > 0 ? round((float)$sslAmount, 2) : null]);
 }
 
 /**
@@ -96,7 +103,8 @@ function ps_intake_save_resources($orderId, $sourceType, $sourceLine, $domainTem
  */
 function ps_intake_confirm_resources($orderId, $mode, $domainTemplateId, $serverTemplateId, $actor, $programTemplateId = 0)
 {
-    if (!(int)$programTemplateId) foreach (poi_items($orderId) as $item) if ($item['category']==='program' && $item['template_id']) { $programTemplateId=(int)$item['template_id']; break; }
+    if (!(int)$programTemplateId) foreach (poi_items($orderId) as $item) if ($item['category']==='program' && $item['template_id']) { $programTemplateId=(int)$item['template_id'];
+    break; }
     $program = (int)$programTemplateId > 0 ? ps_intake_template((int)$programTemplateId, 'program') : null;
     if ($program && $mode === '') $mode = 'none';
     if (!in_array($mode, ['none','template'], true)) throw new RuntimeException('请选择域名使用方式或程序套餐');

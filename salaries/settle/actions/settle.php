@@ -74,11 +74,13 @@
                     }
                     $hasBaseAmt = db()->query("SHOW COLUMNS FROM `salaries` LIKE 'base_salary_amount'")->fetchAll();
                     if (empty($hasBaseAmt)) {
-                        db()->exec("ALTER TABLE `salaries` ADD COLUMN `base_salary_amount` DECIMAL(12,2) NOT NULL DEFAULT 0.00 COMMENT '折算后固定服务费' AFTER `full_attendance_bonus`");
+                        db()->exec("ALTER TABLE `salaries` ADD COLUMN `base_salary_amount` DECIMAL(12,2) NOT NULL DEFAULT 0.00 COMMENT '折算后固定服务费' AFTER `full_attendance_bonus`"
+    );
                     }
                     $hasIns = db()->query("SHOW COLUMNS FROM `salaries` LIKE 'insurance_amount'")->fetchAll();
                     if (empty($hasIns)) {
-                        db()->exec("ALTER TABLE `salaries` ADD COLUMN `insurance_amount` DECIMAL(12,2) NOT NULL DEFAULT 0.00 COMMENT '保险扣除金额' AFTER `base_salary_amount`");
+                        db()->exec("ALTER TABLE `salaries` ADD COLUMN `insurance_amount` DECIMAL(12,2) NOT NULL DEFAULT 0.00 COMMENT '保险扣除金额' AFTER `base_salary_amount`"
+    );
                     }
                     $stmt = db()->prepare("
                         INSERT INTO salaries (employee_id, month, order_total, commission, net_pay, extra_amount, full_attendance_bonus, base_salary_amount, insurance_amount)
@@ -105,7 +107,8 @@
                             $settleModules[] = [
                                 'name'   => $ei['remark'] !== '' ? $ei['remark'] : '自定义额外金额',
                                 'amount' => round($ei['amount'], 2),
-                                'formula'=> $ei['remark'] !== '' ? sprintf('手动调整 %+.2f（%s）', $ei['amount'], $ei['remark']) : sprintf('手动调整 %+.2f', $ei['amount']),
+                                'formula'=> $ei['remark'] !== '' ? sprintf('手动调整 %+.2f（%s）', $ei['amount'], $ei['remark']) : sprintf('手动调整 %+.2f', $ei['amount']
+    ),
                                 'type'   => 'extra_amount',
                             ];
                         }

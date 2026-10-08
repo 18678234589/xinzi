@@ -78,7 +78,8 @@
 
                     if ($error === '' && !empty($rows)) {
                         // 自动查找表头行：第一行可能不是真正的表头（如标题行），往下找含已知列名的行
-                        $headerKeywords = ['姓名', '价格', '售价', '成本', '域名', '建站', '订单', '金额', '日期', '时间', '店铺', '备注', '员工', '合作人员'];
+                        $headerKeywords = ['姓名', '价格', '售价', '成本', '域名', '建站', '订单', '金额', '日期', '时间', '店铺', '备注', '员工', '合作人员'
+    ];
                         $headerIdx = 0;
                         for ($hi = 0; $hi < min(count($rows), 5); $hi++) {
                             $rowText = implode(' ', array_map('trim', $rows[$hi]));
@@ -112,7 +113,7 @@
                             // 日期列：支持"时间"或"日期"
                             if ($idxDate  === null && (mb_strpos($k, '时间') !== false || mb_strpos($k, '日期') !== false)) $idxDate = $idx;
                         }
-                        
+
                         // 校验：要么有订单金额列，要么有价格和成本列
                         // 例外：如果选中的模块全部是"按数量计算"类型（单量补贴/引流订单），则不需要金额列
                         $countOnlyModules = false;
@@ -148,7 +149,8 @@
                         $monthPattern = $upload_month . '%';
                         if ($order_scope === 'department' && $dept_name !== '') {
                             // 部门订单：软删除该部门当月的汇总行 + 归属合作人员的拆分行（移入回收站）
-                            $del = db()->prepare("UPDATE orders SET is_deleted=1 WHERE DATE_FORMAT(order_date, '%Y-%m') = ? AND order_scope = 'department' AND employee_id = 0 AND raw_data LIKE ?");
+                            $del = db()->prepare("UPDATE orders SET is_deleted=1 WHERE DATE_FORMAT(order_date, '%Y-%m') = ? AND order_scope = 'department' AND employee_id = 0 AND raw_data LIKE ?"
+    );
                             $del->execute([$upload_month, '%\"__dept__\":\"' . $dept_name . '\"%']);
                             $del2 = db()->prepare("UPDATE orders SET is_deleted=1 WHERE DATE_FORMAT(order_date, '%Y-%m') = ? AND order_scope = 'personal' AND raw_data LIKE ?");
                             $del2->execute([$upload_month, '%\"__from_dept__\":\"' . $dept_name . '\"%']);
@@ -158,21 +160,25 @@
                             // 如果没选模块，清全部个人订单（整批替换）
                             if (!empty($projectArr)) {
                                 $placeholders = implode(',', array_fill(0, count($projectArr), '?'));
-                                $del = db()->prepare("UPDATE orders SET is_deleted=1 WHERE employee_id = ? AND DATE_FORMAT(order_date, '%Y-%m') = ? AND COALESCE(order_scope, 'personal') = 'personal' AND (raw_data IS NULL OR raw_data NOT LIKE '%\"__from_dept__\"%') AND project IN ({$placeholders})");
+                                $del = db()->prepare("UPDATE orders SET is_deleted=1 WHERE employee_id = ? AND DATE_FORMAT(order_date, '%Y-%m') = ? AND COALESCE(order_scope, 'personal') = 'personal' AND (raw_data IS NULL OR raw_data NOT LIKE '%\"__from_dept__\"%') AND project IN ({$placeholders})"
+    );
                                 $del->execute(array_merge([$employee_id, $upload_month], $projectArr));
                             } else {
-                                $del = db()->prepare("UPDATE orders SET is_deleted=1 WHERE employee_id = ? AND DATE_FORMAT(order_date, '%Y-%m') = ? AND COALESCE(order_scope, 'personal') = 'personal' AND (raw_data IS NULL OR raw_data NOT LIKE '%\"__from_dept__\"%')");
+                                $del = db()->prepare("UPDATE orders SET is_deleted=1 WHERE employee_id = ? AND DATE_FORMAT(order_date, '%Y-%m') = ? AND COALESCE(order_scope, 'personal') = 'personal' AND (raw_data IS NULL OR raw_data NOT LIKE '%\"__from_dept__\"%')"
+    );
                                 $del->execute([$employee_id, $upload_month]);
                             }
                         }
 
                         $inserted = 0; $skipped = 0; $unmatched = 0; $noOrderNoRows = [];
-                        $stmt = db()->prepare("INSERT INTO orders (employee_id, order_amount, order_date, project, order_no, raw_data, is_abnormal, abnormal_reason, order_scope) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
+                        $stmt = db()->prepare("INSERT INTO orders (employee_id, order_amount, order_date, project, order_no, raw_data, is_abnormal, abnormal_reason, order_scope) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+    );
 
                         // 部门汇总行 project：优先用勾选模块名，为空则从 deptEmpModules 取
                         $deptProjStr = '';
                         if ($order_scope === 'department' && !empty($deptEmpModules)) {
-                            $deptProjStr = !empty($projectArr) ? implode(',', $projectArr) : implode(',', array_values(array_unique(array_filter(array_map(fn($d) => trim($d['module']), $deptEmpModules)))));
+                            $deptProjStr = !empty($projectArr) ? implode(',', $projectArr) : implode(',', array_values(array_unique(array_filter(array_map(fn($d) => trim($d['module'
+    ]), $deptEmpModules)))));
                         }
 
                         // 循环外预加载：避免每行重复查询
@@ -214,7 +220,8 @@
                         } else {
                             $emp = get_employee($employee_id);
                             $empName = $emp ? $emp['name'] : '';
-                            $msg = "导入完成！为【{$empName}】成功导入 {$inserted} 条{$modNote}" . ($skipped > 0 ? "，{$skipped} 条标记为异常" : "") . $noOrderNoMsg;
+                            $msg = "导入完成！为【{$empName}】成功导入 {$inserted} 条{$modNote}" . ($skipped > 0 ? "，{$skipped} 条标记为异常" : "") . $noOrderNoMsg
+    ;
                             $rq = ['employee_id' => $employee_id, 'upload_ok' => '1', 'msg' => urlencode($msg)];
                         }
                         if ($per_page !== 20) $rq['per_page'] = $per_page;

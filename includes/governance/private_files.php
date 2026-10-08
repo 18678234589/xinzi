@@ -34,7 +34,8 @@ function pg_save_evidence_file($recordId, $actor, $source, $originalName, $uploa
     if ($name === '') $name = '举证材料.' . $extensions[$mime];
     [$employeeId, $adminId] = pg_actor_columns($actor);
     try {
-        db()->prepare('INSERT INTO project_governance_evidence (record_id,original_name,stored_name,mime_type,file_size,uploaded_by_employee_id,uploaded_by_admin_id) VALUES (?,?,?,?,?,?,?)')
+        db()->prepare('INSERT INTO project_governance_evidence (record_id,original_name,stored_name,mime_type,file_size,uploaded_by_employee_id,uploaded_by_admin_id) VALUES (?,?,?,?,?,?,?)'
+    )
             ->execute([$recordId, mb_substr($name, 0, 255), $stored, $mime, $size, $employeeId, $adminId]);
     } catch (Throwable $e) {
         @unlink($path);

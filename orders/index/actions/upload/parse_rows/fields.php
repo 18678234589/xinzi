@@ -41,7 +41,8 @@
                                     // 优先查 dept_config.php（网站售后部独立配置）
                                     static $deptConfigMap = null;
                                     if ($deptConfigMap === null) {
-                                        $deptConfigFile = (dirname((dirname((dirname((dirname(((dirname(__DIR__, 1)) . '/part_2/parts'), 1)), 1)), 1)), 2)) . '/../config/dept_config.php';
+                                        $deptConfigFile = (dirname((dirname((dirname((dirname(((dirname(__DIR__, 1)) . '/part_2/parts'), 1)), 1)), 1)), 2)) . '/../config/dept_config.php'
+    ;
                                         if (file_exists($deptConfigFile)) {
                                             $dc = include $deptConfigFile;
                                             if (is_array($dc) && isset($dc['dept_name'], $dc['service_fee_rate'])) {
@@ -59,7 +60,8 @@
                                     if ($feeRate === 0) {
                                         static $deptFeeMap = null;
                                         if ($deptFeeMap === null) {
-                                            $deptFeeFile = (dirname((dirname((dirname((dirname(((dirname(__DIR__, 1)) . '/part_2/parts'), 1)), 1)), 1)), 2)) . '/../config/dept_fee.php';
+                                            $deptFeeFile = (dirname((dirname((dirname((dirname(((dirname(__DIR__, 1)) . '/part_2/parts'), 1)), 1)), 1)), 2)) . '/../config/dept_fee.php'
+    ;
                                             $deptFeeMap = file_exists($deptFeeFile) ? (include $deptFeeFile) : [];
                                             if (!is_array($deptFeeMap)) $deptFeeMap = [];
                                         }
@@ -163,18 +165,21 @@
                                     if ($isUnmatched) {
                                         $demRawMap['__unmatched__'] = '1'; // 标记为未归属
                                     }
-                                    $stmt->execute([$dem['employee_id'], $amount, $parsedDate, $dem['module'], $orderNo, json_encode($demRawMap, JSON_UNESCAPED_UNICODE), $isAbn, $abnReason, 'personal']);
+                                    $stmt->execute([$dem['employee_id'], $amount, $parsedDate, $dem['module'], $orderNo, json_encode($demRawMap, JSON_UNESCAPED_UNICODE), $isAbn, $abnReason
+    , 'personal']);
                                 }
                             } else {
                                 $bindEmpId = $order_scope === 'department' ? 0 : $employee_id;
                                 if (empty($projectArr)) {
                                     // 不指定模块，project 存空
-                                    $stmt->execute([$bindEmpId, $amount, $parsedDate, '', $orderNo, json_encode($rawMap, JSON_UNESCAPED_UNICODE), $isAbn, $abnReason, $order_scope]);
+                                    $stmt->execute([$bindEmpId, $amount, $parsedDate, '', $orderNo, json_encode($rawMap, JSON_UNESCAPED_UNICODE), $isAbn, $abnReason, $order_scope])
+    ;
                                     $isAbn ? $skipped++ : $inserted++;
                                 } else {
                                     // 多模块：每个选中的模块插一条副本，project 各不相同
                                     foreach ($projectArr as $proj) {
-                                        $stmt->execute([$bindEmpId, $amount, $parsedDate, $proj, $orderNo, json_encode($rawMap, JSON_UNESCAPED_UNICODE), $isAbn, $abnReason, $order_scope]);
+                                        $stmt->execute([$bindEmpId, $amount, $parsedDate, $proj, $orderNo, json_encode($rawMap, JSON_UNESCAPED_UNICODE), $isAbn, $abnReason, $order_scope
+    ]);
                                         $isAbn ? $skipped++ : $inserted++;
                                     }
                                 }

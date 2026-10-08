@@ -85,7 +85,8 @@ function ensureCsPerfSchema()
     }
     // 2.2 主表补齐「店铺」列并把唯一键改为(员工,店铺,年月)：一人可同时上传/匹配多个店铺，合并时按店铺分开存
     if (!isset($perfCols['store'])) {
-        try { $pdo->exec("ALTER TABLE `customer_service_performance` ADD COLUMN `store` VARCHAR(60) NOT NULL DEFAULT '' COMMENT '店铺（上传时手动选择；空=未分店）' AFTER `employee_id`"); } catch (\Throwable $e) {}
+        try { $pdo->exec("ALTER TABLE `customer_service_performance` ADD COLUMN `store` VARCHAR(60) NOT NULL DEFAULT '' COMMENT '店铺（上传时手动选择；空=未分店）' AFTER `employee_id`"
+    ); } catch (\Throwable $e) {}
     }
     try {
         $hasNewKey = false;

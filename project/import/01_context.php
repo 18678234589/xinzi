@@ -15,7 +15,8 @@ pos_ensure();
 $actor = ps_require_actor();
 $operator = $actor;
 $resumeFileId = (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST' && ($_POST['action'] ?? '') === 'preview') ? 0 : (int)($_GET['resume_file'] ?? ($_POST['resume_file'] ?? 0));
-if (!$resumeFileId && ($_SERVER['REQUEST_METHOD'] ?? '') === 'POST' && ($_POST['action'] ?? '') !== 'preview' && ($_SESSION['project_import_delegate_operator'] ?? '') === $operator['type'] . ':' . $operator['id']) $resumeFileId = (int)($_SESSION['project_import_delegate_file'] ?? 0);
+if (!$resumeFileId && ($_SERVER['REQUEST_METHOD'] ?? '') === 'POST' && ($_POST['action'] ?? '') !== 'preview' && ($_SESSION['project_import_delegate_operator'] ?? '') === $operator
+    ['type'] . ':' . $operator['id']) $resumeFileId = (int)($_SESSION['project_import_delegate_file'] ?? 0);
 $resumeFile = null;
 if ($resumeFileId > 0) {
     try {
@@ -27,7 +28,8 @@ if ($resumeFileId > 0) {
     } catch (RuntimeException $e) { http_response_code(403); exit(e($e->getMessage())); }
 } else unset($_SESSION['project_import_delegate_file'], $_SESSION['project_import_delegate_operator']);
 $allowedBusinesses = ps_actor_businesses($actor);
-$scope = (string)($_POST['scope'] ?? $_GET['scope'] ?? ($resumeFile && ps_department_import_allowed($actor, $resumeFile['business_name']) && $actor['role'] !== 'finance' ? 'department' : (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST' ? ($_SESSION['project_import_scope'] ?? 'personal') : 'personal')));
+$scope = (string)($_POST['scope'] ?? $_GET['scope'] ?? ($resumeFile && ps_department_import_allowed($actor, $resumeFile['business_name']) && $actor['role'] !== 'finance' ? 'department'
+    : (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST' ? ($_SESSION['project_import_scope'] ?? 'personal') : 'personal')));
 $scope = $scope === 'department' ? 'department' : 'personal';
 $departmentMode = $scope === 'department';
 $departmentBusinesses = array_values(array_filter($allowedBusinesses, function ($name) use ($actor) { return ps_department_import_allowed($actor, $name); }));
@@ -35,7 +37,8 @@ $requestedBusiness = (string)($_POST['business'] ?? $_GET['business'] ?? '');
 if ($departmentMode && $requestedBusiness === '') {
     foreach (['网站续费', '网站修改'] as $candidate) if (in_array($candidate, $allowedBusinesses, true)) { $requestedBusiness = $candidate; break; }
 }
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && $requestedBusiness !== '' && !in_array(ps_business_normalize($requestedBusiness), $allowedBusinesses, true)) { http_response_code(403); exit('当前账户未分配此业务'); }
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && $requestedBusiness !== '' && !in_array(ps_business_normalize($requestedBusiness), $allowedBusinesses, true)) { http_response_code(403);
+    exit('当前账户未分配此业务'); }
 $selectedBusiness = ps_business_choice($actor, $requestedBusiness);
 if (!$selectedBusiness && $_SERVER['REQUEST_METHOD'] === 'POST') { http_response_code(403); exit('当前账户未分配业务类型'); }
 if ($departmentMode && !ps_department_import_allowed($actor, $selectedBusiness)) { http_response_code(403); exit('当前账户没有此部门业务的代录权限'); }

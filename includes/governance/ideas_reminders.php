@@ -5,7 +5,8 @@ function pg_idea_policy()
     $rule = db()->query("SELECT cadence_note,penalty_amount,rule_state FROM project_governance_rules WHERE rule_code='chair_idea' LIMIT 1")->fetch();
     if (!$rule || $rule['rule_state'] !== 'confirmed') return null;
     // “每 N 个工作日”：按任期工作日划期，每期扣减 = 任期奖金池 ÷ 最少提交期数（整任期不交正好扣光）
-    if (preg_match('/每\s*(\d{1,2})\s*个?\s*工作日/u', (string)$rule['cadence_note'], $matches)) return (int)$matches[1] >= 1 ? ['days' => (int)$matches[1], 'mode' => 'workday', 'penalty' => null] : null;
+    if (preg_match('/每\s*(\d{1,2})\s*个?\s*工作日/u', (string)$rule['cadence_note'], $matches)) return (int)$matches[1] >= 1 ? ['days' => (int)$matches[1], 'mode' => 'workday'
+    , 'penalty' => null] : null;
     if ((float)$rule['penalty_amount'] <= 0) return null;
     if (preg_match('/每\s*(\d{1,2})\s*天/u', (string)$rule['cadence_note'], $matches)) $days = (int)$matches[1];
     elseif (trim((string)$rule['cadence_note']) === '每周') $days = 7;
@@ -76,12 +77,16 @@ function pg_sync_reminders($date = null)
     $penalties = db()->prepare("SELECT id,chair_employee_id,window_start,window_end,amount FROM project_governance_penalties WHERE state='applied' AND window_end>=?");
     $penalties->execute([PG_REMINDER_START]);
     foreach ($penalties->fetchAll() as $p) {
-        $sent += pg_message($p['chair_employee_id'], 'idea_penalty', '三天脑洞缺报已自动扣减 ¥' . money(abs((float)$p['amount'])), $p['window_start'] . ' 至 ' . $p['window_end'] . ' 没有有效的三天脑洞提交，已按规则从本任期奖金池扣减。如有正当理由，请联系监委会申请豁免。', $link . '#pool', 'idea-penalty:' . $p['id']);
+        $sent += pg_message($p['chair_employee_id'], 'idea_penalty', '三天脑洞缺报已自动扣减 ¥' . money(abs((float)$p['amount'])), $p['window_start'] . ' 至 ' . $p['window_end'
+    ] . ' 没有有效的三天脑洞提交，已按规则从本任期奖金池扣减。如有正当理由，请联系监委会申请豁免。', $link . '#pool', 'idea-penalty:' .
+    $p['id']);
     }
     if (pg_holiday_dates($today, $today) || $today < PG_REMINDER_START) return $sent;
     $window = pg_idea_window_status($today);
     if ($window && $window['counts'] && !$window['submitted'] && $window['days_left'] <= 2) {
-        $sent += pg_message($window['chair_employee_id'], 'idea_due', '三天脑洞还剩 ' . $window['days_left'] . ' 天截止', '本期窗口 ' . $window['start'] . ' 至 ' . $window['end'] . ($window['deadline'] !== $window['end'] ? '（节假日顺延至 ' . $window['deadline'] . '）' : '') . '，你还没有提交。截止仍无有效提交，系统将自动扣减 ¥' . money($window['penalty']) . '。', $link, 'idea-due:' . $window['start'] . ':' . $today);
+        $sent += pg_message($window['chair_employee_id'], 'idea_due', '三天脑洞还剩 ' . $window['days_left'] . ' 天截止', '本期窗口 ' . $window['start'] . ' 至 ' . $window
+    ['end'] . ($window['deadline'] !== $window['end'] ? '（节假日顺延至 ' . $window['deadline'] . '）' : '') . '，你还没有提交。截止仍无有效提交，系统将自动扣减 ¥'
+    . money($window['penalty']) . '。', $link, 'idea-due:' . $window['start'] . ':' . $today);
     }
     $committee = pg_committee_members();
     // 监委督战：董事长录入任务后 N 天内每位监委须提交监督意见；截止前 2 天（含当天）仍未提交，每天督促一次
@@ -93,14 +98,19 @@ function pg_sync_reminders($date = null)
         $title = $task['category'] === '三天脑洞' ? strtok($task['description'], "\n") : $task['category'];
         foreach ($committee as $memberId) {
             if (pg_oversight_done($task, $memberId)) continue;
-            $sent += pg_message($memberId, 'oversight_due', '监督意见还剩 ' . $daysLeft . ' 天截止', $task['owner_name'] . ' 录入的任务「' . mb_substr($title, 0, 40) . '」需要你在 ' . $task['deadline'] . ' 前提交监督意见（进度、催办或评价）。逾期未提交将自动扣减 ¥' . money($oversight['penalty']) . '。', ($task['category'] === '三天脑洞' ? '/project/governance_ideas.php#idea-' : '/project/governance.php#record-') . (int)$task['id'], 'oversight-due:' . (int)$task['id'] . ':' . $today);
+            $sent += pg_message($memberId, 'oversight_due', '监督意见还剩 ' . $daysLeft . ' 天截止', $task['owner_name'] . ' 录入的任务「' . mb_substr($title, 0, 40)
+    . '」需要你在 ' . $task['deadline'] . ' 前提交监督意见（进度、催办或评价）。逾期未提交将自动扣减 ¥' . money($oversight['penalty']) . '。', ($task
+    ['category'] === '三天脑洞' ? '/project/governance_ideas.php#idea-' : '/project/governance.php#record-') . (int)$task['id'], 'oversight-due:' . (int)$task['id'] . ':' . $today
+    );
         }
     }
-    $pending = db()->prepare("SELECT r.id,r.owner_employee_id,r.created_by_employee_id,e.name FROM project_governance_records r JOIN employees e ON e.id=r.owner_employee_id WHERE r.record_kind='chair' AND r.category='三天脑洞' AND r.review_state='pending' AND r.created_at<?");
+    $pending = db()->prepare("SELECT r.id,r.owner_employee_id,r.created_by_employee_id,e.name FROM project_governance_records r JOIN employees e ON e.id=r.owner_employee_id WHERE r.record_kind='chair' AND r.category='三天脑洞' AND r.review_state='pending' AND r.created_at<?"
+    );
     $pending->execute([(new DateTimeImmutable($today))->modify('-1 day')->format('Y-m-d 00:00:00')]);
     foreach ($pending->fetchAll() as $idea) foreach ($committee as $memberId) {
         if ((int)$memberId === (int)$idea['owner_employee_id'] || (int)$memberId === (int)$idea['created_by_employee_id']) continue;
-        $sent += pg_message($memberId, 'idea_review', $idea['name'] . ' 的三天脑洞等待评审', '有一条三天脑洞已提交超过 1 天还没有评审，请尽快给出结论（通过留空金额按 +¥100 计）。', $link . '#idea-' . (int)$idea['id'], 'idea-review:' . (int)$idea['id']);
+        $sent += pg_message($memberId, 'idea_review', $idea['name'] . ' 的三天脑洞等待评审', '有一条三天脑洞已提交超过 1 天还没有评审，请尽快给出结论（通过留空金额按 +¥100 计）。'
+    , $link . '#idea-' . (int)$idea['id'], 'idea-review:' . (int)$idea['id']);
     }
     return $sent;
 }

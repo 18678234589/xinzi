@@ -22,7 +22,8 @@ function ps_rule_for($group, $projectType, $orderDate, $role = '', $orderKind = 
     $orderKind = ps_role_rule_order_kind($projectType, $group, $role, $orderKind);
     $key = $group . '|' . $projectType . '|' . $orderDate;
     if (!isset($cache[$key])) {
-        $q = db()->prepare("SELECT * FROM project_commission_rules WHERE commission_group=? AND project_type IN (?, '*') AND effective_from<=? AND is_active=1 ORDER BY effective_from DESC, id DESC");
+        $q = db()->prepare("SELECT * FROM project_commission_rules WHERE commission_group=? AND project_type IN (?, '*') AND effective_from<=? AND is_active=1 ORDER BY effective_from DESC, id DESC"
+    );
         $q->execute([$group, $projectType, $orderDate]);
         $cache[$key] = $q->fetchAll();
     }
@@ -99,7 +100,8 @@ function money_plain($value)
 function ps_calc_person($rule, $income, $directCost, $contract, $weight, $businessFeeRate, $costNote = '', $feeBase = null)
 {
     $mode = ($rule['calc_mode'] ?? 'pool') === 'individual' ? 'individual' : 'pool';
-    $feeRate = isset($rule['service_fee_rate']) && $rule['service_fee_rate'] !== null && $rule['service_fee_rate'] !== '' ? (float)$rule['service_fee_rate'] : (float)$businessFeeRate;
+    $feeRate = isset($rule['service_fee_rate']) && $rule['service_fee_rate'] !== null && $rule['service_fee_rate'] !== '' ? (float)$rule['service_fee_rate'] : (float)$businessFeeRate
+    ;
     // 服务费基数：订单有退款时按“售价 − 退款”后的净额计（平台按实际成交额结算），其余仍按售价；起算售价等门槛仍看原售价。
     $feeBaseAmount = $feeBase === null ? (float)$contract : (float)$feeBase;
     $fee = round($feeBaseAmount * $feeRate, 2);
@@ -122,19 +124,26 @@ function ps_calc_person($rule, $income, $directCost, $contract, $weight, $busine
     $share = $blocked ? 0.0 : ($allowNegative ? $baseExact : max($baseExact, 0)) * $rate * ($mode === 'pool' ? (float)$weight : 1);
     $subsidy = $blocked ? 0.0 : round((float)($rule['per_order_subsidy'] ?? 0), 2);
     // 低利润单补助：整单利润（收入 − 成本，不扣服务费，与代写结算表一致）低于门槛时改按低档补助（如代写利润 5 元以下 1.5 元/单）。
-    $lowThreshold = isset($rule['low_profit_threshold']) && $rule['low_profit_threshold'] !== null && $rule['low_profit_threshold'] !== '' ? (float)$rule['low_profit_threshold'] : null;
+    $lowThreshold = isset($rule['low_profit_threshold']) && $rule['low_profit_threshold'] !== null && $rule['low_profit_threshold'] !== '' ? (float)$rule['low_profit_threshold'] :
+    null;
     $orderProfit = round((float)$income - (float)$cost, 2);
     $lowApplied = !$blocked && $lowThreshold !== null && $subsidy > 0 && $orderProfit < $lowThreshold;
     if ($lowApplied) $subsidy = round((float)($rule['low_profit_subsidy'] ?? 0), 2);
     $subsidyPool = $subsidy;
     $subsidy = round($subsidyPool * ($mode === 'pool' ? (float)$weight : 1), 2);
-    $note = '(收入 ' . money_plain($income) . ' − 成本 ' . money_plain($costBasis) . ($costNote !== '' ? '〔' . $costNote . '〕' : '') . ($floorApplied ? '〔售价×' . round($minCostRate * 100, 2) . '%〕' : '') . ($mode === 'individual' && (float)$weight < 1 ? '〔分摊 ' . round((float)$weight * 100, 2) . '%〕' : '') . ' − 服务费 ' . money_plain($feePart) . ') × ' . round($rate * 100, 4) . '%' . ($mode === 'pool' && (float)$weight < 1 ? ' × 权重 ' . round((float)$weight * 100, 2) . '%' : '');
-    if ($subsidy > 0) $note .= ' + 每单补助 ' . money_plain($subsidy) . ($mode === 'pool' && (float)$weight < 1 ? '（整单补助 ' . money_plain($subsidyPool) . ' × 权重 ' . round((float)$weight * 100, 2) . '%）' : '') . ($lowApplied ? '（售价 − 成本 ' . money_plain($orderProfit) . ' 低于 ' . money_plain($lowThreshold) . '）' : '');
+    $note = '(收入 ' . money_plain($income) . ' − 成本 ' . money_plain($costBasis) . ($costNote !== '' ? '〔' . $costNote . '〕' : '') . ($floorApplied ? '〔售价×' . round
+    ($minCostRate * 100, 2) . '%〕' : '') . ($mode === 'individual' && (float)$weight < 1 ? '〔分摊 ' . round((float)$weight * 100, 2) . '%〕' : '') . ' − 服务费 ' . money_plain
+    ($feePart) . ') × ' . round($rate * 100, 4) . '%' . ($mode === 'pool' && (float)$weight < 1 ? ' × 权重 ' . round((float)$weight * 100, 2) . '%' : '');
+    if ($subsidy > 0) $note .= ' + 每单补助 ' . money_plain($subsidy) . ($mode === 'pool' && (float)$weight < 1 ? '（整单补助 ' . money_plain($subsidyPool) . ' × 权重 '
+    . round((float)$weight * 100, 2) . '%）' : '') . ($lowApplied ? '（售价 − 成本 ' . money_plain($orderProfit) . ' 低于 ' . money_plain($lowThreshold) . '）' : '');
     if ($blocked) $note = '售价低于 ¥' . money_plain($min) . '，本单不计分成';
-    return ['mode' => $mode, 'fee_rate' => $feeRate, 'fee' => $fee, 'fee_part' => $feePart, 'cost_basis' => $costBasis, 'base' => $base, 'rate' => $rate, 'weight' => (float)$weight, 'share' => $share, 'subsidy' => $subsidy, 'blocked' => $blocked, 'note' => $note,
+    return ['mode' => $mode, 'fee_rate' => $feeRate, 'fee' => $fee, 'fee_part' => $feePart, 'cost_basis' => $costBasis, 'base' => $base, 'rate' => $rate, 'weight' => (float)$weight
+    , 'share' => $share, 'subsidy' => $subsidy, 'blocked' => $blocked, 'note' => $note,
         // 计算过程弹窗用：把每一步的输入原样带出
-        'income' => round((float)$income, 2), 'contract' => round((float)$contract, 2), 'raw_cost' => round((float)$directCost, 2), 'min_cost_rate' => $minCostRate, 'floor_applied' => $floorApplied,
-        'min_contract' => $min, 'allow_negative' => $allowNegative, 'low_applied' => $lowApplied, 'low_threshold' => $lowThreshold, 'order_profit' => $orderProfit, 'income_estimated' => false, 'subsidy_pool' => $subsidyPool];
+        'income' => round((float)$income, 2), 'contract' => round((float)$contract, 2), 'raw_cost' => round((float)$directCost, 2), 'min_cost_rate' => $minCostRate, 'floor_applied'
+    => $floorApplied,
+        'min_contract' => $min, 'allow_negative' => $allowNegative, 'low_applied' => $lowApplied, 'low_threshold' => $lowThreshold, 'order_profit' => $orderProfit, 'income_estimated'
+    => false, 'subsidy_pool' => $subsidyPool];
 }
 
 /**
@@ -148,6 +157,7 @@ function ps_trademark_piece_calc($calc, $count)
     $pieces = $count === null ? 0.0 : (float)$count;
     $calc['subsidy'] = round($unit * $pieces, 2);
     $calc['subsidy_pool'] = round((float)($calc['subsidy_pool'] ?? $unit) * $pieces, 2);
-    $calc['note'] .= $pieces > 0 ? '（每件 × 商标 ' . rtrim(rtrim(number_format($pieces, 2, '.', ''), '0'), '.') . ' 件 = ' . money_plain($calc['subsidy']) . '）' : '（未填商标个数，不计件）';
+    $calc['note'] .= $pieces > 0 ? '（每件 × 商标 ' . rtrim(rtrim(number_format($pieces, 2, '.', ''), '0'), '.') . ' 件 = ' . money_plain($calc['subsidy']) . '）' : '（未填商标个数，不计件）'
+    ;
     return $calc;
 }

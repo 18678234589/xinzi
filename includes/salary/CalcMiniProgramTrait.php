@@ -87,8 +87,8 @@ trait CalcMiniProgramTrait
                 // 查找付款人字段（支持多种列名）
                 foreach ($rawData as $k => $v) {
                     $lowerK = strtolower($k);
-                    if (strpos($lowerK, '付款人') !== false || 
-                        strpos($lowerK, '买家') !== false || 
+                    if (strpos($lowerK, '付款人') !== false ||
+                        strpos($lowerK, '买家') !== false ||
                         strpos($lowerK, '客户') !== false) {
                         $payer = trim($v);
                         break;

@@ -125,7 +125,8 @@ function ps_summary($order, $costs, $participants)
                     'share' => round($subShareSum, 2),
                     'subsidy' => round($subSubsidySum, 2),
                     'blocked' => false,
-                    'note' => implode(' + ', $subNotes) . '：合计提成 ¥' . money_plain($subShareSum) . ($subSubsidySum > 0 ? '（含补助 ¥' . money_plain($subSubsidySum) . '）' : ''),
+                    'note' => implode(' + ', $subNotes) . '：合计提成 ¥' . money_plain($subShareSum) . ($subSubsidySum > 0 ? '（含补助 ¥' . money_plain($subSubsidySum) .
+    '）' : ''),
                     'sub_calcs' => $subCalcs
                 ]);
 
@@ -139,14 +140,16 @@ function ps_summary($order, $costs, $participants)
                     'share' => round($subEstShareSum, 2),
                     'subsidy' => round($subEstSubsidySum, 2),
                     'blocked' => false,
-                    'note' => implode(' + ', $subEstNotes) . '：合计预估 ¥' . money_plain($subEstShareSum) . ($subEstSubsidySum > 0 ? '（含补助 ¥' . money_plain($subEstSubsidySum) . '）' : ''),
+                    'note' => implode(' + ', $subEstNotes) . '：合计预估 ¥' . money_plain($subEstShareSum) . ($subEstSubsidySum > 0 ? '（含补助 ¥' . money_plain($subEstSubsidySum
+    ) . '）' : ''),
                     'sub_calcs' => $subCalcsEst
                 ]);
             } else {
                 [$costNow, $noteNow] = $personCost($group, $person['role_name'] ?? '', false);
                 [$costEst, $noteEst] = $personCost($group, $person['role_name'] ?? '', true);
                 $people[$i]['calc'] = $rule ? ps_calc_person($rule, $income, $costNow, $contract, $person['group_weight'], $businessFeeRate, $noteNow, $feeBase) : null;
-                $people[$i]['estimated_calc'] = $rule ? $estMark(ps_calc_person($rule, $estIncome, $costEst, $contract, $person['group_weight'], $businessFeeRate, $noteEst, $feeBase)) : null;
+                $people[$i]['estimated_calc'] = $rule ? $estMark(ps_calc_person($rule, $estIncome, $costEst, $contract, $person['group_weight'], $businessFeeRate, $noteEst, $feeBase
+    )) : null;
 
                 // 规则限定“每单补助只发给指定员工”（subsidy_employee_ids，逗号分隔，留空 = 所有参与人）：不在名单内则取消补助。
                 $subsidyOnly = array_filter(array_map('intval', preg_split('/[^\d]+/', (string)($rule['subsidy_employee_ids'] ?? ''))));
@@ -197,10 +200,12 @@ function ps_summary($order, $costs, $participants)
         }
         $rule = $missing ? null : ($defaultRule ?: ($people[0]['rule'] ?? null));
         if ($defaultRule && (float)$defaultRule['per_order_subsidy'] > 0) $subsidyRule = true;
-        $groups[$group] = ['people' => $people, 'rule' => $rule, 'weight' => $weight, 'rate' => $rule ? (float)$rule['rate'] : null, 'missing_rule' => $missing, 'subsidy' => round($subsidy, 2), 'subsidy_rule' => $subsidyRule ? 1 : 0,
+        $groups[$group] = ['people' => $people, 'rule' => $rule, 'weight' => $weight, 'rate' => $rule ? (float)$rule['rate'] : null, 'missing_rule' => $missing, 'subsidy' => round(
+    $subsidy, 2), 'subsidy_rule' => $subsidyRule ? 1 : 0,
             'pool' => $missing || $pool === null ? null : round($pool, 2), 'estimated_pool' => $missing || $estimatedPool === null ? null : round($estimatedPool, 2)];
     }
-    return ['income' => $income, 'direct_cost' => $approvedCost, 'approved_cost' => round($approvedCost + $serviceFee, 2), 'service_fee' => $serviceFee, 'service_fee_rate' => $businessFeeRate, 'pending_cost' => $pendingCost,
+    return ['income' => $income, 'direct_cost' => $approvedCost, 'approved_cost' => round($approvedCost + $serviceFee, 2), 'service_fee' => $serviceFee, 'service_fee_rate' => $businessFeeRate
+    , 'pending_cost' => $pendingCost,
         'profit' => round($income - $approvedCost - $serviceFee, 2), 'estimated_profit' => round($income - $approvedCost - $serviceFee - $pendingCost, 2), 'groups' => $groups];
 }
 
@@ -216,13 +221,15 @@ function ps_group_share_cents($people)
         $cents[$i] = 0;
         if (empty($person['calc'])) continue;
         // 计提基数和比例相同的组池整体分摊；岗位别名命中不同但等价的规则时也只计一个池。
-        if ($person['calc']['mode'] === 'pool' && !$person['calc']['blocked']) $poolGroups[$person['calc']['rate'] . '|' . (int)!empty($person['rule']['allow_negative']) . '|' . money_plain($person['calc']['base'])][$i] = $person;
+        if ($person['calc']['mode'] === 'pool' && !$person['calc']['blocked']) $poolGroups[$person['calc']['rate'] . '|' . (int)!empty($person['rule']['allow_negative']) . '|' . money_plain
+    ($person['calc']['base'])][$i] = $person;
         else $cents[$i] = (int)round($person['calc']['share'] * 100);
     }
     foreach ($poolGroups as $members) {
         $first = reset($members);
         $weightSum = array_sum(array_map(function ($p) { return (float)$p['group_weight']; }, $members));
-        $subPoolCents = (int)round((!empty($first['rule']['allow_negative']) ? $first['calc']['base'] : max($first['calc']['base'], 0)) * $first['calc']['rate'] * $weightSum * 100);
+        $subPoolCents = (int)round((!empty($first['rule']['allow_negative']) ? $first['calc']['base'] : max($first['calc']['base'], 0)) * $first['calc']['rate'] * $weightSum * 100)
+    ;
         $normalized = array_map(function ($p) use ($weightSum) { return ['group_weight' => $weightSum > 0 ? (float)$p['group_weight'] / $weightSum : 0]; }, array_values($members));
         $shares = ps_allocate_pool_cents($subPoolCents, $normalized);
         foreach (array_keys($members) as $n => $i) $cents[$i] = $shares[$n];

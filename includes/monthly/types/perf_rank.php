@@ -10,7 +10,8 @@
             foreach (array_keys($candidates) as $eid) {
                 if ($rule['employee_id'] !== null && (int)$rule['employee_id'] !== $eid) continue;
                 $override = $inputs[(int)$rule['id']][$eid] ?? null;
-                if ($override !== null) { $amount = (float)$override['value']; $how = '本月填写 ¥' . money_plain($amount) . ($override['note'] !== '' ? '（' . $override['note'] . '）' : ''); }
+                if ($override !== null) { $amount = (float)$override['value']; $how = '本月填写 ¥' . money_plain($amount) . ($override['note'] !== '' ? '（' . $override['note'
+    ] . '）' : ''); }
                 else { $result = cs_perf_rank_result($eid, $year, $mon); $amount = (float)$result['amount']; $how = $result['formula']; }
                 if ($amount <= 0) continue;
                 [$value, $prorate] = ps_monthly_prorate($amount, $attendance[$eid] ?? null);

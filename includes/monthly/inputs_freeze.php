@@ -5,7 +5,8 @@ function ps_monthly_freeze($month)
     $results = ps_monthly_results($month, true);
     db()->prepare('DELETE FROM project_monthly_results WHERE payroll_month=?')->execute([$month]);
     $insert = db()->prepare('INSERT INTO project_monthly_results (payroll_month,rule_id,rule_name,rule_type,employee_id,amount,paid_separately,detail) VALUES (?,?,?,?,?,?,?,?)');
-    foreach ($results as $row) $insert->execute([$month, $row['rule_id'], $row['rule_name'], $row['rule_type'], $row['employee_id'], $row['amount'], $row['paid_separately'], $row['detail']]);
+    foreach ($results as $row) $insert->execute([$month, $row['rule_id'], $row['rule_name'], $row['rule_type'], $row['employee_id'], $row['amount'], $row['paid_separately'], $row['detail'
+    ]]);
     return $results;
 }
 
@@ -21,7 +22,8 @@ function ps_monthly_params_from_input($type, $input)
         $tiers = [];
         foreach ((array)($input['tier_from'] ?? []) as $i => $from) {
             if (trim((string)$from) === '' && trim((string)($input['tier_rate'][$i] ?? '')) === '') continue;
-            $tiers[] = ['from' => $num($from, '档位起点'), 'rate' => $num($input['tier_rate'][$i] ?? '', '档位比例') / 100, 'base' => trim((string)($input['tier_base'][$i] ?? ''))];
+            $tiers[] = ['from' => $num($from, '档位起点'), 'rate' => $num($input['tier_rate'][$i] ?? '', '档位比例') / 100, 'base' => trim((string)($input['tier_base'][$i]
+    ?? ''))];
         }
         if (!$tiers) throw new RuntimeException('请至少填写一档');
         usort($tiers, function ($a, $b) { return $a['from'] <=> $b['from']; });
@@ -34,7 +36,8 @@ function ps_monthly_params_from_input($type, $input)
         if (!$awards) throw new RuntimeException('请填写排名奖金额');
         return ['awards' => array_map('floatval', $awards)];
     }
-    if ($type === 'dept_share') return ['rate' => $num($input['rate'] ?? '', '比例') / 100, 'share' => $num($input['share'] ?? '100', '分配比例') / 100, 'base' => ($input['dept_base'] ?? '') === 'revenue' ? 'revenue' : 'profit', 'deduct_commissions' => !empty($input['deduct_commissions'])];
+    if ($type === 'dept_share') return ['rate' => $num($input['rate'] ?? '', '比例') / 100, 'share' => $num($input['share'] ?? '100', '分配比例') / 100, 'base' => ($input['dept_base'
+    ] ?? '') === 'revenue' ? 'revenue' : 'profit', 'deduct_commissions' => !empty($input['deduct_commissions'])];
     if ($type === 'fixed') return ['amount' => $num($input['amount'] ?? '', '金额'), 'separate' => !empty($input['separate'])];
     if ($type === 'base_fee') return ['amount' => $num($input['amount'] ?? '0', '金额'), 'no_prorate' => !empty($input['no_prorate'])];
     if ($type === 'per_unit' || $type === 'attendance_bonus' || $type === 'order_count') return ['amount' => $num($input['amount'] ?? '0', '金额')];
@@ -44,19 +47,23 @@ function ps_monthly_params_from_input($type, $input)
         foreach (array_filter(array_map('trim', preg_split('/[\r\n]+/', (string)($input['package_tiers'] ?? ''))), 'strlen') as $line) {
             $cells = array_map('trim', preg_split('/[,，\s]+/u', $line));
             if (count($cells) !== 5) throw new RuntimeException('阶梯每行填 5 个数：营业额上限,底薪,比例%,≥门槛每单,<门槛每单');
-            $tiers[] = ['upto' => $num($cells[0], '营业额上限'), 'base' => $num($cells[1], '底薪'), 'rate' => $num($cells[2], '比例') / 100, 'big' => $num($cells[3], '大单每单金额'), 'small' => $num($cells[4], '小单每单金额')];
+            $tiers[] = ['upto' => $num($cells[0], '营业额上限'), 'base' => $num($cells[1], '底薪'), 'rate' => $num($cells[2], '比例') / 100, 'big' => $num($cells[3], '大单每单金额'
+    ), 'small' => $num($cells[4], '小单每单金额')];
         }
         if (!$tiers) throw new RuntimeException('请至少填写一档');
         usort($tiers, function ($a, $b) { return $a['upto'] <=> $b['upto']; });
-        return ['tiers' => $tiers, 'big_threshold' => $num($input['big_threshold'] ?? '50', '大单门槛'), 'returning_rate' => $num($input['returning_rate'] ?? '0', '老客户找回比例') / 100, 'review_min' => $num($input['review_min'] ?? '0', '好评率门槛'), 'review_penalty' => $num($input['review_penalty'] ?? '0', '好评率罚款')];
+        return ['tiers' => $tiers, 'big_threshold' => $num($input['big_threshold'] ?? '50', '大单门槛'), 'returning_rate' => $num($input['returning_rate'] ?? '0', '老客户找回比例'
+    ) / 100, 'review_min' => $num($input['review_min'] ?? '0', '好评率门槛'), 'review_penalty' => $num($input['review_penalty'] ?? '0', '好评率罚款')];
     }
     if ($type === 'legacy_sheet') {
         // 计列每行 5 项：名称,计数列(空=按 付费旺旺+日期 去重),关键词(+分隔),匹配(any=任一/all=全部),每单金额
         $counters = [];
         foreach (array_filter(array_map('trim', preg_split('/[\r\n]+/', (string)($input['legacy_counters'] ?? ''))), 'strlen') as $line) {
             $cells = array_map('trim', preg_split('/[,，]/u', $line));
-            if (count($cells) < 5) throw new RuntimeException('计列每行填 5 项：名称,计数列,关键词,匹配(any|all),每单金额，如 拍建站链接,拍建站,网站链接+小程序链接,any,0.5');
-            $counters[] = ['name' => $cells[0], 'column' => $cells[1], 'keywords' => $cells[2], 'match' => $cells[3] === 'any' ? 'any' : 'all', 'unit' => $num($cells[4], '每单金额')];
+            if (count($cells) < 5) throw new RuntimeException('计列每行填 5 项：名称,计数列,关键词,匹配(any|all),每单金额，如 拍建站链接,拍建站,网站链接+小程序链接,any,0.5'
+    );
+            $counters[] = ['name' => $cells[0], 'column' => $cells[1], 'keywords' => $cells[2], 'match' => $cells[3] === 'any' ? 'any' : 'all', 'unit' => $num($cells[4], '每单金额'
+    )];
         }
         if (!$counters) throw new RuntimeException('请至少填写一条计列');
         return ['dept' => trim((string)($input['legacy_dept'] ?? '')), 'gate_column' => trim((string)($input['legacy_gate'] ?? '')) ?: '接单客服', 'counters' => $counters];
@@ -93,9 +100,11 @@ function ps_monthly_params_from_input($type, $input)
             if (!$id) throw new RuntimeException('找不到合作人员“' . trim($m[1]) . '”');
             $fixed[] = ['employee_id' => (int)$id, 'name' => trim($m[1]), 'share' => round((float)$m[2] / 100, 6)];
         }
-        $params = ['deduction' => $num($input['deduction'] ?? '0', '扣除额'), 'rate' => $num($input['rate'] ?? '', '比例') / 100, 'members_share' => $num($input['members_share'] ?? '', '成员分配比例') / 100, 'fixed' => $fixed];
+        $params = ['deduction' => $num($input['deduction'] ?? '0', '扣除额'), 'rate' => $num($input['rate'] ?? '', '比例') / 100, 'members_share' => $num($input['members_share'
+    ] ?? '', '成员分配比例') / 100, 'fixed' => $fixed];
         // 利润奖励（可选）：部门总利润超过起点后每增加一档，每人奖固定金额，封顶
-        if (trim((string)($input['milestone_from'] ?? '')) !== '') $params['milestone'] = ['from' => $num($input['milestone_from'], '利润奖励起点'), 'step' => $num($input['milestone_step'] ?? '', '每档利润'), 'amount' => $num($input['milestone_amount'] ?? '', '每档每人奖励'), 'cap' => $num($input['milestone_cap'] ?? '', '每人封顶')];
+        if (trim((string)($input['milestone_from'] ?? '')) !== '') $params['milestone'] = ['from' => $num($input['milestone_from'], '利润奖励起点'), 'step' => $num($input['milestone_step'
+    ] ?? '', '每档利润'), 'amount' => $num($input['milestone_amount'] ?? '', '每档每人奖励'), 'cap' => $num($input['milestone_cap'] ?? '', '每人封顶')];
         return $params;
     }
     throw new RuntimeException('规则类型无效');

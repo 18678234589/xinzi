@@ -13,9 +13,12 @@
   var resourceFields = document.getElementById('intakeResourceFields');
   if (!business) return;
   var canEditResources = <?php echo $actor['role'] === 'customer_service' ? 'false' : 'true'; ?>;
-  var catalog = <?php echo json_encode(array_map(function ($d) { return ['resources' => !empty($d['resources']), 'program' => !empty($d['program']), 'kinds' => $d['order_kinds'] ?? [], 'fee' => (float)($d['service_fee_rate'] ?? 0), 'defaultKind' => $d['default_kind'] ?? '', 'costLabel' => !empty($d['import_cost']) ? ($d['cost_label'] ?? '成本') : '']; }, $businessCatalog), JSON_UNESCAPED_UNICODE); ?>;
+  var catalog = <?php echo json_encode(array_map(function ($d) { return ['resources' => !empty($d['resources']), 'program' => !empty($d['program']), 'kinds' => $d['order_kinds'] ??
+    [], 'fee' => (float)($d['service_fee_rate'] ?? 0), 'defaultKind' => $d['default_kind'] ?? '', 'costLabel' => !empty($d['import_cost']) ? ($d['cost_label'] ?? '成本') : '']; }
+    , $businessCatalog), JSON_UNESCAPED_UNICODE); ?>;
   var roleDefaultKinds = <?php echo json_encode($roleDefaultKinds, JSON_UNESCAPED_UNICODE); ?>;
-  var peopleLabels = <?php echo json_encode(array_reduce(array_keys($businessCatalog), function ($result, $name) { $result[$name] = ps_business_people_labels($name); return $result; }, []), JSON_UNESCAPED_UNICODE); ?>;
+  var peopleLabels = <?php echo json_encode(array_reduce(array_keys($businessCatalog), function ($result, $name) { $result[$name] = ps_business_people_labels($name); return $result
+    ; }, []), JSON_UNESCAPED_UNICODE); ?>;
   var selectedKind = <?php echo json_encode((string)($_POST['order_kind'] ?? ''), JSON_UNESCAPED_UNICODE); ?>;
   var mode = document.getElementById('intakeDomainMode');
   var domainWrap = document.getElementById('intakeDomainTemplateWrap');

@@ -155,13 +155,13 @@ trait CalcBaseTrait
     private static function calcBaseSalaryTiered($cfg, $c, $moduleName = '')
     {
         $tiers = $cfg['tiers'] ?? [];
-        
+
         // 计算所有订单的总额
         $totalForTier = 0;
         foreach (($c['orders'] ?? []) as $o) {
             $totalForTier += (float)($o['order_amount'] ?? 0);
         }
-        
+
         // 按阶梯匹配固定服务费金额
         rsort($tiers, SORT_DESC);
         $baseAmount = 0;
@@ -171,7 +171,7 @@ trait CalcBaseTrait
                 break;
             }
         }
-        
+
         return [
             'amount' => round($baseAmount, 2),
             'formula' => sprintf('订单总额¥%.2f → 固定服务费¥%.2f', $totalForTier, $baseAmount),

@@ -8,8 +8,10 @@ P0–P6 已完成。仅搬运代码及校正加载路径，调用方继续使用
 - PHP 8.5、PHP 7.4 语法及结构检查通过。不同 PHP 版本采用各自的 token 基线。
 - 十个页面在相同隔离数据、账号和请求参数下输出一致：统一 CRLF/LF，并对齐未修改资源的 filemtime。
 - 月度结果对比覆盖 16 组规则场景、三个账期、正常和预期两种上下文，共 150 行逐字段一致。规则搬运前后均通过。
+- 独立折行后再次通过两版 PHP 结构检查、十页输出和 150 行月度对比。十个纯 JS 资源通过 Node 语法检查；`git diff --check` 通过。
 - 61 项既有可执行测试：拆分前 36 通过、25 失败；拆分后相同，没有新增失败。原称 62 个 PHP 测试文件包含一个数据库安全辅助文件。新增月度对比测试单独运行。
 - 测试数据库为本机独立实例 `127.0.0.1:13399/xinzi_split_test`。只读导出完整表结构、基础资料和抽样订单；每轮恢复同一快照，使用相同的本地 Excel 样表。没有向生产库写入测试数据。
+- 本机 PHP 7.4 默认扩展配置偶发进程启动异常。最终既有测试矩阵使用精简扩展配置，月度对比通过临时 `PHPRC` 让父子进程使用同一精简配置；未修改线上或系统 PHP 配置。
 
 ## 结构约定
 
@@ -33,16 +35,18 @@ C:/BtSoft/php/74/php.exe -d disable_functions= tests/project_monthly_split_compa
 
 `tools/split_manifest.json` 保存搬运基线和分片拓扑。可用 `verify_split.php --entry <原入口>` 做增量检查。后续功能提交不应为通过本次搬运校验而重置基线。
 
-## 拆分前已存在的失败
+## 拆分结果
 
-这些失败与拆分后相同，未夹带业务修复。主要涉及现有规则引用不存在的 `SalaryCalculator::runModuleFor()`、样表/资源/账号前置条件和已有手机号校验行为。
+16 个原入口加载 244 个分片，全部文件均不超过 400 行、25 KB，最长分片 356 行、最大分片约 24.5 KB。函数及加载关系可在 `docs/code-map.md` 查询。
 
-| Entry | Before lines | After lines | After KB |
+折行独立于搬运提交，只在 PHP token 边界插入换行并清理 PHP 尾随空白。字符串、HTML、JS、CSS 内容保持不变，因此其中原有的长行仍会保留。可通过 `php tools/reflow_split.php` 重跑，再执行上述验证。
+
+| 原入口 | 拆分前行数 | 拆分后行数 | 拆分后 KB |
 |---|---:|---:|---:|
 | `project/import.php` | 1238 | 5 | 0.4 |
 | `includes/ProjectIntake.php` | 839 | 11 | 0.8 |
 | `project/order.php` | 879 | 9 | 0.5 |
-| `project/index.php` | 860 | 90 | 7.6 |
+| `project/index.php` | 860 | 98 | 7.6 |
 | `includes/functions.php` | 2858 | 11 | 0.9 |
 | `includes/SalaryCalculator.php` | 2233 | 351 | 15.4 |
 | `includes/ProjectSettlement.php` | 1256 | 15 | 1.1 |
@@ -56,7 +60,13 @@ C:/BtSoft/php/74/php.exe -d disable_functions= tests/project_monthly_split_compa
 | `performance/month.php` | 526 | 2 | 0.2 |
 | `includes/ProjectGovernance.php` | 528 | 9 | 0.7 |
 
-| Existing failing test | Before/after exit code |
+P0–P6 分别提交为 `6c1b82e`、`0e16a29`、`8a1851e`、`3289033`、`4d32ba9`、`9c2fd1b`、`c47e1af`。PHP 折行和最终代码地图另行提交。
+
+## 拆分前已存在的失败
+
+这些失败与拆分后相同，未夹带业务修复。主要涉及现有规则引用不存在的 `SalaryCalculator::runModuleFor()`、样表/资源/账号前置条件和已有手机号校验行为。
+
+| 既有失败测试 | 拆分前后退出码 |
 |---|---:|
 | `attendance_approval_smoke.php` | 1 |
 | `bid_flow_202608.php` | 1 |

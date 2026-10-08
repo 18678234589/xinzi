@@ -45,7 +45,8 @@ function delOne(id){
     var f = document.createElement('form');
     f.method = 'post';
     f.style.display = 'none';
-    f.innerHTML = '<input type="hidden" name="action" value="delete"><input type="hidden" name="id" value="' + id + '"><input type="hidden" name="year" value="<?php echo $year; ?>"><input type="hidden" name="month" value="<?php echo $month; ?>">';
+    f.innerHTML = '<input type="hidden" name="action" value="delete"><input type="hidden" name="id" value="' + id + '"><input type="hidden" name="year" value="<?php echo $year; ?>"><input type="hidden" name="month" value="<?php
+    echo $month; ?>">';
     document.body.appendChild(f);
     f.submit();
 }

@@ -61,4 +61,5 @@
                     $parts[] = sprintf('%s（旺旺+日期去重）%d 单 × ¥%s = ¥%s', $label, $cnt, $unitText, money_plain($amount));
                 }
             }
-            $add($eid, $rule, $total, sprintf('%s匹配%s：%s', $gateColumn, $employeeName, implode('；', $parts)) . ($allowNoReceipt ? '；无流水单量自动核验，按月只计一次；利润分成另核实收' : ''), true);
+            $add($eid, $rule, $total, sprintf('%s匹配%s：%s', $gateColumn, $employeeName, implode('；', $parts)) . ($allowNoReceipt ? '；无流水单量自动核验，按月只计一次；利润分成另核实收'
+    : ''), true);

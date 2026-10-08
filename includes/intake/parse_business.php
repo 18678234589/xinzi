@@ -12,7 +12,8 @@ function ps_import_kind_preference($employeeId, $business, $layoutSignature)
 {
     if (!$employeeId || !$layoutSignature) return '';
     try {
-        $q = db()->prepare('SELECT order_kind FROM project_import_kind_preferences WHERE employee_id=? AND business_name=? AND layout_signature IN (?, ?) ORDER BY (source=?) DESC, (layout_signature=?) DESC LIMIT 1');
+        $q = db()->prepare('SELECT order_kind FROM project_import_kind_preferences WHERE employee_id=? AND business_name=? AND layout_signature IN (?, ?) ORDER BY (source=?) DESC, (layout_signature=?) DESC LIMIT 1'
+    );
         $q->execute([(int)$employeeId, $business, $layoutSignature, '*', 'finance', '*']);
         $kind = (string)$q->fetchColumn();
         return in_array($kind, ps_business_order_kinds($business), true) ? $kind : '';
@@ -22,14 +23,16 @@ function ps_import_kind_preference($employeeId, $business, $layoutSignature)
 function ps_import_kind_preference_save($employeeId, $business, $layoutSignature, $kind)
 {
     if (!$employeeId || !$layoutSignature || !in_array($kind, ps_business_order_kinds($business), true)) return;
-    db()->prepare("INSERT INTO project_import_kind_preferences (employee_id,business_name,layout_signature,order_kind) VALUES (?,?,?,?) ON DUPLICATE KEY UPDATE order_kind=VALUES(order_kind),confirmed_count=confirmed_count+1,updated_at=NOW()")
+    db()->prepare("INSERT INTO project_import_kind_preferences (employee_id,business_name,layout_signature,order_kind) VALUES (?,?,?,?) ON DUPLICATE KEY UPDATE order_kind=VALUES(order_kind),confirmed_count=confirmed_count+1,updated_at=NOW()"
+    )
         ->execute([(int)$employeeId, $business, $layoutSignature, $kind]);
 }
 
 /** 表头加工作表名作为版式指纹，不把上传时所选业务写进指纹。 */
 function ps_import_business_signature($head, $sheetName)
 {
-    return hash('sha256', json_encode([mb_strtolower(trim((string)$sheetName)), array_map(function ($value) { return mb_strtolower(trim((string)$value)); }, $head)], JSON_UNESCAPED_UNICODE));
+    return hash('sha256', json_encode([mb_strtolower(trim((string)$sheetName)), array_map(function ($value) { return mb_strtolower(trim((string)$value)); }, $head)], JSON_UNESCAPED_UNICODE
+    ));
 }
 
 /** 在当前账号获准的业务中判定整份表的归属。只让明确证据自动覆盖默认业务。 */
@@ -47,7 +50,8 @@ function ps_import_business_detect($fileRow, $allowedBusinesses, $selectedBusine
         }
         foreach (['业务类型','项目类型','业务'] as $alias) {
             $index = array_search($alias, $head, true);
-            if ($index !== false) { foreach (array_slice($rows, 0, 30) as $row) { $business = ps_business_normalize($row[$index] ?? ''); if (in_array($business, $allowedBusinesses, true)) $explicit[$business] = true; } break; }
+            if ($index !== false) { foreach (array_slice($rows, 0, 30) as $row) { $business = ps_business_normalize($row[$index] ?? ''); if (in_array($business, $allowedBusinesses,
+    true)) $explicit[$business] = true; } break; }
         }
         foreach ($allowedBusinesses as $business) {
             try { $map = ps_business_import_map($business, $head, false); } catch (RuntimeException $e) { continue; }
@@ -69,12 +73,14 @@ function ps_import_business_detect($fileRow, $allowedBusinesses, $selectedBusine
         $numbers = array_slice(array_keys($orderNos), 0, 30);
         $q = db()->prepare('SELECT DISTINCT project_type FROM project_orders WHERE order_no IN (' . implode(',', array_fill(0, count($numbers), '?')) . ')');
         $q->execute($numbers);
-        $known = array_values(array_unique(array_filter(array_map('ps_business_normalize', $q->fetchAll(PDO::FETCH_COLUMN)), function ($name) use ($allowedBusinesses) { return in_array($name, $allowedBusinesses, true); })));
+        $known = array_values(array_unique(array_filter(array_map('ps_business_normalize', $q->fetchAll(PDO::FETCH_COLUMN)), function ($name) use ($allowedBusinesses) { return in_array
+    ($name, $allowedBusinesses, true); })));
         if (count($known) === 1) return ['business' => $known[0], 'reason' => '已有关联订单号'];
     }
     if ($employeeId && $signatures) {
         try {
-            $q = db()->prepare('SELECT DISTINCT business_name FROM project_import_business_preferences WHERE employee_id=? AND layout_signature IN (' . implode(',', array_fill(0, count($signatures), '?')) . ')');
+            $q = db()->prepare('SELECT DISTINCT business_name FROM project_import_business_preferences WHERE employee_id=? AND layout_signature IN (' . implode(',', array_fill(0, count
+    ($signatures), '?')) . ')');
             $q->execute(array_merge([(int)$employeeId], $signatures));
             $saved = array_values(array_filter($q->fetchAll(PDO::FETCH_COLUMN), function ($name) use ($allowedBusinesses) { return in_array($name, $allowedBusinesses, true); }));
             if (count($saved) === 1) return ['business' => $saved[0], 'reason' => '本人同版式历史导入'];
@@ -91,7 +97,8 @@ function ps_import_business_preference_save($employeeId, $signature, $business)
 {
     if (!$employeeId || !$signature || !isset(ps_business_catalog()[$business])) return;
     try {
-        db()->prepare('INSERT INTO project_import_business_preferences (employee_id,layout_signature,business_name) VALUES (?,?,?) ON DUPLICATE KEY UPDATE business_name=VALUES(business_name),confirmed_count=confirmed_count+1,updated_at=NOW()')->execute([(int)$employeeId, $signature, $business]);
+        db()->prepare('INSERT INTO project_import_business_preferences (employee_id,layout_signature,business_name) VALUES (?,?,?) ON DUPLICATE KEY UPDATE business_name=VALUES(business_name),confirmed_count=confirmed_count+1,updated_at=NOW()'
+    )->execute([(int)$employeeId, $signature, $business]);
     } catch (PDOException $e) { /* 尚未执行迁移时不阻止订单导入。 */ }
 }
 

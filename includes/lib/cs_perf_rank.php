@@ -267,20 +267,26 @@ function detect_cs_perf_columns($header)
         if ($map['year'] === null && (strpos($c, '年份') !== false || $c === 'year')) $map['year'] = $i;
         if ($map['month'] === null && (strpos($c, '月份') !== false || $c === 'month')) $map['month'] = $i;
         // 下单人数（转化率分子）：下单人数/下单买家数/成交人数/下单客户数/下单量 等
-        if ($map['order_count'] === null && (strpos($c, '下单人数') !== false || strpos($c, '下单买家数') !== false || strpos($c, '成交人数') !== false || strpos($c, '下单客户数') !== false || strpos($c, '下单数') !== false || strpos($c, '下单量') !== false || $c === 'ordercount' || $c === 'order_count')) $map['order_count'] = $i;
+        if ($map['order_count'] === null && (strpos($c, '下单人数') !== false || strpos($c, '下单买家数') !== false || strpos($c, '成交人数') !== false || strpos($c, '下单客户数'
+    ) !== false || strpos($c, '下单数') !== false || strpos($c, '下单量') !== false || $c === 'ordercount' || $c === 'order_count')) $map['order_count'] = $i;
         // 询单最终下单转化率：须含「率」（且带 转化/询单 语境），避免把「询单人数」这类整数误认为转化率
         $isConvRate = (strpos($c, '转化') !== false || strpos($c, '询单') !== false) && strpos($c, '率') !== false;
         if ($map['inquiry_conv'] === null && $isConvRate) $map['inquiry_conv'] = $i;
         // 接待/进线/询单/咨询人数（不含 下单/成交 人数）
         $isUnder = (strpos($c, '下单') !== false || strpos($c, '成交') !== false);
-        if ($map['incoming'] === null && !$isUnder && (strpos($c, '接待') !== false || strpos($c, '进线') !== false || strpos($c, '会话') !== false || strpos($c, '咨询') !== false || strpos($c, '询单') !== false || strpos($c, '人数') !== false || strpos($c, '买家数') !== false)) $map['incoming'] = $i;
+        if ($map['incoming'] === null && !$isUnder && (strpos($c, '接待') !== false || strpos($c, '进线') !== false || strpos($c, '会话') !== false || strpos($c, '咨询') !==
+    false || strpos($c, '询单') !== false || strpos($c, '人数') !== false || strpos($c, '买家数') !== false)) $map['incoming'] = $i;
         // 总回复时长（秒）
-        if ($map['total_sec'] === null && (strpos($c, '总秒') !== false || strpos($c, '总回复') !== false || strpos($c, '回复秒数') !== false || strpos($c, '回复总时长') !== false)) $map['total_sec'] = $i;
-        if ($map['reply_count'] === null && (strpos($c, '回复次数') !== false || strpos($c, '回复条数') !== false || $c === 'replycount' || $c === 'replycounts')) $map['reply_count'] = $i;
+        if ($map['total_sec'] === null && (strpos($c, '总秒') !== false || strpos($c, '总回复') !== false || strpos($c, '回复秒数') !== false || strpos($c, '回复总时长'
+    ) !== false)) $map['total_sec'] = $i;
+        if ($map['reply_count'] === null && (strpos($c, '回复次数') !== false || strpos($c, '回复条数') !== false || $c === 'replycount' || $c === 'replycounts')) $map['reply_count'
+    ] = $i;
         // 平均回复/响应时长（千牛官方导出常用「平均响应时长」「平均首次响应时长」）
-        if ($map['reply_speed'] === null && (strpos($c, '响应时长') !== false || strpos($c, '响应时间') !== false || strpos($c, '回复时长') !== false || strpos($c, '平均回复') !== false || strpos($c, '回复速度') !== false || strpos($c, '首次响应') !== false)) $map['reply_speed'] = $i;
+        if ($map['reply_speed'] === null && (strpos($c, '响应时长') !== false || strpos($c, '响应时间') !== false || strpos($c, '回复时长') !== false || strpos($c, '平均回复'
+    ) !== false || strpos($c, '回复速度') !== false || strpos($c, '首次响应') !== false)) $map['reply_speed'] = $i;
         // 净销售额
-        if ($map['net_sales'] === null && (strpos($c, '净销售额') !== false || strpos($c, '销售额') !== false || strpos($c, '销售金额') !== false || $c === 'netsales' || $c === 'sales' || $c === 'orderamount')) $map['net_sales'] = $i;
+        if ($map['net_sales'] === null && (strpos($c, '净销售额') !== false || strpos($c, '销售额') !== false || strpos($c, '销售金额') !== false || $c === 'netsales' ||
+    $c === 'sales' || $c === 'orderamount')) $map['net_sales'] = $i;
         // 旺旺回复率
         if ($map['wangwang_reply'] === null && (strpos($c, '回复率') !== false || strpos($c, '旺旺回复') !== false)) $map['wangwang_reply'] = $i;
     }

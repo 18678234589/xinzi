@@ -71,7 +71,8 @@ function get_shops()
 function get_shop_list()
 {
     try {
-        $stmt = db()->query("SELECT s.*, (SELECT COUNT(*) FROM orders o WHERE o.shop = s.name AND COALESCE(o.is_deleted, 0) = 0) AS order_count FROM shops s ORDER BY s.sort ASC, s.id ASC");
+        $stmt = db()->query("SELECT s.*, (SELECT COUNT(*) FROM orders o WHERE o.shop = s.name AND COALESCE(o.is_deleted, 0) = 0) AS order_count FROM shops s ORDER BY s.sort ASC, s.id ASC"
+    );
         return $stmt->fetchAll();
     } catch (PDOException $e) {
         return [];

@@ -4,8 +4,10 @@ function ps_import_date($value)
 {
     $value = rtrim(trim((string)$value), '.。'); // 容忍手录多打的句点，如“8.30.”
     // 紧凑写法：260901（YYMMDD）、20260901（YYYYMMDD）——须先于 Excel 序列号判断
-    if (preg_match('/^(\d{2})(\d{2})(\d{2})$/', $value, $c) && checkdate((int)$c[2], (int)$c[3], 2000 + (int)$c[1])) return sprintf('%04d-%02d-%02d', 2000 + (int)$c[1], (int)$c[2], (int)$c[3]);
-    if (preg_match('/^(20\d{2})(\d{2})(\d{2})$/', $value, $c) && checkdate((int)$c[2], (int)$c[3], (int)$c[1])) return sprintf('%04d-%02d-%02d', (int)$c[1], (int)$c[2], (int)$c[3]);
+    if (preg_match('/^(\d{2})(\d{2})(\d{2})$/', $value, $c) && checkdate((int)$c[2], (int)$c[3], 2000 + (int)$c[1])) return sprintf('%04d-%02d-%02d', 2000 + (int)$c[1], (int)$c[2],
+    (int)$c[3]);
+    if (preg_match('/^(20\d{2})(\d{2})(\d{2})$/', $value, $c) && checkdate((int)$c[2], (int)$c[3], (int)$c[1])) return sprintf('%04d-%02d-%02d', (int)$c[1], (int)$c[2], (int)$c[3])
+    ;
     if (is_numeric($value) && (float)$value > 30000) return gmdate('Y-m-d', ((int)$value - 25569) * 86400);
     // Excel 把 8.3 / 8.7 存成浮点，读出来是 8.300000000000001：先按两位小数还原成“月.日”。
     if (preg_match('/^\d{1,2}\.\d{3,}$/', $value) && (float)$value < 13) $value = rtrim(rtrim(number_format((float)$value, 2, '.', ''), '0'), '.');
@@ -45,14 +47,17 @@ function ps_import_names($value, $employeesByName, $business = null)
         if ($name === '' || $name === '无') continue;
         $candidates = $employeesByName[$name] ?? [];
         if (count($candidates) > 1 && $business !== null) {
-            $narrowed = array_values(array_filter($candidates, function ($emp) use ($business) { return !empty($emp['has_account']) && in_array(ps_business_normalize($business), $emp['businesses'] ?? [], true); }));
-            if (count($narrowed) !== 1) $narrowed = array_values(array_filter($candidates, function ($emp) use ($business) { return ps_business_fallback($emp['department'] ?? '') === ps_business_normalize($business) || (ps_business_fallback($emp['department'] ?? '') === '网站客服' && ps_is_website_order($business)); }));
+            $narrowed = array_values(array_filter($candidates, function ($emp) use ($business) { return !empty($emp['has_account']) && in_array(ps_business_normalize($business), $emp
+    ['businesses'] ?? [], true); }));
+            if (count($narrowed) !== 1) $narrowed = array_values(array_filter($candidates, function ($emp) use ($business) { return ps_business_fallback($emp['department'] ?? '') ===
+    ps_business_normalize($business) || (ps_business_fallback($emp['department'] ?? '') === '网站客服' && ps_is_website_order($business)); }));
             // 仍不能确定时：只有一位开通了有效项目账号的（另一位多为离职或早期重复录入的档案），取这一位
             if (count($narrowed) !== 1) $narrowed = array_values(array_filter($candidates, function ($emp) { return !empty($emp['has_account']); }));
             if (count($narrowed) === 1) $candidates = $narrowed;
         }
         if (!$candidates) throw new RuntimeException('合作人员“' . $name . '”不在人员名单中，请先在“人员与考勤”里添加');
-        if (count($candidates) !== 1) throw new RuntimeException('合作人员“' . $name . '”有 ' . count($candidates) . ' 位重名，请在人员管理里区分姓名（如加部门后缀）');
+        if (count($candidates) !== 1) throw new RuntimeException('合作人员“' . $name . '”有 ' . count($candidates) . ' 位重名，请在人员管理里区分姓名（如加部门后缀）'
+    );
         $id = (int)$candidates[0]['id'];
         $out[$id] = $name;
     }
@@ -123,20 +128,33 @@ function ps_import_fix_guide($message, $business = '')
     $message = (string)$message;
     $kinds = $business ? ps_business_order_kinds($business) : [];
     $guides = [
-        ['/日期无法识别|日期“.*”无法识别/u', 'date', '日期写法无法识别', '“日期”列写订单日期即可，支持 年-月-日、月.日、X月X日、8 位数字；不要写时间、星期或文字。没有日期的行可在预览里直接补填。', '2026-09-01　9.1　9月1日　20260901'],
-        ['/^状态“/u', 'status', '状态写法无法识别', '“状态”列写 已完成 或 未完成；也可写 到账、已发货、交易关闭。空着按未完成处理。', '已完成　未完成　到账'],
-        ['/缺少店铺订单号或支付流水号/u', 'order_no', '缺少订单号（又没有日期 / 金额 / 付款昵称可识别）', '“订单编号”列填店铺（淘宝等）订单号；微信 / 对公收款没有订单号的，在“微信交易流水号”列填账单里的交易单号，二选一即可。也可在预览里直接补填。', '3316440471002001958　或　4200001234202609011234567890'],
-        ['/订单号或售价无效/u', 'amount', '售价或订单号写法不对', '“售价”列只写数字（最多两位小数），不要带“元”、文字或写两个金额；订单号不超过 100 个字符。', '350　1280.50'],
-        ['/不在人员名单中/u', 'person', '姓名对不上人员名单', '“客服”“技术”列只写系统里登记的姓名，多人用“、”隔开；不要写昵称、工号、项目名或把两人名字连在一起。名单里确实没有的人请联系财务添加。', '王宁　王宁、朱俊英'],
-        ['/位重名/u', 'duplicate', '姓名有重名', '系统里有同名的人，无法确定是哪一位。请联系财务在人员管理里区分（如加部门后缀），再按区分后的姓名填写。', '王宁（标书）'],
-        ['/须指定接单技术/u', 'tech_missing', '没写接单技术', '客服上传新订单时，“技术”列须写接单技术的姓名；写了但仍提示的，是该姓名不在人员名单里（写错字或还没登记），请核对或联系财务添加。', '石凯新'],
-        ['/还没有开通项目账号/u', 'tech_account', '技术还没开通账号', '表格里写的技术还没有项目账号，请联系财务开通后重新上传；或确认技术姓名是否写对。', ''],
-        ['/SSL 真实成本无效/u', 'ssl', 'SSL 成本写法不对', '“SSL证书使用”列写真实成本数字（只写数字，不带“元”）；没用证书写 0 或 无。', '0　无　68'],
-        ['/表格写的业务是/u', 'business', '业务选错了', '“业务”列写的业务和当前选择的业务模板不一致：请在页面上方切换到对应业务后再上传，或把“业务”列改成具体项目描述。', '小程序商城搭建（写做什么，不写别的业务名）'],
-        ['/订单类型“.*”无效/u', 'kind', '订单类型写法不对', '“订单类型”列只能写：' . implode('、', $kinds) . '。不确定可留空，系统会按描述自动预选。', implode('　', array_slice($kinds, 0, 3))],
-        ['/缺少“订单编号”或“微信交易流水号”列|没有与“.*”表头对应的工作表|缺少客服或技术列/u', 'header', '表头对不上', '表格第 1 行须是表头，至少要有“订单编号”（或“微信交易流水号”）、“日期”、“售价”列；财务上传还要有“客服”或“技术”列。最省事：下载下方模板，把数据按列粘贴进去再上传。', '日期 | 店铺 | 付款昵称 | 订单编号 | 售价 | 状态 | 客服 | 技术'],
+        ['/日期无法识别|日期“.*”无法识别/u', 'date', '日期写法无法识别', '“日期”列写订单日期即可，支持 年-月-日、月.日、X月X日、8 位数字；不要写时间、星期或文字。没有日期的行可在预览里直接补填。'
+    , '2026-09-01　9.1　9月1日　20260901'],
+        ['/^状态“/u', 'status', '状态写法无法识别', '“状态”列写 已完成 或 未完成；也可写 到账、已发货、交易关闭。空着按未完成处理。'
+    , '已完成　未完成　到账'],
+        ['/缺少店铺订单号或支付流水号/u', 'order_no', '缺少订单号（又没有日期 / 金额 / 付款昵称可识别）', '“订单编号”列填店铺（淘宝等）订单号；微信 / 对公收款没有订单号的，在“微信交易流水号”列填账单里的交易单号，二选一即可。也可在预览里直接补填。'
+    , '3316440471002001958　或　4200001234202609011234567890'],
+        ['/订单号或售价无效/u', 'amount', '售价或订单号写法不对', '“售价”列只写数字（最多两位小数），不要带“元”、文字或写两个金额；订单号不超过 100 个字符。'
+    , '350　1280.50'],
+        ['/不在人员名单中/u', 'person', '姓名对不上人员名单', '“客服”“技术”列只写系统里登记的姓名，多人用“、”隔开；不要写昵称、工号、项目名或把两人名字连在一起。名单里确实没有的人请联系财务添加。'
+    , '王宁　王宁、朱俊英'],
+        ['/位重名/u', 'duplicate', '姓名有重名', '系统里有同名的人，无法确定是哪一位。请联系财务在人员管理里区分（如加部门后缀），再按区分后的姓名填写。'
+    , '王宁（标书）'],
+        ['/须指定接单技术/u', 'tech_missing', '没写接单技术', '客服上传新订单时，“技术”列须写接单技术的姓名；写了但仍提示的，是该姓名不在人员名单里（写错字或还没登记），请核对或联系财务添加。'
+    , '石凯新'],
+        ['/还没有开通项目账号/u', 'tech_account', '技术还没开通账号', '表格里写的技术还没有项目账号，请联系财务开通后重新上传；或确认技术姓名是否写对。'
+    , ''],
+        ['/SSL 真实成本无效/u', 'ssl', 'SSL 成本写法不对', '“SSL证书使用”列写真实成本数字（只写数字，不带“元”）；没用证书写 0 或 无。'
+    , '0　无　68'],
+        ['/表格写的业务是/u', 'business', '业务选错了', '“业务”列写的业务和当前选择的业务模板不一致：请在页面上方切换到对应业务后再上传，或把“业务”列改成具体项目描述。'
+    , '小程序商城搭建（写做什么，不写别的业务名）'],
+        ['/订单类型“.*”无效/u', 'kind', '订单类型写法不对', '“订单类型”列只能写：' . implode('、', $kinds) . '。不确定可留空，系统会按描述自动预选。'
+    , implode('　', array_slice($kinds, 0, 3))],
+        ['/缺少“订单编号”或“微信交易流水号”列|没有与“.*”表头对应的工作表|缺少客服或技术列/u', 'header', '表头对不上', '表格第 1 行须是表头，至少要有“订单编号”（或“微信交易流水号”）、“日期”、“售价”列；财务上传还要有“客服”或“技术”列。最省事：下载下方模板，把数据按列粘贴进去再上传。'
+    , '日期 | 店铺 | 付款昵称 | 订单编号 | 售价 | 状态 | 客服 | 技术'],
     ];
-    foreach ($guides as [$pattern, $key, $title, $how, $example]) if (preg_match($pattern, $message)) return ['key' => $key, 'title' => $title, 'how' => $how, 'example' => $example];
+    foreach ($guides as [$pattern, $key, $title, $how, $example]) if (preg_match($pattern, $message)) return ['key' => $key, 'title' => $title, 'how' => $how, 'example' => $example
+    ];
     return null;
 }
 
@@ -154,7 +172,9 @@ function ps_import_followup_rows($preview, $keepAll = false)
         if (!$keepAll && !$needOrder && !$needDate) continue;
         $text = trim((string)($row['business_text'] ?? ''));
         if ($text === '') foreach ((array)($row['details'] ?? []) as $value) if (trim((string)$value) !== '') { $text = trim((string)$value); break; }
-        $rows[] = ['line' => (int)$row['line'], 'sheet' => (string)($row['sheet'] ?? ''), 'order_no' => (string)($row['order_no'] ?? ''), 'order_date' => (string)($row['order_date'] ?? ''), 'suggested_date' => (string)($row['suggested_date'] ?? ''), 'nickname' => (string)($row['payment_nickname'] ?? ''), 'amount' => (string)($row['contract_amount'] ?? ''), 'text' => mb_substr($text, 0, 60), 'need_order' => $needOrder, 'need_date' => $needDate, 'error' => (string)($row['error'] ?? '')];
+        $rows[] = ['line' => (int)$row['line'], 'sheet' => (string)($row['sheet'] ?? ''), 'order_no' => (string)($row['order_no'] ?? ''), 'order_date' => (string)($row['order_date'
+    ] ?? ''), 'suggested_date' => (string)($row['suggested_date'] ?? ''), 'nickname' => (string)($row['payment_nickname'] ?? ''), 'amount' => (string)($row['contract_amount'] ?? ''
+    ), 'text' => mb_substr($text, 0, 60), 'need_order' => $needOrder, 'need_date' => $needDate, 'error' => (string)($row['error'] ?? '')];
     }
     return $rows;
 }

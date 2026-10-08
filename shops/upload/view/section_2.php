@@ -62,7 +62,8 @@
                                                     if ($feeInfo['rate'] > 0 && $feeInfo['original_price'] > 0):
                                                 ?>
                                                     <div class="text-muted small">售价: ¥<?php echo money($feeInfo['original_price']); ?></div>
-                                                    <div class="text-warning small">手续费: ¥<?php echo money($feeInfo['amount']); ?> (<?php echo rtrim(rtrim(number_format($feeInfo['rate'] * 100, 2, '.', ''), '0'), '.'); ?>%)</div>
+                                                    <div class="text-warning small">手续费: ¥<?php echo money($feeInfo['amount']); ?> (<?php echo rtrim(rtrim(number_format($feeInfo
+    ['rate'] * 100, 2, '.', ''), '0'), '.'); ?>%)</div>
                                                     <div class="text-success font-weight-bold">净额: ¥<?php echo money($feeInfo['net']); ?></div>
                                                 <?php else: ?>
                                                     <span class="text-success font-weight-bold">¥<?php echo money($o['order_amount']); ?></span>
@@ -83,10 +84,13 @@
                                                 <?php endif; ?>
                                             </td>
                                             <td>
-                                                <button type="button" class="btn btn-sm btn-link p-0 text-info" data-detail='<?php echo htmlspecialchars(json_encode(["id"=>$o["id"],"order_no"=>$o["order_no"],"amount"=>$o["order_amount"],"date"=>$raw['__trade_time__'] ?? $o['order_date'],"status"=>$orderStatus,"reason"=>$o["abnormal_reason"],"raw"=>$raw], JSON_UNESCAPED_UNICODE | JSON_HEX_APOS | JSON_HEX_AMP), ENT_QUOTES, 'UTF-8'); ?>' onclick="showDetail(JSON.parse(this.dataset.detail))">
+                                                <button type="button" class="btn btn-sm btn-link p-0 text-info" data-detail='<?php echo htmlspecialchars(json_encode(["id"=>$o["id"]
+    ,"order_no"=>$o["order_no"],"amount"=>$o["order_amount"],"date"=>$raw['__trade_time__'] ?? $o['order_date'],"status"=>$orderStatus,"reason"=>$o["abnormal_reason"],"raw"=>$raw],
+    JSON_UNESCAPED_UNICODE | JSON_HEX_APOS | JSON_HEX_AMP), ENT_QUOTES, 'UTF-8'); ?>' onclick="showDetail(JSON.parse(this.dataset.detail))">
                                                     <i class="fas fa-eye"></i>
                                                 </button>
-                                                <button type="button" class="btn btn-sm btn-link p-0 text-danger" onclick="deleteOrder(<?php echo $o['id']; ?>, '<?php echo e($o['order_date']); ?>')">
+                                                <button type="button" class="btn btn-sm btn-link p-0 text-danger" onclick="deleteOrder(<?php echo $o['id']; ?>, '<?php echo e($o['order_date'
+    ]); ?>')">
                                                     <i class="fas fa-trash-alt"></i>
                                                 </button>
                                             </td>

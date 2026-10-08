@@ -36,17 +36,23 @@ foreach (array_keys($files) as $path) {
     foreach (token_get_all($source) as $token) {
         $id = is_array($token) ? $token[0] : null;
         $text = is_array($token) ? $token[1] : $token;
+        $length = strlen($text);
         $insideCall = false;
         foreach ($protected as $range) {
             if ($offset >= $range[0] && $offset < $range[1]) { $insideCall = true; break; }
         }
         if ($php && !$quoted && !$heredoc && !$insideCall && $column >= 180
             && !in_array($id, [T_WHITESPACE, T_COMMENT, T_DOC_COMMENT, T_OPEN_TAG, T_OPEN_TAG_WITH_ECHO], true)) {
-            $output .= $newline . '    ';
+            $output = rtrim($output, " \t") . $newline . '    ';
             $column = 4;
         }
+        if (in_array($id, [T_WHITESPACE, T_OPEN_TAG, T_OPEN_TAG_WITH_ECHO], true)
+            && !$quoted && !$heredoc && !$insideCall) {
+            $text = preg_replace('/[ \t]+(?=\r?\n)/', '', $text);
+            if ($id === T_WHITESPACE && preg_match('/^\r?\n/', $text)) $output = rtrim($output, " \t");
+        }
         $output .= $text;
-        $offset += strlen($text);
+        $offset += $length;
         $last = strrpos($text, "\n");
         $column = $last === false ? $column + strlen($text) : strlen(substr($text, $last + 1));
         if (in_array($id, [T_OPEN_TAG, T_OPEN_TAG_WITH_ECHO], true)) $php = true;
@@ -60,5 +66,7 @@ foreach (array_keys($files) as $path) {
         $changed++;
     }
 }
-file_put_contents($manifestPath, json_encode($manifest, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT) . "\n");
+$json = json_encode($manifest, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT);
+$json = preg_replace_callback('/^ +/m', function ($match) { return str_repeat(' ', strlen($match[0]) / 2); }, $json);
+file_put_contents($manifestPath, $json . "\n");
 echo 'Wrapped ' . $changed . " PHP files; run verify_split.php and rendering comparison\n";

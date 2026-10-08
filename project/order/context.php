@@ -44,16 +44,20 @@ if ($actor['role'] !== 'finance') {
         foreach ($approvedSnapshots as $snapshot) if ((int)$snapshot['employee_id'] === $actor['employee_id']) $ownCommission += (float)$snapshot['commission_amount'];
     }
 }
-$templateQuery = db()->prepare("SELECT * FROM project_cost_templates WHERE is_active=1 AND (business_scope='' OR business_scope=?) ORDER BY FIELD(category,'program','domain','server','certificate','plugin','certification','api','outsourcing','other'),name,specification");
+$templateQuery = db()->prepare("SELECT * FROM project_cost_templates WHERE is_active=1 AND (business_scope='' OR business_scope=?) ORDER BY FIELD(category,'program','domain','server','certificate','plugin','certification','api','outsourcing','other'),name,specification"
+    );
 $templateQuery->execute([ps_business_normalize($order['project_type'])]);
 $templates = $templateQuery->fetchAll();
 $shopMatches = ps_shop_order_lookup($order['order_no']);
 $orderKinds = ps_business_order_kinds($order['project_type']);
 $backendTechCount = count(array_filter($people, function ($p) { return $p['commission_group'] === 'technical' && in_array('后端', ps_role_keys($p['role_name'] ?? ''), true); }));
-$todoRow = $order + ['price_source' => $orderSource['price_source'], 'domain_mode' => $orderResource['domain_mode'] ?? '', 'pending_costs' => count(array_filter($costs, function ($c) { return $c['review_status'] === 'pending'; })), 'pending_cash' => count(array_filter($cashMovements, function ($m) { return $m['review_status'] === 'pending'; })), 'tech_count' => count(array_filter($people, function ($p) { return $p['commission_group'] === 'technical'; })), 'backend_tech_count' => $backendTechCount];
+$todoRow = $order + ['price_source' => $orderSource['price_source'], 'domain_mode' => $orderResource['domain_mode'] ?? '', 'pending_costs' => count(array_filter($costs, function ($c
+    ) { return $c['review_status'] === 'pending'; })), 'pending_cash' => count(array_filter($cashMovements, function ($m) { return $m['review_status'] === 'pending'; })), 'tech_count'
+    => count(array_filter($people, function ($p) { return $p['commission_group'] === 'technical'; })), 'backend_tech_count' => $backendTechCount];
 $todos = ps_order_todos($todoRow);
 $personLookup = [];
-foreach (['technical', 'customer_service'] as $groupKey) foreach ($sum['groups'][$groupKey]['people'] as $calcPerson) $personLookup[$groupKey . ':' . $calcPerson['employee_id']] = $calcPerson;
+foreach (['technical', 'customer_service'] as $groupKey) foreach ($sum['groups'][$groupKey]['people'] as $calcPerson) $personLookup[$groupKey . ':' . $calcPerson['employee_id']] =
+    $calcPerson;
 $employees = $actor['role'] === 'finance' ? db()->query('SELECT id,name,department FROM employees ORDER BY department,name,id')->fetchAll() : [];
 $shops = db()->query('SELECT name FROM shops ORDER BY sort,id')->fetchAll(PDO::FETCH_COLUMN);
 $websiteOrder = ps_is_website_order($order['project_type']);
@@ -65,7 +69,8 @@ $counterpartChoices = [];
 if ($collabOrder && $canEdit && !$counterpartCount && in_array($actor['role'], ['customer_service','technical'], true)) {
     $q = db()->prepare('SELECT e.id,e.name,e.department FROM employees e JOIN project_users u ON u.employee_id=e.id WHERE u.role=? AND u.is_active=1 ORDER BY e.name,e.id');
     $q->execute([$counterpartGroup]);
-    foreach ($q->fetchAll() as $person) if (ps_active_employee_for_business($person['id'], $counterpartGroup, ps_business_normalize($order['project_type']))) $counterpartChoices[] = $person;
+    foreach ($q->fetchAll() as $person) if (ps_active_employee_for_business($person['id'], $counterpartGroup, ps_business_normalize($order['project_type']))) $counterpartChoices[]
+    = $person;
 }
 
 $isWebsiteOrder = ps_is_website_order($order['project_type']);
@@ -78,7 +83,8 @@ foreach ($people as $person) {
     if ($person['commission_group'] === 'technical') {
         $rKeys = ps_role_keys($person['role_name']);
         $hasBack = in_array('后端', $rKeys, true);
-        $hasFront = in_array('前端', $rKeys, true) || in_array('外包前端', $rKeys, true) || in_array('定制前端', $rKeys, true) || in_array('模板技术', $rKeys, true) || in_array('技术', $rKeys, true) || in_array('制作技术', $rKeys, true) || !$hasBack;
+        $hasFront = in_array('前端', $rKeys, true) || in_array('外包前端', $rKeys, true) || in_array('定制前端', $rKeys, true) || in_array('模板技术', $rKeys, true) ||
+    in_array('技术', $rKeys, true) || in_array('制作技术', $rKeys, true) || !$hasBack;
         if ($hasBack && $hasFront) {
             $isFullstack = true;
             $hasBackendTech = true;
@@ -107,7 +113,8 @@ if (!$currentFrontendPerson) {
 }
 $backendChoices = [];
 if ($isWebsiteOrder) {
-    $qB = db()->query('SELECT e.id,e.name,e.department FROM employees e JOIN project_users u ON u.employee_id=e.id WHERE u.role="technical" AND u.is_active=1 ORDER BY e.name,e.id');
+    $qB = db()->query('SELECT e.id,e.name,e.department FROM employees e JOIN project_users u ON u.employee_id=e.id WHERE u.role="technical" AND u.is_active=1 ORDER BY e.name,e.id')
+    ;
     foreach ($qB->fetchAll() as $person) {
         if (ps_active_employee_for_business($person['id'], 'technical', ps_business_normalize($order['project_type']))
             || ps_active_employee_for_business($person['id'], 'technical', 'AI网站定制')

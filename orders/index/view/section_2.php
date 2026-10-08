@@ -27,7 +27,8 @@
                             <?php if ($filter_dept): ?>
                                 <li class="breadcrumb-item <?php echo ($filter_employee || $filter_dept_orders) ? '' : 'active'; ?>">
                                     <?php if ($filter_employee || $filter_dept_orders): ?>
-                                        <a href="?department=<?php echo urlencode($filter_dept); ?><?php echo $filter_month ? '&month='.$filter_month : ''; ?>"><?php echo e($filter_dept); ?></a>
+                                        <a href="?department=<?php echo urlencode($filter_dept); ?><?php echo $filter_month ? '&month='.$filter_month : ''; ?>"><?php echo e($filter_dept
+    ); ?></a>
                                     <?php else: ?>
                                         <?php echo e($filter_dept); ?>
                                     <?php endif; ?>
@@ -148,7 +149,8 @@
                                     </span>
                                     <span class="d-flex align-items-center">
                                         <span class="text-white mr-3">¥<?php echo money($monthData['total_amount']); ?></span>
-                                        <form method="post" action="" class="d-inline" onsubmit="return confirm('确定删除 <?php echo date('Y年m月', strtotime($monthData['month'] . '-01')); ?> 的全部 <?php echo $monthData['total_cnt']; ?> 条订单？此操作不可恢复！');">
+                                        <form method="post" action="" class="d-inline" onsubmit="return confirm('确定删除 <?php echo date('Y年m月', strtotime($monthData['month'
+    ] . '-01')); ?> 的全部 <?php echo $monthData['total_cnt']; ?> 条订单？此操作不可恢复！');">
                                             <input type="hidden" name="action" value="delete_group">
                                             <input type="hidden" name="del_employee_id" value="<?php echo (int)$filter_employee; ?>">
                                             <input type="hidden" name="del_month" value="<?php echo e($monthData['month']); ?>">
@@ -171,7 +173,8 @@
                                     <!-- 分组标题行：点击展开/收起 -->
                                     <div class="d-flex align-items-stretch">
                                     <a href="<?php echo '?' . http_build_query($isExpand ? $collapseQ : $grpQ); ?>"
-                                       class="order-group-header d-flex align-items-center justify-content-between flex-grow-1 px-3 py-2 text-decoration-none <?php echo $isExpand ? 'expanded' : ''; ?>"
+                                       class="order-group-header d-flex align-items-center justify-content-between flex-grow-1 px-3 py-2 text-decoration-none <?php echo $isExpand ?
+    'expanded' : ''; ?>"
                                        <?php if ($isExpand): ?>data-toggle="modal" data-target="#orderDetailModal"<?php endif; ?>>
                                         <span>
                                             <i class="fas fa-<?php echo $isExpand ? 'folder-open' : 'folder'; ?> mr-2 text-warning"></i>
@@ -184,12 +187,14 @@
                                                 <span class="badge badge-success ml-1" title="部门订单"><i class="fas fa-users"></i> <?php echo $grp['dept_cnt']; ?></span>
                                             <?php endif; ?>
                                             <?php if ($grp['abn_cnt'] > 0): ?>
-                                                <span class="badge badge-danger ml-1 abnormal-filter-badge" title="只看异常订单" onclick="event.preventDefault();event.stopPropagation();location.href='<?php echo '?' . http_build_query($abnQ); ?>';"><i class="fas fa-exclamation-triangle"></i> <?php echo $grp['abn_cnt']; ?></span>
+                                                <span class="badge badge-danger ml-1 abnormal-filter-badge" title="只看异常订单" onclick="event.preventDefault();event.stopPropagation();location.href='<?php
+    echo '?' . http_build_query($abnQ); ?>';"><i class="fas fa-exclamation-triangle"></i> <?php echo $grp['abn_cnt']; ?></span>
                                             <?php endif; ?>
                                         </span>
                                         <span class="text-success font-weight-bold d-flex align-items-center">
                                             ¥<?php echo money($grp['normal_amount']); ?>
-                                            <button type="button" class="btn btn-sm btn-outline-danger py-0 ml-2" style="font-size:.7em" title="删除该模块全部订单" onclick="event.preventDefault();event.stopPropagation();deleteProject('<?php echo e($grpName); ?>', <?php echo $grp['cnt']; ?>, <?php echo $filter_employee; ?>, '<?php echo e($filter_dept); ?>', <?php echo $filter_dept_orders ? 'true' : 'false'; ?>);"><i class="fas fa-trash-alt"></i></button>
+                                            <button type="button" class="btn btn-sm btn-outline-danger py-0 ml-2" style="font-size:.7em" title="删除该模块全部订单" onclick="event.preventDefault();event.stopPropagation();deleteProject('<?php
+    echo e($grpName); ?>', <?php echo $grp['cnt']; ?>, <?php echo $filter_employee; ?>, '<?php echo e($filter_dept); ?>', <?php echo $filter_dept_orders ? 'true' : 'false'; ?>);"><i class="fas fa-trash-alt"></i></button>
                                             <i class="fas fa-chevron-<?php echo $isExpand ? 'up' : 'down'; ?> ml-2 text-muted" style="font-size:.8em"></i>
                                         </span>
                                     </a>

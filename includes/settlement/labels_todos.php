@@ -4,7 +4,8 @@
 function ps_label($type, $value)
 {
     $labels = [
-        'category' => ['domain' => '域名', 'server' => '服务器', 'program' => '程序套餐', 'certificate' => 'SSL证书', 'certification' => '认证', 'api' => 'API', 'plugin' => '功能插件', 'outsourcing' => '外包', 'other' => '其他'],
+        'category' => ['domain' => '域名', 'server' => '服务器', 'program' => '程序套餐', 'certificate' => 'SSL证书', 'certification' => '认证', 'api' => 'API', 'plugin'
+    => '功能插件', 'outsourcing' => '外包', 'other' => '其他'],
         'cost_kind' => ['one_time' => '一次性', 'annual' => '年度', 'monthly' => '月度'],
         'review' => ['approved' => '已通过', 'pending' => '待财务审核', 'rejected' => '已驳回/作废'],
         'settlement' => ['draft' => '录入中', 'review' => '待审核', 'approved' => '已审核', 'locked' => '已锁定'],
@@ -23,9 +24,11 @@ function ps_order_todos($row)
     if (in_array($row['settlement_status'] ?? '', ['approved', 'locked'], true)) return [];
     $todos = [];
     if (($row['price_source'] ?? 'missing') === 'missing') $todos[] = ['售价待补', 'warning'];
-    if (($row['domain_mode'] ?? '') === 'pending' && !empty(ps_business_catalog()[ps_business_normalize($row['project_type'])]['resources'])) $todos[] = ['资源待技术确认', 'warning'];
+    if (($row['domain_mode'] ?? '') === 'pending' && !empty(ps_business_catalog()[ps_business_normalize($row['project_type'])]['resources'])) $todos[] = ['资源待技术确认', 'warning'
+    ];
     if (ps_business_requires_technical($row['project_type']) && (int)($row['tech_count'] ?? 1) === 0) $todos[] = ['未指定技术', 'danger'];
-    if (in_array(ps_business_normalize($row['project_type'] ?? ''), ['AI网站定制', '网站定制'], true) && isset($row['backend_tech_count']) && (int)$row['backend_tech_count'] === 0 && (int)($row['tech_count'] ?? 0) > 0) {
+    if (in_array(ps_business_normalize($row['project_type'] ?? ''), ['AI网站定制', '网站定制'], true) && isset($row['backend_tech_count']) && (int)$row['backend_tech_count'
+    ] === 0 && (int)($row['tech_count'] ?? 0) > 0) {
         $todos[] = ['待指定后端', 'warning'];
     }
     if ((int)($row['pending_costs'] ?? 0) > 0) $todos[] = ['成本待审 ' . (int)$row['pending_costs'], 'info'];

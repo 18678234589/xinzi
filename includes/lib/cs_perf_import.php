@@ -254,7 +254,8 @@ function import_cs_perf_file($filePath, $source = '', $defaultYear = 0, $default
             // 未匹配 → 暂存
             $pk = ($wang !== '' ? 'w:' . $wangKey : 'n:' . $name) . '|' . $store . "|$year-$month";
             if (!isset($pendingKey[$pk])) {
-                $pendingKey[$pk] = ['wangwang'=>$wang,'name'=>$name,'store'=>$store,'year'=>$year,'month'=>$month,'incoming'=>0,'total'=>0.0,'replyCnt'=>0,'avgSum'=>0.0,'avgN'=>0,'netSales'=>0.0,'convSum'=>0.0,'convN'=>0,'wangSum'=>0.0,'wangN'=>0,'orderCnt'=>0];
+                $pendingKey[$pk] = ['wangwang'=>$wang,'name'=>$name,'store'=>$store,'year'=>$year,'month'=>$month,'incoming'=>0,'total'=>0.0,'replyCnt'=>0,'avgSum'=>0.0,'avgN'=>0,'netSales'
+    =>0.0,'convSum'=>0.0,'convN'=>0,'wangSum'=>0.0,'wangN'=>0,'orderCnt'=>0];
             }
             $pendingKey[$pk]['incoming'] += $incoming;
             $pendingKey[$pk]['orderCnt'] += $orderCount;
@@ -269,7 +270,8 @@ function import_cs_perf_file($filePath, $source = '', $defaultYear = 0, $default
 
         $ek = (int)$emp['id'] . '|' . $store . "|$year-$month";
         if (!isset($monthAgg[$ek])) {
-            $monthAgg[$ek] = ['emp'=>$emp,'store'=>$store,'year'=>$year,'month'=>$month,'incoming'=>0,'total'=>0.0,'replyCnt'=>0,'avgSum'=>0.0,'avgN'=>0,'netSales'=>0.0,'convSum'=>0.0,'convN'=>0,'wangSum'=>0.0,'wangN'=>0,'orderCnt'=>0];
+            $monthAgg[$ek] = ['emp'=>$emp,'store'=>$store,'year'=>$year,'month'=>$month,'incoming'=>0,'total'=>0.0,'replyCnt'=>0,'avgSum'=>0.0,'avgN'=>0,'netSales'=>0.0,'convSum'=>
+    0.0,'convN'=>0,'wangSum'=>0.0,'wangN'=>0,'orderCnt'=>0];
         }
         $monthAgg[$ek]['incoming'] += $incoming;
         $monthAgg[$ek]['orderCnt'] += $orderCount;
@@ -311,7 +313,8 @@ function import_cs_perf_file($filePath, $source = '', $defaultYear = 0, $default
         $wangReply   = $agg['wangN'] > 0 ? round($agg['wangSum'] / $agg['wangN'], 2) : 0.0;
         $upsert->execute([(int)$agg['emp']['id'], $store, $agg['year'], $agg['month'], $replySpeed, $incoming, $netSales, $inquiryConv, $wangReply, $orderCnt, $source]);
         $convTxt = cs_perf_conv_derivation($inquiryConv, $orderCnt, $incoming);
-        $detail[] = sprintf('%s[%s] %04d-%02d 进线%d 下单%d 回复%.1fs 销售额%.2f %s 旺旺回复率%.2f%%', $agg['emp']['name'], $store !== '' ? $store : '无店铺', $agg['year'], $agg['month'], $incoming, $orderCnt, $replySpeed, $netSales, $convTxt !== null ? $convTxt : sprintf('询单转化%.2f%%', $inquiryConv), $wangReply);
+        $detail[] = sprintf('%s[%s] %04d-%02d 进线%d 下单%d 回复%.1fs 销售额%.2f %s 旺旺回复率%.2f%%', $agg['emp']['name'], $store !== '' ? $store : '无店铺', $agg
+    ['year'], $agg['month'], $incoming, $orderCnt, $replySpeed, $netSales, $convTxt !== null ? $convTxt : sprintf('询单转化%.2f%%', $inquiryConv), $wangReply);
     }
 
     // 未匹配 → 先清该 key 旧暂存再写入（避免重复上传叠加）
@@ -326,10 +329,13 @@ function import_cs_perf_file($filePath, $source = '', $defaultYear = 0, $default
         $inquiryConv = $p['convN'] > 0 ? round($p['convSum'] / $p['convN'], 2)
                      : ($p['orderCnt'] > 0 && $p['incoming'] > 0 ? round($p['orderCnt'] / $p['incoming'] * 100, 2) : 0.0);
         $wangReply   = $p['wangN'] > 0 ? round($p['wangSum'] / $p['wangN'], 2) : 0.0;
-        $raw = json_encode(['wangwang'=>$p['wangwang'],'name'=>$p['name'],'store'=>$p['store'],'year'=>$p['year'],'month'=>$p['month'],'incoming'=>$p['incoming'],'order_count'=>$p['orderCnt'],'total_reply_seconds'=>$p['total'],'net_sales'=>$netSales,'inquiry_conv'=>$inquiryConv,'wangwang_reply'=>$wangReply], JSON_UNESCAPED_UNICODE);
-        $insPending->execute([$p['wangwang'], $p['name'], $p['year'], $p['month'], $p['incoming'], $p['total'], $netSales, $inquiryConv, $wangReply, $p['orderCnt'], $source, $raw]);
+        $raw = json_encode(['wangwang'=>$p['wangwang'],'name'=>$p['name'],'store'=>$p['store'],'year'=>$p['year'],'month'=>$p['month'],'incoming'=>$p['incoming'],'order_count'=>$p[
+    'orderCnt'],'total_reply_seconds'=>$p['total'],'net_sales'=>$netSales,'inquiry_conv'=>$inquiryConv,'wangwang_reply'=>$wangReply], JSON_UNESCAPED_UNICODE);
+        $insPending->execute([$p['wangwang'], $p['name'], $p['year'], $p['month'], $p['incoming'], $p['total'], $netSales, $inquiryConv, $wangReply, $p['orderCnt'], $source, $raw])
+    ;
         $pendingCount++;
-        $detail[] = sprintf('未匹配暂存：%s[%s] %04d-%02d', $p['name'] !== '' ? $p['name'] : $p['wangwang'], $p['store'] !== '' ? $p['store'] : '无店铺', $p['year'], $p['month']);
+        $detail[] = sprintf('未匹配暂存：%s[%s] %04d-%02d', $p['name'] !== '' ? $p['name'] : $p['wangwang'], $p['store'] !== '' ? $p['store'] : '无店铺', $p['year'], $p['month'
+    ]);
     }
 
     // 写同步日志

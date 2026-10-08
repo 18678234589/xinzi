@@ -28,7 +28,8 @@ function ps_monthly_metrics()
 
 function ps_monthly_rules_for($month, $includeInactive = false)
 {
-    $sql = 'SELECT * FROM project_monthly_rules WHERE effective_from<=? AND (effective_to IS NULL OR effective_to>=?)' . ($includeInactive ? '' : ' AND is_active=1') . ' ORDER BY id';
+    $sql = 'SELECT * FROM project_monthly_rules WHERE effective_from<=? AND (effective_to IS NULL OR effective_to>=?)' . ($includeInactive ? '' : ' AND is_active=1') . ' ORDER BY id'
+    ;
     $q = db()->prepare($sql);
     $q->execute([$month, $month]);
     $rules = $q->fetchAll();
@@ -54,7 +55,8 @@ function ps_monthly_snapshot_matches($rule, $snap)
 
 function ps_monthly_snapshots($month)
 {
-    $q = db()->prepare('SELECT s.*,o.project_type,o.order_no,o.order_kind,o.contract_amount AS order_contract_amount FROM project_commission_snapshots s JOIN project_orders o ON o.id=s.order_id WHERE s.payroll_month=? ORDER BY s.id');
+    $q = db()->prepare('SELECT s.*,o.project_type,o.order_no,o.order_kind,o.contract_amount AS order_contract_amount FROM project_commission_snapshots s JOIN project_orders o ON o.id=s.order_id WHERE s.payroll_month=? ORDER BY s.id'
+    );
     $q->execute([$month]);
     $rows = $q->fetchAll();
     foreach ($rows as &$snap) {
@@ -105,9 +107,11 @@ function ps_monthly_prorate($amount, $attendance)
 {
     if (!$attendance || $attendance['absent'] <= 0) return [round($amount, 2), $attendance ? '满勤' : '无考勤记录按满勤'];
     $leave = round($attendance['absent'] / 8, 2); // 与收入表一致：请假天数保留两位小数（如 1.19 天、0.23 天）
-    if ($leave <= 4) return [round($amount - $amount / 30 * $leave, 2), sprintf('请假 %s 天：%s − %s/30 × %s', rtrim(rtrim(number_format($leave, 2, '.', ''), '0'), '.'), money_plain($amount), money_plain($amount), rtrim(rtrim(number_format($leave, 2, '.', ''), '0'), '.'))];
+    if ($leave <= 4) return [round($amount - $amount / 30 * $leave, 2), sprintf('请假 %s 天：%s − %s/30 × %s', rtrim(rtrim(number_format($leave, 2, '.', ''), '0'), '.'), money_plain
+    ($amount), money_plain($amount), rtrim(rtrim(number_format($leave, 2, '.', ''), '0'), '.'))];
     $actual = max(round($attendance['work'] / 8, 2) - $leave, 0);
-    return [round($amount / 30 * $actual, 2), sprintf('请假超过 4 天，按实际出勤 %s 天：%s/30 × %s', rtrim(rtrim(number_format($actual, 2, '.', ''), '0'), '.'), money_plain($amount), rtrim(rtrim(number_format($actual, 2, '.', ''), '0'), '.'))];
+    return [round($amount / 30 * $actual, 2), sprintf('请假超过 4 天，按实际出勤 %s 天：%s/30 × %s', rtrim(rtrim(number_format($actual, 2, '.', ''), '0'), '.'), money_plain
+    ($amount), rtrim(rtrim(number_format($actual, 2, '.', ''), '0'), '.'))];
 }
 
 /**
@@ -162,13 +166,17 @@ function ps_sales_package_calc($params, $orders, $reviewRate = null)
     $small = count(array_filter($orders, function ($o) use ($threshold) { return (float)$o['income'] > 0 && (float)$o['income'] < $threshold; }));
     $tierText = '月营业额 ¥' . money_plain($revenue) . ' 落在“≤¥' . money_plain($tier['upto']) . '”档';
     $items = [];
-    if ((float)$tier['rate'] > 0) $items[] = ['营业额提成', $revenue * (float)$tier['rate'], $tierText . '：¥' . money_plain($revenue) . ' × ' . round((float)$tier['rate'] * 100, 4) . '%'];
+    if ((float)$tier['rate'] > 0) $items[] = ['营业额提成', $revenue * (float)$tier['rate'], $tierText . '：¥' . money_plain($revenue) . ' × ' . round((float)$tier['rate']
+    * 100, 4) . '%'];
     $perOrder = $big * (float)$tier['big'] + $small * (float)$tier['small'];
-    if ($perOrder > 0) $items[] = ['单量补助', $perOrder, sprintf('≥¥%s 的 %d 单 × ¥%s + <¥%s 的 %d 单 × ¥%s', money_plain($threshold), $big, money_plain($tier['big']), money_plain($threshold), $small, money_plain($tier['small']))];
+    if ($perOrder > 0) $items[] = ['单量补助', $perOrder, sprintf('≥¥%s 的 %d 单 × ¥%s + <¥%s 的 %d 单 × ¥%s', money_plain($threshold), $big, money_plain($tier['big'
+    ]), money_plain($threshold), $small, money_plain($tier['small']))];
     $returning = round(array_sum(array_map(function ($o) { return !empty($o['returning']) ? (float)$o['income'] : 0.0; }, $orders)), 2);
     $returningRate = (float)($params['returning_rate'] ?? 0);
-    if ($returning > 0 && $returningRate > 0) $items[] = ['老客户找回', $returning * $returningRate, '老客户找回订单收入 ¥' . money_plain($returning) . ' × ' . round($returningRate * 100, 4) . '%'];
+    if ($returning > 0 && $returningRate > 0) $items[] = ['老客户找回', $returning * $returningRate, '老客户找回订单收入 ¥' . money_plain($returning) . ' × ' . round
+    ($returningRate * 100, 4) . '%'];
     $reviewMin = (float)($params['review_min'] ?? 0);
-    if ($reviewRate !== null && $reviewMin > 0 && (float)$reviewRate < $reviewMin) $items[] = ['好评率罚款', -(float)($params['review_penalty'] ?? 0), '本月好评率 ' . rtrim(rtrim(number_format((float)$reviewRate, 2, '.', ''), '0'), '.') . '% 低于 ' . rtrim(rtrim(number_format($reviewMin, 2, '.', ''), '0'), '.') . '%'];
+    if ($reviewRate !== null && $reviewMin > 0 && (float)$reviewRate < $reviewMin) $items[] = ['好评率罚款', -(float)($params['review_penalty'] ?? 0), '本月好评率 ' . rtrim
+    (rtrim(number_format((float)$reviewRate, 2, '.', ''), '0'), '.') . '% 低于 ' . rtrim(rtrim(number_format($reviewMin, 2, '.', ''), '0'), '.') . '%'];
     return ['revenue' => $revenue, 'tier' => $tier, 'base' => (float)$tier['base'], 'tier_text' => $tierText, 'items' => $items];
 }

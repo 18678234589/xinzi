@@ -11,10 +11,14 @@
 function cs_perf_metric_details($params, $perf)
 {
     $defs = [
-        ['key' => 'net_sales',      'label' => '净销售额',   'weightKey' => 'w_net_sales',      'tiersKey' => 'tiers_net_sales',      'valueKey' => 'net_sales',      'unit' => '元'],
-        ['key' => 'inquiry_conv',   'label' => '询单转化率', 'weightKey' => 'w_inquiry_conv',   'tiersKey' => 'tiers_inquiry_conv',   'valueKey' => 'inquiry_conv',   'unit' => '%'],
-        ['key' => 'wangwang_reply', 'label' => '旺旺回复率', 'weightKey' => 'w_wangwang_reply', 'tiersKey' => 'tiers_wangwang_reply', 'valueKey' => 'wangwang_reply', 'unit' => '%'],
-        ['key' => 'avg_response',   'label' => '平均响应',   'weightKey' => 'w_avg_response',   'tiersKey' => 'tiers_avg_response',   'valueKey' => 'reply_speed',    'unit' => '秒'],
+        ['key' => 'net_sales',      'label' => '净销售额',   'weightKey' => 'w_net_sales',      'tiersKey' => 'tiers_net_sales',      'valueKey' => 'net_sales',      'unit' =>
+    '元'],
+        ['key' => 'inquiry_conv',   'label' => '询单转化率', 'weightKey' => 'w_inquiry_conv',   'tiersKey' => 'tiers_inquiry_conv',   'valueKey' => 'inquiry_conv',   'unit' =>
+    '%'],
+        ['key' => 'wangwang_reply', 'label' => '旺旺回复率', 'weightKey' => 'w_wangwang_reply', 'tiersKey' => 'tiers_wangwang_reply', 'valueKey' => 'wangwang_reply', 'unit' =>
+    '%'],
+        ['key' => 'avg_response',   'label' => '平均响应',   'weightKey' => 'w_avg_response',   'tiersKey' => 'tiers_avg_response',   'valueKey' => 'reply_speed',    'unit' =>
+    '秒'],
     ];
     $metrics = [];
     $wSum = 0.0; $rateSum = 0.0;
@@ -191,14 +195,16 @@ function cs_perf_calc_detail($employeeId, $year, $month, $legacyCfg = null)
         if ($params['weight_reply'] > 0 && $params['target_reply_sec'] > 0 && $replySpeed > 0) {
             $rate = $params['target_reply_sec'] / $replySpeed;
             $wSum += $params['weight_reply']; $rateSum += $params['weight_reply'] * $rate;
-            $dMetrics[] = ['key'=>'reply','label'=>'平均响应时长','unit'=>'秒','weight'=>$params['weight_reply'],'value'=>$replySpeed,'target'=>$params['target_reply_sec'],'rate'=>$rate,'how'=>'目标秒数 ÷ 实际秒数（越快越好）'];
+            $dMetrics[] = ['key'=>'reply','label'=>'平均响应时长','unit'=>'秒','weight'=>$params['weight_reply'],'value'=>$replySpeed,'target'=>$params['target_reply_sec'],'rate'
+    =>$rate,'how'=>'目标秒数 ÷ 实际秒数（越快越好）'];
             $parts[] = sprintf('回复%.1f%%×%.1f', $rate * 100, $params['weight_reply']);
         }
         // 2. 接待人数
         if ($params['weight_incoming'] > 0 && $params['target_incoming'] > 0) {
             $rate = $incoming / $params['target_incoming'];
             $wSum += $params['weight_incoming']; $rateSum += $params['weight_incoming'] * $rate;
-            $dMetrics[] = ['key'=>'incoming','label'=>'接待人数(进线)','unit'=>'人','weight'=>$params['weight_incoming'],'value'=>$incoming,'target'=>$params['target_incoming'],'rate'=>$rate,'how'=>'进线数 ÷ 目标人数'];
+            $dMetrics[] = ['key'=>'incoming','label'=>'接待人数(进线)','unit'=>'人','weight'=>$params['weight_incoming'],'value'=>$incoming,'target'=>$params['target_incoming'
+    ],'rate'=>$rate,'how'=>'进线数 ÷ 目标人数'];
             $parts[] = sprintf('接待%.1f%%×%.1f', $rate * 100, $params['weight_incoming']);
         }
         // 3. 转化率
@@ -206,7 +212,8 @@ function cs_perf_calc_detail($employeeId, $year, $month, $legacyCfg = null)
             $convPct = $dealCount / $incoming * 100;
             $rate    = $convPct / $params['target_conversion_pct'];
             $wSum += $params['weight_conv']; $rateSum += $params['weight_conv'] * $rate;
-            $dMetrics[] = ['key'=>'conv','label'=>'成交转化率','unit'=>'%','weight'=>$params['weight_conv'],'value'=>round($convPct,2),'target'=>$params['target_conversion_pct'],'rate'=>$rate,'how'=>'成交数÷进线数，再÷目标转化率'];
+            $dMetrics[] = ['key'=>'conv','label'=>'成交转化率','unit'=>'%','weight'=>$params['weight_conv'],'value'=>round($convPct,2),'target'=>$params['target_conversion_pct'
+    ],'rate'=>$rate,'how'=>'成交数÷进线数，再÷目标转化率'];
             $parts[] = sprintf('转化%.1f%%×%.1f', $rate * 100, $params['weight_conv']);
         }
         $detail['metrics'] = $dMetrics;

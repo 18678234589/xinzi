@@ -10,7 +10,8 @@
 <?php if ($deptFeeRate > 0): ?>
 <div class="alert alert-info alert-dismissible fade show">
     <i class="fas fa-info-circle"></i>
-    <strong>部门手续费提示</strong>：该合作人员所属部门「<?php echo e($employee['department']); ?>」在 <code>dept_fee.php</code> 中配置了 <strong><?php echo ($deptFeeRate * 100); ?>%</strong> 手续费率。
+    <strong>部门手续费提示</strong>：该合作人员所属部门「<?php echo e($employee['department']); ?>」在 <code>dept_fee.php</code> 中配置了 <strong><?php echo
+    ($deptFeeRate * 100); ?>%</strong> 手续费率。
     <?php
         // 检查算法配置中是否有模块的 service_fee_rate 为 0
         $hasZeroFee = false;
@@ -22,7 +23,8 @@
         }
     ?>
     <?php if ($hasZeroFee): ?>
-    <br><small class="text-warning"><i class="fas fa-exclamation-triangle"></i> 下方有模块的手续费扣除比例为 0，上传该模块的订单时不会扣除手续费。如需扣除，请在模块参数中填写。（部门订单未匹配到模块时会自动使用部门费率 <?php echo ($deptFeeRate * 100); ?>%）</small>
+    <br><small class="text-warning"><i class="fas fa-exclamation-triangle"></i> 下方有模块的手续费扣除比例为 0，上传该模块的订单时不会扣除手续费。如需扣除，请在模块参数中填写。（部门订单未匹配到模块时会自动使用部门费率 <?php
+    echo ($deptFeeRate * 100); ?>%）</small>
     <?php endif; ?>
     <button type="button" class="close" data-dismiss="alert">&times;</button>
 </div>
@@ -83,12 +85,14 @@
 
     <?php else: ?>
     <?php foreach ($currentMods as $idx => $mod):
-        $bgMap = ['primary'=>'#e8f4fd','warning'=>'#fff7e6','info'=>'#e8f4fe','success'=>'#e8f8f8','teal'=>'#d1ecf1','danger'=>'#fce4ec','purple'=>'#f3e8ff','secondary'=>'#f1f3f5'];
+        $bgMap = ['primary'=>'#e8f4fd','warning'=>'#fff7e6','info'=>'#e8f4fe','success'=>'#e8f8f8','teal'=>'#d1ecf1','danger'=>'#fce4ec','purple'=>'#f3e8ff','secondary'=>'#f1f3f5']
+    ;
         $modBg = $bgMap[$allTypes[$mod['type']]['color']] ?? '#f8f9fa';
     ?>
     <!-- 单个模块卡片 -->
     <div class="card module-card mb-3" data-index="<?php echo $idx; ?>" id="mod-<?php echo $idx; ?>">
-        <div class="card-header py-2 px-3 d-flex justify-content-between align-items-center" style="background:<?php echo $modBg; ?>;cursor:pointer;" data-toggle="collapse" data-target="#params-<?php echo $idx; ?>">
+        <div class="card-header py-2 px-3 d-flex justify-content-between align-items-center" style="background:<?php echo $modBg; ?>;cursor:pointer;" data-toggle="collapse" data-target="#params-<?php
+    echo $idx; ?>">
             <div class="d-flex align-items-center" style="flex:1;min-width:0">
                 <span style="cursor:move;padding:0 10px;color:#999;" onclick="event.stopPropagation();"><i class="fas fa-grip-vertical"></i></span>
                 <label class="d-flex align-items-center mb-0 cursor-pointer mr-2" onclick="event.stopPropagation();toggleModule(<?php echo $idx; ?>)">
@@ -178,7 +182,8 @@
     <div class="card-header bg-warning text-white"><i class="fas fa-code"></i> 兼容模式提示</div>
     <div class="card-body">
         <p>该合作人员有旧版 PHP 算法文件，建议先删除后使用新版多模块配置。</p>
-        <pre class="bg-dark text-light p-2 rounded" style="max-height:150px;font-size:11px;"><?php echo htmlspecialchars(substr(SalaryCalculator::readAlgorithm($employee_id),0,500)); ?></pre>
+        <pre class="bg-dark text-light p-2 rounded" style="max-height:150px;font-size:11px;"><?php echo htmlspecialchars(substr(SalaryCalculator::readAlgorithm($employee_id),0,500)
+    ); ?></pre>
     </div>
 </div>
 <?php endif; ?>

@@ -8,12 +8,14 @@
             if (in_array($orderRow['settlement_status'], ['approved', 'locked'], true)) {
                 $sq = db()->prepare('SELECT * FROM project_commission_snapshots WHERE order_id=? AND employee_id=? AND commission_group=? ORDER BY id DESC LIMIT 1');
                 $sq->execute([$id, $tEmp, $tGroup]);
-                if ($snap = $sq->fetch()) { $shown = round((float)$snap['commission_amount'] + (float)$snap['subsidy_amount'], 2); $detail = ['source' => 'snapshot', 'snapshot' => $snap]; }
+                if ($snap = $sq->fetch()) { $shown = round((float)$snap['commission_amount'] + (float)$snap['subsidy_amount'], 2); $detail = ['source' => 'snapshot', 'snapshot' =>
+    $snap]; }
             } else {
                 $sumNow = ps_summary($orderRow, ps_costs($id), ps_participants($id));
                 foreach ($sumNow['groups'][$tGroup]['people'] ?? [] as $pp) if ((int)$pp['employee_id'] === $tEmp) {
                     if ($pp['calc']) { $shown = round($pp['calc']['share'] + $pp['calc']['subsidy'], 2); }
-                    $detail = ['source' => 'live', 'calc' => $pp['calc'], 'estimated' => $pp['estimated_calc'], 'receipt' => $orderRow['receipt_amount'], 'refund' => $orderRow['refund_amount'], 'contract' => $orderRow['contract_amount']];
+                    $detail = ['source' => 'live', 'calc' => $pp['calc'], 'estimated' => $pp['estimated_calc'], 'receipt' => $orderRow['receipt_amount'], 'refund' => $orderRow['refund_amount'
+    ], 'contract' => $orderRow['contract_amount']];
                 }
             }
             ps_corr_submit($id, $actor, $tEmp, $tGroup, $_POST['reason'] ?? '', $_POST['expected_amount'] ?? '', $shown, $detail);

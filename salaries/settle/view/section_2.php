@@ -68,7 +68,8 @@
                         <tr>
                             <th class="text-danger" width="20%"><i class="fas fa-exclamation-triangle"></i> 异常订单</th>
                             <td colspan="3">
-                                <span class="text-danger font-weight-bold"><?php echo count($abnormalMods); ?> 个模块存在异常，共 <?php echo array_sum(array_column($abnormalMods, 'cnt')); ?> 笔，合计 ¥<?php echo money(array_sum(array_column($abnormalMods, 'total'))); ?>（不计入项目报酬）</span>
+                                <span class="text-danger font-weight-bold"><?php echo count($abnormalMods); ?> 个模块存在异常，共 <?php echo array_sum(array_column($abnormalMods
+    , 'cnt')); ?> 笔，合计 ¥<?php echo money(array_sum(array_column($abnormalMods, 'total'))); ?>（不计入项目报酬）</span>
                                 <table class="table table-sm table-bordered mb-0 mt-2" style="font-size:13px;">
                                     <thead class="thead-light"><tr><th>模块</th><th class="text-center">笔数</th><th class="text-right">金额</th><th class="text-center" style="width:80px;">操作</th></tr></thead>
                                     <tbody>
@@ -78,7 +79,8 @@
                                             <td class="text-center"><?php echo $am['cnt']; ?></td>
                                             <td class="text-right text-danger font-weight-bold">¥<?php echo money($am['total']); ?></td>
                                             <td class="text-center">
-                                                <a href="<?php echo BASE_URL; ?>/orders/index.php?employee_id=<?php echo $emp['id']; ?>&project=<?php echo urlencode($am['project'] ?: '订单'); ?>&month=<?php echo urlencode($preview['month']); ?>&abnormal=1"
+                                                <a href="<?php echo BASE_URL; ?>/orders/index.php?employee_id=<?php echo $emp['id']; ?>&project=<?php echo urlencode($am['project']
+    ?: '订单'); ?>&month=<?php echo urlencode($preview['month']); ?>&abnormal=1"
                                                    class="btn btn-sm btn-outline-danger py-0" title="查看异常订单明细" target="_blank">
                                                     <i class="fas fa-external-link-alt"></i> 详情
                                                 </a>
@@ -94,7 +96,8 @@
                         <tr>
                             <th class="text-warning" width="20%"><i class="fas fa-question-circle"></i> 未核验订单</th>
                             <td colspan="3">
-                                <span class="text-warning font-weight-bold"><?php echo count($unverifiedMods); ?> 个模块存在未核验订单，共 <?php echo array_sum(array_column($unverifiedMods, 'cnt')); ?> 笔，合计 ¥<?php echo money(array_sum(array_column($unverifiedMods, 'total'))); ?>（已计入项目报酬，待核验确认）</span>
+                                <span class="text-warning font-weight-bold"><?php echo count($unverifiedMods); ?> 个模块存在未核验订单，共 <?php echo array_sum(array_column
+    ($unverifiedMods, 'cnt')); ?> 笔，合计 ¥<?php echo money(array_sum(array_column($unverifiedMods, 'total'))); ?>（已计入项目报酬，待核验确认）</span>
                                 <table class="table table-sm table-bordered mb-0 mt-2" style="font-size:13px;">
                                     <thead class="thead-light"><tr><th>模块</th><th class="text-center">笔数</th><th class="text-right">金额</th><th class="text-center" style="width:80px;">操作</th></tr></thead>
                                     <tbody>
@@ -104,7 +107,8 @@
                                             <td class="text-center"><?php echo $um['cnt']; ?></td>
                                             <td class="text-right text-warning font-weight-bold">¥<?php echo money($um['total']); ?></td>
                                             <td class="text-center">
-                                                <a href="<?php echo BASE_URL; ?>/orders/index.php?employee_id=<?php echo $emp['id']; ?>&project=<?php echo urlencode($um['project'] ?: '订单'); ?>&month=<?php echo urlencode($preview['month']); ?>&status=未核验"
+                                                <a href="<?php echo BASE_URL; ?>/orders/index.php?employee_id=<?php echo $emp['id']; ?>&project=<?php echo urlencode($um['project']
+    ?: '订单'); ?>&month=<?php echo urlencode($preview['month']); ?>&status=未核验"
                                                    class="btn btn-sm btn-outline-warning py-0" title="查看未核验订单明细" target="_blank">
                                                     <i class="fas fa-external-link-alt"></i> 详情
                                                 </a>
@@ -122,13 +126,15 @@
                     <?php if (isset($debug_info)): ?>
                     <tbody>
                         <tr class="bg-info text-white"><th colspan="4" class="py-1">🔍 调试信息</th></tr>
-                        <tr><td colspan="4" style="font-family:monospace;font-size:12px;white-space:pre-wrap;max-height:300px;overflow-y:auto;"><?php echo htmlspecialchars($debug_info); ?></td></tr>
+                        <tr><td colspan="4" style="font-family:monospace;font-size:12px;white-space:pre-wrap;max-height:300px;overflow-y:auto;"><?php echo htmlspecialchars($debug_info
+    ); ?></td></tr>
                     </tbody>
                     <?php endif; ?>
 
                     <?php if (!empty($mods)): ?>
                     <tbody>
-                        <tr class="bg-light"><th colspan="4" class="py-1 text-center"><strong><i class="fas fa-layer-group mr-1"></i>项目报酬模块明细（共 <?php echo count($mods); ?> 个模块，合计 ¥<?php echo money(array_sum(array_column($mods, 'amount'))); ?>）</strong></th></tr>
+                        <tr class="bg-light"><th colspan="4" class="py-1 text-center"><strong><i class="fas fa-layer-group mr-1"></i>项目报酬模块明细（共 <?php echo count
+    ($mods); ?> 个模块，合计 ¥<?php echo money(array_sum(array_column($mods, 'amount'))); ?>）</strong></th></tr>
                         <tr class="table-secondary"><th>#</th><th>模块名称</th><th>类型</th><th class="text-right">金额</th></tr>
                         <?php foreach ($mods as $mi => $m):
                             $cls = $m['amount'] >= 0 ? 'text-success' : 'text-danger';
@@ -141,10 +147,12 @@
                                     <?php endif; ?>
                                 </td>
                                 <td><span class="badge badge-<?php
-                                    $typeColors = ['standard'=>'primary','tiered'=>'warning','per_order'=>'info','attendance_full'=>'success','attendance_daily'=>'teal','attendance_deduct'=>'danger','insurance'=>'dark','refund_deduction'=>'danger','extra_amount'=>'secondary'];
+                                    $typeColors = ['standard'=>'primary','tiered'=>'warning','per_order'=>'info','attendance_full'=>'success','attendance_daily'=>'teal','attendance_deduct'
+    =>'danger','insurance'=>'dark','refund_deduction'=>'danger','extra_amount'=>'secondary'];
                                     echo $typeColors[$m['type']] ?? 'secondary';
                                 ?>"><?php
-                                    $typeNames = ['standard'=>'标准比例','tiered'=>'阶梯','per_order'=>'每笔奖励','attendance_full'=>'全勤奖','attendance_daily'=>'考勤日薪','attendance_deduct'=>'缺勤扣款','insurance'=>'保险','refund_deduction'=>'退款扣除','extra_amount'=>'自定义'];
+                                    $typeNames = ['standard'=>'标准比例','tiered'=>'阶梯','per_order'=>'每笔奖励','attendance_full'=>'全勤奖','attendance_daily'=>'考勤日薪'
+    ,'attendance_deduct'=>'缺勤扣款','insurance'=>'保险','refund_deduction'=>'退款扣除','extra_amount'=>'自定义'];
                                     echo $typeNames[$m['type']] ?? $m['type'];
                                 ?></span></td>
                                 <td class="font-weight-bold"><?php echo $m['amount'] >= 0 ? '+' : '-'; ?>¥<?php echo money(abs($m['amount'])); ?></td>
@@ -162,14 +170,16 @@
                                         <i class="fas fa-hand-holding-usd text-warning"></i>
                                         <?php echo e($ei['remark'] !== '' ? $ei['remark'] : '自定义额外金额'); ?>
                                     </th>
-                                    <td class="h6 mb-0 <?php echo $ei['amount'] >= 0 ? 'text-success' : 'text-danger'; ?> font-weight-bold"><?php echo $ei['amount'] >= 0 ? '+' : ''; ?>¥<?php echo money(abs($ei['amount'])); ?></td>
+                                    <td class="h6 mb-0 <?php echo $ei['amount'] >= 0 ? 'text-success' : 'text-danger'; ?> font-weight-bold"><?php echo $ei['amount'] >= 0 ? '+' : ''
+    ; ?>¥<?php echo money(abs($ei['amount'])); ?></td>
                                 </tr>
                                 <?php endif; ?>
                             <?php endforeach; ?>
                             <?php if (count(array_filter($preview['extra_items'], fn($x) => abs($x['amount']) > 0.001)) > 1): ?>
                             <tr class="table-warning border-top">
                                 <th colspan="3" class="text-right mb-0"><small class="text-muted">额外金额合计</small></th>
-                                <td class="mb-0 <?php echo $preview['extra_amount'] >= 0 ? 'text-success' : 'text-danger'; ?> font-weight-bold"><?php echo $preview['extra_amount'] >= 0 ? '+' : ''; ?>¥<?php echo money(abs($preview['extra_amount'])); ?></td>
+                                <td class="mb-0 <?php echo $preview['extra_amount'] >= 0 ? 'text-success' : 'text-danger'; ?> font-weight-bold"><?php echo $preview['extra_amount']
+    >= 0 ? '+' : ''; ?>¥<?php echo money(abs($preview['extra_amount'])); ?></td>
                             </tr>
                             <?php endif; ?>
                         <?php endif; ?>
@@ -177,14 +187,17 @@
 
                         <?php if (!empty($preview['base_info']) && abs($preview['base_info']['prorated'] - $preview['base_info']['original']) > 0.001): ?>
                         <tr class="table-light">
-                            <th colspan="3" class="text-right h6 mb-0"><i class="fas fa-money-bill-wave text-primary"></i> 固定服务费折算（<?php echo e($preview['base_info']['status']); ?>）</th>
+                            <th colspan="3" class="text-right h6 mb-0"><i class="fas fa-money-bill-wave text-primary"></i> 固定服务费折算（<?php echo e($preview['base_info'
+    ]['status']); ?>）</th>
                             <td class="h6 mb-0 text-primary font-weight-bold">¥<?php echo money($preview['base_info']['prorated']); ?>
                                 <small class="text-muted d-block">原 ¥<?php echo money($preview['base_info']['original']); ?></small>
                             </td>
                         </tr>
                         <?php endif; ?>
                         <tr class="table-success">
-                            <th colspan="3" class="text-right h5 mb-0">固定服务费 + 模块合计 <?php if (abs((float)($preview['extra_amount'] ?? 0)) > 0.001) echo '+ 自定义'; ?> <?php if (!empty($preview['bonus_info']) && $preview['bonus_info']['base'] > 0) echo '+ 全勤奖'; ?> <?php if (($preview['insurance_amount'] ?? 0) > 0) echo '− 保险'; ?> → 应结算金额</th>
+                            <th colspan="3" class="text-right h5 mb-0">固定服务费 + 模块合计 <?php if (abs((float)($preview['extra_amount'] ?? 0)) > 0.001) echo '+ 自定义'
+    ; ?> <?php if (!empty($preview['bonus_info']) && $preview['bonus_info']['base'] > 0) echo '+ 全勤奖'; ?> <?php if (($preview['insurance_amount'] ?? 0) > 0) echo '− 保险'
+    ; ?> → 应结算金额</th>
                             <td class="h4 mb-0 text-success font-weight-bold">¥<?php echo money($preview['net_pay']); ?></td>
                         </tr>
                     </tbody>
@@ -193,7 +206,7 @@
                 <div class="text-muted small mb-3 mt-2 p-2 bg-light rounded border">
                     <i class="fas fa-calculator"></i>
                     <strong>计算明细：</strong>
-                    <?php 
+                    <?php
                     $baseSalaryAmount = (float)($preview['base_salary'] ?? $emp['base_salary']);
                     $detailStr = '';
                     if ($baseSalaryAmount > 0) {
@@ -215,7 +228,8 @@
                 </div>
                 <?php if ($existing): ?>
                     <div class="alert alert-warning">
-                        <i class="fas fa-exclamation-triangle"></i> 该合作人员 <?php echo e($preview['month']); ?> 月项目报酬已结算过（创建于 <?php echo $existing['created_at']; ?>），再次生成将覆盖原记录。
+                        <i class="fas fa-exclamation-triangle"></i> 该合作人员 <?php echo e($preview['month']); ?> 月项目报酬已结算过（创建于 <?php echo $existing
+    ['created_at']; ?>），再次生成将覆盖原记录。
                     </div>
                 <?php endif; ?>
                 <form method="post">
@@ -231,7 +245,8 @@
                     <input type="hidden" name="deduct_insurance" value="1">
                     <?php endif; ?>
                     <button type="submit" class="btn btn-success btn-lg btn-block"
-                        onclick="return confirm('确认生成<?php echo e($emp['name']); ?> <?php echo e($preview['month']); ?>月的项目报酬记录？<?php echo $existing ? '将覆盖已有记录。' : ''; ?>')">
+                        onclick="return confirm('确认生成<?php echo e($emp['name']); ?> <?php echo e($preview['month']); ?>月的项目报酬记录？<?php echo $existing ? '将覆盖已有记录。'
+    : ''; ?>')">
                         <i class="fas fa-check-double"></i> 确认生成项目报酬记录
                     </button>
                 </form>

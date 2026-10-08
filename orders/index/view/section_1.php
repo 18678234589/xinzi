@@ -28,7 +28,8 @@
         </div>
     <?php endif; ?>
 </div>
-<div class="alert alert-info py-2">此处供财务核对平台历史 / 原始订单，不作为新版项目分成入口。网站售后部代录和参与人员分配请使用 <a href="<?php echo BASE_URL; ?>/project/import.php?scope=department&amp;business=<?php echo rawurlencode('网站续费'); ?>">项目订单 · 网站售后部门订单</a>。</div>
+<div class="alert alert-info py-2">此处供财务核对平台历史 / 原始订单，不作为新版项目分成入口。网站售后部代录和参与人员分配请使用 <a href="<?php
+    echo BASE_URL; ?>/project/import.php?scope=department&amp;business=<?php echo rawurlencode('网站续费'); ?>">项目订单 · 网站售后部门订单</a>。</div>
 
 <?php if ($success || isset($_GET['upload_ok'])): ?>
     <div class="alert alert-success alert-dismissible fade show"><i class="fas fa-check-circle"></i> <?php echo e($success ?: urldecode($_GET['msg'] ?? '导入完成')); ?><button type="button" class="close" data-dismiss="alert">&times;</button></div>
@@ -143,15 +144,18 @@
                                 $modCfg = SalaryCalculator::readModulesConfig($locked_employee['id']);
                                 if ($modCfg && !empty($modCfg['modules'])):
                                     foreach ($modCfg['modules'] as $m):
-                                        if (in_array($m['type'], ['standard','tiered','per_order','profit_commission','trademark_commission','trademark_cashback','referral_order','fixed_subsidy','miniprogram_commission','customer_reward']) && ($m['enabled'] ?? true)):
+                                        if (in_array($m['type'], ['standard','tiered','per_order','profit_commission','trademark_commission','trademark_cashback','referral_order','fixed_subsidy'
+    ,'miniprogram_commission','customer_reward']) && ($m['enabled'] ?? true)):
                                             $modName = $m['name'];
                                             $extra = '';
                                             if ($m['type'] === 'standard' && isset($m['config']['rate']) && $m['config']['rate'] !== '') {
                                                 $extra = ' (' . rtrim(rtrim(number_format((float)$m['config']['rate']*100, 4, '.', ''), '0'), '.') . '%)';
                                             } elseif ($m['type'] === 'profit_commission' && isset($m['config']['commission_rate']) && $m['config']['commission_rate'] !== '') {
-                                                $extra = ' (成本项目分成' . rtrim(rtrim(number_format((float)$m['config']['commission_rate']*100, 4, '.', ''), '0'), '.') . '%)';
+                                                $extra = ' (成本项目分成' . rtrim(rtrim(number_format((float)$m['config']['commission_rate']*100, 4, '.', ''), '0'), '.') . '%)'
+    ;
                                             } elseif ($m['type'] === 'trademark_commission' && isset($m['config']['commission_rate']) && $m['config']['commission_rate'] !== '') {
-                                                $extra = ' (商标部项目分成' . rtrim(rtrim(number_format((float)$m['config']['commission_rate']*100, 4, '.', ''), '0'), '.') . '%)';
+                                                $extra = ' (商标部项目分成' . rtrim(rtrim(number_format((float)$m['config']['commission_rate']*100, 4, '.', ''), '0'), '.') .
+    '%)';
                                             } elseif ($m['type'] === 'trademark_cashback' && isset($m['config']['per_amount'])) {
                                                 $extra = ' (小额返现¥' . ($m['config']['per_amount'] ?? 0) . '/单)';
                                             } elseif ($m['type'] === 'tiered') {
@@ -165,10 +169,12 @@
                                             } elseif ($m['type'] === 'miniprogram_commission' && isset($m['config']['commission_rate']) && $m['config']['commission_rate'] !== '') {
                                                 $extra = ' (小程序' . rtrim(rtrim(number_format((float)$m['config']['commission_rate']*100, 4, '.', ''), '0'), '.') . '%)';
                                             } elseif ($m['type'] === 'customer_reward') {
-                                                $extra = ' (新客奖¥' . ($m['config']['new_customer_reward'] ?? 0) . '/老客¥' . ($m['config']['old_customer_reward'] ?? 0) . ')';
+                                                $extra = ' (新客奖¥' . ($m['config']['new_customer_reward'] ?? 0) . '/老客¥' . ($m['config']['old_customer_reward'] ?? 0) . ')'
+    ;
                                             }
                                             echo '<div class="custom-control custom-checkbox mb-1">'
-                                               . '<input type="checkbox" name="upload_project[]" value="' . e($modName) . '" class="custom-control-input" id="proj_' . htmlspecialchars($modName, ENT_QUOTES) . '">'
+                                               . '<input type="checkbox" name="upload_project[]" value="' . e($modName) . '" class="custom-control-input" id="proj_' . htmlspecialchars
+    ($modName, ENT_QUOTES) . '">'
                                                . '<label class="custom-control-label" for="proj_' . htmlspecialchars($modName, ENT_QUOTES) . '">' . e($modName) . $extra . '</label>'
                                                . '</div>';
                                         endif;
@@ -232,15 +238,18 @@
                                 $modCfg2 = SalaryCalculator::readModulesConfig($locked_employee['id']);
                                 if ($modCfg2 && !empty($modCfg2['modules'])):
                                     foreach ($modCfg2['modules'] as $m):
-                                        if (in_array($m['type'], ['standard','tiered','per_order','profit_commission','trademark_commission','trademark_cashback','referral_order','fixed_subsidy','miniprogram_commission','customer_reward']) && ($m['enabled'] ?? true)):
+                                        if (in_array($m['type'], ['standard','tiered','per_order','profit_commission','trademark_commission','trademark_cashback','referral_order','fixed_subsidy'
+    ,'miniprogram_commission','customer_reward']) && ($m['enabled'] ?? true)):
                                             $modName = $m['name'];
                                             $extra = '';
                                             if ($m['type'] === 'standard' && isset($m['config']['rate']) && $m['config']['rate'] !== '') {
                                                 $extra = ' (' . rtrim(rtrim(number_format((float)$m['config']['rate']*100, 4, '.', ''), '0'), '.') . '%)';
                                             } elseif ($m['type'] === 'profit_commission' && isset($m['config']['commission_rate']) && $m['config']['commission_rate'] !== '') {
-                                                $extra = ' (成本项目分成' . rtrim(rtrim(number_format((float)$m['config']['commission_rate']*100, 4, '.', ''), '0'), '.') . '%)';
+                                                $extra = ' (成本项目分成' . rtrim(rtrim(number_format((float)$m['config']['commission_rate']*100, 4, '.', ''), '0'), '.') . '%)'
+    ;
                                             } elseif ($m['type'] === 'trademark_commission' && isset($m['config']['commission_rate']) && $m['config']['commission_rate'] !== '') {
-                                                $extra = ' (商标部项目分成' . rtrim(rtrim(number_format((float)$m['config']['commission_rate']*100, 4, '.', ''), '0'), '.') . '%)';
+                                                $extra = ' (商标部项目分成' . rtrim(rtrim(number_format((float)$m['config']['commission_rate']*100, 4, '.', ''), '0'), '.') .
+    '%)';
                                             } elseif ($m['type'] === 'trademark_cashback' && isset($m['config']['per_amount'])) {
                                                 $extra = ' (小额返现¥' . ($m['config']['per_amount'] ?? 0) . '/单)';
                                             } elseif ($m['type'] === 'tiered') {
@@ -254,7 +263,8 @@
                                             } elseif ($m['type'] === 'miniprogram_commission' && isset($m['config']['commission_rate']) && $m['config']['commission_rate'] !== '') {
                                                 $extra = ' (小程序' . rtrim(rtrim(number_format((float)$m['config']['commission_rate']*100, 4, '.', ''), '0'), '.') . '%)';
                                             } elseif ($m['type'] === 'customer_reward') {
-                                                $extra = ' (新客奖¥' . ($m['config']['new_customer_reward'] ?? 0) . '/老客¥' . ($m['config']['old_customer_reward'] ?? 0) . ')';
+                                                $extra = ' (新客奖¥' . ($m['config']['new_customer_reward'] ?? 0) . '/老客¥' . ($m['config']['old_customer_reward'] ?? 0) . ')'
+    ;
                                             }
                                             echo '<option value="' . e($modName) . '">' . e($modName) . $extra . '</option>';
                                         endif;

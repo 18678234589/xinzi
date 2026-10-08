@@ -32,7 +32,8 @@
                         <input type="text" id="empSearch" class="form-control" list="empList" placeholder="输入姓名搜索选择…" autocomplete="off" onchange="syncEmpId()" required>
                         <datalist id="empList">
                             <?php foreach ($employees as $emp): ?>
-                                <option value="<?php echo e($emp['name']); ?>（<?php echo e($emp['department'] ?? ''); ?>）" data-id="<?php echo $emp['id']; ?>"><?php echo e($emp['name']); ?>（<?php echo e($emp['department'] ?? ''); ?>）</option>
+                                <option value="<?php echo e($emp['name']); ?>（<?php echo e($emp['department'] ?? ''); ?>）" data-id="<?php echo $emp['id']; ?>"><?php echo e($emp
+    ['name']); ?>（<?php echo e($emp['department'] ?? ''); ?>）</option>
                             <?php endforeach; ?>
                         </datalist>
                         <input type="hidden" name="employee_id" id="empId">
@@ -55,7 +56,8 @@
                         <label><i class="fas fa-award text-success"></i> 全勤项目奖励额</label>
                         <div class="input-group">
                             <div class="input-group-prepend"><span class="input-group-text">¥</span></div>
-                            <input type="number" name="full_attendance_bonus" class="form-control" step="0.01" value="<?php echo e($_POST['full_attendance_bonus'] ?? ($preview['full_attendance_bonus'] ?? '200')); ?>" placeholder="满勤项目奖励额，默认200">
+                            <input type="number" name="full_attendance_bonus" class="form-control" step="0.01" value="<?php echo e($_POST['full_attendance_bonus'] ?? ($preview['full_attendance_bonus'
+    ] ?? '200')); ?>" placeholder="满勤项目奖励额，默认200">
                         </div>
                         <small class="text-muted">自动抓取考勤：请假≥4h扣一半，≥8h全扣；无考勤记录不发</small>
                     </div>

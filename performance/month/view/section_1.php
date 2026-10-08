@@ -63,17 +63,24 @@
                                 <input type="hidden" name="month" value="<?php echo $month; ?>">
                                 <td><?php echo e($emp['name']); ?><br><small class="text-muted"><?php echo e($emp['department']); ?></small></td>
                                 <td><?php echo e($emp['wangwang'] ?? ''); ?></td>
-                                <td><input type="number" name="net_sales" min="0" step="any" class="form-control form-control-sm" style="width:110px" value="<?php echo $perf ? (float)$perf['net_sales'] : 0; ?>"></td>
-                                <td><input type="number" name="inquiry_conv" min="0" step="any" class="form-control form-control-sm" style="width:100px" value="<?php echo $perf ? (float)$perf['inquiry_conv'] : 0; ?>"></td>
+                                <td><input type="number" name="net_sales" min="0" step="any" class="form-control form-control-sm" style="width:110px" value="<?php echo $perf ? (float)
+    $perf['net_sales'] : 0; ?>"></td>
+                                <td><input type="number" name="inquiry_conv" min="0" step="any" class="form-control form-control-sm" style="width:100px" value="<?php echo $perf ? (float)
+    $perf['inquiry_conv'] : 0; ?>"></td>
                                 <td>
-                                    <input type="number" name="order_count" min="0" class="form-control form-control-sm" style="width:80px" value="<?php echo $perf ? (int)($perf['order_count'] ?? 0) : 0; ?>">
+                                    <input type="number" name="order_count" min="0" class="form-control form-control-sm" style="width:80px" value="<?php echo $perf ? (int)($perf['order_count'
+    ] ?? 0) : 0; ?>">
                                     <div style="font-size:11px" class="text-muted">转化率=下单÷进线自动算</div>
                                 </td>
-                                <td><input type="number" name="wangwang_reply" min="0" step="any" class="form-control form-control-sm" style="width:100px" value="<?php echo $perf ? (float)$perf['wangwang_reply'] : 0; ?>"></td>
-                                <td><input type="number" name="incoming_count" min="0" class="form-control form-control-sm" style="width:100px" value="<?php echo $perf ? (int)$perf['incoming_count'] : 0; ?>"></td>
-                                <td><input type="number" name="reply_speed" min="0" step="any" class="form-control form-control-sm" style="width:100px" value="<?php echo $perf ? (float)$perf['reply_speed'] : 0; ?>"></td>
+                                <td><input type="number" name="wangwang_reply" min="0" step="any" class="form-control form-control-sm" style="width:100px" value="<?php echo $perf ?
+    (float)$perf['wangwang_reply'] : 0; ?>"></td>
+                                <td><input type="number" name="incoming_count" min="0" class="form-control form-control-sm" style="width:100px" value="<?php echo $perf ? (int)$perf
+    ['incoming_count'] : 0; ?>"></td>
+                                <td><input type="number" name="reply_speed" min="0" step="any" class="form-control form-control-sm" style="width:100px" value="<?php echo $perf ? (float)
+    $perf['reply_speed'] : 0; ?>"></td>
                                 <td>
-                                    <input type="number" name="deal_count" min="0" class="form-control form-control-sm" style="width:120px" placeholder="自动:<?php echo $r['liveDeal']; ?>" value="<?php echo e($dealDisplay); ?>">
+                                    <input type="number" name="deal_count" min="0" class="form-control form-control-sm" style="width:120px" placeholder="自动:<?php echo $r['liveDeal'
+    ]; ?>" value="<?php echo e($dealDisplay); ?>">
                                     <small class="text-muted">订单自动统计 <?php echo $r['liveDeal']; ?> 个</small>
                                 </td>
                                 <td><input type="text" name="remark" class="form-control form-control-sm" value="<?php echo e($perf['remark'] ?? ''); ?>"></td>

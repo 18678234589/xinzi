@@ -1,12 +1,14 @@
 <?php if ($expand_project !== ''): ?>
-<?php $detailAllQ = $detailQ; unset($detailAllQ['abnormal'], $detailAllQ['refund']); $detailAbnormalQ = array_merge($detailQ, ['abnormal' => '1', 'page' => 1]); $detailRefundQ = array_merge($detailQ, ['refund' => '1', 'page' => 1]); ?>
+<?php $detailAllQ = $detailQ; unset($detailAllQ['abnormal'], $detailAllQ['refund']); $detailAbnormalQ = array_merge($detailQ, ['abnormal' => '1', 'page' => 1]); $detailRefundQ = array_merge
+    ($detailQ, ['refund' => '1', 'page' => 1]); ?>
 <div class="modal fade" id="orderDetailModal" tabindex="-1" role="dialog" aria-labelledby="orderDetailModalLabel" aria-hidden="true">
     <div class="modal-dialog modal-xl order-detail-modal" role="document">
         <div class="modal-content">
             <div class="modal-header py-2">
                 <div>
                     <h5 class="modal-title mb-0" id="orderDetailModalLabel"><i class="fas fa-list text-info"></i> <?php echo e($expand_project); ?> 明细</h5>
-                    <small class="text-muted">共 <?php echo $detail_count; ?> 条，¥<?php echo money($detail_amount); ?><?php if ($filter_abnormal): ?> <span class="badge badge-danger ml-1">仅异常</span><?php endif; ?><?php if ($filter_refund): ?> <span class="badge badge-secondary ml-1">仅退款</span><?php endif; ?></small>
+                    <small class="text-muted">共 <?php echo $detail_count; ?> 条，¥<?php echo money($detail_amount); ?><?php if ($filter_abnormal): ?> <span class="badge badge-danger ml-1">仅异常</span><?php
+    endif; ?><?php if ($filter_refund): ?> <span class="badge badge-secondary ml-1">仅退款</span><?php endif; ?></small>
                 </div>
                 <div class="d-flex align-items-center flex-wrap justify-content-end">
                     <form method="get" class="form-inline mr-2" id="orderSearchForm">
@@ -26,7 +28,8 @@
                             </div>
                         </div>
                     </form>
-                    <select class="form-control form-control-sm mr-2" style="width:auto" onchange="location.href='<?php echo '?' . http_build_query(array_merge($detailQ, ['per_page' => '__PP__'])); ?>'.replace('__PP__', this.value)">
+                    <select class="form-control form-control-sm mr-2" style="width:auto" onchange="location.href='<?php echo '?' . http_build_query(array_merge($detailQ, ['per_page'
+    => '__PP__'])); ?>'.replace('__PP__', this.value)">
                         <?php foreach ([20,50,100,200,500,1000] as $n): ?>
                             <option value="<?php echo $n; ?>" <?php echo $per_page == $n ? 'selected' : ''; ?>><?php echo $n; ?> 条/页</option>
                         <?php endforeach; ?>
@@ -87,7 +90,8 @@
                                             <?php $dept = $rawData['__dept__'] ?? ''; ?>
                                             <span class="badge badge-success" title="部门订单汇总行"><i class="fas fa-building"></i> <?php echo e($dept ?: '部门'); ?></span>
                                         <?php elseif ($isFromDept): ?>
-                                            <span class="badge badge-warning" title="部门订单拆分到合作人员（项目分成来源）"><i class="fas fa-share-alt"></i> <?php echo e($o['name'] ?: '--'); ?></span><small class="text-muted d-block">来自：<?php echo e($rawData['__from_dept__']); ?></small>
+                                            <span class="badge badge-warning" title="部门订单拆分到合作人员（项目分成来源）"><i class="fas fa-share-alt"></i> <?php
+    echo e($o['name'] ?: '--'); ?></span><small class="text-muted d-block">来自：<?php echo e($rawData['__from_dept__']); ?></small>
                                         <?php else: ?>
                                             <span class="badge badge-primary"><i class="fas fa-user"></i> <?php echo e($o['name'] ?: '--'); ?></span>
                                         <?php endif; ?>
@@ -159,13 +163,15 @@
                                     <?php endif; ?>
                                     <td class="<?php echo !empty($o['is_abnormal']) ? 'text-danger' : ''; ?>">
                                         <?php if (!empty($o['is_abnormal'])): ?>
-                                            <i class="fas fa-exclamation-triangle"></i> ¥<?php echo money($o['order_amount']); ?><br><small><?php echo e($o['abnormal_reason'] ?? ''); ?></small>
+                                            <i class="fas fa-exclamation-triangle"></i> ¥<?php echo money($o['order_amount']); ?><br><small><?php echo e($o['abnormal_reason'] ?? ''
+    ); ?></small>
                                         <?php else:
                                             $feeInfo = get_order_fee_info($rawData, $o);
                                             if ($feeInfo['rate'] > 0 && $feeInfo['original_price'] > 0):
                                             ?>
                                                 <div class="text-muted small">售价: ¥<?php echo money($feeInfo['original_price']); ?></div>
-                                                <div class="text-warning small">手续费: ¥<?php echo money($feeInfo['amount']); ?> (<?php echo rtrim(rtrim(number_format($feeInfo['rate'] * 100, 2, '.', ''), '0'), '.'); ?>%)</div>
+                                                <div class="text-warning small">手续费: ¥<?php echo money($feeInfo['amount']); ?> (<?php echo rtrim(rtrim(number_format($feeInfo
+    ['rate'] * 100, 2, '.', ''), '0'), '.'); ?>%)</div>
                                                 <div class="text-success font-weight-bold">净额: ¥<?php echo money($feeInfo['net']); ?></div>
                                             <?php else: ?>
                                                 <span class="text-success font-weight-bold">¥<?php echo money($o['order_amount']); ?></span>
@@ -183,20 +189,27 @@
                             <?php endif; ?>
                             </tbody>
                             <?php if ($orders): ?>
-                            <tfoot><tr class="table-light font-weight-bold"><td colspan="<?php echo 4 + count($uploadHeaders); ?>">本页合计</td><td class="text-success">¥<?php echo money(array_sum(array_column(array_filter($orders, fn($r) => empty($r['is_abnormal'])), 'order_amount'))); ?></td><td colspan="2"></td></tr></tfoot>
+                            <tfoot><tr class="table-light font-weight-bold"><td colspan="<?php echo 4 + count($uploadHeaders); ?>">本页合计</td><td class="text-success">¥<?php
+    echo money(array_sum(array_column(array_filter($orders, fn($r) => empty($r['is_abnormal'])), 'order_amount'))); ?></td><td colspan="2"></td></tr></tfoot>
                             <?php endif; ?>
                         </table>
                     </div>
                 </form>
                 <?php if ($total_pages > 1): $detailPageQ = array_merge($detailQ, ['per_page' => $per_page]); ?>
                 <nav class="mt-2"><ul class="pagination pagination-sm justify-content-center flex-wrap mb-0">
-                    <li class="page-item <?php echo $page <= 1 ? 'disabled' : ''; ?>"><a class="page-link" href="<?php echo '?' . http_build_query(array_merge($detailPageQ, ['page' => 1])); ?>">«</a></li>
-                    <li class="page-item <?php echo $page <= 1 ? 'disabled' : ''; ?>"><a class="page-link" href="<?php echo '?' . http_build_query(array_merge($detailPageQ, ['page' => $page-1])); ?>">‹</a></li>
-                    <?php $start = max(1, $page - 2); $end = min($total_pages, $page + 2); if ($start > 1) echo '<li class="page-item disabled"><span class="page-link">…</span></li>'; for ($i = $start; $i <= $end; $i++): ?>
-                    <li class="page-item <?php echo $i === $page ? 'active' : ''; ?>"><a class="page-link" href="<?php echo '?' . http_build_query(array_merge($detailPageQ, ['page' => $i])); ?>"><?php echo $i; ?></a></li>
+                    <li class="page-item <?php echo $page <= 1 ? 'disabled' : ''; ?>"><a class="page-link" href="<?php echo '?' . http_build_query(array_merge($detailPageQ, ['page'
+    => 1])); ?>">«</a></li>
+                    <li class="page-item <?php echo $page <= 1 ? 'disabled' : ''; ?>"><a class="page-link" href="<?php echo '?' . http_build_query(array_merge($detailPageQ, ['page'
+    => $page-1])); ?>">‹</a></li>
+                    <?php $start = max(1, $page - 2); $end = min($total_pages, $page + 2); if ($start > 1) echo '<li class="page-item disabled"><span class="page-link">…</span></li>'
+    ; for ($i = $start; $i <= $end; $i++): ?>
+                    <li class="page-item <?php echo $i === $page ? 'active' : ''; ?>"><a class="page-link" href="<?php echo '?' . http_build_query(array_merge($detailPageQ, ['page'
+    => $i])); ?>"><?php echo $i; ?></a></li>
                     <?php endfor; if ($end < $total_pages) echo '<li class="page-item disabled"><span class="page-link">…</span></li>'; ?>
-                    <li class="page-item <?php echo $page >= $total_pages ? 'disabled' : ''; ?>"><a class="page-link" href="<?php echo '?' . http_build_query(array_merge($detailPageQ, ['page' => $page+1])); ?>">›</a></li>
-                    <li class="page-item <?php echo $page >= $total_pages ? 'disabled' : ''; ?>"><a class="page-link" href="<?php echo '?' . http_build_query(array_merge($detailPageQ, ['page' => $total_pages])); ?>">»</a></li>
+                    <li class="page-item <?php echo $page >= $total_pages ? 'disabled' : ''; ?>"><a class="page-link" href="<?php echo '?' . http_build_query(array_merge($detailPageQ
+    , ['page' => $page+1])); ?>">›</a></li>
+                    <li class="page-item <?php echo $page >= $total_pages ? 'disabled' : ''; ?>"><a class="page-link" href="<?php echo '?' . http_build_query(array_merge($detailPageQ
+    , ['page' => $total_pages])); ?>">»</a></li>
                 </ul><p class="text-center text-muted small mt-1 mb-0">第 <?php echo $page; ?> / <?php echo $total_pages; ?> 页，每页 <?php echo $per_page; ?> 条</p></nav>
                 <?php endif; ?>
             </div>

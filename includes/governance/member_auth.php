@@ -4,7 +4,8 @@
 function pg_member($actor)
 {
     if (!$actor || ($actor['type'] ?? '') !== 'employee' || (int)($actor['employee_id'] ?? 0) < 1) return null;
-    $q = db()->prepare('SELECT m.employee_id,m.governance_role,e.name FROM project_governance_members m JOIN employees e ON e.id=m.employee_id WHERE m.employee_id=? AND m.is_active=1 LIMIT 1');
+    $q = db()->prepare('SELECT m.employee_id,m.governance_role,e.name FROM project_governance_members m JOIN employees e ON e.id=m.employee_id WHERE m.employee_id=? AND m.is_active=1 LIMIT 1'
+    );
     $q->execute([(int)$actor['employee_id']]);
     return $q->fetch() ?: null;
 }
@@ -48,7 +49,8 @@ function pg_uploaded_files($field)
     if (!isset($field['name'])) return $files;
     if (!is_array($field['name'])) return [$field];
     foreach ($field['name'] as $i => $name) {
-        $files[] = ['name' => $name, 'type' => $field['type'][$i] ?? '', 'tmp_name' => $field['tmp_name'][$i] ?? '', 'error' => $field['error'][$i] ?? UPLOAD_ERR_NO_FILE, 'size' => $field['size'][$i] ?? 0];
+        $files[] = ['name' => $name, 'type' => $field['type'][$i] ?? '', 'tmp_name' => $field['tmp_name'][$i] ?? '', 'error' => $field['error'][$i] ?? UPLOAD_ERR_NO_FILE, 'size' =>
+    $field['size'][$i] ?? 0];
     }
     return $files;
 }

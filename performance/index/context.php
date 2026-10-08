@@ -107,7 +107,8 @@ if (($_GET['action'] ?? '') === 'upload_view' && ($_SERVER['REQUEST_METHOD'] ?? 
         $matched = $st->fetchAll();
     } catch (\Throwable $e) {}
     try {
-        $st = $pdo->prepare("SELECT wangwang, name, year, month, incoming_count, total_reply_seconds, net_sales, inquiry_conv, wangwang_reply, order_count FROM cs_perf_pending WHERE source_file=? ORDER BY year DESC, month DESC, name, wangwang");
+        $st = $pdo->prepare("SELECT wangwang, name, year, month, incoming_count, total_reply_seconds, net_sales, inquiry_conv, wangwang_reply, order_count FROM cs_perf_pending WHERE source_file=? ORDER BY year DESC, month DESC, name, wangwang"
+    );
         $st->execute([$src]);
         $pending = $st->fetchAll();
     } catch (\Throwable $e) {}

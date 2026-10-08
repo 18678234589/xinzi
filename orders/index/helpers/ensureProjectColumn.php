@@ -68,7 +68,8 @@ function ensureProjectColumn() {
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
         // 移除 employee_id 外键约束（部门订单需要存 0）
         try {
-            $fkRows = db()->query("SELECT CONSTRAINT_NAME FROM information_schema.KEY_COLUMN_USAGE WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='orders' AND REFERENCED_TABLE_NAME='employees'")->fetchAll();
+            $fkRows = db()->query("SELECT CONSTRAINT_NAME FROM information_schema.KEY_COLUMN_USAGE WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='orders' AND REFERENCED_TABLE_NAME='employees'"
+    )->fetchAll();
             foreach ($fkRows as $fk) {
                 db()->exec("ALTER TABLE `orders` DROP FOREIGN KEY `" . $fk['CONSTRAINT_NAME'] . "`");
             }

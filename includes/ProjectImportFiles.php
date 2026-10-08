@@ -5,10 +5,13 @@ function ps_import_file_store($file, $business, $actor, $parsedFile = null)
 {
     $ext = strtolower(pathinfo((string)$file['name'], PATHINFO_EXTENSION));
     if (!in_array($ext, ['xlsx', 'csv', 'xls'], true)) throw new RuntimeException('文件仅支持 XLSX、XLS 或 CSV');
-    if ($ext === 'xls' && (!$parsedFile || ($parsedFile['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK || strtolower(pathinfo((string)$parsedFile['name'], PATHINFO_EXTENSION)) !== 'xlsx' || (int)($parsedFile['size'] ?? 0) > 25 * 1024 * 1024)) throw new RuntimeException('旧版 XLS 转换失败或文件过大，请使用新版浏览器重试或另存为 XLSX');
+    if ($ext === 'xls' && (!$parsedFile || ($parsedFile['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK || strtolower(pathinfo((string)$parsedFile['name'], PATHINFO_EXTENSION)) !==
+    'xlsx' || (int)($parsedFile['size'] ?? 0) > 25 * 1024 * 1024)) throw new RuntimeException('旧版 XLS 转换失败或文件过大，请使用新版浏览器重试或另存为 XLSX'
+    );
     $stored = ps_private_store('imports', $file['tmp_name'], date('Ym') . '_' . bin2hex(random_bytes(12)) . '.' . $ext);
     $parsed = $ext === 'xls' ? ps_private_store('imports', $parsedFile['tmp_name'], date('Ym') . '_' . bin2hex(random_bytes(12)) . '.xlsx') : null;
-    db()->prepare('INSERT INTO project_import_files (business_name,original_name,stored_name,parse_name,file_size,uploaded_by_type,uploaded_by_id,employee_id) VALUES (?,?,?,?,?,?,?,?)')
+    db()->prepare('INSERT INTO project_import_files (business_name,original_name,stored_name,parse_name,file_size,uploaded_by_type,uploaded_by_id,employee_id) VALUES (?,?,?,?,?,?,?,?)'
+    )
         ->execute([$business, ps_import_original_name($file['name']), $stored, $parsed, (int)$file['size'], $actor['type'], (int)$actor['id'], $actor['employee_id'] ?? null]);
     return (int)db()->lastInsertId();
 }
@@ -28,7 +31,8 @@ function ps_import_file_get($id, $actor)
     $q->execute([(int)$id]);
     $row = $q->fetch();
     if (!$row) throw new RuntimeException('原始表格不存在');
-    if ($actor['role'] !== 'finance' && ((int)$row['employee_id'] !== (int)($actor['employee_id'] ?? 0) || $row['uploaded_by_type'] !== $actor['type'])) throw new RuntimeException('只能查看本人上传的表格');
+    if ($actor['role'] !== 'finance' && ((int)$row['employee_id'] !== (int)($actor['employee_id'] ?? 0) || $row['uploaded_by_type'] !== $actor['type'])) throw new RuntimeException(
+    '只能查看本人上传的表格');
     $row['content'] = ps_private_read('imports', $row['stored_name']);
     if ($row['content'] === null) throw new RuntimeException('原始文件已不存在');
     if (!empty($row['parse_name'])) {
@@ -45,13 +49,15 @@ function ps_import_file_delete($id, $actor)
     $q->execute([(int)$id]);
     $row = $q->fetch();
     if (!$row) throw new RuntimeException('原始表格不存在');
-    if ($actor['role'] !== 'finance' && ((int)$row['employee_id'] !== (int)($actor['employee_id'] ?? 0) || $row['uploaded_by_type'] !== $actor['type'])) throw new RuntimeException('只能删除本人上传的表格');
+    if ($actor['role'] !== 'finance' && ((int)$row['employee_id'] !== (int)($actor['employee_id'] ?? 0) || $row['uploaded_by_type'] !== $actor['type'])) throw new RuntimeException(
+    '只能删除本人上传的表格');
     $pdo = db();
     $nested = $pdo->inTransaction();
     if ($nested) $pdo->exec('SAVEPOINT project_import_file_delete');
     else $pdo->beginTransaction();
     try {
-        ps_audit('import_file', (int)$row['id'], 'delete', $actor, ['original_name' => $row['original_name'], 'business_name' => $row['business_name'], 'status' => $row['status'], 'imported_count' => (int)$row['imported_count']]);
+        ps_audit('import_file', (int)$row['id'], 'delete', $actor, ['original_name' => $row['original_name'], 'business_name' => $row['business_name'], 'status' => $row['status'],
+    'imported_count' => (int)$row['imported_count']]);
         $pdo->prepare('DELETE FROM project_import_files WHERE id=?')->execute([(int)$row['id']]);
         if ($nested) $pdo->exec('RELEASE SAVEPOINT project_import_file_delete');
         else $pdo->commit();
@@ -79,7 +85,8 @@ function ps_import_file_parse($row)
     if (strtolower(pathinfo($row['stored_name'], PATHINFO_EXTENSION)) === 'csv') {
         $rows = [];
         $handle = fopen($row['path'], 'rb');
-        while (($line = fgetcsv($handle)) !== false && count($rows) <= 5000) $rows[] = array_map(function ($v) { return mb_convert_encoding((string)$v, 'UTF-8', 'UTF-8,GBK,GB2312'); }, $line);
+        while (($line = fgetcsv($handle)) !== false && count($rows) <= 5000) $rows[] = array_map(function ($v) { return mb_convert_encoding((string)$v, 'UTF-8', 'UTF-8,GBK,GB2312')
+    ; }, $line);
         fclose($handle);
         if ($rows) $rows[0][0] = preg_replace('/^\xEF\xBB\xBF/', '', (string)($rows[0][0] ?? ''));
         return ['CSV' => $rows];

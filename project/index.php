@@ -20,7 +20,8 @@ $allowedBusinesses = ps_actor_businesses($actor);
 $departmentImportBusiness = '';
 foreach (['网站续费', '网站修改'] as $candidate) if (ps_department_import_allowed($actor, $candidate)) { $departmentImportBusiness = $candidate; break; }
 // 只有固定报酬、不录订单的合作人员（如售后退款部）：直接进入“我的项目报酬”
-if ($actor['role'] !== 'finance' && !$allowedBusinesses && !$participationOnly && $_SERVER['REQUEST_METHOD'] !== 'POST') { header('Location: ' . BASE_URL . '/project/payroll.php'); exit; }
+if ($actor['role'] !== 'finance' && !$allowedBusinesses && !$participationOnly && $_SERVER['REQUEST_METHOD'] !== 'POST') { header('Location: ' . BASE_URL . '/project/payroll.php');
+    exit; }
 $selectedBusiness = ps_business_choice($actor, (string)($_POST['project_type'] ?? $_GET['business'] ?? ''));
 $roleDefaultKinds = [];
 if ($actor['role'] !== 'finance') foreach ($allowedBusinesses as $businessName) {
@@ -34,10 +35,13 @@ if (!preg_match('/^\d{4}-(0[1-9]|1[0-2])$/', $month)) $month = date('Y-m');
 // 未明确选月份时：本月还没有订单（如月初刚上传完上月表格），自动切到本人最近有订单的月份，避免“导入了却看不到”。
 if (!isset($_GET['month']) && $_SERVER['REQUEST_METHOD'] !== 'POST') {
     try {
-        $monthScope = $actor['role'] === 'finance' ? '' : ' AND (EXISTS (SELECT 1 FROM project_participants mp WHERE mp.order_id=o.id AND mp.employee_id=' . (int)$actor['employee_id'] . ') OR EXISTS (SELECT 1 FROM project_department_uploaders du WHERE du.order_id=o.id AND du.employee_id=' . (int)$actor['employee_id'] . '))';
-        $hasMonth = (int)db()->query("SELECT COUNT(*) FROM project_orders o WHERE o." . $dateBasis . ">='" . $month . "-01' AND o." . $dateBasis . "<'" . date('Y-m-d', strtotime($month . '-01 +1 month')) . "'" . $monthScope)->fetchColumn();
+        $monthScope = $actor['role'] === 'finance' ? '' : ' AND (EXISTS (SELECT 1 FROM project_participants mp WHERE mp.order_id=o.id AND mp.employee_id=' . (int)$actor['employee_id'
+    ] . ') OR EXISTS (SELECT 1 FROM project_department_uploaders du WHERE du.order_id=o.id AND du.employee_id=' . (int)$actor['employee_id'] . '))';
+        $hasMonth = (int)db()->query("SELECT COUNT(*) FROM project_orders o WHERE o." . $dateBasis . ">='" . $month . "-01' AND o." . $dateBasis . "<'" . date('Y-m-d', strtotime($month
+    . '-01 +1 month')) . "'" . $monthScope)->fetchColumn();
         if (!$hasMonth) {
-            $latest = db()->query("SELECT DATE_FORMAT(MAX(o." . $dateBasis . "),'%Y-%m') FROM project_orders o WHERE o." . $dateBasis . "<'" . date('Y-m-d', strtotime($month . '-01 +1 month')) . "'" . $monthScope)->fetchColumn();
+            $latest = db()->query("SELECT DATE_FORMAT(MAX(o." . $dateBasis . "),'%Y-%m') FROM project_orders o WHERE o." . $dateBasis . "<'" . date('Y-m-d', strtotime($month . '-01 +1 month'
+    )) . "'" . $monthScope)->fetchColumn();
             if ($latest) $month = $latest;
         }
     } catch (Throwable $e) {
@@ -50,12 +54,15 @@ foreach ($employees as $employee) $employeesById[(int)$employee['id']] = $employ
 $filterEmployeeName = $employeesById[$filterEmployeeId]['name'] ?? ('人员 #' . $filterEmployeeId);
 $activeTechnicalIds = array_map('intval', db()->query("SELECT employee_id FROM project_users WHERE role='technical' AND is_active=1")->fetchAll(PDO::FETCH_COLUMN));
 // 微信代写编辑员（客服账号）在代写订单上担任“对接编辑”，可在技术 / 对接栏选到
-$activeTechnicalIds = array_values(array_unique(array_merge($activeTechnicalIds, array_map('intval', db()->query("SELECT u.employee_id FROM project_users u JOIN project_user_businesses b ON b.user_id=u.id AND b.business_name='微信代写' WHERE u.is_active=1")->fetchAll(PDO::FETCH_COLUMN)))));
+$activeTechnicalIds = array_values(array_unique(array_merge($activeTechnicalIds, array_map('intval', db()->query("SELECT u.employee_id FROM project_users u JOIN project_user_businesses b ON b.user_id=u.id AND b.business_name='微信代写' WHERE u.is_active=1"
+    )->fetchAll(PDO::FETCH_COLUMN)))));
 $activeCustomerServiceIds = array_map('intval', db()->query("SELECT employee_id FROM project_users WHERE role='customer_service' AND is_active=1")->fetchAll(PDO::FETCH_COLUMN));
 // 合作人员可在两栏都选到自己（身兼客服与技术的人员，如环境配置）。
 $selfEmployeeId = (int)($actor['employee_id'] ?? 0);
-$technicalChoices = $actor['role'] === 'finance' ? $employees : array_values(array_filter($employees, function ($emp) use ($activeTechnicalIds, $selfEmployeeId) { return in_array((int)$emp['id'], $activeTechnicalIds, true) || (int)$emp['id'] === $selfEmployeeId; }));
-$customerServiceChoices = $actor['role'] === 'finance' ? $employees : array_values(array_filter($employees, function ($emp) use ($activeCustomerServiceIds, $selfEmployeeId) { return in_array((int)$emp['id'], $activeCustomerServiceIds, true) || (int)$emp['id'] === $selfEmployeeId; }));
+$technicalChoices = $actor['role'] === 'finance' ? $employees : array_values(array_filter($employees, function ($emp) use ($activeTechnicalIds, $selfEmployeeId) { return in_array((int)
+    $emp['id'], $activeTechnicalIds, true) || (int)$emp['id'] === $selfEmployeeId; }));
+$customerServiceChoices = $actor['role'] === 'finance' ? $employees : array_values(array_filter($employees, function ($emp) use ($activeCustomerServiceIds, $selfEmployeeId) { return
+    in_array((int)$emp['id'], $activeCustomerServiceIds, true) || (int)$emp['id'] === $selfEmployeeId; }));
 $domainTemplates = ps_intake_templates('domain');
 $serverTemplates = ps_intake_templates('server');
 $programTemplates = ps_intake_templates('program');
@@ -65,7 +72,8 @@ $outsourceTemplates = ps_intake_templates('outsourcing');
 $deleteOrderRows = function ($orderId) {
     // 技术对账行挂在分成快照上，先删对账再删快照；order_requests / order_details 有级联，显式删除保持一致
     db()->prepare('DELETE t FROM project_technical_reconciliations t JOIN project_commission_snapshots s ON s.id=t.snapshot_id WHERE s.order_id=?')->execute([$orderId]);
-    foreach (['project_order_items', 'project_commission_snapshots', 'project_commission_adjustments', 'project_cash_movements', 'project_costs', 'project_participants', 'project_order_sources', 'project_order_resources', 'project_order_requests', 'project_order_details'] as $table) {
+    foreach (['project_order_items', 'project_commission_snapshots', 'project_commission_adjustments', 'project_cash_movements', 'project_costs', 'project_participants', 'project_order_sources'
+    , 'project_order_resources', 'project_order_requests', 'project_order_details'] as $table) {
         db()->prepare('DELETE FROM ' . $table . ' WHERE order_id=?')->execute([$orderId]);
     }
     db()->prepare('DELETE FROM project_orders WHERE id=?')->execute([$orderId]);

@@ -22,14 +22,16 @@ function ps_cash_movements($orderId)
 
 function ps_recalculate_cash($orderId)
 {
-    $q = db()->prepare("SELECT COALESCE(SUM(CASE WHEN movement_type='receipt' THEN amount ELSE 0 END),0) AS receipt, COALESCE(SUM(CASE WHEN movement_type='refund' THEN amount ELSE 0 END),0) AS refund FROM project_cash_movements WHERE order_id=? AND review_status='approved'");
+    $q = db()->prepare("SELECT COALESCE(SUM(CASE WHEN movement_type='receipt' THEN amount ELSE 0 END),0) AS receipt, COALESCE(SUM(CASE WHEN movement_type='refund' THEN amount ELSE 0 END),0) AS refund FROM project_cash_movements WHERE order_id=? AND review_status='approved'"
+    );
     $q->execute([(int)$orderId]);
     $totals = $q->fetch();
     // 退款冲减单（代写换写手、上月退款）以负数实收登记，不受“退款不超过实收”限制。
     // 尚未录入收款的订单（目前大多数）：退款按售价预估可退金额，不超过售价即可；财务登记实收后再按实收复核。
     $cs = db()->prepare('SELECT contract_amount FROM project_orders WHERE id=?'); $cs->execute([(int)$orderId]);
     $refundCap = (float)$totals['receipt'] > 0 ? (float)$totals['receipt'] : (float)$cs->fetchColumn();
-    if ((float)$totals['refund'] > 0 && (float)$totals['refund'] > $refundCap + 0.004) throw new RuntimeException('累计退款不能超过已审核实收（尚未录入收款时不能超过售价）');
+    if ((float)$totals['refund'] > 0 && (float)$totals['refund'] > $refundCap + 0.004) throw new RuntimeException('累计退款不能超过已审核实收（尚未录入收款时不能超过售价）'
+    );
     $update = db()->prepare('UPDATE project_orders SET receipt_amount=?,refund_amount=?,row_version=row_version+1 WHERE id=?');
     $update->execute([$totals['receipt'], $totals['refund'], (int)$orderId]);
 }

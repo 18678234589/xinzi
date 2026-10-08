@@ -6,6 +6,7 @@
             $position = 0;
             foreach ($ranked as $eid => $m) {
                 if (!isset($awards[$position])) break;
-                $add($eid, $rule, $awards[$position], sprintf('第 %d 名（月%s ¥%s，共 %d 人参与排名）', $position + 1, $metricLabel, money_plain($m[$metric]), count($ranked)));
+                $add($eid, $rule, $awards[$position], sprintf('第 %d 名（月%s ¥%s，共 %d 人参与排名）', $position + 1, $metricLabel, money_plain($m[$metric]), count($ranked
+    )));
                 $position++;
             }

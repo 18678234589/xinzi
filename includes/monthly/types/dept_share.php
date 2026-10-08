@@ -28,4 +28,6 @@
             $rate = (float)($p['rate'] ?? 0);
             $share = (float)($p['share'] ?? 1);
             $base = max($total - $deduct - $extra, 0);
-            $add($rule['employee_id'], $rule, $base * $rate * $share, sprintf('部门 %d 单%s ¥%s%s − 其他费用 ¥%s = ¥%s，× %s%% × 分配 %s%%', count($orders), $byRevenue ? '收入（扣服务费）' : '毛利', money_plain($total), $deduct > 0 ? ' − 部门提成 ¥' . money_plain($deduct) : '', money_plain($extra), money_plain($base), round($rate * 100, 4), round($share * 100, 2)));
+            $add($rule['employee_id'], $rule, $base * $rate * $share, sprintf('部门 %d 单%s ¥%s%s − 其他费用 ¥%s = ¥%s，× %s%% × 分配 %s%%', count($orders), $byRevenue
+    ? '收入（扣服务费）' : '毛利', money_plain($total), $deduct > 0 ? ' − 部门提成 ¥' . money_plain($deduct) : '', money_plain($extra), money_plain($base), round($rate
+    * 100, 4), round($share * 100, 2)));

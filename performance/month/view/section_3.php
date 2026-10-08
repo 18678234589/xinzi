@@ -7,7 +7,8 @@
                             <?php if ((float)$p['inquiry_conv'] > 0): ?>
                                 <?php $derivP = cs_perf_conv_derivation((float)$p['inquiry_conv'], (int)($p['order_count'] ?? 0), (int)$p['incoming_count']); ?>
                                 <?php echo rtrim(rtrim(number_format((float)$p['inquiry_conv'], 2), '0'), '.') . '%'; ?>
-                                <?php if ($derivP): ?><span class="text-muted" style="font-size:11px" title="<?php echo e($derivP); ?>">(下单<?php echo (int)$p['order_count']; ?>÷进线<?php echo (int)$p['incoming_count']; ?>)</span><?php endif; ?>
+                                <?php if ($derivP): ?><span class="text-muted" style="font-size:11px" title="<?php echo e($derivP); ?>">(下单<?php echo (int)$p['order_count']; ?>÷进线<?php
+    echo (int)$p['incoming_count']; ?>)</span><?php endif; ?>
                             <?php else: ?>-<?php endif; ?>
                         </td>
                         <td><?php echo (int)($p['order_count'] ?? 0); ?></td>

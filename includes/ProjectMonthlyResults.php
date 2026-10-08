@@ -32,7 +32,8 @@ function ps_monthly_results($month, $forceLive = false, $context = null)
         $items = [];
         foreach ($rounding as $eid => $sum) {
             $diffCents = (int)round($sum['exact'] * 100) - $sum['cents'];
-            if ($diffCents !== 0) $items[] = ['employee_id' => $eid, 'rule_id' => 0, 'rule_name' => '分成尾差', 'rule_type' => 'rounding', 'amount' => $diffCents / 100, 'paid_separately' => 0, 'detail' => sprintf('提成逐项合计 ¥%s，按月合计后四舍五入 ¥%s', money_plain($sum['cents'] / 100), money_plain(round($sum['exact'], 2)))];
+            if ($diffCents !== 0) $items[] = ['employee_id' => $eid, 'rule_id' => 0, 'rule_name' => '分成尾差', 'rule_type' => 'rounding', 'amount' => $diffCents / 100, 'paid_separately'
+    => 0, 'detail' => sprintf('提成逐项合计 ¥%s，按月合计后四舍五入 ¥%s', money_plain($sum['cents'] / 100), money_plain(round($sum['exact'], 2)))];
         }
         return $items;
     };
@@ -61,7 +62,8 @@ function ps_monthly_results($month, $forceLive = false, $context = null)
             if (!$tier || !isset($tier['base']) || $tier['base'] === '') continue;
             $includesAttendance = $r['params']['base_includes_attendance'] ?? ($r['scope_business'] === 'AI网站定制' && $r['scope_role'] === '前端');
             $tierBases[$eid] = ['amount' => max((float)$tier['base'] - ($includesAttendance ? ($fullAttendance[$eid] ?? 0) : 0), 0),
-                'detail' => '按当月阶梯固定额 ¥' . money_plain($tier['base']) . ($includesAttendance ? '，扣除单列全勤奖 ¥' . money_plain($fullAttendance[$eid] ?? 0) : '')];
+                'detail' => '按当月阶梯固定额 ¥' . money_plain($tier['base']) . ($includesAttendance ? '，扣除单列全勤奖 ¥' . money_plain($fullAttendance[$eid] ??
+    0) : '')];
         }
     }
     $add = function ($employeeId, $rule, $amount, $detail, $keepZero = false) use (&$results, &$rounding) {
@@ -75,7 +77,8 @@ function ps_monthly_results($month, $forceLive = false, $context = null)
             $rounding[$eid]['exact'] += $exact;
             $rounding[$eid]['cents'] += (int)round($amount * 100);
         }
-        $results[] = ['employee_id' => (int)$employeeId, 'rule_id' => (int)$rule['id'], 'rule_name' => $rule['name'], 'rule_type' => $rule['rule_type'], 'amount' => $amount, 'paid_separately' => !empty($rule['params']['separate']) ? 1 : 0, 'detail' => mb_substr($detail, 0, 500)];
+        $results[] = ['employee_id' => (int)$employeeId, 'rule_id' => (int)$rule['id'], 'rule_name' => $rule['name'], 'rule_type' => $rule['rule_type'], 'amount' => $amount, 'paid_separately'
+    => !empty($rule['params']['separate']) ? 1 : 0, 'detail' => mb_substr($detail, 0, 500)];
     };
     foreach ($rules as $rule) {
         $p = $rule['params'];

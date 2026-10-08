@@ -65,7 +65,8 @@
                             $result['modules'][] = [
                                 'name'   => $ei['remark'] !== '' ? $ei['remark'] : '自定义额外金额',
                                 'amount' => round($ei['amount'], 2),
-                                'formula'=> $ei['remark'] !== '' ? sprintf('手动调整 %+.2f（%s）', $ei['amount'], $ei['remark']) : sprintf('手动调整 %+.2f', $ei['amount']),
+                                'formula'=> $ei['remark'] !== '' ? sprintf('手动调整 %+.2f（%s）', $ei['amount'], $ei['remark']) : sprintf('手动调整 %+.2f', $ei['amount']
+    ),
                                 'type'   => 'extra_amount',
                             ];
                         }
@@ -103,22 +104,22 @@
                             'type'   => 'insurance',
                         ];
                     }
-                    
+
                     // DEBUG: 分析订单金额分布
                     $debug_info = "调试信息：\n";
                     $debug_info .= "订单总数: " . count($orderList) . " 笔，总金额: ¥{$order_total}\n\n";
-                    
+
                     // 统计金额分布
                     $over50 = [];
                     $under50 = [];
                     $oldCustomer = []; // 老客户订单
                     foreach ($orderList as $o) {
                         $amt = (float)($o['order_amount'] ?? 0);
-                        
+
                         // 排除退款订单
                         $rawData = is_string($o['raw_data'] ?? '') ? json_decode($o['raw_data'], true) : ($o['raw_data'] ?? []);
                         $isRefund = isset($rawData['__is_refund__']) && $rawData['__is_refund__'] === '1';
-                        
+
                         if (!$isRefund) {
                             if ($amt >= 50) {
                                 $over50[] = $amt;
@@ -126,12 +127,12 @@
                                 $under50[] = $amt;
                             }
                         }
-                        
+
                         // 检查是否老客户订单
                         $isOldCustomer = false;
                         $oldCustomerColumn = '';
                         $oldCustomerValue = '';
-                        
+
                         // 优先查找"老客户"列
                         if (isset($rawData['老客户']) && trim($rawData['老客户']) !== '') {
                             $isOldCustomer = true;
@@ -150,7 +151,7 @@
                                 }
                             }
                         }
-                        
+
                         if ($isOldCustomer) {
                             $oldCustomer[] = ['id' => $o['id'], 'amt' => $amt, 'shop' => $oldCustomerValue, 'column' => $oldCustomerColumn];
                         }
@@ -159,7 +160,7 @@
                     $debug_info .= "  前5笔: " . json_encode(array_slice($over50, 0, 5)) . "\n\n";
                     $debug_info .= "<50元订单: " . count($under50) . " 笔，金额: ¥" . array_sum($under50) . "\n";
                     $debug_info .= "  前5笔: " . json_encode(array_slice($under50, 0, 5)) . "\n\n";
-                    
+
                     $debug_info .= "老客户订单: " . count($oldCustomer) . " 笔，金额: ¥" . array_sum(array_column($oldCustomer, 'amt')) . "\n";
                     if (count($oldCustomer) > 0) {
                         $debug_info .= "  明细:\n";
@@ -190,7 +191,7 @@
                     foreach (($result['modules'] ?? []) as $mod) {
                         $debug_info .= "  {$mod['name']}: ¥{$mod['amount']} (公式: {$mod['formula']})\n";
                     }
-                    
+
                     $preview = [
                         'employee'       => $emp,
                         'month'          => $month,

@@ -60,7 +60,8 @@ function pg_chair_term($rotation, $policy)
         }
         $pool = pg_chair_pool_amount($rotation);
         $perMiss = $windows ? round($pool / count($windows), 2) : 0.0;
-        return ['from' => $from, 'to' => $termEnd, 'workdays' => count($workdays), 'windows' => $windows, 'per_miss' => $perMiss, 'pool' => $pool, 'mode' => 'workday', 'days' => $policy['days']];
+        return ['from' => $from, 'to' => $termEnd, 'workdays' => count($workdays), 'windows' => $windows, 'per_miss' => $perMiss, 'pool' => $pool, 'mode' => 'workday', 'days' => $policy
+    ['days']];
     }
     for ($start = new DateTimeImmutable($rotation['start_date']), $i = 0; $i < 1000; $i++, $start = $start->modify('+' . $policy['days'] . ' days')) {
         $end = $start->modify('+' . ($policy['days'] - 1) . ' days');
@@ -68,7 +69,8 @@ function pg_chair_term($rotation, $policy)
         if ($effective && $start->format('Y-m-d') < $effective) continue;
         $windows[] = ['start' => $start->format('Y-m-d'), 'end' => pg_idea_deadline($start, $end)->format('Y-m-d')];
     }
-    return ['from' => $from, 'to' => $termEnd, 'workdays' => count(pg_workdays_in($from, $termEnd)), 'windows' => $windows, 'per_miss' => $policy['penalty'], 'pool' => pg_chair_pool_amount($rotation), 'mode' => 'calendar', 'days' => $policy['days']];
+    return ['from' => $from, 'to' => $termEnd, 'workdays' => count(pg_workdays_in($from, $termEnd)), 'windows' => $windows, 'per_miss' => $policy['penalty'], 'pool' => pg_chair_pool_amount
+    ($rotation), 'mode' => 'calendar', 'days' => $policy['days']];
 }
 
 /** 仅完整的考核期触发；按真实提交时间而非可回填的“记录日期”核验。 */
@@ -79,19 +81,22 @@ function pg_sync_idea_penalties($date = null)
     $today = $date ?: date('Y-m-d');
     $rotations = db()->prepare('SELECT * FROM project_governance_rotations WHERE start_date<? ORDER BY start_date,id');
     $rotations->execute([$today]);
-    $validIdea = db()->prepare("SELECT 1 FROM project_governance_records WHERE record_kind='chair' AND category='三天脑洞' AND owner_employee_id=? AND created_at>=? AND created_at<? AND review_state<>'rejected' LIMIT 1");
+    $validIdea = db()->prepare("SELECT 1 FROM project_governance_records WHERE record_kind='chair' AND category='三天脑洞' AND owner_employee_id=? AND created_at>=? AND created_at<? AND review_state<>'rejected' LIMIT 1"
+    );
     $insert = db()->prepare("INSERT IGNORE INTO project_governance_penalties (rotation_id,chair_employee_id,window_start,window_end,amount) VALUES (?,?,?,?,?)");
     $added = 0;
     foreach ($rotations->fetchAll() as $rotation) {
         $term = pg_chair_term($rotation, $policy);
         foreach ($term['windows'] as $window) {
             if ($window['end'] >= $today) break;
-            $validIdea->execute([(int)$rotation['chair_employee_id'], $window['start'] . ' 00:00:00', (new DateTimeImmutable($window['end']))->modify('+1 day')->format('Y-m-d 00:00:00')]);
+            $validIdea->execute([(int)$rotation['chair_employee_id'], $window['start'] . ' 00:00:00', (new DateTimeImmutable($window['end']))->modify('+1 day')->format('Y-m-d 00:00:00'
+    )]);
             if ($validIdea->fetchColumn()) continue;
             $insert->execute([(int)$rotation['id'], (int)$rotation['chair_employee_id'], $window['start'], $window['end'], -$term['per_miss']]);
             if ($insert->rowCount() !== 1) continue;
             $added++;
-            ps_audit('governance_penalty', (int)db()->lastInsertId(), 'auto_apply', ['type' => 'system', 'id' => 0], ['chair_employee_id' => (int)$rotation['chair_employee_id'], 'from' => $window['start'], 'to' => $window['end'], 'amount' => -$term['per_miss'], 'periods' => count($term['windows']), 'pool' => $term['pool']]);
+            ps_audit('governance_penalty', (int)db()->lastInsertId(), 'auto_apply', ['type' => 'system', 'id' => 0], ['chair_employee_id' => (int)$rotation['chair_employee_id'], 'from'
+    => $window['start'], 'to' => $window['end'], 'amount' => -$term['per_miss'], 'periods' => count($term['windows']), 'pool' => $term['pool']]);
         }
     }
     return $added;
@@ -111,12 +116,15 @@ function pg_idea_window_status($date = null)
     $current = null;
     foreach ($term['windows'] as $index => $window) if ($window['end'] >= $today) { $current = $window + ['index' => $index + 1]; break; }
     if (!$current) return null;
-    $q = db()->prepare("SELECT COUNT(*) FROM project_governance_records WHERE record_kind='chair' AND category='三天脑洞' AND owner_employee_id=? AND created_at>=? AND created_at<? AND review_state<>'rejected'");
+    $q = db()->prepare("SELECT COUNT(*) FROM project_governance_records WHERE record_kind='chair' AND category='三天脑洞' AND owner_employee_id=? AND created_at>=? AND created_at<? AND review_state<>'rejected'"
+    );
     $q->execute([(int)$rotation['chair_employee_id'], $current['start'] . ' 00:00:00', (new DateTimeImmutable($current['end']))->modify('+1 day')->format('Y-m-d 00:00:00')]);
     $name = db()->prepare('SELECT name FROM employees WHERE id=?');
     $name->execute([(int)$rotation['chair_employee_id']]);
-    return ['chair_employee_id' => (int)$rotation['chair_employee_id'], 'chair_name' => (string)$name->fetchColumn(), 'start' => $current['start'], 'end' => $current['end'], 'deadline' => $current['end'],
-        'days_left' => (int)(new DateTimeImmutable($today))->diff(new DateTimeImmutable($current['end']))->days + 1, 'submitted' => (int)$q->fetchColumn() > 0, 'penalty' => $term['per_miss'], 'counts' => true,
+    return ['chair_employee_id' => (int)$rotation['chair_employee_id'], 'chair_name' => (string)$name->fetchColumn(), 'start' => $current['start'], 'end' => $current['end'], 'deadline'
+    => $current['end'],
+        'days_left' => (int)(new DateTimeImmutable($today))->diff(new DateTimeImmutable($current['end']))->days + 1, 'submitted' => (int)$q->fetchColumn() > 0, 'penalty' => $term['per_miss'
+    ], 'counts' => true,
         'index' => $current['index'], 'term' => $term];
 }
 
@@ -164,7 +172,8 @@ function pg_chair_pool($quarterStart)
     if ($quarterStart >= '2026-09-15') {
         $rule = db()->query("SELECT reward_amount,rule_state FROM project_governance_rules WHERE rule_code='chair_pool' LIMIT 1")->fetch();
         if ($rule && $rule['rule_state'] === 'confirmed' && $rule['reward_amount'] !== null) {
-            db()->prepare("INSERT IGNORE INTO project_governance_pools (quarter_start,pool_role,opening_amount,source_note) VALUES (?,'chair',?,'按已确认的三个月任期奖金池规则自动建立')")
+            db()->prepare("INSERT IGNORE INTO project_governance_pools (quarter_start,pool_role,opening_amount,source_note) VALUES (?,'chair',?,'按已确认的三个月任期奖金池规则自动建立')"
+    )
                 ->execute([$quarterStart,$rule['reward_amount']]);
         }
     }
@@ -174,9 +183,12 @@ function pg_chair_pool($quarterStart)
     $rotationQuery = db()->prepare('SELECT chair_employee_id,end_date FROM project_governance_rotations WHERE start_date=? ORDER BY id LIMIT 1');
     $rotationQuery->execute([$quarterStart]);
     $rotation = $rotationQuery->fetch();
-    $quarterEnd = $rotation && $rotation['end_date'] ? (new DateTimeImmutable($rotation['end_date']))->modify('+1 day')->format('Y-m-d') : (new DateTimeImmutable($quarterStart))->modify('+3 months')->format('Y-m-d');
-    $chairFilter = $rotation ? ' AND r.owner_employee_id=' . (int)$rotation['chair_employee_id'] : ' AND EXISTS (SELECT 1 FROM project_governance_members m WHERE m.employee_id=r.owner_employee_id AND m.governance_role=\'chair\')';
-    $q = db()->prepare("SELECT COALESCE(SUM(GREATEST(COALESCE(r.bonus_delta,CASE WHEN r.category='三天脑洞' THEN 100 ELSE 0 END),0)),0) AS positive,COALESCE(SUM(LEAST(COALESCE(r.bonus_delta,0),0)),0) AS negative FROM project_governance_records r WHERE r.review_state='approved' AND r.record_kind<>'contribution' AND r.record_date>=? AND r.record_date<?" . $chairFilter);
+    $quarterEnd = $rotation && $rotation['end_date'] ? (new DateTimeImmutable($rotation['end_date']))->modify('+1 day')->format('Y-m-d') : (new DateTimeImmutable($quarterStart))->modify
+    ('+3 months')->format('Y-m-d');
+    $chairFilter = $rotation ? ' AND r.owner_employee_id=' . (int)$rotation['chair_employee_id'] : ' AND EXISTS (SELECT 1 FROM project_governance_members m WHERE m.employee_id=r.owner_employee_id AND m.governance_role=\'chair\')'
+    ;
+    $q = db()->prepare("SELECT COALESCE(SUM(GREATEST(COALESCE(r.bonus_delta,CASE WHEN r.category='三天脑洞' THEN 100 ELSE 0 END),0)),0) AS positive,COALESCE(SUM(LEAST(COALESCE(r.bonus_delta,0),0)),0) AS negative FROM project_governance_records r WHERE r.review_state='approved' AND r.record_kind<>'contribution' AND r.record_date>=? AND r.record_date<?"
+    . $chairFilter);
     $q->execute([$quarterStart,$quarterEnd]);
     $reviewedParts = $q->fetch();
     $reviewed = (float)$reviewedParts['positive'] + (float)$reviewedParts['negative'];
@@ -186,5 +198,6 @@ function pg_chair_pool($quarterStart)
     $penalties = (float)$q->fetchColumn();
     // 这是董事长目标额度的站内剩余，不是福利池余额；已获奖励和缺报扣减都不可再领取。
     $balance = $opening ? round(max(0,(float)$opening['opening_amount']-(float)$reviewedParts['positive']+(float)$reviewedParts['negative']+$penalties),2) : null;
-    return ['opening' => $opening ? (float)$opening['opening_amount'] : null, 'source_note' => $opening['source_note'] ?? '', 'reviewed' => $reviewed, 'approved_reward' => (float)$reviewedParts['positive'], 'reviewed_penalties' => (float)$reviewedParts['negative'], 'penalties' => $penalties, 'balance' => $balance];
+    return ['opening' => $opening ? (float)$opening['opening_amount'] : null, 'source_note' => $opening['source_note'] ?? '', 'reviewed' => $reviewed, 'approved_reward' => (float)$reviewedParts
+    ['positive'], 'reviewed_penalties' => (float)$reviewedParts['negative'], 'penalties' => $penalties, 'balance' => $balance];
 }

@@ -70,12 +70,14 @@
                     $idxPrice = null; $idxCost = null; $idxAmount = null;
                     $idxOrderNo = null; $idxTradeTime = null; $idxOrderStatus = null; $idxTradeTimeRank = 9; $idxRefund = null;
                     foreach ($colMap as $k => $idx) {
-                        if ($idxAmount === null && (mb_strpos($k, '订单金额') !== false || mb_strpos($k, '交易金额') !== false || mb_strpos($k, '金额') !== false)) $idxAmount = $idx;
+                        if ($idxAmount === null && (mb_strpos($k, '订单金额') !== false || mb_strpos($k, '交易金额') !== false || mb_strpos($k, '金额') !== false)) $idxAmount
+    = $idx;
                         if ($idxPrice === null && (mb_strpos($k, '价格') !== false || mb_strpos($k, '售价') !== false)) $idxPrice = $idx;
                         if ($idxCost  === null && (mb_strpos($k, '成本') !== false)) $idxCost  = $idx;
                         if ($idxOrderNo === null && (mb_strpos($k, '检索号') !== false || mb_strpos($k, '订单编号') !== false)) $idxOrderNo = $idx;
                         // 订单日期取“付款时间”优先（淘宝导出里创建时间常排在前面），其次交易时间、下单 / 创建时间，最后才是其他带“时间”的列（发货时间除外）
-                        $timeRank = mb_strpos($k, '付款时间') !== false ? 1 : (mb_strpos($k, '交易时间') !== false ? 2 : (preg_match('/下单时间|创建时间|拍下时间/u', $k) ? 3 : ((mb_strpos($k, '时间') !== false && !preg_match('/发货|收货|确认|结束|完成|更新|修改/u', $k)) ? 4 : 0)));
+                        $timeRank = mb_strpos($k, '付款时间') !== false ? 1 : (mb_strpos($k, '交易时间') !== false ? 2 : (preg_match('/下单时间|创建时间|拍下时间/u'
+    , $k) ? 3 : ((mb_strpos($k, '时间') !== false && !preg_match('/发货|收货|确认|结束|完成|更新|修改/u', $k)) ? 4 : 0)));
                         if ($timeRank > 0 && ($idxTradeTime === null || $timeRank < ($idxTradeTimeRank ?? 9))) { $idxTradeTime = $idx; $idxTradeTimeRank = $timeRank; }
                         if ($idxOrderStatus === null && (mb_strpos($k, '订单状态') !== false || mb_strpos($k, '交易状态') !== false)) $idxOrderStatus = $idx;
                         if ($idxRefund === null && mb_strpos($k, '退款金额') !== false) $idxRefund = $idx;
@@ -102,12 +104,15 @@
                         if ($no0 !== '') $prepNos[$no0] = 1;
                     }
                     foreach (array_chunk(array_keys($prepNos), 500) as $chunk0) {
-                        $q0 = db()->prepare('SELECT id,order_no,order_amount,order_date,raw_data FROM orders WHERE employee_id=0 AND order_scope=\'department\' AND shop=? AND COALESCE(is_deleted,0)=0 AND order_no IN (' . implode(',', array_fill(0, count($chunk0), '?')) . ')');
+                        $q0 = db()->prepare('SELECT id,order_no,order_amount,order_date,raw_data FROM orders WHERE employee_id=0 AND order_scope=\'department\' AND shop=? AND COALESCE(is_deleted,0)=0 AND order_no IN ('
+    . implode(',', array_fill(0, count($chunk0), '?')) . ')');
                         $q0->execute(array_merge([$shop['name']], $chunk0));
                         foreach ($q0->fetchAll() as $e0) { $e0['raw'] = json_decode((string)$e0['raw_data'], true) ?: []; $existingMap[$e0['order_no']][] = $e0; }
                     }
-                    $updateStmt = db()->prepare("UPDATE orders SET order_amount=?, order_date=?, raw_data=?, is_abnormal=CASE WHEN abnormal_reason IN ('','订单金额为0') THEN ? ELSE is_abnormal END, abnormal_reason=CASE WHEN abnormal_reason IN ('','订单金额为0') THEN ? ELSE abnormal_reason END WHERE id=?");
-                    $stmt = db()->prepare("INSERT INTO orders (employee_id, order_amount, order_date, shop, order_no, raw_data, is_abnormal, abnormal_reason, order_scope) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'department')");
+                    $updateStmt = db()->prepare("UPDATE orders SET order_amount=?, order_date=?, raw_data=?, is_abnormal=CASE WHEN abnormal_reason IN ('','订单金额为0') THEN ? ELSE is_abnormal END, abnormal_reason=CASE WHEN abnormal_reason IN ('','订单金额为0') THEN ? ELSE abnormal_reason END WHERE id=?"
+    );
+                    $stmt = db()->prepare("INSERT INTO orders (employee_id, order_amount, order_date, shop, order_no, raw_data, is_abnormal, abnormal_reason, order_scope) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'department')"
+    );
 
                     db()->beginTransaction();
                     try {
@@ -220,7 +225,8 @@
                                 $merged = ps_shop_statement_merge($e['raw'], $rawMap);
                                 if (!$isRefund) unset($merged['__is_refund__'], $merged['__derived_refund__']);
                                 $updateStmt->execute([$amount, $newDate, json_encode($merged, JSON_UNESCAPED_UNICODE), $isAbn, $abnReason, (int)$e['id']]);
-                                $existingMap[$orderNo][$matchIdx] = ['id' => $e['id'], 'order_no' => $orderNo, 'order_amount' => $amount, 'order_date' => $newDate, 'raw' => $merged];
+                                $existingMap[$orderNo][$matchIdx] = ['id' => $e['id'], 'order_no' => $orderNo, 'order_amount' => $amount, 'order_date' => $newDate, 'raw' => $merged
+    ];
                                 $updated++;
                                 ps_sync_project_status_latest($orderNo, $shop['name'], $orderStatus);
                                 continue;
@@ -229,7 +235,8 @@
 
                         $stmt->execute([0, $amount, $parsedDate, $shop['name'], $orderNo, json_encode($rawMap, JSON_UNESCAPED_UNICODE), $isAbn, $abnReason]);
                         $newId = (int)db()->lastInsertId();
-                        if ($orderNo !== '') $existingMap[$orderNo][] = ['id' => $newId, 'order_no' => $orderNo, 'order_amount' => $amount, 'order_date' => $parsedDate, 'raw' => $rawMap];
+                        if ($orderNo !== '') $existingMap[$orderNo][] = ['id' => $newId, 'order_no' => $orderNo, 'order_amount' => $amount, 'order_date' => $parsedDate, 'raw' => $rawMap
+    ];
                         if ($orderNo !== '' && !$isRefund) {
                             ps_sync_project_from_shop_order($newId, $orderNo, $shop['name'], $rawMap, $originalPrice);
                         }
@@ -243,7 +250,9 @@
                     }
 
                     if ($error === '') {
-                        $rq = ['shop_id' => $shop_id, 'upload_ok' => '1', 'msg' => urlencode("导入完成！为【{$shop['name']}】成功导入 {$inserted} 条" . ($skipped > 0 ? "，{$skipped} 条标记为异常" : "") . ($updated > 0 ? "；{$updated} 条已有订单的状态 / 金额按最新数据更新" : "") . ($dups > 0 ? "；{$dups} 条是已有的重复订单（同店铺同订单号），已自动跳过" : "") . ($noDate > 0 ? "；另有 {$noDate} 行没有可识别的日期，未导入（请在“归属月份”里选一个月份后重传，或补全日期列）" : ""))];
+                        $rq = ['shop_id' => $shop_id, 'upload_ok' => '1', 'msg' => urlencode("导入完成！为【{$shop['name']}】成功导入 {$inserted} 条" . ($skipped > 0 ?
+    "，{$skipped} 条标记为异常" : "") . ($updated > 0 ? "；{$updated} 条已有订单的状态 / 金额按最新数据更新" : "") . ($dups > 0 ? "；{$dups} 条是已有的重复订单（同店铺同订单号），已自动跳过"
+    : "") . ($noDate > 0 ? "；另有 {$noDate} 行没有可识别的日期，未导入（请在“归属月份”里选一个月份后重传，或补全日期列）" : ""))];
                         header('Location: ' . BASE_URL . '/shops/upload.php?' . http_build_query($rq));
                         exit;
                     }

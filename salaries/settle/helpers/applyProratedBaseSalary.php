@@ -29,7 +29,8 @@ function applyProratedBaseSalary(&$result, $empId, $month) {
         if ($baseModAmount > 0) {
             if ($baseModType === 'cs_performance') {
                 // 客服绩效固定服务费：保留达成率明细，追加出勤折算说明
-                $result['modules'][$baseModIdx]['formula'] .= '；' . $modBaseInfo['status'] . '（原 ¥' . number_format($baseModAmount, 2) . ' → 折算后 ¥' . number_format($proAmount, 2) . '）';
+                $result['modules'][$baseModIdx]['formula'] .= '；' . $modBaseInfo['status'] . '（原 ¥' . number_format($baseModAmount, 2) . ' → 折算后 ¥' . number_format(
+    $proAmount, 2) . '）';
             } else {
                 $result['modules'][$baseModIdx]['formula'] = $modBaseInfo['status'] . '（原 ¥' . number_format($baseModAmount, 2) . '）';
             }

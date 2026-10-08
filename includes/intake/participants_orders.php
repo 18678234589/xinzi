@@ -67,7 +67,8 @@ function ps_order_no_resolve($raw)
     // 只用前缀匹配走 order_no 索引（%…% 会全表扫描）：库里的旧写法是“标签：号码”或“号码 备注”。
     $escaped = str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], $canonical);
     $patterns = [$escaped . '%'];
-    foreach (['订单编号', '订单号', '订单', '单号', '编号'] as $label) foreach (['：', ':'] as $colon) foreach (['', ' '] as $space) $patterns[] = $label . $colon . $space . $escaped . '%';
+    foreach (['订单编号', '订单号', '订单', '单号', '编号'] as $label) foreach (['：', ':'] as $colon) foreach (['', ' '] as $space) $patterns[] = $label . $colon . $space
+    . $escaped . '%';
     $like = db()->prepare('SELECT order_no FROM project_orders WHERE ' . implode(' OR ', array_fill(0, count($patterns), 'order_no LIKE ?')) . ' ORDER BY id LIMIT 20');
     $like->execute($patterns);
     foreach ($like->fetchAll(PDO::FETCH_COLUMN) as $stored) if (ps_order_no_canonical($stored) === $canonical) return $stored;
@@ -98,7 +99,8 @@ function ps_trademark_technical_role_open($orderId, $employeeId, $fallbackRole)
 /** 追加一名商标技术参与人，并把技术组权重重新均分（审核要求组内合计 100%；商标技术按件计，权重不影响金额）。调用方负责事务。 */
 function ps_trademark_add_technical($orderId, $employeeId, $role)
 {
-    db()->prepare("INSERT INTO project_participants (order_id,employee_id,commission_group,role_name,group_weight) VALUES (?,?,'technical',?,0)")->execute([(int)$orderId, (int)$employeeId, $role]);
+    db()->prepare("INSERT INTO project_participants (order_id,employee_id,commission_group,role_name,group_weight) VALUES (?,?,'technical',?,0)")->execute([(int)$orderId, (int)$employeeId
+    , $role]);
     $q = db()->prepare("SELECT id FROM project_participants WHERE order_id=? AND commission_group='technical' ORDER BY id");
     $q->execute([(int)$orderId]);
     $ids = $q->fetchAll(PDO::FETCH_COLUMN);
@@ -114,7 +116,8 @@ function ps_trademark_add_technical($orderId, $employeeId, $role)
 function ps_trademark_fix_row($row, $map)
 {
     $get = function ($key) use (&$row, $map) { return isset($map[$key]) ? trim((string)($row[$map[$key]] ?? '')) : ''; };
-    if (isset($map['order_date']) && preg_match('/^(\d{4}[.\/-]\d{1,2}[.\/-]\d{1,2})\s*(?:早上|上午|中午|下午|晚上|早|晚)$/u', $get('order_date'), $m)) $row[$map['order_date']] = $m[1];
+    if (isset($map['order_date']) && preg_match('/^(\d{4}[.\/-]\d{1,2}[.\/-]\d{1,2})\s*(?:早上|上午|中午|下午|晚上|早|晚)$/u', $get('order_date'), $m)) $row[$map['order_date'
+    ]] = $m[1];
     $orderNo = $get('order_no');
     // 订单号可带前缀（如“致2026081303”）：含 6 位以上连续数字即视为订单行
     if (!preg_match('/^[A-Za-z0-9_-]{8,}$/', $orderNo) && !preg_match('/\d{6,}/', $orderNo) && $get('payment_reference') === '') {

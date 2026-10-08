@@ -14,7 +14,8 @@ function ps_private_store($kind, $sourcePath, $name)
     $data = @file_get_contents($sourcePath);
     if ($data === false) throw new RuntimeException('上传文件读取失败，请重新上传');
     $name = basename($name);
-    if (@file_put_contents(ps_private_dir($kind) . '/' . $name . '.php', PS_PRIVATE_GUARD . $data, LOCK_EX) === false) throw new RuntimeException('文件保存失败，请联系管理员检查 storage 目录权限');
+    if (@file_put_contents(ps_private_dir($kind) . '/' . $name . '.php', PS_PRIVATE_GUARD . $data, LOCK_EX) === false) throw new RuntimeException('文件保存失败，请联系管理员检查 storage 目录权限'
+    );
     return $name;
 }
 

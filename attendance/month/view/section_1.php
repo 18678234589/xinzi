@@ -10,14 +10,16 @@
         <span class="badge badge-info ml-2">已录 <?php echo $total; ?> 人</span>
         <span class="badge badge-success ml-1">满勤 <?php echo $fullCount; ?> 人</span>
         <?php if ($totalAbsent > 0): ?><span class="badge badge-warning ml-1">请假 <?php echo number_format($totalAbsent, 2); ?>h</span><?php endif; ?>
-        <?php if ($pendingCount > 0): ?><span class="badge badge-secondary ml-1" title="上传考勤时这些合作人员尚未添加，已暂存；添加合作人员后自动补录">待匹配 <?php echo $pendingCount; ?> 人</span><?php endif; ?>
+        <?php if ($pendingCount > 0): ?><span class="badge badge-secondary ml-1" title="上传考勤时这些合作人员尚未添加，已暂存；添加合作人员后自动补录">待匹配 <?php
+    echo $pendingCount; ?> 人</span><?php endif; ?>
     </div>
 </div>
 
 <?php if ($pendingCount > 0): ?>
 <div class="alert alert-info py-2">
     <a class="d-flex justify-content-between align-items-center text-decoration-none text-info" data-toggle="collapse" href="#pendingCollapse" role="button" aria-expanded="false" aria-controls="pendingCollapse">
-        <span><i class="fas fa-info-circle"></i> <strong><?php echo $pendingCount; ?> 人</strong>的考勤已暂存（上传时合作人员尚未添加）。在<a href="<?php echo BASE_URL; ?>/employees/index.php" onclick="event.stopPropagation();">合作人员管理</a>中添加对应姓名的合作人员后，考勤会自动补录。</span>
+        <span><i class="fas fa-info-circle"></i> <strong><?php echo $pendingCount; ?> 人</strong>的考勤已暂存（上传时合作人员尚未添加）。在<a href="<?php echo
+    BASE_URL; ?>/employees/index.php" onclick="event.stopPropagation();">合作人员管理</a>中添加对应姓名的合作人员后，考勤会自动补录。</span>
         <i class="fas fa-chevron-down ml-2"></i>
     </a>
     <div class="collapse" id="pendingCollapse">
@@ -25,7 +27,8 @@
             <thead><tr><th>姓名</th><th>应出勤(h)</th><th>请假(h)</th><th>备注</th></tr></thead>
             <tbody>
             <?php foreach ($pendingRows as $p): ?>
-                <tr><td><?php echo e($p['employee_name']); ?></td><td><?php echo e($p['work_hours']); ?></td><td><?php echo e($p['absent_hours']); ?></td><td><?php echo e($p['remark']); ?></td></tr>
+                <tr><td><?php echo e($p['employee_name']); ?></td><td><?php echo e($p['work_hours']); ?></td><td><?php echo e($p['absent_hours']); ?></td><td><?php echo e($p['remark'
+    ]); ?></td></tr>
             <?php endforeach; ?>
             </tbody>
         </table>

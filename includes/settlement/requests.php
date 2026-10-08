@@ -59,7 +59,8 @@ function ps_create_order_request($orderId, $type, $actor, array $data)
         $applicantName = (string)($nameQuery->fetchColumn() ?: $applicantName);
     }
 
-    $q = db()->prepare("INSERT INTO project_order_requests (order_id, request_type, status, applicant_type, applicant_id, applicant_name, data_json) VALUES (?, ?, 'pending', ?, ?, ?, ?)");
+    $q = db()->prepare("INSERT INTO project_order_requests (order_id, request_type, status, applicant_type, applicant_id, applicant_name, data_json) VALUES (?, ?, 'pending', ?, ?, ?, ?)"
+    );
     $q->execute([
         (int)$orderId,
         $type,
@@ -113,7 +114,8 @@ function ps_review_order_request($requestId, $decision, $actor, $reviewNote, arr
                 $costReason = '后台查验实付补差成本' . ($reviewNote ? '：' . $reviewNote : '');
                 $proofPath = !empty($extraData['proof_path']) ? (string)$extraData['proof_path'] : null;
 
-                $costStmt = $pdo->prepare("INSERT INTO project_costs (order_id, template_id, template_version, category, item_name, quantity, unit, unit_price, amount, supplier_amount, cost_kind, is_custom, reason, proof_path, review_status, submitted_by_employee, reviewed_by_admin, review_note) VALUES (?, ?, 1, 'program', ?, 1, '项', ?, ?, ?, 'one_time', 1, ?, ?, 'approved', ?, ?, ?)");
+                $costStmt = $pdo->prepare("INSERT INTO project_costs (order_id, template_id, template_version, category, item_name, quantity, unit, unit_price, amount, supplier_amount, cost_kind, is_custom, reason, proof_path, review_status, submitted_by_employee, reviewed_by_admin, review_note) VALUES (?, ?, 1, 'program', ?, 1, '项', ?, ?, ?, 'one_time', 1, ?, ?, 'approved', ?, ?, ?)"
+    );
                 $costStmt->execute([
                     $orderId,
                     $toTemplateId ?: null,

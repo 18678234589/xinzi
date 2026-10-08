@@ -27,7 +27,8 @@ if (($_GET['ajax'] ?? '') === 'modules' && $ajax_employee_id > 0) {
     $result = [];
     if ($modCfg && !empty($modCfg['modules'])) {
         foreach ($modCfg['modules'] as $m) {
-            if (in_array($m['type'], ['standard','tiered','per_order','profit_commission','trademark_commission','trademark_cashback','referral_order','customer_reward','miniprogram_commission','fixed_subsidy']) && ($m['enabled'] ?? true)) {
+            if (in_array($m['type'], ['standard','tiered','per_order','profit_commission','trademark_commission','trademark_cashback','referral_order','customer_reward','miniprogram_commission'
+    ,'fixed_subsidy']) && ($m['enabled'] ?? true)) {
                 $extra = '';
                 if ($m['type'] === 'standard' && isset($m['config']['rate']) && $m['config']['rate'] !== '') {
                     $rVal = (float)$m['config']['rate'];
@@ -164,7 +165,7 @@ $yearGroups = [];
 foreach ($allGroups as $row) {
     $year = $row['order_year'];
     $month = $row['order_month'];
-    
+
     if (!isset($yearGroups[$year])) {
         $yearGroups[$year] = [
             'year' => $year,
@@ -173,7 +174,7 @@ foreach ($allGroups as $row) {
             'months' => []
         ];
     }
-    
+
     if (!isset($yearGroups[$year]['months'][$month])) {
         $yearGroups[$year]['months'][$month] = [
             'month' => $month,
@@ -182,13 +183,13 @@ foreach ($allGroups as $row) {
             'projects' => []
         ];
     }
-    
+
     $yearGroups[$year]['months'][$month]['projects'][] = $row;
     $yearGroups[$year]['months'][$month]['total_cnt'] += $row['cnt'];
     $yearGroups[$year]['months'][$month]['total_amount'] += $row['normal_amount'];
     $yearGroups[$year]['total_cnt'] += $row['cnt'];
     $yearGroups[$year]['total_amount'] += $row['normal_amount'];
-    
+
     // 兼容原有的平铺结构（用于总计等）
     $projectGroups[] = $row;
 }
@@ -314,7 +315,8 @@ if ($expand_project !== '') {
     $page = min($page, $total_pages);
     $offset = ($page - 1) * $per_page;
 
-    $detailSql = "SELECT o.*, COALESCE(e.name,'') as name, COALESCE(e.department,'') as department FROM orders o LEFT JOIN employees e ON o.employee_id = e.id" . $detailWhere . " ORDER BY o.is_abnormal ASC, o.order_date DESC, o.id DESC LIMIT {$per_page} OFFSET {$offset}";
+    $detailSql = "SELECT o.*, COALESCE(e.name,'') as name, COALESCE(e.department,'') as department FROM orders o LEFT JOIN employees e ON o.employee_id = e.id" . $detailWhere . " ORDER BY o.is_abnormal ASC, o.order_date DESC, o.id DESC LIMIT {$per_page} OFFSET {$offset}"
+    ;
     $dStmt = db()->prepare($detailSql);
     $dStmt->execute($detailParams);
     $orders = $dStmt->fetchAll();

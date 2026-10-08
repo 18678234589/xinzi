@@ -192,15 +192,18 @@
                                 $incTmp     = (int)($perf['incoming_count'] ?? 0);
                                 $deriv = cs_perf_conv_derivation($inquiryConv, $orderCount, $incTmp);
                                 ?>
-                                <span title="<?php echo $deriv ? e($deriv) : '询单转化率'; ?>"><?php echo rtrim(rtrim(number_format($inquiryConv, 2, '.', ''), '0'), '.') . '%'; ?></span>
-                                <?php if ($deriv): ?><span class="text-muted" style="font-size:11px">(下单<?php echo $orderCount; ?>÷询单<?php echo $incTmp; ?>)</span><?php endif; ?>
+                                <span title="<?php echo $deriv ? e($deriv) : '询单转化率'; ?>"><?php echo rtrim(rtrim(number_format($inquiryConv, 2, '.', ''), '0'), '.') . '%'
+    ; ?></span>
+                                <?php if ($deriv): ?><span class="text-muted" style="font-size:11px">(下单<?php echo $orderCount; ?>÷询单<?php echo $incTmp; ?>)</span><?php endif
+    ; ?>
                             <?php else: ?><span class="text-muted">-</span><?php endif; ?>
                         </td>
                         <td><?php echo $wangReply > 0 ? $wangReply . '%' : '<span class="text-muted">-</span>'; ?></td>
                         <td><?php echo $avgResponse > 0 ? $avgResponse : '<span class="text-muted">-</span>'; ?></td>
                         <td>
                             <?php if ((float)$calc['amount'] > 0): ?>
-                                <a href="#" class="text-decoration-none" data-toggle="tooltip" title="<?php echo e($calc['formula']); ?>" onclick="return false;"><strong><?php echo number_format((float)$calc['amount'], 2); ?></strong> <i class="fas fa-info-circle text-muted"></i></a>
+                                <a href="#" class="text-decoration-none" data-toggle="tooltip" title="<?php echo e($calc['formula']); ?>" onclick="return false;"><strong><?php echo
+    number_format((float)$calc['amount'], 2); ?></strong> <i class="fas fa-info-circle text-muted"></i></a>
                                 <?php if ($calcRank !== null): ?><span class="badge badge-warning ml-1">第<?php echo $calcRank; ?>名</span><?php endif; ?>
                             <?php else: ?>
                                 <span class="text-muted" title="<?php echo e($calc['formula']); ?>">0<?php echo $calcRank === null ? '' : '（第' . $calcRank . '名）'; ?></span>
@@ -223,7 +226,8 @@
 <?php if ($pending): ?>
 <!-- 待匹配清单 -->
 <div class="card mb-3">
-    <div class="card-header bg-warning text-dark"><i class="fas fa-exclamation-triangle"></i> 待匹配清单（<?php echo $year; ?>年<?php echo $month; ?>月，共 <?php echo count($pending); ?> 条）</div>
+    <div class="card-header bg-warning text-dark"><i class="fas fa-exclamation-triangle"></i> 待匹配清单（<?php echo $year; ?>年<?php echo $month; ?>月，共 <?php echo count
+    ($pending); ?> 条）</div>
     <div class="card-body p-0">
         <div class="table-responsive">
             <table class="table table-hover table-bordered mb-0">

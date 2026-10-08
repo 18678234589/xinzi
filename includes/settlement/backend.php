@@ -19,7 +19,8 @@ function ps_refund_later($orderId, $orderDate)
 {
     static $q = null;
     try {
-        if ($q === null) $q = db()->prepare("SELECT COALESCE(SUM(amount),0) FROM project_cash_movements WHERE order_id=? AND movement_type='refund' AND review_status='approved' AND effective_month IS NOT NULL AND effective_month>?");
+        if ($q === null) $q = db()->prepare("SELECT COALESCE(SUM(amount),0) FROM project_cash_movements WHERE order_id=? AND movement_type='refund' AND review_status='approved' AND effective_month IS NOT NULL AND effective_month>?"
+    );
         $q->execute([(int)$orderId, substr((string)$orderDate, 0, 7)]);
         return round((float)$q->fetchColumn(), 2);
     } catch (Throwable $e) {
@@ -74,13 +75,13 @@ function ps_order_assign_backend($orderId, $backendEmployeeId, $mode, $actor)
         $currRole = (string)$row['role_name'];
         $isOutsourced = mb_strpos($currRole, '外包') !== false;
         $newRole = $isOutsourced ? '外包前端/后端' : '前端/后端';
-        
+
         $pdo->prepare('UPDATE project_participants SET role_name=?, group_weight=1.0 WHERE id=?')
             ->execute([$newRole, (int)$row['id']]);
-        
+
         $pdo->prepare('DELETE FROM project_participants WHERE order_id=? AND commission_group="technical" AND employee_id<>?')
             ->execute([(int)$orderId, $targetTechId]);
-        
+
         ps_audit('order', (int)$orderId, 'assign_backend_fullstack', $actor, ['employee_id' => $targetTechId, 'role' => $newRole]);
         return ['ok' => true, 'mode' => 'self_fullstack', 'role' => $newRole];
     } else {
@@ -109,7 +110,8 @@ function ps_order_assign_backend($orderId, $backendEmployeeId, $mode, $actor)
                     ->execute([$fRole, (int)$t['id']]);
             }
         }
-        $pdo->prepare('INSERT INTO project_participants (order_id, employee_id, commission_group, role_name, group_weight) VALUES (?, ?, "technical", "后端", 0.5) ON DUPLICATE KEY UPDATE role_name="后端", group_weight=0.5')
+        $pdo->prepare('INSERT INTO project_participants (order_id, employee_id, commission_group, role_name, group_weight) VALUES (?, ?, "technical", "后端", 0.5) ON DUPLICATE KEY UPDATE role_name="后端", group_weight=0.5'
+    )
             ->execute([(int)$orderId, $backendId]);
 
         ps_audit('order', (int)$orderId, 'assign_backend_colleague', $actor, ['backend_id' => $backendId]);

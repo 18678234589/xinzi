@@ -8,7 +8,8 @@
             if (!$targetTpl) throw new RuntimeException('所选升级产品不存在或不可用');
 
             $currentProgram = '基础版/未指定';
-            $resQuery = db()->prepare("SELECT r.program_template_id, t.name, t.specification FROM project_order_resources r LEFT JOIN project_cost_templates t ON t.id=r.program_template_id WHERE r.order_id=?");
+            $resQuery = db()->prepare("SELECT r.program_template_id, t.name, t.specification FROM project_order_resources r LEFT JOIN project_cost_templates t ON t.id=r.program_template_id WHERE r.order_id=?"
+    );
             $resQuery->execute([$id]);
             $resRow = $resQuery->fetch();
             if ($resRow && !empty($resRow['name'])) {

@@ -138,13 +138,17 @@
                     $idxName = $idxWork = $idxAbsent = $idxRemark = null;
                     $idxFullDays = $idxActualDays = null;
                     foreach ($colMap as $k => $idx) {
-                        if ($idxName === null && (mb_strpos($k, '姓名') !== false || mb_strpos($k, '员工') !== false || mb_strpos($k, '合作人员') !== false || mb_strpos($k, '名字') !== false || stripos($k, 'name') !== false)) $idxName = $idx;
+                        if ($idxName === null && (mb_strpos($k, '姓名') !== false || mb_strpos($k, '员工') !== false || mb_strpos($k, '合作人员') !== false || mb_strpos($k,
+    '名字') !== false || stripos($k, 'name') !== false)) $idxName = $idx;
                         // 满勤天数（新格式）—— 支持"满勤天数/满勤/应出勤天数/应出勤/全勤天数/全勤"等多种表头
-                        if ($idxFullDays === null && (mb_strpos($k, '满勤天数') !== false || mb_strpos($k, '满勤') !== false || mb_strpos($k, '应出勤天数') !== false || mb_strpos($k, '应出勤') !== false || mb_strpos($k, '全勤天数') !== false || mb_strpos($k, '全勤') !== false)) $idxFullDays = $idx;
+                        if ($idxFullDays === null && (mb_strpos($k, '满勤天数') !== false || mb_strpos($k, '满勤') !== false || mb_strpos($k, '应出勤天数') !== false ||
+    mb_strpos($k, '应出勤') !== false || mb_strpos($k, '全勤天数') !== false || mb_strpos($k, '全勤') !== false)) $idxFullDays = $idx;
                         // 实际出勤天数（新格式）
-                        if ($idxActualDays === null && (mb_strpos($k, '实际出勤') !== false || mb_strpos($k, '实到') !== false || mb_strpos($k, '实际') !== false || mb_strpos($k, '出勤天数') !== false)) $idxActualDays = $idx;
+                        if ($idxActualDays === null && (mb_strpos($k, '实际出勤') !== false || mb_strpos($k, '实到') !== false || mb_strpos($k, '实际') !== false || mb_strpos
+    ($k, '出勤天数') !== false)) $idxActualDays = $idx;
                         // 应出勤小时（旧格式兼容）
-                        if ($idxWork === null && (mb_strpos($k, '应出勤小时') !== false || mb_strpos($k, '出勤小时') !== false || mb_strpos($k, '应到') !== false)) $idxWork = $idx;
+                        if ($idxWork === null && (mb_strpos($k, '应出勤小时') !== false || mb_strpos($k, '出勤小时') !== false || mb_strpos($k, '应到') !== false)) $idxWork
+    = $idx;
                         // 请假小时（旧格式兼容）
                         if ($idxAbsent === null && (mb_strpos($k, '请假') !== false || mb_strpos($k, '缺勤') !== false)) $idxAbsent = $idx;
                         if ($idxRemark === null && (mb_strpos($k, '备注') !== false || mb_strpos($k, '说明') !== false || stripos($k, 'remark') !== false)) $idxRemark = $idx;
@@ -259,7 +263,8 @@
                         if (!empty($notFound)) $msg .= "，未匹配合作人员：" . implode('、', array_slice($notFound, 0, 5)) . (count($notFound) > 5 ? ' 等' : '');
                         // 附加识别信息便于排查
                         $mode = $autoDayMode ? '自动统计(每日打卡列)' : '天数列直读';
-                        $msg .= "【模式:{$mode}；姓名列:{$idxName}；满勤列:" . ($idxFullDays ?? '无') . "；实际出勤列:" . ($idxActualDays ?? '无') . "；数据行:" . count($dataRows) . "】";
+                        $msg .= "【模式:{$mode}；姓名列:{$idxName}；满勤列:" . ($idxFullDays ?? '无') . "；实际出勤列:" . ($idxActualDays ?? '无') . "；数据行:"
+    . count($dataRows) . "】";
                         // 预览解析到的表头和首行数据，便于确认文件内容正确
                         $previewHead = json_encode($firstRow, JSON_UNESCAPED_UNICODE);
                         $previewFirst = !empty($dataRows) ? json_encode($dataRows[0], JSON_UNESCAPED_UNICODE) : '(空)';
