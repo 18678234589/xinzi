@@ -413,6 +413,7 @@ include __DIR__ . '/../includes/header.php';
 ?>
 <?php include __DIR__ . '/../includes/auto_review_card.php'; ?>
 <div class="d-flex justify-content-between align-items-center mb-3"><h4 class="mb-0">订单结算单 <small class="text-muted"><?php echo e($order['order_no']); ?></small></h4><a class="btn btn-outline-secondary btn-sm" href="<?php echo BASE_URL; ?>/project/index.php">返回订单</a></div>
+<?php if (in_array(ps_business_normalize($order['project_type']), ['网站模板', 'AI网站定制'], true)): ?><div class="mb-3"><a class="btn btn-outline-primary btn-sm" href="<?php echo BASE_URL; ?>/project/site_group.php?id=<?php echo $id; ?>">网站项目与同号付款分配</a></div><?php endif; ?>
 <?php if ($error): ?><div class="alert alert-danger"><?php echo e($error); ?></div><?php endif; ?>
 <?php if (strpos((string)$order['order_no'], 'WX-') === 0 && $canEdit): ?>
 <div class="alert alert-warning d-flex flex-wrap align-items-center justify-content-between" style="gap:8px"><span><i class="fas fa-link mr-1"></i><strong>这是没有订单号的订单（系统生成了内部号）。</strong>拿到客户的真实订单号后，在这里补录，退款和店铺流水才能自动对上。</span>
