@@ -233,4 +233,8 @@
 - 部署先备份，运行 `php migrations/apply_auto_review.php`；先 `php jobs/project_auto_review.php --dry-run --limit=10000`（无数据库写入），再 `--refresh --limit=10000`（仅核对元数据）。验证后在财务入口启用自动核对。
 - 定时任务：每 5 分钟运行 `php jobs/project_auto_review.php --apply --limit=200`。手动录入/补资料、Excel 导入会核对前 25 笔，ETMLL 同步后接续 200 笔，其余由定时任务接续。核对失败不回滚已成功上传的订单。
 - 自动通过仅生成分成快照，不自动发款。
+- 现用站点是 `/www/wwwroot/hezuoshang`，PHP 8.3；旧 `/www/wwwroot/xinzi.206.yjkj2026.cn` 已反代到新站点，不能只部署旧目录。数据库沿用同一实例，自动核对定时任务只在现用应用主机运行一次；发布后应以 `https://me.laibangwo.com` 的新入口响应核验。
+- 财务退款回收站：`project/refunds.php` 顶部入口及待对号/最近退款行的“移入回收站”；`project/refund_trash.php` 查看、分页及恢复。只允许财务处理未入账的待审/驳回记录；已审核入账或结案的退款须走财务更正，不直接删除账目。
+- 回收站保留退款原金额、来源表格、原状态与审计记录，不永久删除、不扣减或冲正现金账。被移入的退款不再自动匹配/审核，不再阻挡项目自动核对；重复上传同一指纹/流水会提示财务恢复，不能偷偷重新登记。恢复回到原审核流程，重复操作幂等。
+- 部署回收站先运行 `php migrations/apply_refund_trash.php`；测试 `php tests/project_refund_trash_storage.php --rollback-fixtures` 仅使用事务内模拟数据，全量回滚。
 - 回归：`php tests/project_auto_review_unit.php`；存储幂等和失败回滚验证 `php tests/project_auto_review_storage.php --rollback-fixtures`，只创建事务内测试订单，最后全部回滚，不更改现有订单。

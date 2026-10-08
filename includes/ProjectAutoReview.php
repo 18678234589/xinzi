@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . '/ProjectSettlement.php';
+require_once __DIR__ . '/ProjectRefundTrash.php';
 require_once __DIR__ . '/ProjectAutoReviewMath.php';
 
 function pa_storage_available()
@@ -67,7 +68,7 @@ function pa_context($orderId, $lock = false)
     $q = $p->prepare("SELECT COUNT(*) FROM project_order_requests WHERE order_id=? AND status='pending'"); $q->execute([$orderId]); $requests = (int)$q->fetchColumn();
     $refundWhere = 'order_id=? OR order_no=?'; $refundParams = [$orderId, $order['order_no']];
     if (!empty($source['payment_reference'])) { $refundWhere .= ' OR source_payment_reference=?'; $refundParams[] = $source['payment_reference']; }
-    $q = $p->prepare("SELECT id FROM project_refund_import_rows WHERE review_status='pending' AND ($refundWhere)" . ($lock ? ' FOR UPDATE' : '')); $q->execute($refundParams); $refunds = count($q->fetchAll());
+    $q = $p->prepare("SELECT id FROM project_refund_import_rows WHERE review_status='pending' AND ($refundWhere)" . prt_active_sql() . ($lock ? ' FOR UPDATE' : '')); $q->execute($refundParams); $refunds = count($q->fetchAll());
     $q = $p->prepare('SELECT COUNT(*) FROM project_commission_snapshots WHERE order_id=?'); $q->execute([$orderId]); $snapshots = (int)$q->fetchColumn();
     $q = $p->prepare('SELECT status FROM project_payroll_periods WHERE period=?' . ($lock ? ' FOR UPDATE' : '')); $q->execute([substr($order['order_date'], 0, 7)]); $period = $q->fetchColumn();
     return [
@@ -82,8 +83,14 @@ function pa_context($orderId, $lock = false)
 function pa_evidence(array $ctx)
 {
     $groups = [];
-    foreach ($ctx['summary']['groups'] as $key => $group) foreach ($group['people'] as $person) {
-        $groups[] = ['employee_id' => (int)$person['employee_id'], 'group' => $key, 'role' => $person['role_name'], 'rule_id' => (int)($person['rule']['id'] ?? 0), 'weight' => (float)$person['group_weight'], 'amount' => (float)($person['calc']['share'] ?? 0) + (float)($person['calc']['subsidy'] ?? 0), 'formula' => (string)($person['calc']['note'] ?? '')];
+    foreach ($ctx['summary']['groups'] as $key => $group) {
+        if (!$group['people']) continue;
+        // Match the settlement snapshot's cent allocation, including pool rounding tails.
+        $shares = ps_group_share_cents($group['people']);
+        foreach ($group['people'] as $i => $person) {
+            $amount = ($shares[$i] + (int)round(($person['calc']['subsidy'] ?? 0) * 100)) / 100;
+            $groups[] = ['employee_id' => (int)$person['employee_id'], 'group' => $key, 'role' => $person['role_name'], 'rule_id' => (int)($person['rule']['id'] ?? 0), 'weight' => (float)$person['group_weight'], 'amount' => $amount, 'formula' => (string)($person['calc']['note'] ?? '')];
+        }
     }
     return [
         'policy_version' => PA_POLICY_VERSION, 'order_id' => (int)$ctx['order']['id'], 'business' => $ctx['order']['project_type'],

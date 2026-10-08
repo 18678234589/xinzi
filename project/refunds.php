@@ -75,6 +75,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             ps_setting_set('refund_settled_through', $m, (int)$actor['id']);
             ps_audit('refund_import', 0, 'set_settled_through', $actor, ['month' => $m]);
             $success = $m === '' ? '已取消“已核算月份”限制' : '已设置：' . $m . ' 及以前的退款只留档，不再自动扣减';
+        } elseif ($action === 'trash_refund') {
+            $trashResult = prt_change((int)($_POST['refund_id'] ?? 0), false, (string)($_POST['note'] ?? ''), $actor);
+            prt_after_change($trashResult);
+            $success = '已移入退款回收站，不再自动匹配或扣减。原始表格保留，财务可在回收站恢复。';
         } elseif ($action === 'match_refund') {
             $success = prm_resolve((int)($_POST['refund_id'] ?? 0), (string)($_POST['order_no'] ?? ''), (string)($_POST['mode'] ?? ''), (string)($_POST['note'] ?? ''), $actor);
         } else throw new RuntimeException('操作无效');
@@ -83,13 +87,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 $page_title = '项目退款与返现';
 if ($isFinance) ps_refund_reconcile_pending($actor);
 $q = $isFinance
-    ? db()->query("SELECT r.*,o.project_type FROM project_refund_import_rows r LEFT JOIN project_orders o ON o.id=r.order_id ORDER BY (r.review_status='pending') DESC,r.id DESC LIMIT 100")
-    : db()->prepare('SELECT r.*,o.project_type FROM project_refund_import_rows r LEFT JOIN project_orders o ON o.id=r.order_id WHERE r.submitted_by_type=? AND r.submitted_by_id=? ORDER BY r.id DESC LIMIT 50');
+    ? db()->query("SELECT r.*,o.project_type FROM project_refund_import_rows r LEFT JOIN project_orders o ON o.id=r.order_id WHERE 1=1" . prt_active_sql('r.') . " ORDER BY (r.review_status='pending') DESC,r.id DESC LIMIT 100")
+    : db()->prepare('SELECT r.*,o.project_type FROM project_refund_import_rows r LEFT JOIN project_orders o ON o.id=r.order_id WHERE r.submitted_by_type=? AND r.submitted_by_id=?' . prt_active_sql('r.') . ' ORDER BY r.id DESC LIMIT 50');
 if (!$isFinance) $q->execute([$actor['type'], $actor['id']]);
 $recent = $q->fetchAll();
 include __DIR__ . '/../includes/header.php';
 ?>
 <div class="project-intake-page">
+<?php if ($isFinance && prt_storage_available()): ?><div class="d-flex flex-wrap justify-content-between align-items-center mb-3" style="gap:8px"><small class="text-muted">误登记退款可移入回收站，随时恢复；已入账退款须财务更正，不直接删除。</small><a class="btn btn-outline-danger" href="<?php echo BASE_URL; ?>/project/refund_trash.php"><i class="fas fa-trash-restore mr-1" aria-hidden="true"></i>退款回收站 <span class="badge badge-light"><?php echo (int)db()->query('SELECT COUNT(*) FROM project_refund_import_rows WHERE deleted_at IS NOT NULL')->fetchColumn(); ?></span></a></div><?php endif; ?>
 <div class="project-hero mb-3"><div><div class="project-eyebrow">项目合作结算中心 · 售后退款</div><h2>项目退款与返现</h2><p>淘宝店铺、支付宝、微信、银行卡退款都可登记。系统优先用原订单号或原支付流水关联客服与技术共用的订单；匹配不到也能先留待审。财务审核后冲减实收并按原业务规则重算分成，不重复计入成本。</p></div><div class="project-hero-actions"><a class="btn btn-light" href="<?php echo BASE_URL; ?>/project/index.php">查看项目订单</a></div></div>
 <?php if ($error): ?><div class="alert alert-danger"><?php echo e($error); ?></div><?php endif; ?>
 <?php if ($success): ?><div class="alert alert-success"><?php echo e($success); ?></div><?php endif; ?>
@@ -148,6 +153,7 @@ include __DIR__ . '/../includes/header.php';
 <?php else: ?><input class="form-control form-control-sm" style="width:230px" name="order_no" placeholder="查不到候选，填项目订单号" aria-label="项目订单号"><?php endif; ?>
 <select class="form-control form-control-sm" style="width:210px" name="mode" aria-label="处理方式"><option value="deduct" <?php echo $u['candidates'] && strpos($u['candidates'][0]['hint'], '重复付款') !== false ? '' : 'selected'; ?>>订单被退款：扣减订单</option><option value="duplicate" <?php echo $u['candidates'] && strpos($u['candidates'][0]['hint'], '重复付款') !== false ? 'selected' : ''; ?>>重复付款已退回：不扣订单</option><option value="unreported">客服未报单：无对应订单</option></select>
 <input class="form-control form-control-sm" style="width:180px" name="note" placeholder="备注（可选）" aria-label="备注"><button class="btn btn-sm btn-success">确认处理</button></form>
+<?php $refundTrashRow = $u; include __DIR__ . '/../includes/refund_trash_action.php'; ?>
 <?php if ($u['candidates']): ?><div class="small text-muted mt-1"><?php echo e($u['candidates'][0]['hint']); ?></div><?php if (count($u['candidates']) > 1): ?><div class="small text-muted">该客户ID共 <?php echo count($u['candidates']); ?> 张订单，请核对后选择。</div><?php endif; ?><?php endif; ?></td></tr><?php endforeach; ?>
 </tbody></table></div></div>
 <?php endif; $waiting = prm_waiting_upload(); if ($waiting): $waitN = 0; $waitAmt = 0; foreach ($waiting as $g) { $waitN += count($g['rows']); $waitAmt += $g['amount']; } ?>
@@ -162,7 +168,9 @@ include __DIR__ . '/../includes/header.php';
 <input class="form-control form-control-sm" style="width:170px" name="source_reference" value="<?php echo e($r['source_payment_reference']); ?>" placeholder="或原支付流水" aria-label="原支付流水号">
 <select class="form-control form-control-sm" style="width:115px" name="method" aria-label="退款渠道"><?php foreach (['待核渠道','店铺','支付宝','微信','银行卡'] as $methodOption): ?><option value="<?php echo e($methodOption); ?>" <?php echo $r['payment_method'] === $methodOption ? 'selected' : ''; ?>><?php echo e($methodOption); ?></option><?php endforeach; ?></select>
 <input class="form-control form-control-sm" style="width:155px" name="reference" value="<?php echo e($r['payment_reference']); ?>" placeholder="退款流水号" aria-label="退款流水号">
-<input type="month" class="form-control form-control-sm" style="width:145px" name="month" value="<?php echo e($month); ?>" required><button class="btn btn-sm btn-success" name="decision" value="approved">核实并通过</button><button class="btn btn-sm btn-outline-danger" name="decision" value="rejected">驳回</button></form><?php else: ?>—<?php endif; ?></td><?php endif; ?></tr><?php endforeach; ?><?php if (!$recent): ?><tr><td colspan="<?php echo $isFinance ? 5 : 4; ?>" class="text-muted text-center">暂无退款提交记录</td></tr><?php endif; ?></tbody></table></div></div>
+<input type="month" class="form-control form-control-sm" style="width:145px" name="month" value="<?php echo e($month); ?>" required><button class="btn btn-sm btn-success" name="decision" value="approved">核实并通过</button><button class="btn btn-sm btn-outline-danger" name="decision" value="rejected">驳回</button></form><?php else: ?>—<?php endif; ?>
+<?php $refundTrashRow = $r; include __DIR__ . '/../includes/refund_trash_action.php'; ?>
+</td><?php endif; ?></tr><?php endforeach; ?><?php if (!$recent): ?><tr><td colspan="<?php echo $isFinance ? 5 : 4; ?>" class="text-muted text-center">暂无退款提交记录</td></tr><?php endif; ?></tbody></table></div></div>
 </div>
 <script>(function(){var zone=document.getElementById('refundDropZone'),input=document.getElementById('refundFile'),label=document.getElementById('refundFileName');if(!zone||!input)return;input.addEventListener('change',function(){label.textContent=input.files.length?input.files[0].name:'尚未选择文件'});['dragenter','dragover'].forEach(function(n){zone.addEventListener(n,function(e){e.preventDefault();zone.classList.add('is-dragging')})});['dragleave','drop'].forEach(function(n){zone.addEventListener(n,function(e){e.preventDefault();zone.classList.remove('is-dragging')})});zone.addEventListener('drop',function(e){if(!e.dataTransfer.files.length)return;input.files=e.dataTransfer.files;label.textContent=input.files[0].name})})();</script>
 <script src="<?php echo BASE_URL; ?>/assets/lib/xlsx.full.min.js"></script>

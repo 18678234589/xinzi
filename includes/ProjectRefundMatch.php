@@ -54,7 +54,7 @@ function prm_resolve($id, $orderNo, $mode, $note, $actor)
     try {
         $q = $pdo->prepare('SELECT * FROM project_refund_import_rows WHERE id=? FOR UPDATE');
         $q->execute([(int)$id]); $row = $q->fetch();
-        if (!$row || $row['review_status'] !== 'pending') throw new RuntimeException('这笔退款已被处理，请刷新页面');
+        if (!$row || $row['review_status'] !== 'pending' || !empty($row['deleted_at'])) throw new RuntimeException('这笔退款已被处理或已移入回收站，请刷新页面');
         if ($mode === 'unreported') {
             // 客户付款后马上取消、客服没有报单：项目系统里本来就没有这张订单，没有分成可扣。只留可追溯的记录并结案，不再催办。
             $typed = trim((string)$orderNo);
@@ -104,7 +104,7 @@ function prm_auto_nickname($system, $limit = 300)
         $order = $cands[0];
         if (in_array($order['settlement_status'], ['approved', 'locked'], true)) continue;
         if ((float)$row['amount'] > round(prm_base($order) - (float)$order['refund_amount'], 2)) continue;
-        $u = db()->prepare("UPDATE project_refund_import_rows SET order_id=?,order_no=? WHERE id=? AND order_id IS NULL AND review_status='pending'");
+        $u = db()->prepare("UPDATE project_refund_import_rows SET order_id=?,order_no=? WHERE id=? AND order_id IS NULL AND review_status='pending'" . prt_active_sql());
         $u->execute([(int)$order['id'], $order['order_no'], (int)$row['id']]);
         if ($u->rowCount()) { $linked++; ps_audit('refund_import', (int)$row['id'], 'auto_link_nickname', $system, ['order_id' => (int)$order['id'], 'raw_cell' => mb_substr((string)$row['order_no'], 0, 120)]); }
     }

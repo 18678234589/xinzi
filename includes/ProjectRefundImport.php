@@ -2,6 +2,7 @@
 require_once __DIR__ . '/ProjectIntake.php';
 require_once __DIR__ . '/ProjectBusiness.php';
 require_once __DIR__ . '/ProjectAiFallback.php';
+require_once __DIR__ . '/ProjectRefundTrash.php';
 
 /** 退款“已核算至”的月份（如 2026-08）：该月及以前的退款工资已发，只留档，不再自动关联 / 自动扣减，免得冲进后面月份的分成。 */
 function ps_refund_settled_through()
@@ -13,7 +14,7 @@ function ps_refund_settled_through()
 /** 只处理“当期有效”的退款行的 SQL 条件：晚于已核算月份、且日期不在未来（防录入笔误）。$a 为表别名前缀，如 'r.'。 */
 function ps_refund_live_sql($a = '')
 {
-    $sql = " AND {$a}refund_date<=CURDATE()";
+    $sql = " AND {$a}refund_date<=CURDATE()" . prt_active_sql($a);
     $m = ps_refund_settled_through();
     if ($m !== '') $sql .= " AND {$a}refund_date>'" . date('Y-m-t', strtotime($m . '-01')) . "'";
     return $sql;
@@ -148,7 +149,7 @@ function ps_refund_reconcile_pending($actor, $limit = 200)
     if (($actor['role'] ?? '') !== 'finance') return 0;
     $limit = max(1, min((int)$limit, 500)); $linked = 0;
     $rows = db()->query("SELECT r.id,r.order_no,r.source_payment_reference FROM project_refund_import_rows r WHERE r.review_status='pending' AND r.order_id IS NULL AND (r.order_no REGEXP '[0-9]{9}' OR r.source_payment_reference<>'')" . ps_refund_live_sql('r.') . " ORDER BY r.id DESC LIMIT " . $limit)->fetchAll();
-    $update = db()->prepare("UPDATE project_refund_import_rows SET order_id=?,order_no=? WHERE id=? AND order_id IS NULL AND review_status='pending'");
+    $update = db()->prepare("UPDATE project_refund_import_rows SET order_id=?,order_no=? WHERE id=? AND order_id IS NULL AND review_status='pending'" . prt_active_sql());
     foreach ($rows as $row) {
         [$order] = ps_refund_resolve_order($row['order_no'], $row['source_payment_reference']);
         if (!$order) continue;
@@ -206,6 +207,7 @@ function ps_refund_preview_row(array $input, $fingerprint, $actor, $fileId = nul
                 if (($actor['role'] ?? '') === 'finance' && (float)$row['amount'] > round((float)$order['receipt_amount'] - (float)$order['refund_amount'], 2)) $row['warning'] .= ($row['warning'] ? '；' : '') . '退款超过当前已审核实收余额，先核对实收/历史退款后再审核';
             }
         } else $row['business'] = $row['source_business'];
+        if (!$row['error'] && prt_deleted_duplicate($fingerprint, $row['method'], $row['reference'], $row['order_id'] ?? null, $row['refund_date'], $row['amount'])) $row['error'] = '这笔退款已在回收站，请联系财务恢复，不会重复登记';
         if (!$row['error']) {
             $q = db()->prepare("SELECT id FROM project_refund_import_rows WHERE fingerprint=? AND review_status IN ('pending','approved') LIMIT 1");
             $q->execute([$fingerprint]);
@@ -277,8 +279,10 @@ function ps_refund_commit_rows(array $rows, array $selected, $actor, $month)
                 $q->execute([$orderId, $row['refund_date'], $row['amount'], $row['method']]);
                 if ($q->fetchColumn()) throw new RuntimeException('第 ' . ($row['line'] ?: $i + 1) . ' 行原订单同日同金额退款已登记，请核对重复');
             }
-            $q = $pdo->prepare('SELECT id,review_status FROM project_refund_import_rows WHERE fingerprint=? FOR UPDATE');
+            if (prt_deleted_duplicate($row['fingerprint'], $row['method'], $row['reference'], $orderId, $row['refund_date'], $row['amount'])) throw new RuntimeException('该退款已在回收站，请财务恢复，不能重复导入');
+            $q = $pdo->prepare('SELECT * FROM project_refund_import_rows WHERE fingerprint=? FOR UPDATE');
             $q->execute([$row['fingerprint']]); $prior = $q->fetch();
+            if ($prior && !empty($prior['deleted_at'])) throw new RuntimeException('该退款已移入回收站，请刷新并联系财务恢复');
             if ($prior && $prior['review_status'] !== 'rejected') throw new RuntimeException('第 ' . ($row['line'] ?: $i + 1) . ' 行退款已登记，请勿重复提交');
             $values = [$orderId, $matchedOrder['order_no'] ?? $row['order_no'], $row['refund_date'], $row['amount'], $row['method'], $row['source_reference'] ?? '', $row['reference'], $row['reason'], $row['file_id'], $row['sheet'], $row['line'], $actor['type'], $actor['id'], $actor['employee_id'] ?? null];
             if ($prior) {
@@ -314,7 +318,7 @@ function ps_refund_review($id, $decision, $actor, $month, $nested = false, $corr
     try {
         $q = $pdo->prepare('SELECT * FROM project_refund_import_rows WHERE id=? FOR UPDATE');
         $q->execute([(int)$id]); $row = $q->fetch();
-        if (!$row || $row['review_status'] !== 'pending') throw new RuntimeException('退款记录已处理，请刷新');
+        if (!$row || $row['review_status'] !== 'pending' || !empty($row['deleted_at'])) throw new RuntimeException('退款记录已处理或已移入回收站，请刷新');
         if ($decision === 'approved') {
             $orderNo = trim((string)$correctedOrderNo) ?: $row['order_no'];
             $sourceReference = trim((string)$correctedSourceReference) ?: ($row['source_payment_reference'] ?? '');
@@ -408,7 +412,7 @@ function ps_refund_pending_breakdown()
 {
     $out = ['history' => 0, 'total' => 0, 'ready' => 0, 'no_order_in_shop' => 0, 'no_order_unknown' => 0, 'channel' => 0, 'blocked' => 0, 'amount' => 0.0];
     $rows = db()->query("SELECT r.id,r.order_no,r.amount,r.payment_method,r.order_id,o.settlement_status,o.contract_amount,o.receipt_amount,o.refund_amount FROM project_refund_import_rows r LEFT JOIN project_orders o ON o.id=r.order_id WHERE r.review_status='pending'" . ps_refund_live_sql('r.'))->fetchAll();
-    $out['history'] = (int)db()->query("SELECT COUNT(*) FROM project_refund_import_rows WHERE review_status='pending'" . (ps_refund_settled_through() !== '' ? " AND refund_date<='" . date('Y-m-t', strtotime(ps_refund_settled_through() . '-01')) . "'" : " AND 1=0"))->fetchColumn();
+    $out['history'] = (int)db()->query("SELECT COUNT(*) FROM project_refund_import_rows WHERE review_status='pending'" . prt_active_sql() . (ps_refund_settled_through() !== '' ? " AND refund_date<='" . date('Y-m-t', strtotime(ps_refund_settled_through() . '-01')) . "'" : " AND 1=0"))->fetchColumn();
     if (!function_exists('ps_shop_order_lookup') && is_file(__DIR__ . '/ProjectOrderSource.php')) require_once __DIR__ . '/ProjectOrderSource.php';
     foreach ($rows as $r) {
         $out['total']++; $out['amount'] += (float)$r['amount'];

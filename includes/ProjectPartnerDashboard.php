@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . '/ProjectSettlement.php';
+require_once __DIR__ . '/ProjectRefundTrash.php';
 
 /** 看板与项目订单共用业务归类，历史别名和“其他业务”的数量也能对应。 */
 function ps_partner_business_bucket($business): string
@@ -29,7 +30,7 @@ function ps_partner_orders(int $employeeId, string $from, string $until): array
     $sql = "SELECT o.id,o.order_no,o.order_date,o.project_type,o.contract_amount,o.receipt_amount,o.refund_amount,
                    o.delivery_status,o.settlement_status,p.weight,
                    (SELECT COUNT(*) FROM project_costs c WHERE c.order_id=o.id AND c.review_status='pending') AS pending_costs,
-                   (SELECT COUNT(*) FROM project_refund_import_rows r WHERE r.order_id=o.id AND r.review_status='pending') AS pending_refunds
+                   (SELECT COUNT(*) FROM project_refund_import_rows r WHERE r.order_id=o.id AND r.review_status='pending'" . prt_active_sql('r.') . ") AS pending_refunds
             FROM project_orders o
             JOIN (SELECT order_id,LEAST(1,SUM(GREATEST(0,group_weight))) AS weight
                   FROM project_participants WHERE employee_id=? GROUP BY order_id) p ON p.order_id=o.id

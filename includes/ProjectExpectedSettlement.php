@@ -1,6 +1,7 @@
 <?php
 require_once __DIR__ . '/ProjectSettlement.php';
 require_once __DIR__ . '/ProjectMonthly.php';
+require_once __DIR__ . '/ProjectRefundTrash.php';
 
 /** 内存预期记录：只用于看板，不写入分成快照或收款。 */
 function ps_expected_snapshot_rows($order, $summary, $source = [])
@@ -87,7 +88,7 @@ function ps_expected_month($month)
     if (!preg_match('/^\d{4}-(0[1-9]|1[0-2])$/', $month)) throw new InvalidArgumentException('月份格式无效');
     $from = $month . '-01';
     $until = (new DateTimeImmutable($from))->modify('+1 month')->format('Y-m-d');
-    $q = db()->prepare("SELECT o.*,s.trade_status,r.domain_mode,(SELECT COUNT(*) FROM project_refund_import_rows ri WHERE ri.order_id=o.id AND ri.review_status='pending') AS pending_refunds FROM project_orders o LEFT JOIN project_order_sources s ON s.order_id=o.id LEFT JOIN project_order_resources r ON r.order_id=o.id WHERE o.order_date>=? AND o.order_date<? ORDER BY o.id");
+    $q = db()->prepare("SELECT o.*,s.trade_status,r.domain_mode,(SELECT COUNT(*) FROM project_refund_import_rows ri WHERE ri.order_id=o.id AND ri.review_status='pending'" . prt_active_sql('ri.') . ") AS pending_refunds FROM project_orders o LEFT JOIN project_order_sources s ON s.order_id=o.id LEFT JOIN project_order_resources r ON r.order_id=o.id WHERE o.order_date>=? AND o.order_date<? ORDER BY o.id");
     $q->execute([$from, $until]);
     $orders = $q->fetchAll();
     $q = db()->prepare('SELECT p.*,e.name,e.department FROM project_participants p JOIN employees e ON e.id=p.employee_id JOIN project_orders o ON o.id=p.order_id WHERE o.order_date>=? AND o.order_date<? ORDER BY p.order_id,p.id');
