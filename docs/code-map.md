@@ -870,49 +870,38 @@
 - `pw_award_year` L197–252
 - 加载：`require_once __DIR__ . '/ProjectGovernance.php';`
 
-## includes/SalaryCalculator.php (2234 行, 111.6 KB)
+## includes/SalaryCalculator.php (352 行, 15.4 KB)
 
-- `SalaryCalculator` L13–2233
-- `SalaryCalculator::getLastError` L18–21
-- `SalaryCalculator::dir` L23–32
-- `SalaryCalculator::getConfigFile` L36–39
-- `SalaryCalculator::hasCustomConfig` L41–44
-- `SalaryCalculator::getEmployeeAlgorithmFile` L46–49
-- `SalaryCalculator::getLegacyFile` L51–54
-- `SalaryCalculator::hasCustomAlgorithm` L56–59
-- `SalaryCalculator::hasAnyCustomConfig` L64–67
-- `SalaryCalculator::calculate` L82–228
-- `SalaryCalculator::runModule` L232–255
-- `SalaryCalculator::calcBaseSalary` L258–268
-- `SalaryCalculator::calcRefundDeduction` L271–406
-- `SalaryCalculator::calcBaseSalaryTiered` L409–434
-- `SalaryCalculator::calcStandard` L437–681
-- `SalaryCalculator::calcProfitCommission` L685–726
-- `SalaryCalculator::calcTrademarkCommission` L729–779
-- `SalaryCalculator::calcTrademarkCashback` L782–823
-- `SalaryCalculator::calcTiered` L826–1018
-- `SalaryCalculator::calcPerOrder` L1021–1136
-- `SalaryCalculator::calcReferralOrder` L1139–1339
-- `SalaryCalculator::filterOrderTotal` L1342–1382
-- `SalaryCalculator::filterOrderCount` L1385–1425
-- `SalaryCalculator::calcAttendanceFull` L1428–1510
-- `SalaryCalculator::calcAttendanceDaily` L1513–1524
-- `SalaryCalculator::calcAttendanceDeduct` L1527–1538
-- `SalaryCalculator::calcCustomerReward` L1541–1618
-- `SalaryCalculator::extractWangwang` L1620–1643
-- `SalaryCalculator::calcMiniProgramCommission` L1646–1772
-- `SalaryCalculator::calcFixedSubsidy` L1775–1783
-- `SalaryCalculator::calcCsPerformance` L1789–1806
-- `SalaryCalculator::autoDeptPerf` L1815–1838
-- `SalaryCalculator::saveModulesConfig` L1845–1967
-- `SalaryCalculator::readModulesConfig` L1972–1983
-- `SalaryCalculator::deleteCustomConfig` L1988–1996
-- `SalaryCalculator::getAvailableTypes` L2000–2199
-- `SalaryCalculator::createDefaultAlgorithm` L2203–2227
-- `SalaryCalculator::readAlgorithm` L2229–2229
-- `SalaryCalculator::createEmployeeAlgorithm` L2230–2230
-- `SalaryCalculator::saveEmployeeAlgorithm` L2231–2231
-- `SalaryCalculator::deleteEmployeeAlgorithm` L2232–2232
+- `SalaryCalculator` L28–351
+- `SalaryCalculator::getLastError` L33–36
+- `SalaryCalculator::dir` L38–47
+- `SalaryCalculator::getConfigFile` L51–54
+- `SalaryCalculator::hasCustomConfig` L56–59
+- `SalaryCalculator::getEmployeeAlgorithmFile` L61–64
+- `SalaryCalculator::getLegacyFile` L66–69
+- `SalaryCalculator::hasCustomAlgorithm` L71–74
+- `SalaryCalculator::hasAnyCustomConfig` L79–82
+- `SalaryCalculator::calculate` L97–243
+- `SalaryCalculator::runModule` L247–270
+- `SalaryCalculator::createDefaultAlgorithm` L321–345
+- `SalaryCalculator::readAlgorithm` L347–347
+- `SalaryCalculator::createEmployeeAlgorithm` L348–348
+- `SalaryCalculator::saveEmployeeAlgorithm` L349–349
+- `SalaryCalculator::deleteEmployeeAlgorithm` L350–350
+- 加载：`require_once __DIR__ . '/salary/CalcBaseTrait.php';`
+- 加载：`require_once __DIR__ . '/salary/CalcStandardTrait.php';`
+- 加载：`require_once __DIR__ . '/salary/CalcProfitTrait.php';`
+- 加载：`require_once __DIR__ . '/salary/CalcTrademarkTrait.php';`
+- 加载：`require_once __DIR__ . '/salary/CalcTieredTrait.php';`
+- 加载：`require_once __DIR__ . '/salary/CalcPerOrderTrait.php';`
+- 加载：`require_once __DIR__ . '/salary/CalcReferralTrait.php';`
+- 加载：`require_once __DIR__ . '/salary/CalcOrderFilterTrait.php';`
+- 加载：`require_once __DIR__ . '/salary/CalcAttendanceRewardTrait.php';`
+- 加载：`require_once __DIR__ . '/salary/CalcOrderCustomerTrait.php';`
+- 加载：`require_once __DIR__ . '/salary/CalcMiniProgramTrait.php';`
+- 加载：`require_once __DIR__ . '/salary/CalcPerformanceTrait.php';`
+- 加载：`require_once __DIR__ . '/salary/ModulesConfigTrait.php';`
+- 加载：`require_once __DIR__ . '/salary/ModulesTypesTrait.php';`
 - 加载：`include $legacyFile;`
 
 ## includes/auth.php (55 行, 1.5 KB)
@@ -1246,6 +1235,87 @@
 - `ra_f` L8–8
 - `ra_asset` L9–9
 - 加载：`require_once __DIR__ . '/ProjectRuleAlgo.php';`
+
+## includes/salary/CalcAttendanceRewardTrait.php (197 行, 7.8 KB)
+
+- `CalcAttendanceRewardTrait` L2–196
+- `CalcAttendanceRewardTrait::calcAttendanceFull` L4–86
+- `CalcAttendanceRewardTrait::calcAttendanceDaily` L89–100
+- `CalcAttendanceRewardTrait::calcAttendanceDeduct` L103–114
+- `CalcAttendanceRewardTrait::calcCustomerReward` L117–194
+
+## includes/salary/CalcBaseTrait.php (183 行, 7.5 KB)
+
+- `CalcBaseTrait` L2–182
+- `CalcBaseTrait::calcBaseSalary` L4–14
+- `CalcBaseTrait::calcRefundDeduction` L17–152
+- `CalcBaseTrait::calcBaseSalaryTiered` L155–180
+
+## includes/salary/CalcMiniProgramTrait.php (133 行, 5.3 KB)
+
+- `CalcMiniProgramTrait` L2–132
+- `CalcMiniProgramTrait::calcMiniProgramCommission` L4–130
+
+## includes/salary/CalcOrderCustomerTrait.php (30 行, 0.9 KB)
+
+- `CalcOrderCustomerTrait` L2–29
+- `CalcOrderCustomerTrait::extractWangwang` L4–27
+
+## includes/salary/CalcOrderFilterTrait.php (90 行, 3.8 KB)
+
+- `CalcOrderFilterTrait` L2–89
+- `CalcOrderFilterTrait::filterOrderTotal` L4–44
+- `CalcOrderFilterTrait::filterOrderCount` L47–87
+
+## includes/salary/CalcPerOrderTrait.php (122 行, 5.8 KB)
+
+- `CalcPerOrderTrait` L2–121
+- `CalcPerOrderTrait::calcPerOrder` L4–119
+
+## includes/salary/CalcPerformanceTrait.php (70 行, 3.4 KB)
+
+- `CalcPerformanceTrait` L2–69
+- `CalcPerformanceTrait::calcFixedSubsidy` L4–12
+- `CalcPerformanceTrait::calcCsPerformance` L18–35
+- `CalcPerformanceTrait::autoDeptPerf` L44–67
+
+## includes/salary/CalcProfitTrait.php (48 行, 1.6 KB)
+
+- `CalcProfitTrait` L2–47
+- `CalcProfitTrait::calcProfitCommission` L4–45
+
+## includes/salary/CalcReferralTrait.php (207 行, 10.3 KB)
+
+- `CalcReferralTrait` L2–206
+- `CalcReferralTrait::calcReferralOrder` L4–204
+
+## includes/salary/CalcStandardTrait.php (251 行, 12.9 KB)
+
+- `CalcStandardTrait` L2–250
+- `CalcStandardTrait::calcStandard` L4–248
+
+## includes/salary/CalcTieredTrait.php (199 行, 10.1 KB)
+
+- `CalcTieredTrait` L2–198
+- `CalcTieredTrait::calcTiered` L4–196
+
+## includes/salary/CalcTrademarkTrait.php (101 行, 3.5 KB)
+
+- `CalcTrademarkTrait` L2–100
+- `CalcTrademarkTrait::calcTrademarkCommission` L4–54
+- `CalcTrademarkTrait::calcTrademarkCashback` L57–98
+
+## includes/salary/ModulesConfigTrait.php (158 行, 6.7 KB)
+
+- `ModulesConfigTrait` L2–157
+- `ModulesConfigTrait::saveModulesConfig` L4–126
+- `ModulesConfigTrait::readModulesConfig` L131–142
+- `ModulesConfigTrait::deleteCustomConfig` L147–155
+
+## includes/salary/ModulesTypesTrait.php (206 行, 16.8 KB)
+
+- `ModulesTypesTrait` L2–205
+- `ModulesTypesTrait::getAvailableTypes` L4–203
 
 ## index.php (164 行, 11.6 KB)
 

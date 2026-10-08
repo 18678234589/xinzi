@@ -988,6 +988,118 @@
       "dir": "(dirname(__DIR__, 1))"
     },
     {
+      "parent": "includes/SalaryCalculator.php",
+      "path": "includes/salary/CalcBaseTrait.php",
+      "call": "/* split: includes/salary/CalcBaseTrait.php */ use CalcBaseTrait;",
+      "prefix": "<?php\ntrait CalcBaseTrait\n{\n",
+      "suffix": "\n}\n",
+      "dir": "(dirname(__DIR__, 1))"
+    },
+    {
+      "parent": "includes/SalaryCalculator.php",
+      "path": "includes/salary/CalcStandardTrait.php",
+      "call": "/* split: includes/salary/CalcStandardTrait.php */ use CalcStandardTrait;",
+      "prefix": "<?php\ntrait CalcStandardTrait\n{\n",
+      "suffix": "\n}\n",
+      "dir": "(dirname(__DIR__, 1))"
+    },
+    {
+      "parent": "includes/SalaryCalculator.php",
+      "path": "includes/salary/CalcProfitTrait.php",
+      "call": "/* split: includes/salary/CalcProfitTrait.php */ use CalcProfitTrait;",
+      "prefix": "<?php\ntrait CalcProfitTrait\n{\n",
+      "suffix": "\n}\n",
+      "dir": "(dirname(__DIR__, 1))"
+    },
+    {
+      "parent": "includes/SalaryCalculator.php",
+      "path": "includes/salary/CalcTrademarkTrait.php",
+      "call": "/* split: includes/salary/CalcTrademarkTrait.php */ use CalcTrademarkTrait;",
+      "prefix": "<?php\ntrait CalcTrademarkTrait\n{\n",
+      "suffix": "\n}\n",
+      "dir": "(dirname(__DIR__, 1))"
+    },
+    {
+      "parent": "includes/SalaryCalculator.php",
+      "path": "includes/salary/CalcTieredTrait.php",
+      "call": "/* split: includes/salary/CalcTieredTrait.php */ use CalcTieredTrait;",
+      "prefix": "<?php\ntrait CalcTieredTrait\n{\n",
+      "suffix": "\n}\n",
+      "dir": "(dirname(__DIR__, 1))"
+    },
+    {
+      "parent": "includes/SalaryCalculator.php",
+      "path": "includes/salary/CalcPerOrderTrait.php",
+      "call": "/* split: includes/salary/CalcPerOrderTrait.php */ use CalcPerOrderTrait;",
+      "prefix": "<?php\ntrait CalcPerOrderTrait\n{\n",
+      "suffix": "\n}\n",
+      "dir": "(dirname(__DIR__, 1))"
+    },
+    {
+      "parent": "includes/SalaryCalculator.php",
+      "path": "includes/salary/CalcReferralTrait.php",
+      "call": "/* split: includes/salary/CalcReferralTrait.php */ use CalcReferralTrait;",
+      "prefix": "<?php\ntrait CalcReferralTrait\n{\n",
+      "suffix": "\n}\n",
+      "dir": "(dirname(__DIR__, 1))"
+    },
+    {
+      "parent": "includes/SalaryCalculator.php",
+      "path": "includes/salary/CalcOrderFilterTrait.php",
+      "call": "/* split: includes/salary/CalcOrderFilterTrait.php */ use CalcOrderFilterTrait;",
+      "prefix": "<?php\ntrait CalcOrderFilterTrait\n{\n",
+      "suffix": "\n}\n",
+      "dir": "(dirname(__DIR__, 1))"
+    },
+    {
+      "parent": "includes/SalaryCalculator.php",
+      "path": "includes/salary/CalcAttendanceRewardTrait.php",
+      "call": "/* split: includes/salary/CalcAttendanceRewardTrait.php */ use CalcAttendanceRewardTrait;",
+      "prefix": "<?php\ntrait CalcAttendanceRewardTrait\n{\n",
+      "suffix": "\n}\n",
+      "dir": "(dirname(__DIR__, 1))"
+    },
+    {
+      "parent": "includes/SalaryCalculator.php",
+      "path": "includes/salary/CalcOrderCustomerTrait.php",
+      "call": "/* split: includes/salary/CalcOrderCustomerTrait.php */ use CalcOrderCustomerTrait;",
+      "prefix": "<?php\ntrait CalcOrderCustomerTrait\n{\n",
+      "suffix": "\n}\n",
+      "dir": "(dirname(__DIR__, 1))"
+    },
+    {
+      "parent": "includes/SalaryCalculator.php",
+      "path": "includes/salary/CalcMiniProgramTrait.php",
+      "call": "/* split: includes/salary/CalcMiniProgramTrait.php */ use CalcMiniProgramTrait;",
+      "prefix": "<?php\ntrait CalcMiniProgramTrait\n{\n",
+      "suffix": "\n}\n",
+      "dir": "(dirname(__DIR__, 1))"
+    },
+    {
+      "parent": "includes/SalaryCalculator.php",
+      "path": "includes/salary/CalcPerformanceTrait.php",
+      "call": "/* split: includes/salary/CalcPerformanceTrait.php */ use CalcPerformanceTrait;",
+      "prefix": "<?php\ntrait CalcPerformanceTrait\n{\n",
+      "suffix": "\n}\n",
+      "dir": "(dirname(__DIR__, 1))"
+    },
+    {
+      "parent": "includes/SalaryCalculator.php",
+      "path": "includes/salary/ModulesConfigTrait.php",
+      "call": "/* split: includes/salary/ModulesConfigTrait.php */ use ModulesConfigTrait;",
+      "prefix": "<?php\ntrait ModulesConfigTrait\n{\n",
+      "suffix": "\n}\n",
+      "dir": "(dirname(__DIR__, 1))"
+    },
+    {
+      "parent": "includes/SalaryCalculator.php",
+      "path": "includes/salary/ModulesTypesTrait.php",
+      "call": "/* split: includes/salary/ModulesTypesTrait.php */ use ModulesTypesTrait;",
+      "prefix": "<?php\ntrait ModulesTypesTrait\n{\n",
+      "suffix": "\n}\n",
+      "dir": "(dirname(__DIR__, 1))"
+    },
+    {
       "parent": "project/import/view.php",
       "path": "assets/css/project_import_1.css",
       "call": "<?php /* split: assets/css/project_import_1.css */ include __DIR__ . '/../../assets/css/project_import_1.css'; ?>",
@@ -1746,7 +1858,11 @@
       }
     }
   },
-  "preloads": {},
+  "preloads": {
+    "includes/SalaryCalculator.php": [
+      "\nrequire_once __DIR__ . '/salary/CalcBaseTrait.php';\nrequire_once __DIR__ . '/salary/CalcStandardTrait.php';\nrequire_once __DIR__ . '/salary/CalcProfitTrait.php';\nrequire_once __DIR__ . '/salary/CalcTrademarkTrait.php';\nrequire_once __DIR__ . '/salary/CalcTieredTrait.php';\nrequire_once __DIR__ . '/salary/CalcPerOrderTrait.php';\nrequire_once __DIR__ . '/salary/CalcReferralTrait.php';\nrequire_once __DIR__ . '/salary/CalcOrderFilterTrait.php';\nrequire_once __DIR__ . '/salary/CalcAttendanceRewardTrait.php';\nrequire_once __DIR__ . '/salary/CalcOrderCustomerTrait.php';\nrequire_once __DIR__ . '/salary/CalcMiniProgramTrait.php';\nrequire_once __DIR__ . '/salary/CalcPerformanceTrait.php';\nrequire_once __DIR__ . '/salary/ModulesConfigTrait.php';\nrequire_once __DIR__ . '/salary/ModulesTypesTrait.php';\n"
+    ]
+  },
   "runtime74": {
     "functions": [
       "add_attendance_custom_year",
