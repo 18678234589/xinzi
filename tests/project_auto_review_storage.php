@@ -5,6 +5,12 @@ require_once __DIR__.'/../includes/ProjectAutoReview.php';
 $p=db();$n=0;
 function ars_check($name,$actual,$expected){global $n;$n++;if($actual!==$expected)throw new RuntimeException($name.': '.json_encode($actual));}
 if(!pa_storage_available())throw new RuntimeException('Missing migration');
+$deadlock=new PDOException('fixture deadlock',40001);$deadlock->errorInfo=['40001',1213,'fixture'];
+ars_check('deadlock may retry isolated transaction',pa_retryable_database_error($deadlock),true);
+$duplicate=new PDOException('fixture unique conflict',23000);$duplicate->errorInfo=['23000',1062,'fixture'];
+ars_check('financial constraint conflict never blind retries',pa_retryable_database_error($duplicate),false);
+$timeout=new PDOException('fixture lock timeout');$timeout->errorInfo=['HY000',1205,'fixture'];
+ars_check('lock timeout does not delay uploader with retries',pa_retryable_database_error($timeout),false);
 $seed=null;
 foreach($p->query("SELECT id FROM project_orders WHERE settlement_status='approved' AND receipt_amount>0 ORDER BY id DESC LIMIT 500")->fetchAll(PDO::FETCH_COLUMN) as $id){
     $c=pa_context($id);$v=$c;$v['order']['settlement_status']='draft';$v['order']['receipt_amount']=100;$v['order']['refund_amount']=0;$v['order']['contract_amount']=100;$v['cash']=[['id'=>0,'movement_type'=>'receipt','amount'=>100,'review_status'=>'approved','note'=>'fixture']];$v['snapshot_count']=0;$v['pending_requests']=0;$v['pending_refunds']=0;$v['later_refund']=0;$v['costs']=[];$v['resource']=['domain_mode'=>'none'];$v['payment']=['paid_cents'=>null,'refund_cents'=>0,'references'=>[],'warnings'=>[],'matched_sources'=>0];$v['summary']=ps_summary($v['order'],[],$c['participants']);

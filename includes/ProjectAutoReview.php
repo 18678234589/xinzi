@@ -119,7 +119,26 @@ function pa_record(array $ctx, array $result, $applied = false)
 }
 
 /** Dry checks have zero writes. Apply re-reads and locks all evidence, never overwrites financials. */
+function pa_retryable_database_error(Throwable $e)
+{
+    return $e instanceof PDOException && ((string)$e->getCode() === '40001' || (int)($e->errorInfo[1] ?? 0) === 1213);
+}
+
 function pa_check_order($orderId, $apply = false, $persist = false)
+{
+    $outerTransaction = db()->inTransaction();
+    for ($attempt = 0; $attempt < 3; $attempt++) {
+        try { return pa_check_order_once($orderId, $apply, $persist); }
+        catch (PDOException $e) {
+            // A MySQL deadlock can invalidate the entire parent transaction: never replay it.
+            if ($outerTransaction || $attempt === 2 || !pa_retryable_database_error($e)) throw $e;
+            // Each isolated attempt rolled back completely; reload all financial facts.
+            usleep(50000 * ($attempt + 1));
+        }
+    }
+}
+
+function pa_check_order_once($orderId, $apply = false, $persist = false)
 {
     // The rollout/pause switch also gates explicit automatic processing, not just cron.
     if ($apply && !ps_setting_get('auto_review_enabled', false)) { $apply = false; $persist = true; }
