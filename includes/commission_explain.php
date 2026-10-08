@@ -20,6 +20,29 @@ function ps_pct($rate)
 /** @return array<int,array{0:string,1:string,2:string}> [步骤名, 算式, 结果] */
 function ps_explain_calc_steps(array $c, array $order)
 {
+    if (!empty($c['sub_calcs'])) {
+        $rows = [];
+        $rows[] = ['① 订单售价', '订单合同金额', ps_yuan($c['contract'] ?? 0)];
+        $receipt = round((float)($order['receipt_amount'] ?? 0), 2);
+        $refund = round((float)($order['refund_amount'] ?? 0), 2);
+        if (!empty($c['income_estimated'])) {
+            $rows[] = ['② 收入', '尚未录入收款，按 售价 ' . ps_yuan($c['contract'] ?? 0) . ' − 退款 ' . ps_yuan($refund) . ' 预估', ps_yuan($c['income'] ?? 0)];
+        } else {
+            $rows[] = ['② 收入（净实收）', '已收款 ' . ps_yuan($receipt) . ' − 退款 ' . ps_yuan($refund), ps_yuan($c['income'] ?? 0)];
+        }
+        $rows[] = ['③ 兼任岗位说明', '一人兼任多个技术岗位交付，分别按各岗位成本分摊与提成规则独立计提并汇总', '多岗位合并'];
+        foreach ($c['sub_calcs'] as $sub) {
+            $sRole = $sub['role'];
+            $sc = $sub['calc'];
+            $formula = '(收入 ' . ps_yuan($sc['income']) . ' − 成本 ' . ps_yuan($sc['cost_basis']) . ' − 服务费 ' . ps_yuan($sc['fee_part']) . ') × 比例 ' . ps_pct($sc['rate']);
+            $rows[] = ['【' . $sRole . '】提成', $formula, ps_yuan($sc['share'])];
+            if ($sc['subsidy'] > 0) {
+                $rows[] = ['【' . $sRole . '】补助', '每单补助', ps_yuan($sc['subsidy'])];
+            }
+        }
+        $rows[] = ['④ 预计合计', $c['note'], ps_yuan($c['share'] + $c['subsidy'])];
+        return $rows;
+    }
     $pool = $c['mode'] === 'pool';
     $w = (float)$c['weight'];
     $rows = [];

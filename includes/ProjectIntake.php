@@ -139,7 +139,10 @@ function ps_intake_participants($orderId, $groups, $business = null)
             $check->execute([$employeeId]);
             if (!$check->fetchColumn()) throw new RuntimeException('参与人不存在，请重新选择');
             $weight = ($index === $count - 1 ? 1000000 - $baseWeight * ($count - 1) : $baseWeight) / 1000000;
-            $role = $business !== null ? (ps_employee_default_role($employeeId, $business, $group) ?? (string)$person['role']) : (string)$person['role'];
+            $rawRole = trim((string)($person['role'] ?? ''));
+            $isGeneric = ($rawRole === '' || $rawRole === '技术' || $rawRole === '客服');
+            $defaultRole = $business !== null ? ps_employee_default_role($employeeId, $business, $group) : null;
+            $role = !$isGeneric ? $rawRole : ($defaultRole ?? $rawRole);
             $insert->execute([(int)$orderId, $employeeId, $group, $role, $weight]);
         }
     }
@@ -458,6 +461,7 @@ function ps_business_import_example_row($business, $headers)
         if ($label === '客户手机号') $value = '13800138000';
         elseif ($label === '客户域名') $value = 'example.com';
         elseif ($label === '服务器到期日') $value = '2027-09-01';
+        elseif ($label === '域名归属') $value = '我们代管';
         $row[] = $value;
     }
     return $row;

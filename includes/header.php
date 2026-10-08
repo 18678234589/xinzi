@@ -8,13 +8,15 @@ $governance_nav = false;
 $governance_committee_nav = false;
 $governance_election_due = 0;
 $unread_messages = 0;
+$needs_phone_binding = false;
 $department_upload_nav = (bool)$current_admin;
 $department_upload_business = '网站续费';
 if (!$current_admin && isset($_SESSION['project_user_id'])) {
-    $staffStmt = db()->prepare('SELECT u.username,u.role,u.employee_id,e.name,e.department FROM project_users u JOIN employees e ON e.id=u.employee_id WHERE u.id=? AND u.is_active=1');
+    $staffStmt = db()->prepare('SELECT u.username,u.role,u.employee_id,u.phone,e.name,e.department FROM project_users u JOIN employees e ON e.id=u.employee_id WHERE u.id=? AND u.is_active=1');
     $staffStmt->execute([(int)$_SESSION['project_user_id']]);
     $project_staff = $staffStmt->fetch();
     if ($project_staff) {
+        $needs_phone_binding = empty($project_staff['phone']);
         try {
             $governanceStmt = db()->prepare('SELECT governance_role FROM project_governance_members WHERE employee_id=? AND is_active=1 LIMIT 1');
             $governanceStmt->execute([(int)$project_staff['employee_id']]);
@@ -96,6 +98,14 @@ $nav = function ($href, $icon, $label, $active) {
     <link href="<?php echo BASE_URL; ?>/assets/css/project-intake.css" rel="stylesheet">
     <link href="<?php echo BASE_URL; ?>/assets/css/theme.css" rel="stylesheet">
     <link href="<?php echo BASE_URL; ?>/assets/css/knowledge.css?v=20261002.3" rel="stylesheet">
+    <style>
+    .phone-bind-reminder{display:flex;align-items:center;justify-content:space-between;gap:1rem;padding:1rem 1.25rem;margin-bottom:1rem;border:2px solid #e0a330;border-radius:12px;background:#fff6db;color:#6e4600;box-shadow:0 0 0 2px #f7d578;animation:phone-bind-glow 1.8s ease-in-out 4}
+    .phone-bind-reminder a{display:inline-block;white-space:nowrap;padding:.5rem .85rem;border-radius:8px;background:#8d5200;color:#fff;font-weight:700;text-decoration:none}
+    .phone-bind-reminder a:hover,.phone-bind-reminder a:focus{background:#694000;color:#fff}
+    @keyframes phone-bind-glow{50%{box-shadow:0 0 0 7px #f3bd55,0 0 22px #e7a62a}}
+    @media(max-width:575px){.phone-bind-reminder{align-items:flex-start;flex-direction:column}}
+    @media(prefers-reduced-motion:reduce){.phone-bind-reminder{animation:none}}
+    </style>
     <?php if (in_array(($_rel ?? ''), ['project/governance.php','project/governance_ideas.php','project/governance_election.php','project/contributions.php','project/messages.php','project/holidays.php'], true) || (($_rel ?? '') === 'project/rules.php' && ($_GET['domain'] ?? $_POST['domain'] ?? '') === 'governance')): ?><link href="<?php echo BASE_URL; ?>/assets/css/governance.css" rel="stylesheet"><?php endif; ?>
     <?php if (($_rel ?? '') === 'project/dashboard.php'): ?><link href="<?php echo BASE_URL; ?>/assets/css/partner-dashboard.css" rel="stylesheet"><?php endif; ?>
     <?php if (($_rel ?? '') === 'project/dashboard.php'): ?><link href="<?php echo BASE_URL; ?>/assets/css/partner-dashboard-future.css" rel="stylesheet"><?php endif; ?>
@@ -190,6 +200,7 @@ $nav = function ($href, $icon, $label, $active) {
 </div>
 
 <div class="main-content">
+<?php if ($needs_phone_binding): ?><div class="phone-bind-reminder" role="alert"><span><i class="fas fa-exclamation-circle" aria-hidden="true"></i> <strong>请尽快绑定手机号</strong>：你现在可以阅读共享知识库；提交内容和办理其他业务前，需要完成绑定。</span><a href="<?php echo BASE_URL; ?>/project/profile.php?first=1#phone">立即绑定手机号 →</a></div><?php endif; ?>
 <?php if ($unread_messages && ($_rel ?? '') !== 'project/messages.php'): ?><div class="alert alert-warning mb-3"><i class="fas fa-envelope mr-1"></i> 你有 <?php echo (int)$unread_messages; ?> 条未读站内信，<a href="<?php echo BASE_URL; ?>/project/messages.php" class="alert-link">点此查看并处理</a>。</div><?php endif; ?>
 <?php include __DIR__ . '/import_followup_modal.php'; ?>
 <?php if ($governance_committee_nav && $governance_election_due): ?><div class="alert alert-warning mb-3"><i class="fas fa-vote-yea mr-1"></i> 本届轮值即将结束，请监委会<a href="<?php echo BASE_URL; ?>/project/governance_election.php" class="alert-link">发起或完成换届投票</a>。</div><?php endif; ?>

@@ -434,7 +434,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     if ($record['delivery_status'] === null && isset($aiStatus[$status])) { $record['delivery_status'] = $aiStatus[$status]; $record['warning'] .= ($record['warning'] ? '；' : '') . '状态“' . $status . '”由 AI 识别为' . ($aiStatus[$status] === 'finished' ? '已完成' : '未完成'); }
                     // “到账情况”列写的是到账金额（如 740）：按已到账处理
                     if ($record['delivery_status'] === null && is_numeric(str_replace([',', '¥', '￥'], '', $status))) { $record['delivery_status'] = 'finished'; $record['warning'] .= ($record['warning'] ? '；' : '') . '状态列写的是金额“' . $status . '”，按已到账处理'; }
-                    if ($record['delivery_status'] === null) throw new RuntimeException('状态“' . $status . '”无法识别，请写已完成 / 未完成（或到账、已发货等）');
+                    // 状态列里写的是别的文字（如接入商名称、备注）：不拦整行，按“未完成”导入并提示，交付后在订单里再标记完成
+                    if ($record['delivery_status'] === null) { $record['delivery_status'] = 'unfinished'; $record['warning'] .= ($record['warning'] ? '；' : '') . '状态“' . mb_substr($status, 0, 20) . '”无法识别，已按未完成导入，交付后请在订单里标记完成'; }
                     $record['trade_status'] = mb_strpos($status, '交易关闭') !== false ? '交易关闭' : '';
                     if ($record['trade_status'] !== '') $record['warning'] = '表格写交易关闭：请财务核对退款';
                     $sheetBusiness = $lookup($row, 'business');

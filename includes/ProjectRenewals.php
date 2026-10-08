@@ -7,9 +7,40 @@ function pr_ready()
 {
     static $ready;
     if ($ready !== null) return $ready;
-    try { db()->query('SELECT id FROM project_renewal_items LIMIT 1'); return $ready = true; }
+    try { db()->query('SELECT id FROM project_renewal_items LIMIT 1'); pr_ensure_owner(); return $ready = true; }
     catch (PDOException $e) { return $ready = false; }
 }
+/** 域名归属字段：ours=我们代管（默认，有到期提醒），customer=客户自有（客户自备域名 / 已交付源码，不再提醒续费）。 */
+function pr_ensure_owner()
+{
+    static $done = false;
+    if ($done) return;
+    $has = (int)db()->query("SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='project_renewal_items' AND COLUMN_NAME='owner'")->fetchColumn();
+    if (!$has) db()->exec("ALTER TABLE project_renewal_items ADD COLUMN owner VARCHAR(10) NOT NULL DEFAULT 'ours' AFTER status");
+    $done = true;
+}
+
+/**
+ * 设置域名归属。客户自有：必须写一句备注（如“客户自备域名，已交付源码”），条目转为“结束维护”，
+ * 因此不再出现在到期提醒 / 短信 / 近三天到期 / 缺资料提醒里，也不参与续费分成；改回“我们代管”则恢复提醒。
+ */
+function pr_set_owner($itemId, $owner, $note, $actor)
+{
+    if (!in_array($owner, ['ours', 'customer'], true)) throw new RuntimeException('域名归属请选择“我们代管”或“客户自有”');
+    $item = pr_item($itemId, $actor);
+    if ($item['resource_type'] !== 'domain') throw new RuntimeException('只有域名可以设置归属');
+    $note = trim((string)$note);
+    if ($owner === 'customer' && $note === '') throw new RuntimeException('客户自有域名请写一句备注（如：客户自备域名，已交付源码）');
+    if ($owner === 'customer') {
+        db()->prepare("UPDATE project_renewal_items SET owner='customer',status='closed',sms_enabled=0,note=?,revision=revision+1,updated_at=NOW() WHERE id=?")->execute([mb_substr($note, 0, 500), (int)$itemId]);
+    } else {
+        $reopen = ($item['owner'] ?? 'ours') === 'customer';
+        db()->prepare("UPDATE project_renewal_items SET owner='ours',status=IF(?=1,'active',status),resource_name=IF(resource_name='客户自备域名','',resource_name),revision=revision+1,updated_at=NOW() WHERE id=?")->execute([$reopen ? 1 : 0, (int)$itemId]);
+    }
+    try { db()->prepare('INSERT INTO project_renewal_history (item_id,action,actor_type,actor_id,old_expiry,new_expiry,details_json) VALUES (?,?,?,?,?,?,?)')->execute([(int)$itemId, 'set_owner', $actor['type'], (int)$actor['id'], $item['expires_on'], $item['expires_on'], json_encode(['from' => $item['owner'] ?? 'ours', 'to' => $owner, 'note' => $note], JSON_UNESCAPED_UNICODE)]); } catch (Throwable $e) { /* 历史表异常不影响设置 */ }
+    ps_audit('renewal', (int)$itemId, 'set_owner', $actor, ['from' => $item['owner'] ?? 'ours', 'to' => $owner, 'note' => mb_substr($note, 0, 120)]);
+}
+
 function pr_scope($actor)
 {
     if (($actor['role'] ?? '') === 'finance') return 'all';
@@ -79,7 +110,7 @@ function pr_save($source, $actor)
     if ($expirySource==='estimated') $expiry=pr_default_expiry($order['order_date']);
     $phone = pr_phone($source['phone'] ?? '');
     $sms = !empty($source['sms_enabled']) ? 1 : 0;
-    if ($sms && (!$expiry || !$phone)) throw new RuntimeException('启用短信前，请补齐实际到期日和客户手机号，并确认客户同意接收续费通知');
+    if ($sms && (!$expiry || !$phone || !preg_match('/^1[3-9][0-9]{9}$/D', $phone))) throw new RuntimeException('启用短信前，请补齐实际到期日和客户中国大陆 11 位手机号（海外客户或微信号无法发送短信提醒）');
     $status = (string)($source['status'] ?? 'active');
     if (!in_array($status, ['active','paused','closed'], true)) throw new RuntimeException('续费状态无效');
     $note = trim((string)($source['note'] ?? ''));

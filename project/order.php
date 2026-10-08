@@ -20,7 +20,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $lock->execute([$id]);
             $currentStatus = $lock->fetchColumn();
             if ($currentStatus === false || in_array($currentStatus, ['approved','locked'], true)) throw new RuntimeException('订单已审核，修改须走调整流程');
-            if (!$finance) {
+            if (!$finance && $action !== 'claim_backend') {
                 $access = db()->prepare('SELECT 1 FROM project_participants WHERE order_id=? AND employee_id=? LIMIT 1');
                 $access->execute([$id, $actor['employee_id']]);
                 if (!$access->fetchColumn()) throw new RuntimeException('已不再参与此订单，请刷新页面');
@@ -52,6 +52,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             db()->prepare('INSERT INTO project_participants (order_id,employee_id,commission_group,role_name,group_weight) VALUES (?,?,?,?,1)')
                 ->execute([$id, $employeeId, $group, $defaultRole]);
             ps_audit('order', $id, 'link_counterpart', $actor, ['employee_id' => $employeeId, 'group' => $group]);
+        } elseif ($action === 'assign_backend') {
+            $mode = (string)($_POST['backend_mode'] ?? 'colleague');
+            $backendId = (int)($_POST['backend_employee_id'] ?? 0);
+            ps_order_assign_backend($id, $backendId, $mode, $actor);
+        } elseif ($action === 'claim_backend') {
+            ps_order_assign_backend($id, (int)$actor['employee_id'], 'colleague', $actor);
         } elseif ($action === 'save_technical_details') {
             if (!$finance && $actor['role'] !== 'technical') throw new RuntimeException('只有技术或财务可补交技术资料');
             if ($order['project_type'] !== '网站模板') throw new RuntimeException('此订单不是网站模板业务');
@@ -316,7 +322,8 @@ $templateQuery->execute([ps_business_normalize($order['project_type'])]);
 $templates = $templateQuery->fetchAll();
 $shopMatches = ps_shop_order_lookup($order['order_no']);
 $orderKinds = ps_business_order_kinds($order['project_type']);
-$todoRow = $order + ['price_source' => $orderSource['price_source'], 'domain_mode' => $orderResource['domain_mode'] ?? '', 'pending_costs' => count(array_filter($costs, function ($c) { return $c['review_status'] === 'pending'; })), 'pending_cash' => count(array_filter($cashMovements, function ($m) { return $m['review_status'] === 'pending'; })), 'tech_count' => count(array_filter($people, function ($p) { return $p['commission_group'] === 'technical'; }))];
+$backendTechCount = count(array_filter($people, function ($p) { return $p['commission_group'] === 'technical' && in_array('后端', ps_role_keys($p['role_name'] ?? ''), true); }));
+$todoRow = $order + ['price_source' => $orderSource['price_source'], 'domain_mode' => $orderResource['domain_mode'] ?? '', 'pending_costs' => count(array_filter($costs, function ($c) { return $c['review_status'] === 'pending'; })), 'pending_cash' => count(array_filter($cashMovements, function ($m) { return $m['review_status'] === 'pending'; })), 'tech_count' => count(array_filter($people, function ($p) { return $p['commission_group'] === 'technical'; })), 'backend_tech_count' => $backendTechCount];
 $todos = ps_order_todos($todoRow);
 $personLookup = [];
 foreach (['technical', 'customer_service'] as $groupKey) foreach ($sum['groups'][$groupKey]['people'] as $calcPerson) $personLookup[$groupKey . ':' . $calcPerson['employee_id']] = $calcPerson;
@@ -332,6 +339,35 @@ if ($collabOrder && $canEdit && !$counterpartCount && in_array($actor['role'], [
     $q = db()->prepare('SELECT e.id,e.name,e.department FROM employees e JOIN project_users u ON u.employee_id=e.id WHERE u.role=? AND u.is_active=1 ORDER BY e.name,e.id');
     $q->execute([$counterpartGroup]);
     foreach ($q->fetchAll() as $person) if (ps_active_employee_for_business($person['id'], $counterpartGroup, ps_business_normalize($order['project_type']))) $counterpartChoices[] = $person;
+}
+
+$isWebsiteCustom = in_array(ps_business_normalize($order['project_type']), ['AI网站定制', '网站定制'], true);
+$hasBackendTech = false;
+$hasFrontendTech = false;
+$currentFrontendPerson = null;
+$currentBackendPerson = null;
+foreach ($people as $person) {
+    if ($person['commission_group'] === 'technical') {
+        $rKeys = ps_role_keys($person['role_name']);
+        if (in_array('后端', $rKeys, true)) {
+            $hasBackendTech = true;
+            $currentBackendPerson = $person;
+        }
+        if (in_array('前端', $rKeys, true) || in_array('外包前端', $rKeys, true) || in_array('定制前端', $rKeys, true)) {
+            $hasFrontendTech = true;
+            $currentFrontendPerson = $person;
+        }
+    }
+}
+$backendChoices = [];
+if ($isWebsiteCustom && $canEdit) {
+    $qB = db()->prepare('SELECT e.id,e.name,e.department FROM employees e JOIN project_users u ON u.employee_id=e.id WHERE u.role="technical" AND u.is_active=1 ORDER BY e.name,e.id');
+    $qB->execute();
+    foreach ($qB->fetchAll() as $person) {
+        if (ps_active_employee_for_business($person['id'], 'technical', ps_business_normalize($order['project_type']))) {
+            $backendChoices[] = $person;
+        }
+    }
 }
 
 $orderRequests = ps_order_requests($id);
@@ -491,6 +527,74 @@ include __DIR__ . '/../includes/header.php';
 <?php if ($collabOrder && $canEdit && !$counterpartCount && in_array($actor['role'], ['customer_service','technical'], true)): ?>
 <div class="card mb-3 project-form-card"><div class="card-body"><h5><i class="fas fa-user-friends mr-2 text-primary"></i>关联同单<?php echo $counterpartGroup === 'technical' ? '技术' : '客服'; ?></h5><p class="text-muted small">关联后，对方登录即可在自己的项目订单中看到这张结算单；不会创建第二个订单号。多人协作权重由财务调整。</p>
 <?php if ($counterpartChoices): ?><form method="post" class="form-row align-items-end"><input type="hidden" name="csrf" value="<?php echo e(ps_csrf_token()); ?>"><input type="hidden" name="action" value="add_counterpart"><div class="form-group col-md-9"><label>选择已开通<?php echo e(ps_business_normalize($order['project_type'])); ?>业务的<?php echo $counterpartGroup === 'technical' ? '技术' : '客服'; ?></label><select class="form-control" name="employee_id" required><option value="">请选择</option><?php foreach ($counterpartChoices as $person): ?><option value="<?php echo (int)$person['id']; ?>"><?php echo e($person['name'] . ' · ' . $person['department']); ?></option><?php endforeach; ?></select></div><div class="form-group col-md-3"><button class="btn btn-outline-primary btn-block">关联到此订单</button></div></form><?php else: ?><div class="alert alert-warning mb-0">暂无可选账号，请联系财务开通对应业务。</div><?php endif; ?></div></div>
+<?php endif; ?>
+
+<?php if ($isWebsiteCustom && $canEdit && (in_array($actor['role'], ['customer_service', 'finance'], true) || ($actor['role'] === 'technical' && (($currentFrontendPerson && (int)$currentFrontendPerson['employee_id'] === (int)$actor['employee_id']) || !$hasBackendTech)))): ?>
+<div class="card mb-3 project-form-card border-info">
+  <div class="card-body">
+    <div class="d-flex justify-content-between align-items-center flex-wrap" style="gap:8px">
+      <h5 class="mb-0 text-info"><i class="fas fa-server mr-2"></i>技术协作 · 后端技术分配</h5>
+      <?php if ($hasBackendTech): ?>
+        <span class="badge badge-success"><i class="fas fa-check mr-1"></i>已指定后端：<?php echo e($currentBackendPerson['name'] . ' (' . ($currentBackendPerson['role_name'] ?: '后端') . ')'); ?></span>
+      <?php else: ?>
+        <span class="badge badge-warning"><i class="fas fa-exclamation-circle mr-1"></i>待指定后端技术</span>
+      <?php endif; ?>
+    </div>
+    <p class="text-muted small mt-2 mb-3">
+      网站定制订单分前端与后端。客服上传订单时若未写后端技术，前端技术、客服或财务均可在此指定后端协作同事；若由前端技术一人独立交付，也可一键设置为“前后端均由本人完成”，系统将同时核算前端提成与后端提成。
+    </p>
+
+    <?php if (!$hasBackendTech && $actor['role'] === 'technical' && (!$currentFrontendPerson || (int)$currentFrontendPerson['employee_id'] !== (int)$actor['employee_id'])): ?>
+      <div class="p-3 bg-light rounded border mb-3 d-flex justify-content-between align-items-center flex-wrap" style="gap:10px">
+        <div><strong>您是技术人员，本单尚未指定后端：</strong><span class="text-muted small">点击按钮即可主动认领此单后端协作任务</span></div>
+        <form method="post" class="m-0">
+          <input type="hidden" name="csrf" value="<?php echo e(ps_csrf_token()); ?>">
+          <input type="hidden" name="action" value="claim_backend">
+          <button class="btn btn-info btn-sm" onclick="return confirm('确认认领此单的后端技术？')"><i class="fas fa-user-plus mr-1"></i>认领此单后端</button>
+        </form>
+      </div>
+    <?php endif; ?>
+
+    <div class="row">
+      <div class="col-md-7 border-right">
+        <label class="font-weight-bold small mb-2"><i class="fas fa-user-friends mr-1 text-primary"></i>方式一：指定后端技术同事（50% 成本分摊与独立提成）</label>
+        <form method="post" class="form-row align-items-end">
+          <input type="hidden" name="csrf" value="<?php echo e(ps_csrf_token()); ?>">
+          <input type="hidden" name="action" value="assign_backend">
+          <input type="hidden" name="backend_mode" value="colleague">
+          <div class="form-group col-md-8 mb-0">
+            <select class="form-control" name="backend_employee_id" required>
+              <option value="">选择后端技术同事...</option>
+              <?php foreach ($backendChoices as $bEmp): ?>
+              <option value="<?php echo (int)$bEmp['id']; ?>" <?php echo ($currentBackendPerson && (int)$currentBackendPerson['employee_id'] === (int)$bEmp['id']) ? 'selected' : ''; ?>>
+                <?php echo e($bEmp['name'] . ' · ' . $bEmp['department']); ?>
+              </option>
+              <?php endforeach; ?>
+            </select>
+          </div>
+          <div class="form-group col-md-4 mb-0">
+            <button class="btn btn-outline-info btn-block"><?php echo $hasBackendTech ? '更换后端技术' : '保存后端技术'; ?></button>
+          </div>
+        </form>
+      </div>
+      <div class="col-md-5">
+        <label class="font-weight-bold small mb-2"><i class="fas fa-laptop-code mr-1 text-success"></i>方式二：前后端均由一人完成（全栈交付）</label>
+        <form method="post">
+          <input type="hidden" name="csrf" value="<?php echo e(ps_csrf_token()); ?>">
+          <input type="hidden" name="action" value="assign_backend">
+          <input type="hidden" name="backend_mode" value="self_fullstack">
+          <?php if ($actor['role'] === 'finance' && $currentFrontendPerson): ?>
+            <input type="hidden" name="frontend_employee_id" value="<?php echo (int)$currentFrontendPerson['employee_id']; ?>">
+          <?php endif; ?>
+          <button class="btn btn-success btn-block" onclick="return confirm('确认前后端均由<?php echo ($actor['role'] === 'technical' ? '本人' : ($currentFrontendPerson['name'] ?? '技术')); ?>独立完成？系统将合并核算前端+后端两份提成。')">
+            <i class="fas fa-check-double mr-1"></i>前后端均由<?php echo ($actor['role'] === 'technical' ? '我' : ($currentFrontendPerson['name'] ?? '技术')); ?>一人完成
+          </button>
+        </form>
+        <small class="text-muted d-block mt-1">角色将设为“前端/后端”，同时计提前端比例与后端比例。</small>
+      </div>
+    </div>
+  </div>
+</div>
 <?php endif; ?>
 
 <?php if ($order['project_type'] === '网站模板' && $canEdit && in_array($actor['role'], ['technical','finance'], true)): ?>

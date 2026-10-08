@@ -18,7 +18,7 @@ function dmw_missing($actor, $limit = 8)
         $since = (new DateTimeImmutable(pr_today()))->modify('-45 day')->format('Y-m-d');
         $base = "FROM project_orders o LEFT JOIN project_order_resources res ON res.order_id=o.id
                  WHERE $web AND ($where) AND o.order_date>=? AND COALESCE(res.domain_mode,'pending')<>'none'
-                   AND NOT EXISTS (SELECT 1 FROM project_renewal_items r WHERE r.order_id=o.id AND r.resource_type='domain' AND r.resource_name<>'' AND r.status<>'closed')";
+                   AND NOT EXISTS (SELECT 1 FROM project_renewal_items r WHERE r.order_id=o.id AND r.resource_type='domain' AND ((r.resource_name<>'' AND r.status<>'closed') OR r.owner='customer'))";
         $p = array_merge($params, [$since]);
         $c = db()->prepare("SELECT COUNT(*) $base"); $c->execute($p);
         $total = (int)$c->fetchColumn();

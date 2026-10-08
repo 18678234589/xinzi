@@ -44,13 +44,14 @@
       var any = false;
       records.forEach(function (r) {
         if (!r) return; // 只读单元格没有记录
-        var x = parseInt(r.x, 10), y = parseInt(r.y, 10);
+        var dx = parseInt(r.x, 10), y = parseInt(r.y, 10);
+        var x = meta.order[dx]; // 显示列 → 原始列
         if (!meta.editable[x]) return;
         var nv = r.newValue !== undefined ? r.newValue : r.value;
         var v = nv == null ? '' : String(nv).trim();
         queue[meta.rowNos[y] + ':' + x] = { row: meta.rowNos[y], col: x, v: v };
         var key = y + ':' + x; if (!localChanged[key]) { localChanged[key] = 1; pendingCount++; }
-        mark(y, x, false); any = true;
+        mark(y, dx, false); any = true;
       });
       if (any) { updateSubmit(); schedule(); }
     }
@@ -59,24 +60,34 @@
       if (table) { try { jspreadsheet.destroy(gridEl, true); } catch (e) { /* 重新载入时先销毁旧表 */ } gridEl.innerHTML = ''; table = null; }
       localChanged = {}; queue = {};
       meta = sheet;
-      var cols = sheet.head.map(function (h, i) {
-        var kind = sheet.kinds[i], w = kind === 'order_no' ? 190 : (kind === 'date' ? 100 : (sheet.editable[i] ? 130 : Math.min(220, Math.max(80, (h.length || 3) * 18 + 30))));
+      // 列顺序：订单号在最前（并冻结），紧跟着是可编辑列（客户手机号 / 域名 / 到期日 / 售价…），最后才是只读的原表其它列，
+      // 这样要填的地方一打开就能看到，不用先横向拖到最右边。
+      var n = sheet.head.length, order = [], used = {}, first = sheet.orderCol != null ? sheet.orderCol : 0;
+      if (n > 0) { order.push(first); used[first] = 1; }
+      sheet.editable.forEach(function (e, i) { if (e && !used[i]) { order.push(i); used[i] = 1; } });
+      for (var i2 = 0; i2 < n; i2++) if (!used[i2]) order.push(i2);
+      var inv = []; order.forEach(function (orig, pos) { inv[orig] = pos; });
+      meta.order = order; meta.inv = inv;
+      var cols = order.map(function (i) {
+        var h = sheet.head[i], kind = sheet.kinds[i], w = kind === 'order_no' ? 190 : (kind === 'date' ? 100 : (sheet.editable[i] ? 140 : Math.min(220, Math.max(80, (h.length || 3) * 18 + 30))));
         return { type: 'text', title: h || ('列' + (i + 1)), width: w, readOnly: !cfg.canEdit || !sheet.editable[i], wordWrap: false };
       });
+      var rows = sheet.rows.map(function (r) { return order.map(function (o) { return r[o]; }); });
       pendingCount = sheet.pending || 0;
+      var h = Math.max(320, (window.innerHeight || 700) - 330);
       table = jspreadsheet(gridEl, {
-        data: sheet.rows.length ? sheet.rows : [[]], columns: cols,
-        tableOverflow: true, tableWidth: '100%', tableHeight: '62vh', lazyLoading: true, loadingSpin: true,
+        data: rows.length ? rows : [[]], columns: cols, freezeColumns: 1,
+        tableOverflow: true, tableWidth: '100%', tableHeight: h + 'px', lazyLoading: true, loadingSpin: true,
         columnSorting: false, allowInsertRow: false, allowManualInsertRow: false, allowInsertColumn: false, allowManualInsertColumn: false,
         allowDeleteRow: false, allowDeleteColumn: false, allowRenameColumn: false, allowComments: false, allowExport: false,
-        selectionCopy: true, search: true, freezeColumns: 0, defaultColWidth: 110, rowResize: false, columnResize: true,
+        selectionCopy: true, search: true, defaultColWidth: 110, rowResize: false, columnResize: true,
         contextMenu: function () { return []; }, onafterchanges: onAfterChanges,
         text: { search: '在表中查找…', showingPage: '第 {0} / {1} 页', entries: '', noRecordsFound: '没有找到' }
       });
       // 可编辑列的表头加底色，让人一眼知道哪些能改
       var heads = gridEl.querySelectorAll('thead tr td[data-x]');
-      heads.forEach(function (td) { var x = parseInt(td.getAttribute('data-x'), 10); if (sheet.editable[x] && cfg.canEdit) td.classList.add('se-edit-head'); });
-      (sheet.changed || []).forEach(function (c) { mark(c[0], c[1], c[2] === 1); });
+      heads.forEach(function (td) { var x = parseInt(td.getAttribute('data-x'), 10); if (sheet.editable[order[x]] && cfg.canEdit) td.classList.add('se-edit-head'); });
+      (sheet.changed || []).forEach(function (c) { mark(c[0], inv[c[1]], c[2] === 1); });
       var note = root.querySelector('.se-trunc'); if (note) note.hidden = !sheet.truncated;
       updateSubmit(); setStatus(cfg.canEdit ? '修改会自动保存' : '只读（你没有编辑权限）', 'text-muted');
     }

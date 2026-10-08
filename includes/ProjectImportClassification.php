@@ -17,6 +17,25 @@ function ps_import_website_people_roles($people, $business)
     if ($business !== 'AI网站定制') return $people;
     foreach ($people['technical'] as &$person) {
         $name = $person['name'];
+        $currentRole = (string)($person['role'] ?? '');
+        $hasFront = (mb_strpos($currentRole, '前') !== false || mb_strpos($currentRole, '制作') !== false);
+        $hasBack = (mb_strpos($currentRole, '后') !== false);
+        if ($hasFront && $hasBack) {
+            if (in_array($name, ['孙磊', '李仁超'], true) || mb_strpos($currentRole, '外包') !== false) {
+                $person['role'] = '外包前端/后端';
+            } else {
+                $person['role'] = '前端/后端';
+            }
+            continue;
+        }
+        if ($hasFront && !$hasBack) {
+            $person['role'] = (in_array($name, ['孙磊', '李仁超'], true) || mb_strpos($currentRole, '外包') !== false) ? '外包前端' : '前端';
+            continue;
+        }
+        if ($hasBack && !$hasFront) {
+            $person['role'] = '后端';
+            continue;
+        }
         if (in_array($name, ['孙磊', '李仁超'], true)) $person['role'] = '外包前端';
         elseif (in_array($name, ['崔鑫栋', '于海波'], true)) $person['role'] = '后端';
         elseif ($name === '李子晖') $person['role'] = '售后';

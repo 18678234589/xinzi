@@ -65,7 +65,8 @@ function pse_parse($file, $sheetName, $actor)
     foreach ($head as $i => $h) {
         $label = preg_replace('/[\s（）()：:]/u', '', $h);
         if ($kinds[$i] !== '') continue;
-        if (preg_match('/服务器.*(到期|有效期)|(到期|有效期).*服务器/u', $label) && !preg_match('/域名/u', $label)) $kinds[$i] = 'server_expiry';
+        if (preg_match('/^域名归属/u', $label)) $kinds[$i] = 'domain_owner';
+        elseif (preg_match('/服务器.*(到期|有效期)|(到期|有效期).*服务器/u', $label) && !preg_match('/域名/u', $label)) $kinds[$i] = 'server_expiry';
         elseif (preg_match('/^(客户)?(手机号?码?|电话|联系电话|联系方式)$/u', $label)) $kinds[$i] = 'phone'; // 只认专门的手机号列；“备注（写客户电话或者微信）”常写微信号，不当手机号
         elseif (in_array($label, ['域名', '域名地址', '网站域名', '客户域名'], true)) $kinds[$i] = 'domain';
         elseif (preg_match('/日期|时间/u', $label)) $kinds[$i] = 'date';
@@ -76,15 +77,15 @@ function pse_parse($file, $sheetName, $actor)
     if (!$extras && ($actor['role'] ?? '') === 'finance') {
         // 财务查看 / 更正：网站类订单补手机号 + 域名，小程序补手机号 + 服务器到期日（已有同名列则不重复）
         $biz = (string)$file['business_name'];
-        $want = $biz === '小程序开发' ? ['客户手机号', '服务器到期日'] : (in_array($biz, ['AI网站定制', '网站模板', '网站续费', '网站修改', '备案-提成'], true) ? ['客户手机号', '客户域名'] : []);
+        $want = $biz === '小程序开发' ? ['客户手机号', '服务器到期日'] : (in_array($biz, ['AI网站定制', '网站模板', '网站续费', '网站修改', '备案-提成'], true) ? ['客户手机号', '客户域名', '域名归属'] : []);
         foreach ($want as $w) {
             $has = false;
-            foreach ($head as $h) { $l = preg_replace('/[\s（）()：:]/u', '', (string)$h); if ($w === '客户手机号' ? preg_match('/^(客户)?(手机号?码?|电话|联系电话|联系方式)$/u', $l) : ($w === '客户域名' ? in_array($l, ['域名', '域名地址', '网站域名', '客户域名'], true) : preg_match('/服务器.*(到期|有效期)/u', $l))) $has = true; }
+            foreach ($head as $h) { $l = preg_replace('/[\s（）()：:]/u', '', (string)$h); if ($w === '域名归属' ? preg_match('/^域名归属/u', $l) : ($w === '客户手机号' ? preg_match('/^(客户)?(手机号?码?|电话|联系电话|联系方式)$/u', $l) : ($w === '客户域名' ? in_array($l, ['域名', '域名地址', '网站域名', '客户域名'], true) : preg_match('/服务器.*(到期|有效期)/u', $l)))) $has = true; }
             if (!$has) $extras[] = $w;
         }
     }
     foreach ($extras as $extra) {
-        $head[] = $extra; $kinds[] = $extra === '客户手机号' ? 'phone' : ($extra === '服务器到期日' ? 'server_expiry' : 'domain'); $virtual++;
+        $head[] = $extra; $kinds[] = $extra === '客户手机号' ? 'phone' : ($extra === '服务器到期日' ? 'server_expiry' : ($extra === '域名归属' ? 'domain_owner' : 'domain')); $virtual++;
     }
     $total = count($head);
     $data = []; $truncated = false;
@@ -103,7 +104,7 @@ function pse_parse($file, $sheetName, $actor)
     return ['head' => $head, 'kinds' => $kinds, 'width' => $total, 'rows' => $data, 'orderCol' => $orderCol === false ? null : $orderCol, 'virtual' => $virtual, 'truncated' => $truncated];
 }
 
-function pse_editable_kind($kind) { return in_array($kind, ['phone', 'domain', 'server_expiry', 'amount', 'shop', 'nick'], true); }
+function pse_editable_kind($kind) { return in_array($kind, ['phone', 'domain', 'domain_owner', 'server_expiry', 'amount', 'shop', 'nick'], true); }
 
 function pse_overlay($fileId, $sheet)
 {
@@ -201,6 +202,34 @@ function pse_set_phone($orderId, $phone, $actor)
     }
 }
 
+/** 单元格文字 → [归属, 备注]。“客户自有” / “客户自有：已交付源码” / “我们代管”。 */
+function pse_parse_owner($v)
+{
+    $v = trim((string)$v);
+    if (preg_match('/^(客户自有|客户自备|客户|自有|自备)/u', $v)) {
+        $note = trim(preg_replace('/^(客户自有|客户自备|客户|自有|自备)[:：\s-]*/u', '', $v));
+        return ['customer', $note !== '' ? $note : '表格标注为客户自有，需核对'];
+    }
+    if (preg_match('/^(我们|代管|公司|我方)/u', $v)) return ['ours', ''];
+    throw new RuntimeException('域名归属请填“我们代管”或“客户自有”（可写“客户自有：已交付源码”）');
+}
+
+/** 设置订单域名的归属；没有域名条目时：客户自有会新建一条占位条目，我们代管则无需处理。 */
+function pse_set_domain_owner($orderId, $owner, $note, $actor)
+{
+    pr_order($orderId, $actor);
+    $pdo = db();
+    $q = $pdo->prepare("SELECT id FROM project_renewal_items WHERE order_id=? AND resource_type='domain' ORDER BY (status<>'closed') DESC,id LIMIT 1");
+    $q->execute([(int)$orderId]);
+    $itemId = (int)$q->fetchColumn();
+    if (!$itemId) {
+        if ($owner !== 'customer') return;
+        $pdo->prepare("INSERT INTO project_renewal_items (order_id,resource_type,resource_name,expiry_source,status) VALUES (?,'domain','客户自备域名','estimated','active')")->execute([(int)$orderId]);
+        $itemId = (int)$pdo->lastInsertId();
+    }
+    pr_set_owner($itemId, $owner, $note, $actor);
+}
+
 /** 把服务器到期日写入订单续费资料（实际日期，来源记为已核实）：已有服务器条目就改日期，没有就新建。 */
 function pse_set_server_expiry($orderId, $value, $actor)
 {
@@ -273,6 +302,7 @@ function pse_submit($fileId, $sheet, $actor, $dry = false)
                 $kind = $p['kinds'][$c];
                 if ($kind === 'phone') { if ($v !== '') pse_set_phone((int)$order['id'], $v, $actor); $done[] = $c; }
                 elseif ($kind === 'domain') { if ($v !== '') pse_set_domain((int)$order['id'], $v, $actor); $done[] = $c; }
+                elseif ($kind === 'domain_owner') { if ($v !== '') { [$ow, $ownNote] = pse_parse_owner($v); pse_set_domain_owner((int)$order['id'], $ow, $ownNote, $actor); } $done[] = $c; }
                 elseif ($kind === 'server_expiry') { if ($v !== '') pse_set_server_expiry((int)$order['id'], $v, $actor); $done[] = $c; }
                 elseif ($kind === 'amount') { if ($v !== '' && abs((float)$v - (float)$order['contract_amount']) > 0.004) $money['contract_amount'] = $v; $done[] = $c; }
                 elseif ($kind === 'shop') { if ($v !== '' && $v !== (string)$order['shop']) $money['shop'] = $v; $done[] = $c; }
@@ -284,7 +314,7 @@ function pse_submit($fileId, $sheet, $actor, $dry = false)
                 $msg[] = $r['mode'] === 'applied' ? '售价/店铺/昵称已更正' : '售价/店铺/昵称已提交财务确认';
                 $res['result'] = $r['mode'] === 'applied' ? '已更正' : '已提交财务确认';
             } else $res['result'] = '已更正';
-            if (array_intersect(array_map(function ($c) use ($p) { return $p['kinds'][$c]; }, $done), ['phone', 'domain', 'server_expiry'])) $msg[] = '手机号/域名/服务器到期日已写入续费资料';
+            if (array_intersect(array_map(function ($c) use ($p) { return $p['kinds'][$c]; }, $done), ['phone', 'domain', 'domain_owner', 'server_expiry'])) $msg[] = '手机号/域名/域名归属/服务器到期日已写入续费资料';
             $res['message'] = implode('；', $msg);
             foreach ($done as $c) $mark->execute([(int)$file['id'], $sheet, $no, $c]);
         } catch (Throwable $e) {

@@ -283,15 +283,17 @@ function ps_import_role_extras($business, $actor, array $headers = [])
     }
     if (!$actor || !in_array($business, ['AI网站定制', '网站模板', '网站续费', '网站修改', '备案-提成'], true)) return [];
     $role = $actor['role'] ?? '';
+    $extras = [];
+    $hasOwner = false; foreach ($headers as $h) if (preg_match('/^域名归属/u', trim((string)$h))) $hasOwner = true;
     if ($role === 'customer_service') {
-        foreach ($headers as $h) if (preg_match('/^(客户)?(手机号?码?|电话|联系电话|联系方式)$/u', trim((string)$h))) return []; // 只有专门的手机号列才算已有；“备注（写客户电话或者微信）”这类备注列不算
-        return ['客户手机号'];
-    }
-    if ($role === 'technical') {
-        foreach ($headers as $h) if (in_array(trim((string)$h), ['域名', '域名地址', '网站域名', '客户域名'], true)) return [];
-        return ['客户域名'];
-    }
-    return [];
+        $has = false; foreach ($headers as $h) if (preg_match('/^(客户)?(手机号?码?|电话|联系电话|联系方式)$/u', trim((string)$h))) $has = true; // 只有专门的手机号列才算已有；“备注（写客户电话或者微信）”这类备注列不算
+        if (!$has) $extras[] = '客户手机号';
+    } elseif ($role === 'technical') {
+        $has = false; foreach ($headers as $h) if (in_array(trim((string)$h), ['域名', '域名地址', '网站域名', '客户域名'], true)) $has = true;
+        if (!$has) $extras[] = '客户域名';
+    } else return [];
+    if (!$hasOwner) $extras[] = '域名归属'; // 可选列：我们代管（默认）/ 客户自有（客户自备域名、已交付源码，不续费）
+    return $extras;
 }
 
 /** 下载模板用的表头：业务基础表头 + 当前岗位需要的列。 */

@@ -106,7 +106,7 @@ document.addEventListener('DOMContentLoaded', function () {
     b.disabled = true; n.textContent = '保存中…';
     pksPost({csrf: csrf, action: 'save', items: items, business: $('i-business').value, approve: $('i-approve') ? $('i-approve').checked : false,
       roles: Array.prototype.map.call(document.querySelectorAll('.i-role:checked'), function (c) { return c.value; })})
-      .then(function (d) { location.href = <?php echo json_encode(BASE_URL . '/project/knowledge_skills.php?kind=chat&imported='); ?> + d.saved; })
+      .then(function (d) { location.href = <?php echo json_encode(BASE_URL . '/project/knowledge_skills.php?kind=chat&mine=1&imported='); ?> + d.saved; })
       .catch(function (e) { n.textContent = e.message; b.disabled = false; });
   });
 });

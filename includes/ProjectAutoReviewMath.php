@@ -112,6 +112,18 @@ function pa_evaluate(array $ctx)
         if (!empty($ctx['pending_requests'])) $add('request_pending', '交付／升级申请已提交，等待审核，无需重复提交', 'finance');
         if (!empty($ctx['catalog']['resources']) && (!$ctx['resource'] || ($ctx['resource']['domain_mode'] ?? 'pending') === 'pending')) $add('resource', '域名、空间等实际资源待技术确认');
         if (!empty($ctx['catalog']['requires_technical']) && empty($ctx['technical_count'])) $add('technical', '尚未指定参与技术');
+        if (in_array(ps_business_normalize($o['project_type'] ?? ''), ['AI网站定制', '网站定制'], true) && !empty($ctx['technical_count'])) {
+            $hasBackend = false;
+            foreach ($ctx['participants'] as $p) {
+                if ($p['commission_group'] === 'technical' && in_array('后端', ps_role_keys($p['role_name'] ?? ''), true)) {
+                    $hasBackend = true;
+                    break;
+                }
+            }
+            if (!$hasBackend) {
+                $add('backend_technical', '尚未指定后端技术（前端可在结算单指定同事或设为一人全栈）', 'data');
+            }
+        }
         if (!empty($ctx['catalog']['kind_required']) && trim((string)($o['order_kind'] ?? '')) === '') $add('order_kind', '业务分成类型待确认');
         $ssl = 0; $costSignatures = [];
         foreach ($ctx['costs'] as $cost) {

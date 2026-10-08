@@ -10,16 +10,17 @@ $kind = (string)($_GET['kind'] ?? ''); if (!isset(PKS_KINDS[$kind])) $kind = '';
 $status = (string)($_GET['status'] ?? ''); if (!isset(PKS_STATUS[$status])) $status = '';
 $business = (string)($_GET['business'] ?? '');
 $onlyMine = !empty($_GET['mine_role']);
+$mySubmissions = !empty($_GET['mine']);
 $search = mb_substr(trim((string)($_GET['q'] ?? '')), 0, 100);
 $page = max(1, (int)($_GET['page'] ?? 1));
 $rows = []; $total = 0; $ready = true; $counts = []; $pending = 0;
 try {
-    [$rows, $total] = pks_list($ctx, ['kind' => $kind, 'status' => $status, 'business' => $business, 'q' => $search, 'role' => $onlyMine ? $myRoles : [], 'my_roles' => $myRoles, 'my_businesses' => $myBusinesses], $page, 24);
+    [$rows, $total] = pks_list($ctx, ['kind' => $kind, 'status' => $status, 'business' => $business, 'q' => $search, 'role' => $onlyMine ? $myRoles : [], 'mine' => $mySubmissions, 'my_roles' => $myRoles, 'my_businesses' => $myBusinesses], $page, 24);
     $counts = pks_counts($ctx);
     if ($editor) $pending = (int)db()->query("SELECT COUNT(*) FROM project_kb_skills WHERE deleted_at IS NULL AND status='pending'")->fetchColumn();
 } catch (Throwable $e) { $ready = false; }
 $businessNames = array_keys(ps_business_catalog());
-$query = function (array $over = []) use ($kind, $status, $business, $onlyMine, $search) { return '?' . http_build_query(array_filter(array_merge(['kind' => $kind, 'status' => $status, 'business' => $business, 'mine_role' => $onlyMine ? 1 : '', 'q' => $search], $over), 'strlen')); };
+$query = function (array $over = []) use ($kind, $status, $business, $onlyMine, $mySubmissions, $search) { return '?' . http_build_query(array_filter(array_merge(['kind' => $kind, 'status' => $status, 'business' => $business, 'mine_role' => $onlyMine ? 1 : '', 'mine' => $mySubmissions ? 1 : '', 'q' => $search], $over), 'strlen')); };
 include __DIR__ . '/../includes/header.php';
 ?>
 <link rel="stylesheet" href="<?php echo pks_asset('css/knowledge_skills.css'); ?>">
@@ -39,10 +40,12 @@ include __DIR__ . '/../includes/header.php';
 
 <form class="kbx-bar" method="get" role="search">
   <input type="hidden" name="kind" value="<?php echo e($kind); ?>">
+  <?php if ($mySubmissions): ?><input type="hidden" name="mine" value="1"><?php endif; ?>
   <label class="kbx-search"><i class="fas fa-search"></i><span style="position:absolute;left:-9999px">搜索</span><input name="q" value="<?php echo e($search); ?>" placeholder="搜标题、场景、话术、对话…" autocomplete="off"><kbd>/</kbd></label>
   <select name="business" aria-label="业务" onchange="this.form.submit()"><option value="">全部业务</option><?php foreach ($businessNames as $b): ?><option <?php echo $business === $b ? 'selected' : ''; ?>><?php echo e($b); ?></option><?php endforeach; ?></select>
   <?php if ($editor): ?><select name="status" aria-label="状态" onchange="this.form.submit()"><option value="">全部状态</option><?php foreach (PKS_STATUS as $k => $label): ?><option value="<?php echo $k; ?>" <?php echo $status === $k ? 'selected' : ''; ?>><?php echo e($label); ?><?php echo $k === 'pending' && $pending ? '（' . $pending . '）' : ''; ?></option><?php endforeach; ?></select><?php endif; ?>
   <?php if ($myRoles): ?><label class="kbx-check"><input type="checkbox" name="mine_role" value="1" <?php echo $onlyMine ? 'checked' : ''; ?> onchange="this.form.submit()"> 只看我的角色</label><?php endif; ?>
+  <a class="kbx-btn ghost" href="<?php echo e($query(['mine' => $mySubmissions ? '' : 1, 'page' => ''])); ?>"<?php echo $mySubmissions ? ' aria-current="page"' : ''; ?>><i class="fas fa-user-edit"></i> <?php echo $mySubmissions ? '查看全部' : '我提交的'; ?></a>
   <span style="flex:1"></span>
   <a class="kbx-btn" href="<?php echo BASE_URL; ?>/project/knowledge_skill.php?new=skill"><i class="fas fa-plus"></i> 新增</a>
   <a class="kbx-btn ghost" href="<?php echo BASE_URL; ?>/project/knowledge_skill_import.php"><i class="fas fa-magic"></i> 导入聊天记录</a>
@@ -63,7 +66,7 @@ include __DIR__ . '/../includes/header.php';
   </article>
 <?php endforeach; ?>
 <?php if ($rows): ?></div><?php endif; ?>
-<?php if (!$rows && $ready): $filtered = ($search !== '' || $kind !== '' || $business !== ''); ?>
+<?php if (!$rows && $ready): $filtered = ($search !== '' || $kind !== '' || $business !== '' || $mySubmissions); ?>
   <div class="kbx-empty"><span class="ic"><i class="far fa-comments"></i></span><h2><?php echo $filtered ? '没有找到符合条件的内容' : '这里还没有内容'; ?></h2>
   <p><?php echo $filtered ? '换个关键词，或取消筛选试试。' : '把你觉得好用的话术、业务口径，或一段漂亮的聊天记录放进来，让大家和 AI 客服都能学到。'; ?></p>
   <div class="kbx-actions"><a class="kbx-btn" href="<?php echo BASE_URL; ?>/project/knowledge_skill_import.php"><i class="fas fa-magic"></i> 导入我的精选聊天记录</a><a class="kbx-btn ghost" href="<?php echo BASE_URL; ?>/project/knowledge_skill.php?new=skill">写一条沟通技巧</a></div></div>

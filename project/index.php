@@ -203,8 +203,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $custPhone = trim((string)($_POST['customer_phone'] ?? '')); $custDomain = trim((string)($_POST['customer_domain'] ?? '')); $serverExpiry = trim((string)($_POST['server_expiry'] ?? ''));
         if ($actor['role'] !== 'finance' && empty($_POST['info_later'])) {
             $webBiz = in_array($projectType, ['AI网站定制', '网站模板', '网站续费', '网站修改', '备案-提成'], true);
-            $needInfo = [];
-            if ($webBiz && $actor['role'] === 'customer_service' && $custPhone === '' && !preg_match('/(^|[^0-9])1[3-9][0-9]{9}([^0-9]|$)/', (string)($_POST['contact_note'] ?? ''))) $needInfo[] = '客户手机号';
+            $contactNote = trim((string)($_POST['contact_note'] ?? ''));
+            $hasContact = ($custPhone !== '') || ($contactNote !== '');
+            if ($webBiz && $actor['role'] === 'customer_service' && !$hasContact) $needInfo[] = '客户手机号或微信号';
             if ($webBiz && $actor['role'] === 'technical' && $custDomain === '') $needInfo[] = '域名';
             if ($projectType === '小程序开发' && $serverExpiry === '') $needInfo[] = '服务器到期日';
             if ($needInfo) throw new RuntimeException('请填写' . implode('、', $needInfo) . '；暂时拿不到的可勾选“稍后补充”（未补充将不会获得本订单的续费分成）');
@@ -383,8 +384,11 @@ if ($filterState === 'unfinished') $where[] = "o.delivery_status='unfinished'";
 if ($filterState === 'finished') $where[] = "o.delivery_status='finished'";
 if ($filterState === 'pending_delivery') $where[] = "EXISTS (SELECT 1 FROM project_order_requests por WHERE por.order_id=o.id AND por.request_type='delivery_completion' AND por.status='pending')";
 if ($filterState === 'pending_upgrade') $where[] = "EXISTS (SELECT 1 FROM project_order_requests por WHERE por.order_id=o.id AND por.request_type='product_upgrade' AND por.status='pending')";
+if ($filterState === 'pending_backend') $where[] = "o.project_type IN ('AI网站定制', '网站定制') AND NOT EXISTS (SELECT 1 FROM project_participants p WHERE p.order_id=o.id AND p.commission_group='technical' AND p.role_name LIKE '%后端%')";
 if ($actor['role'] === 'finance') {
     if ($filterEmployeeId > 0) { $where[] = 'EXISTS (SELECT 1 FROM project_participants mp WHERE mp.order_id=o.id AND mp.employee_id=?)'; $params[] = $filterEmployeeId; }
+} elseif ($filterState === 'pending_backend' && $actor['role'] === 'technical') {
+    // 技术人员筛选“待指定后端”时，允许查看所有未指定后端的网站定制订单以便认领
 } else {
     $where[] = $participationOnly ? 'EXISTS (SELECT 1 FROM project_participants mp WHERE mp.order_id=o.id AND mp.employee_id=?)' : '(EXISTS (SELECT 1 FROM project_participants mp WHERE mp.order_id=o.id AND mp.employee_id=?) OR EXISTS (SELECT 1 FROM project_department_uploaders du WHERE du.order_id=o.id AND du.employee_id=?))';
     $params[] = $actor['employee_id'];
@@ -399,6 +403,7 @@ $sql = "SELECT o.*, " . $reviewSelect . " s.synced_at source_synced_at,COALESCE(
     (SELECT COUNT(*) FROM project_order_requests por WHERE por.order_id=o.id AND por.request_type='delivery_completion' AND por.status='pending') pending_delivery_requests,
     (SELECT COUNT(*) FROM project_order_requests por WHERE por.order_id=o.id AND por.request_type='product_upgrade' AND por.status='pending') pending_upgrade_requests,
     (SELECT COUNT(*) FROM project_participants p WHERE p.order_id=o.id AND p.commission_group='technical') tech_count,
+    (SELECT COUNT(*) FROM project_participants p WHERE p.order_id=o.id AND p.commission_group='technical' AND p.role_name LIKE '%后端%') backend_tech_count,
     EXISTS (SELECT 1 FROM project_department_orders d WHERE d.order_id=o.id) is_department_order,
     (SELECT sp.parent_order_id FROM project_order_splits sp WHERE sp.child_order_id=o.id LIMIT 1) split_parent_id,(SELECT COUNT(*) FROM project_order_splits sc WHERE sc.parent_order_id=o.id) split_children,
     (SELECT GROUP_CONCAT(e.name ORDER BY p.commission_group DESC,p.id SEPARATOR '、') FROM project_participants p JOIN employees e ON e.id=p.employee_id WHERE p.order_id=o.id) people
@@ -506,7 +511,7 @@ $resourceHint = function ($t) { return trim($t['name'] . ' ' . $t['specification
       <div class="form-group col-md-3"><label for="intakeDate">订单日期</label><input class="form-control form-control-lg" id="intakeDate" type="date" name="order_date" value="<?php echo e($_POST['order_date'] ?? ''); ?>"><small class="text-muted">店铺订单号已同步时可自动带入；微信付款请填写支付日期</small></div>
     </div>
     <div class="form-row" id="intakeRenewalInfo">
-      <div class="form-group col-md-3" data-for="web"><label for="intakePhone">客户手机号 <span class="text-danger info-star" data-role="customer_service" hidden>*</span></label><input class="form-control" id="intakePhone" name="customer_phone" maxlength="20" inputmode="tel" value="<?php echo e($_POST['customer_phone'] ?? ''); ?>" placeholder="客户的 11 位手机号"></div>
+      <div class="form-group col-md-3" data-for="web"><label for="intakePhone">客户手机号 / 微信号 <span class="text-danger info-star" data-role="customer_service" hidden>*</span></label><input class="form-control" id="intakePhone" name="customer_phone" maxlength="50" value="<?php echo e($_POST['customer_phone'] ?? ''); ?>" placeholder="11 位手机号（海外客户可填微信/国际号）"></div>
       <div class="form-group col-md-3" data-for="web"><label for="intakeDomain">域名 <span class="text-danger info-star" data-role="technical" hidden>*</span></label><input class="form-control" id="intakeDomain" name="customer_domain" maxlength="120" value="<?php echo e($_POST['customer_domain'] ?? ''); ?>" placeholder="如 example.com"></div>
       <div class="form-group col-md-3" data-for="mini"><label for="intakeServerExpiry">服务器到期日 <span class="text-danger info-star" data-role="*" hidden>*</span></label><input class="form-control" id="intakeServerExpiry" type="date" name="server_expiry" value="<?php echo e($_POST['server_expiry'] ?? ''); ?>"></div>
       <div class="form-group col-md-6 d-flex align-items-end"><label class="mb-2 small text-muted" id="intakeInfoLaterWrap"><input type="checkbox" name="info_later" value="1" <?php echo !empty($_POST['info_later']) ? 'checked' : ''; ?>> 暂时拿不到，稍后补充（<strong class="text-danger">未补充将不会获得本订单的续费分成</strong>）</label></div>
@@ -596,7 +601,7 @@ $resourceHint = function ($t) { return trim($t['name'] . ' ' . $t['specification
   ?>
   <div class="col-md-2 mb-2"><label class="small text-muted mb-1" for="filterBusiness">业务</label><select class="form-control" name="filter_business" id="filterBusiness"><option value="">全部业务</option><?php foreach ($filterCatalog as $businessName => $definition): ?><option value="<?php echo e($businessName); ?>" <?php echo $filterBusiness === $businessName ? 'selected' : ''; ?>><?php echo e($businessName); ?></option><?php endforeach; ?></select></div>
   <div class="col-md-2 mb-2"><label class="small text-muted mb-1" for="filterCheck">系统核对</label><select class="form-control" id="filterCheck" name="check"><option value="">全部核对状态</option><?php foreach(['wait_sync','wait_finance','wait_data','exception','ready','auto_passed','settled','queued'] as $checkState): $checkMeta=pa_state_meta($checkState); ?><option value="<?php echo e($checkState); ?>" <?php echo $filterReview===$checkState?'selected':''; ?>><?php echo e($checkMeta[0]); ?>（<?php echo (int)($reviewCounts[$checkState]??0); ?>）</option><?php endforeach; ?></select></div>
-  <div class="col-md-2 mb-2"><label class="small text-muted mb-1" for="filterState">状态</label><select class="form-control" name="state" id="filterState"><option value="">全部</option><option value="unfinished" <?php echo $filterState === 'unfinished' ? 'selected' : ''; ?>>交付未完成</option><option value="finished" <?php echo $filterState === 'finished' ? 'selected' : ''; ?>>交付已完成</option><option value="pending_delivery" <?php echo $filterState === 'pending_delivery' ? 'selected' : ''; ?>>待交付审核</option><option value="pending_upgrade" <?php echo $filterState === 'pending_upgrade' ? 'selected' : ''; ?>>待升级审核</option><option value="todo" <?php echo $filterState === 'todo' ? 'selected' : ''; ?>>有待办</option><option value="open" <?php echo $filterState === 'open' ? 'selected' : ''; ?>>未审核</option><option value="approved" <?php echo $filterState === 'approved' ? 'selected' : ''; ?>>已审核</option></select></div>
+  <div class="col-md-2 mb-2"><label class="small text-muted mb-1" for="filterState">状态</label><select class="form-control" name="state" id="filterState"><option value="">全部</option><option value="unfinished" <?php echo $filterState === 'unfinished' ? 'selected' : ''; ?>>交付未完成</option><option value="finished" <?php echo $filterState === 'finished' ? 'selected' : ''; ?>>交付已完成</option><option value="pending_backend" <?php echo $filterState === 'pending_backend' ? 'selected' : ''; ?>>待指定后端</option><option value="pending_delivery" <?php echo $filterState === 'pending_delivery' ? 'selected' : ''; ?>>待交付审核</option><option value="pending_upgrade" <?php echo $filterState === 'pending_upgrade' ? 'selected' : ''; ?>>待升级审核</option><option value="todo" <?php echo $filterState === 'todo' ? 'selected' : ''; ?>>有待办</option><option value="open" <?php echo $filterState === 'open' ? 'selected' : ''; ?>>未审核</option><option value="approved" <?php echo $filterState === 'approved' ? 'selected' : ''; ?>>已审核</option></select></div>
   <div class="col-md-3 mb-2"><label class="small text-muted mb-1" for="filterQ">搜索（订单号 / 客户 / 付款昵称 / 项目账号）</label><input class="form-control" type="search" name="q" id="filterQ" value="<?php echo e($keyword); ?>" placeholder="订单号、客户、账号、IP、备注…"></div>
   <div class="col-md-2 mb-2"><button class="btn btn-outline-primary btn-block">筛选</button></div>
 </form></div></div>
@@ -621,7 +626,7 @@ $resourceHint = function ($t) { return trim($t['name'] . ' ' . $t['specification
       <?php echo e(ps_label('settlement', $order['settlement_status'])); ?>
       <div><?php echo $order['delivery_status'] === 'finished' ? '<span class="badge badge-success">已交付完成</span>' : '<span class="badge badge-light border">交付未完成</span>'; ?></div>
     </td>
-    <td class="text-nowrap"><a class="btn btn-outline-primary btn-sm text-nowrap" href="<?php echo BASE_URL; ?>/project/order.php?id=<?php echo (int)$order['id']; ?>">打开结算单</a><?php if ($canDeleteOrders && !in_array($order['settlement_status'], ['approved','locked'], true)): ?><button type="submit" name="delete_order_id" value="<?php echo (int)$order['id']; ?>" class="btn btn-outline-danger btn-sm text-nowrap ml-1" onclick="return confirm('删除订单 <?php echo e($order['order_no']); ?>？将连同实收流水、成本、参与人和分成快照一并删除，不可恢复。')">删除</button><?php endif; ?></td>
+    <td class="text-nowrap"><a class="btn btn-outline-primary btn-sm text-nowrap" href="<?php echo BASE_URL; ?>/project/order.php?id=<?php echo (int)$order['id']; ?>">打开结算单</a><?php if (empty($order['backend_tech_count']) && in_array(ps_business_normalize($order['project_type']), ['AI网站定制', '网站定制'], true) && !in_array($order['settlement_status'], ['approved','locked'], true)): ?><a class="btn btn-outline-info btn-sm text-nowrap ml-1" href="<?php echo BASE_URL; ?>/project/order.php?id=<?php echo (int)$order['id']; ?>" title="本单未分配后端技术"><i class="fas fa-server mr-1"></i>指定后端</a><?php endif; ?><?php if ($canDeleteOrders && !in_array($order['settlement_status'], ['approved','locked'], true)): ?><button type="submit" name="delete_order_id" value="<?php echo (int)$order['id']; ?>" class="btn btn-outline-danger btn-sm text-nowrap ml-1" onclick="return confirm('删除订单 <?php echo e($order['order_no']); ?>？将连同实收流水、成本、参与人和分成快照一并删除，不可恢复。')">删除</button><?php endif; ?></td>
   </tr><?php endforeach; ?>
   <?php if (!$orders): ?><tr><td colspan="12" class="text-center text-muted py-4"><?php echo $keyword !== '' ? '没有匹配的订单' : '本月暂无可查看的项目订单'; ?></td></tr><?php endif; ?>
   </tbody></table></div></div>

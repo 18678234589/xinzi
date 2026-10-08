@@ -53,8 +53,16 @@ function ps_require_actor()
         if (!$knowledgeRuleRead && !in_array($script, ['profile.php', 'vault.php', 'messages.php', 'dup_feedback.php', 'knowledge.php', 'knowledge_article.php', 'knowledge_links.php', 'knowledge_categories.php', 'knowledge_rules.php', 'knowledge_keywords.php', 'knowledge_integrations.php', 'knowledge_skills.php', 'knowledge_skill.php', 'knowledge_skill_import.php', 'knowledge_skills_export.php', 'knowledge_costs.php'], true)) { header('Location: ' . BASE_URL . '/project/vault.php'); exit; }
         if ($script !== 'profile.php' && empty($actor['password_changed_at']) && PHP_SAPI !== 'cli') { header('Location: ' . BASE_URL . '/project/profile.php?password=1'); exit; }
     }
-    // 合作人员首次登录须先绑定手机号（之后可用手机号登录），绑定前只能进入“我的账号”。
-    if ($actor['type'] === 'employee' && array_key_exists('phone', $actor) && empty($actor['phone']) && basename($_SERVER['SCRIPT_NAME'] ?? '') !== 'profile.php' && PHP_SAPI !== 'cli') {
+    // 尚未绑定手机号时仍可阅读共享知识；提交和其他业务操作继续要求先完成绑定。
+    $script = basename($_SERVER['SCRIPT_NAME'] ?? '');
+    $knowledgeReadOnly = ($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'GET' && in_array($script, [
+        'knowledge.php', 'knowledge_article.php', 'knowledge_links.php', 'knowledge_categories.php',
+        'knowledge_rules.php', 'knowledge_skills.php', 'knowledge_skill.php', 'knowledge_costs.php',
+        'knowledge_keywords.php',
+    ], true);
+    if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'GET' && $script === 'rules.php'
+        && in_array((string)($_GET['domain'] ?? ''), ['welfare', 'governance'], true)) $knowledgeReadOnly = true;
+    if ($actor['type'] === 'employee' && array_key_exists('phone', $actor) && empty($actor['phone']) && $script !== 'profile.php' && !$knowledgeReadOnly && PHP_SAPI !== 'cli') {
         header('Location: ' . BASE_URL . '/project/profile.php?first=1'); exit;
     }
     return $actor;
@@ -87,7 +95,17 @@ function ps_order($id, $actor)
     if ($actor['role'] !== 'finance') {
         $access = db()->prepare('SELECT 1 FROM project_participants WHERE order_id=? AND employee_id=? LIMIT 1');
         $access->execute([(int)$id, $actor['employee_id']]);
-        if (!$access->fetchColumn() && !ps_department_import_uploader_access($id, (int)$actor['employee_id'])) { http_response_code(403); exit('无权限查看此订单'); }
+        if (!$access->fetchColumn() && !ps_department_import_uploader_access($id, (int)$actor['employee_id'])) {
+            $isMissingBackendTech = false;
+            if ($actor['role'] === 'technical' && in_array(ps_business_normalize($order['project_type'] ?? ''), ['AI网站定制', '网站定制'], true)) {
+                $checkHasBackend = db()->prepare("SELECT 1 FROM project_participants WHERE order_id=? AND commission_group='technical' AND role_name LIKE '%后端%' LIMIT 1");
+                $checkHasBackend->execute([(int)$id]);
+                if (!$checkHasBackend->fetchColumn() && ps_active_employee_for_business($actor['employee_id'], 'technical', ps_business_normalize($order['project_type']))) {
+                    $isMissingBackendTech = true;
+                }
+            }
+            if (!$isMissingBackendTech) { http_response_code(403); exit('无权限查看此订单'); }
+        }
     }
     return $order;
 }
@@ -173,6 +191,31 @@ function ps_rule_for($group, $projectType, $orderDate, $role = '', $orderKind = 
         if ($score > $bestScore) { $best = $rule; $bestScore = $score; } // 候选按生效日期倒序，同分取最新版本。
     }
     return $best;
+}
+
+/**
+ * 为兼任多岗位的人员（如“前端/后端”、“外包前端/后端”）匹配全部适用的独立规则。
+ * 若单岗位或未能匹配多规则，则返回单条规则组成的数组。
+ */
+function ps_rules_for_person($group, $projectType, $orderDate, $role = '', $orderKind = '')
+{
+    $roles = ps_role_keys($role);
+    if (count($roles) <= 1) {
+        $single = ps_rule_for($group, $projectType, $orderDate, $role, $orderKind);
+        return $single ? [$single] : [];
+    }
+    $matched = [];
+    $seenIds = [];
+    foreach ($roles as $rKey) {
+        $r = ps_rule_for($group, $projectType, $orderDate, $rKey, $orderKind);
+        if ($r && !isset($seenIds[$r['id']])) {
+            $seenIds[$r['id']] = true;
+            $matched[] = $r;
+        }
+    }
+    if ($matched) return $matched;
+    $fallback = ps_rule_for($group, $projectType, $orderDate, $role, $orderKind);
+    return $fallback ? [$fallback] : [];
 }
 
 /** 定制岗位由已分配的岗位确定算法，不能因 AI 猜成“技术服务/新订单”掉到通用 5% 档。 */
@@ -321,21 +364,102 @@ function ps_summary($order, $costs, $participants)
         $weight = array_sum(array_map(function ($p) { return (float)$p['group_weight']; }, $people));
         $pool = 0.0; $estimatedPool = 0.0; $subsidy = 0.0; $missing = false; $subsidyRule = false;
         foreach ($people as $i => $person) {
-            $rule = ps_rule_for($group, $order['project_type'], $order['order_date'], $person['role_name'] ?? '', $orderKind);
+            $rules = ps_rules_for_person($group, $order['project_type'], $order['order_date'], $person['role_name'] ?? '', $orderKind);
+            $rule = $rules ? $rules[0] : null;
             $people[$i]['rule'] = $rule;
+            $people[$i]['rules'] = $rules;
             if ($rule && (float)$rule['per_order_subsidy'] > 0) $subsidyRule = true; // 规则本身配置了每单补助（与限定名单是否实际发放无关）
-            [$costNow, $noteNow] = $personCost($group, $person['role_name'] ?? '', false);
-            [$costEst, $noteEst] = $personCost($group, $person['role_name'] ?? '', true);
-            $people[$i]['calc'] = $rule ? ps_calc_person($rule, $income, $costNow, $contract, $person['group_weight'], $businessFeeRate, $noteNow, $feeBase) : null;
-            $people[$i]['estimated_calc'] = $rule ? $estMark(ps_calc_person($rule, $estIncome, $costEst, $contract, $person['group_weight'], $businessFeeRate, $noteEst, $feeBase)) : null;
-            // 规则限定“每单补助只发给指定员工”（subsidy_employee_ids，逗号分隔，留空 = 所有参与人）：不在名单内则取消补助。
-            $subsidyOnly = array_filter(array_map('intval', preg_split('/[^\d]+/', (string)($rule['subsidy_employee_ids'] ?? ''))));
-            if ($rule && $subsidyOnly && !in_array((int)($person['employee_id'] ?? 0), $subsidyOnly, true)) {
-                foreach (['calc', 'estimated_calc'] as $ck) {
-                    if (!$people[$i][$ck]) continue;
-                    $people[$i][$ck]['subsidy'] = 0.0;
-                    $people[$i][$ck]['subsidy_pool'] = 0.0;
-                    $people[$i][$ck]['note'] = preg_replace('/\s*\+ 每单补助.*$/u', '', (string)$people[$i][$ck]['note']);
+
+            if (count($rules) > 1) {
+                // 兼任多岗位（如前端/后端、外包前端/后端、模板技术/资料员）：按子岗位分别计算并汇总
+                $subWeight = (float)$person['group_weight'] / count($rules);
+                $subCalcs = [];
+                $subCalcsEst = [];
+                $subShareSum = 0.0;
+                $subSubsidySum = 0.0;
+                $subEstShareSum = 0.0;
+                $subEstSubsidySum = 0.0;
+                $feeSum = 0.0;
+                $feePartSum = 0.0;
+                $costBasisSum = 0.0;
+                $baseSum = 0.0;
+                $rateSum = 0.0;
+                $subNotes = [];
+                $subEstNotes = [];
+
+                foreach ($rules as $mRule) {
+                    $mRole = $mRule['role_name'] ?: '协作';
+                    [$cNow, $nNow] = $personCost($group, $mRole, false);
+                    [$cEst, $nEst] = $personCost($group, $mRole, true);
+                    $sc = ps_calc_person($mRule, $income, $cNow, $contract, $subWeight, $businessFeeRate, $nNow, $feeBase);
+                    $scEst = $estMark(ps_calc_person($mRule, $estIncome, $cEst, $contract, $subWeight, $businessFeeRate, $nEst, $feeBase));
+
+                    $mSubsidyOnly = array_filter(array_map('intval', preg_split('/[^\d]+/', (string)($mRule['subsidy_employee_ids'] ?? ''))));
+                    if ($mSubsidyOnly && !in_array((int)($person['employee_id'] ?? 0), $mSubsidyOnly, true)) {
+                        $sc['subsidy'] = 0.0; $sc['subsidy_pool'] = 0.0; $sc['note'] = preg_replace('/\s*\+ 每单补助.*$/u', '', (string)$sc['note']);
+                        $scEst['subsidy'] = 0.0; $scEst['subsidy_pool'] = 0.0; $scEst['note'] = preg_replace('/\s*\+ 每单补助.*$/u', '', (string)$scEst['note']);
+                    }
+
+                    $subCalcs[] = ['role' => $mRole, 'rule' => $mRule, 'calc' => $sc];
+                    $subCalcsEst[] = ['role' => $mRole, 'rule' => $mRule, 'calc' => $scEst];
+
+                    $subShareSum += $sc['share'];
+                    $subSubsidySum += $sc['subsidy'];
+                    $subEstShareSum += $scEst['share'];
+                    $subEstSubsidySum += $scEst['subsidy'];
+
+                    $feeSum += $sc['fee'];
+                    $feePartSum += $sc['fee_part'];
+                    $costBasisSum += $sc['cost_basis'];
+                    $baseSum += $sc['base'];
+                    $rateSum += (float)$mRule['rate'];
+
+                    $subNotes[] = $mRole . '提成 ¥' . money_plain($sc['share']) . ' (' . round((float)$mRule['rate'] * 100, 2) . '%)';
+                    $subEstNotes[] = $mRole . '预估 ¥' . money_plain($scEst['share']) . ' (' . round((float)$mRule['rate'] * 100, 2) . '%)';
+                }
+
+                $people[$i]['calc'] = array_merge($subCalcs[0]['calc'], [
+                    'mode' => 'individual',
+                    'fee' => round($feeSum, 2),
+                    'fee_part' => round($feePartSum, 2),
+                    'cost_basis' => round($costBasisSum, 2),
+                    'base' => round($baseSum, 2),
+                    'rate' => $rateSum,
+                    'share' => round($subShareSum, 2),
+                    'subsidy' => round($subSubsidySum, 2),
+                    'blocked' => false,
+                    'note' => implode(' + ', $subNotes) . '：合计提成 ¥' . money_plain($subShareSum) . ($subSubsidySum > 0 ? '（含补助 ¥' . money_plain($subSubsidySum) . '）' : ''),
+                    'sub_calcs' => $subCalcs
+                ]);
+
+                $people[$i]['estimated_calc'] = array_merge($subCalcsEst[0]['calc'], [
+                    'mode' => 'individual',
+                    'fee' => round($feeSum, 2),
+                    'fee_part' => round($feePartSum, 2),
+                    'cost_basis' => round($costBasisSum, 2),
+                    'base' => round($baseSum, 2),
+                    'rate' => $rateSum,
+                    'share' => round($subEstShareSum, 2),
+                    'subsidy' => round($subEstSubsidySum, 2),
+                    'blocked' => false,
+                    'note' => implode(' + ', $subEstNotes) . '：合计预估 ¥' . money_plain($subEstShareSum) . ($subEstSubsidySum > 0 ? '（含补助 ¥' . money_plain($subEstSubsidySum) . '）' : ''),
+                    'sub_calcs' => $subCalcsEst
+                ]);
+            } else {
+                [$costNow, $noteNow] = $personCost($group, $person['role_name'] ?? '', false);
+                [$costEst, $noteEst] = $personCost($group, $person['role_name'] ?? '', true);
+                $people[$i]['calc'] = $rule ? ps_calc_person($rule, $income, $costNow, $contract, $person['group_weight'], $businessFeeRate, $noteNow, $feeBase) : null;
+                $people[$i]['estimated_calc'] = $rule ? $estMark(ps_calc_person($rule, $estIncome, $costEst, $contract, $person['group_weight'], $businessFeeRate, $noteEst, $feeBase)) : null;
+
+                // 规则限定“每单补助只发给指定员工”（subsidy_employee_ids，逗号分隔，留空 = 所有参与人）：不在名单内则取消补助。
+                $subsidyOnly = array_filter(array_map('intval', preg_split('/[^\d]+/', (string)($rule['subsidy_employee_ids'] ?? ''))));
+                if ($rule && $subsidyOnly && !in_array((int)($person['employee_id'] ?? 0), $subsidyOnly, true)) {
+                    foreach (['calc', 'estimated_calc'] as $ck) {
+                        if (!$people[$i][$ck]) continue;
+                        $people[$i][$ck]['subsidy'] = 0.0;
+                        $people[$i][$ck]['subsidy_pool'] = 0.0;
+                        $people[$i][$ck]['note'] = preg_replace('/\s*\+ 每单补助.*$/u', '', (string)$people[$i][$ck]['note']);
+                    }
                 }
             }
             if ($order['project_type'] === '商标' && $group === 'technical') {
@@ -648,6 +772,9 @@ function ps_order_todos($row)
     if (($row['price_source'] ?? 'missing') === 'missing') $todos[] = ['售价待补', 'warning'];
     if (($row['domain_mode'] ?? '') === 'pending' && !empty(ps_business_catalog()[ps_business_normalize($row['project_type'])]['resources'])) $todos[] = ['资源待技术确认', 'warning'];
     if (ps_business_requires_technical($row['project_type']) && (int)($row['tech_count'] ?? 1) === 0) $todos[] = ['未指定技术', 'danger'];
+    if (in_array(ps_business_normalize($row['project_type'] ?? ''), ['AI网站定制', '网站定制'], true) && isset($row['backend_tech_count']) && (int)$row['backend_tech_count'] === 0 && (int)($row['tech_count'] ?? 0) > 0) {
+        $todos[] = ['待指定后端', 'warning'];
+    }
     if ((int)($row['pending_costs'] ?? 0) > 0) $todos[] = ['成本待审 ' . (int)$row['pending_costs'], 'info'];
     if ((int)($row['pending_cash'] ?? 0) > 0) $todos[] = ['收退款待审 ' . (int)$row['pending_cash'], 'info'];
     if ((int)($row['pending_delivery_requests'] ?? 0) > 0) $todos[] = ['交付待审', 'warning'];
@@ -1041,4 +1168,78 @@ function ps_order_asof($order)
     $later = ps_refund_later($order['id'], $order['order_date'] ?? '');
     if ($later > 0) $order['refund_amount'] = max(round((float)$order['refund_amount'] - $later, 2), 0.0);
     return $order;
+}
+
+/**
+ * 为订单分配或更新后端技术人员。
+ * 支持：
+ * - 'colleague': 指定一名后端技术同事（双方权重各 50%）
+ * - 'self_fullstack': 技术人员本人兼任前后端（角色更新为 前端/后端，权重 100%）
+ */
+function ps_order_assign_backend($orderId, $backendEmployeeId, $mode, $actor)
+{
+    $pdo = db();
+    $order = ps_order($orderId, $actor);
+    if (in_array($order['settlement_status'], ['approved', 'locked'], true)) {
+        throw new RuntimeException('订单已审核，修改须走调整流程');
+    }
+    $isFinance = $actor['role'] === 'finance';
+    $isCS = $actor['role'] === 'customer_service';
+    $isTech = $actor['role'] === 'technical';
+    $actorEid = (int)($actor['employee_id'] ?? 0);
+
+    if (!$isFinance && !$isCS) {
+        $chk = $pdo->prepare('SELECT 1 FROM project_participants WHERE order_id=? AND employee_id=? LIMIT 1');
+        $chk->execute([(int)$orderId, $actorEid]);
+        $isParticipant = (bool)$chk->fetchColumn();
+        if (!$isParticipant && $mode !== 'colleague') {
+            throw new RuntimeException('您未参与此订单，无权分配后端技术');
+        }
+    }
+
+    if ($mode === 'self_fullstack') {
+        $targetTechId = $isTech ? $actorEid : (int)$backendEmployeeId;
+        if (!$targetTechId) throw new RuntimeException('未指定技术人员');
+        $qRole = $pdo->prepare('SELECT id, role_name FROM project_participants WHERE order_id=? AND employee_id=? AND commission_group="technical" LIMIT 1');
+        $qRole->execute([(int)$orderId, $targetTechId]);
+        $row = $qRole->fetch();
+        if (!$row) throw new RuntimeException('该员工尚未在技术组，请先添加');
+        $currRole = (string)$row['role_name'];
+        $isOutsourced = mb_strpos($currRole, '外包') !== false;
+        $newRole = $isOutsourced ? '外包前端/后端' : '前端/后端';
+        
+        $pdo->prepare('UPDATE project_participants SET role_name=?, group_weight=1.0 WHERE id=?')
+            ->execute([$newRole, (int)$row['id']]);
+        
+        $pdo->prepare('DELETE FROM project_participants WHERE order_id=? AND commission_group="technical" AND employee_id<>?')
+            ->execute([(int)$orderId, $targetTechId]);
+        
+        ps_audit('order', (int)$orderId, 'assign_backend_fullstack', $actor, ['employee_id' => $targetTechId, 'role' => $newRole]);
+        return ['ok' => true, 'mode' => 'self_fullstack', 'role' => $newRole];
+    } else {
+        $backendId = (int)$backendEmployeeId;
+        if (!$backendId) throw new RuntimeException('请选择后端技术人员');
+        if (!ps_active_employee_for_business($backendId, 'technical', ps_business_normalize($order['project_type']))) {
+            throw new RuntimeException('所选后端技术人员未开通此业务的有效账号');
+        }
+        $techs = $pdo->prepare('SELECT id, employee_id, role_name FROM project_participants WHERE order_id=? AND commission_group="technical"');
+        $techs->execute([(int)$orderId]);
+        $existing = $techs->fetchAll();
+
+        foreach ($existing as $t) {
+            if ((int)$t['employee_id'] !== $backendId) {
+                $fRole = $t['role_name'];
+                if (mb_strpos($fRole, '后端') !== false) {
+                    $fRole = (mb_strpos($fRole, '外包') !== false) ? '外包前端' : '前端';
+                }
+                $pdo->prepare('UPDATE project_participants SET role_name=?, group_weight=0.5 WHERE id=?')
+                    ->execute([$fRole, (int)$t['id']]);
+            }
+        }
+        $pdo->prepare('INSERT INTO project_participants (order_id, employee_id, commission_group, role_name, group_weight) VALUES (?, ?, "technical", "后端", 0.5) ON DUPLICATE KEY UPDATE role_name="后端", group_weight=0.5')
+            ->execute([(int)$orderId, $backendId]);
+
+        ps_audit('order', (int)$orderId, 'assign_backend_colleague', $actor, ['backend_id' => $backendId]);
+        return ['ok' => true, 'mode' => 'colleague', 'backend_id' => $backendId];
+    }
 }

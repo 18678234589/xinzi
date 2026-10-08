@@ -12,7 +12,11 @@ $success=isset($_GET['saved']) ? '续费资料已保存，同事可在同一订�
 $edit=null; $order=null;
 try {
     if ($_SERVER['REQUEST_METHOD']==='POST') {
-        ps_check_csrf(); $id=pr_save($_POST,$actor);
+        ps_check_csrf();
+        $ownerPost=(string)($_POST['owner']??'');
+        if (($_POST['resource_type']??'')==='domain' && $ownerPost==='customer' && trim((string)($_POST['note']??''))==='') throw new RuntimeException('客户自有域名请在“备注”里写一句说明（如：客户自备域名，已交付源码）');
+        $id=pr_save($_POST,$actor);
+        if (($_POST['resource_type']??'')==='domain' && in_array($ownerPost,['ours','customer'],true)) pr_set_owner($id,$ownerPost,(string)($_POST['note']??''),$actor);
         header('Location: '.BASE_URL.'/project/renewals.php?edit='.$id.'&saved=1'); exit;
     }
     if (!empty($_GET['edit'])) { $edit=pr_item((int)$_GET['edit'],$actor); $order=pr_order($edit['order_id'],$actor); }
@@ -59,6 +63,7 @@ function pr_url($filter,$search='',$page=1) { global $viewEmployee; return BASE_
   <label>名称（域名 / 小程序名 / 服务器 / 备案号）<input name="resource_name" maxlength="180" placeholder="域名和微信认证需填写，如 example.com / XX 小程序；备案、服务器可留空" value=""<?php echo e($form['resource_name']); ?>"></label>
   <label class="<?php echo ($form['expiry_source']??'estimated')==='estimated'?'pr-needs-date':''; ?>">到期日期<input name="expires_on" type="date" min="2000-01-01" max="2100-12-31" value="<?php echo e($form['expires_on']??''); ?>"><small>填写与预计不同的日期即作为实际日期；日期相同可勾选下方“已核实”。</small></label>
   <label>客户手机号<input name="phone" type="tel" inputmode="tel" autocomplete="off" maxlength="20" placeholder="客户手机号，不是合作人员手机号" value="<?php echo e($phone); ?>"></label>
+  <label>域名归属<select name="owner"><?php foreach(pr_owner_labels() as $key=>$label): ?><option value="<?php echo e($key); ?>" <?php echo (($form['owner']??'ours')===$key)?'selected':''; ?>><?php echo e($label); ?></option><?php endforeach; ?></select><small>客户自备域名、已交付源码的选“客户自有”（需在备注写一句说明）：不再提醒续费，也不算缺资料。只对“域名”有效。</small></label>
   <label>服务状态<select name="status"><?php foreach(['active'=>'持续维护 / 待续费','paused'=>'暂停联系（不发短信）','closed'=>'结束维护（不发短信）'] as $key=>$label): ?><option value="<?php echo e($key); ?>" <?php echo $form['status']===$key?'selected':''; ?>><?php echo e($label); ?></option><?php endforeach; ?></select></label>
   <label>备注<input name="note" maxlength="500" placeholder="可填写已支付待续费、联系情况等" value="<?php echo e($form['note']); ?>"></label>
   <label class="pr-check"><input type="checkbox" name="expiry_confirmed" value="1" <?php echo (in_array($form['expiry_source']??'',['confirmed','imported'],true)||!empty($form['expiry_confirmed']))?'checked':''; ?>> 已从域名 / 认证后台核实此到期日期</label>

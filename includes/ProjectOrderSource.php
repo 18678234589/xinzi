@@ -112,6 +112,36 @@ function ps_source_nickname($raw)
 }
 
 /** 只同步空字段；成交价与已确认收款是两套数据。调用方负责事务。 */
+/**
+ * 店铺订单状态的“进度”：数字越大越靠后，状态只前进不后退（交易关闭 / 退款成功是终态）。
+ * 用于重复上传同一订单号时决定保留哪个状态，避免旧导出把新状态覆盖回去。
+ */
+function ps_shop_status_rank($status)
+{
+    $s = trim((string)$status);
+    if ($s === '') return 1;
+    if (preg_match('/交易关闭|退款成功|已退款|全额退款/u', $s)) return 5;
+    if (preg_match('/退款中|申请退款|售后中|部分退款|退款处理/u', $s)) return 4;
+    if (preg_match('/交易成功|已完成|已收货|确认收货/u', $s)) return 3;
+    if (preg_match('/已发货|等待买家确认|等待确认收货/u', $s)) return 2;
+    if (preg_match('/等待买家付款|待付款|未付款/u', $s)) return 0;
+    return 1;
+}
+
+/** 店铺流水里订单状态变得更靠后（如交易成功 → 交易关闭）时，同步到同订单号的项目订单的“交易状态”。只前进、不回退。 */
+function ps_sync_project_status_latest($orderNo, $shop, $status)
+{
+    $orderNo = trim((string)$orderNo); $status = mb_substr(trim((string)$status), 0, 100);
+    if ($orderNo === '' || $status === '') return false;
+    $q = db()->prepare('SELECT o.id,o.shop,s.trade_status FROM project_orders o LEFT JOIN project_order_sources s ON s.order_id=o.id WHERE o.order_no=? LIMIT 1');
+    $q->execute([$orderNo]); $o = $q->fetch();
+    if (!$o) return false;
+    if ($o['shop'] !== '' && $shop !== '' && $o['shop'] !== $shop) return false;
+    if ((string)$o['trade_status'] !== '' && ps_shop_status_rank($status) <= ps_shop_status_rank($o['trade_status'])) return false;
+    db()->prepare("INSERT INTO project_order_sources (order_id,trade_status,status_source,synced_at) VALUES (?,?, 'shop_upload', NOW()) ON DUPLICATE KEY UPDATE trade_status=VALUES(trade_status),status_source='shop_upload',synced_at=NOW()")->execute([(int)$o['id'], $status]);
+    return true;
+}
+
 function ps_sync_project_from_shop_order($legacyId, $orderNo, $shop, $raw, $price)
 {
     $orderNo = trim((string)$orderNo);

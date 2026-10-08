@@ -295,6 +295,11 @@ function pks_list(array $ctx, array $f, $page = 1, $perPage = 20)
 {
     pks_ensure();
     $where = pks_visible_sql($ctx, $params);
+    if (!empty($f['mine'])) {
+        $where .= ' AND owner_type=? AND owner_id=?';
+        $params[] = $ctx['actor']['type'];
+        $params[] = (int)$ctx['actor']['id'];
+    }
     foreach (['kind' => 'kind', 'status' => 'status', 'business' => 'business'] as $key => $col) {
         if (!empty($f[$key])) { $where .= " AND $col=?"; $params[] = $f[$key]; }
     }

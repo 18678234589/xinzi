@@ -19,8 +19,8 @@ function rip_missing($actor, $limit = 8)
         $since = (new DateTimeImmutable(pr_today()))->modify('-90 day')->format('Y-m-d');
         $mine = "(EXISTS (SELECT 1 FROM project_participants p WHERE p.order_id=o.id AND p.employee_id=?) OR EXISTS (SELECT 1 FROM project_department_uploaders u WHERE u.order_id=o.id AND u.employee_id=?))";
         $sql = "SELECT o.id,o.order_no,o.customer_name,o.project_type,o.order_date,
-                  (o.project_type<>'小程序开发' AND NOT EXISTS (SELECT 1 FROM project_renewal_items r WHERE r.order_id=o.id AND r.phone_hash<>'' AND r.status<>'closed') AND COALESCE(o.note,'') NOT REGEXP '(^|[^0-9])1[3-9][0-9]{9}([^0-9]|$)') AS need_phone,
-                  (o.project_type<>'小程序开发' AND COALESCE(res.domain_mode,'pending')<>'none' AND NOT EXISTS (SELECT 1 FROM project_renewal_items r WHERE r.order_id=o.id AND r.resource_type='domain' AND r.resource_name<>'' AND r.status<>'closed')) AS need_domain,
+                  (o.project_type<>'小程序开发' AND NOT EXISTS (SELECT 1 FROM project_renewal_items r WHERE r.order_id=o.id AND ((r.phone_hash<>'' AND r.status<>'closed') OR r.owner='customer')) AND COALESCE(o.note,'') NOT REGEXP '(^|[^0-9])1[3-9][0-9]{9}([^0-9]|$)' AND COALESCE(o.note,'') NOT REGEXP '(微信|微信号|wx|海外|国外|邮箱|@)') AS need_phone,
+                  (o.project_type<>'小程序开发' AND COALESCE(res.domain_mode,'pending')<>'none' AND NOT EXISTS (SELECT 1 FROM project_renewal_items r WHERE r.order_id=o.id AND r.resource_type='domain' AND ((r.resource_name<>'' AND r.status<>'closed') OR r.owner='customer'))) AS need_domain,
                   (o.project_type='小程序开发' AND NOT EXISTS (SELECT 1 FROM project_renewal_items r WHERE r.order_id=o.id AND r.resource_type='server' AND r.expires_on IS NOT NULL AND r.expiry_source IN ('confirmed','imported') AND r.status<>'closed')) AS need_server
                 FROM project_orders o LEFT JOIN project_order_resources res ON res.order_id=o.id
                 WHERE o.project_type IN ('AI网站定制','网站模板','网站续费','网站修改','小程序开发') AND o.order_date>=? AND $mine

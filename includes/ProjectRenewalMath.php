@@ -29,11 +29,13 @@ function pr_reminder_day($item, $today)
     $days = pr_days($item['expires_on'] ?? null, $today);
     return in_array($days, [10, 3, 1], true) ? $days : null;
 }
-function pr_phone($phone)
+function pr_phone($phone, $strictMobile = false)
 {
     $phone = preg_replace('/[\s\-()]+/', '', trim((string)$phone));
     $phone = preg_replace('/^(\+86|0086)/', '', $phone);
-    if ($phone !== '' && !preg_match('/^1[3-9][0-9]{9}$/D', $phone)) throw new RuntimeException('请填写客户的中国大陆 11 位手机号；不是合作人员手机号');
+    if ($phone === '') return '';
+    if (preg_match('/^1[3-9][0-9]{9}$/D', $phone)) return $phone;
+    if ($strictMobile) throw new RuntimeException('请填写客户的中国大陆 11 位手机号；不是合作人员手机号');
     return $phone;
 }
 function pr_type_labels() { return ['miniapp_certification' => '微信认证', 'icp' => '备案', 'domain' => '域名', 'server' => '服务器']; }
@@ -45,6 +47,7 @@ function pr_types_for($projectType)
     unset($all['miniapp_certification']);
     return $all;
 }
+function pr_owner_labels() { return ['ours' => '我们代管', 'customer' => '客户自有（不续费）']; }
 function pr_default_type($projectType) { return $projectType === '小程序开发' ? 'miniapp_certification' : 'domain'; }
 /** 表头里的到期日列 → 资源类型。域名和服务器合写、或写的是长段说明的列不当作权威到期日。 */
 function pr_import_label_type($label)
