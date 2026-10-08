@@ -1202,7 +1202,8 @@ function ps_order_assign_backend($orderId, $backendEmployeeId, $mode, $actor)
     }
 
     if ($mode === 'self_fullstack') {
-        $targetTechId = $isTech ? $actorEid : (int)$backendEmployeeId;
+        $targetTechId = ($isTech && $actorEid) ? $actorEid : (int)$backendEmployeeId;
+        if (!$targetTechId) $targetTechId = (int)($_POST['frontend_employee_id'] ?? 0);
         if (!$targetTechId) throw new RuntimeException('未指定技术人员');
         $qRole = $pdo->prepare('SELECT id, role_name FROM project_participants WHERE order_id=? AND employee_id=? AND commission_group="technical" LIMIT 1');
         $qRole->execute([(int)$orderId, $targetTechId]);
@@ -1223,7 +1224,13 @@ function ps_order_assign_backend($orderId, $backendEmployeeId, $mode, $actor)
     } else {
         $backendId = (int)$backendEmployeeId;
         if (!$backendId) throw new RuntimeException('请选择后端技术人员');
-        if (!ps_active_employee_for_business($backendId, 'technical', ps_business_normalize($order['project_type']))) {
+        $bizNorm = ps_business_normalize($order['project_type']);
+        $hasActiveBiz = ps_active_employee_for_business($backendId, 'technical', $bizNorm);
+        if (!$hasActiveBiz && ps_is_website_order($bizNorm)) {
+            $hasActiveBiz = ps_active_employee_for_business($backendId, 'technical', 'AI网站定制')
+                || ps_active_employee_for_business($backendId, 'technical', '网站模板');
+        }
+        if (!$hasActiveBiz) {
             throw new RuntimeException('所选后端技术人员未开通此业务的有效账号');
         }
         $techs = $pdo->prepare('SELECT id, employee_id, role_name FROM project_participants WHERE order_id=? AND commission_group="technical"');

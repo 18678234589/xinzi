@@ -385,11 +385,11 @@ if ($filterState === 'unfinished') $where[] = "o.delivery_status='unfinished'";
 if ($filterState === 'finished') $where[] = "o.delivery_status='finished'";
 if ($filterState === 'pending_delivery') $where[] = "EXISTS (SELECT 1 FROM project_order_requests por WHERE por.order_id=o.id AND por.request_type='delivery_completion' AND por.status='pending')";
 if ($filterState === 'pending_upgrade') $where[] = "EXISTS (SELECT 1 FROM project_order_requests por WHERE por.order_id=o.id AND por.request_type='product_upgrade' AND por.status='pending')";
-if ($filterState === 'pending_backend') $where[] = "o.project_type IN ('AI网站定制', '网站定制') AND NOT EXISTS (SELECT 1 FROM project_participants p WHERE p.order_id=o.id AND p.commission_group='technical' AND p.role_name LIKE '%后端%')";
+if ($filterState === 'pending_backend') $where[] = "o.project_type IN ('AI网站定制', '网站定制', '网站模板') AND NOT EXISTS (SELECT 1 FROM project_participants p WHERE p.order_id=o.id AND p.commission_group='technical' AND p.role_name LIKE '%后端%')";
 if ($actor['role'] === 'finance') {
     if ($filterEmployeeId > 0) { $where[] = 'EXISTS (SELECT 1 FROM project_participants mp WHERE mp.order_id=o.id AND mp.employee_id=?)'; $params[] = $filterEmployeeId; }
 } elseif ($filterState === 'pending_backend' && $actor['role'] === 'technical') {
-    // 技术人员筛选“待指定后端”时，允许查看所有未指定后端的网站定制订单以便认领
+    // 技术人员筛选“待指定后端”时，允许查看所有未指定后端的网站类订单以便认领
 } else {
     $where[] = $participationOnly ? 'EXISTS (SELECT 1 FROM project_participants mp WHERE mp.order_id=o.id AND mp.employee_id=?)' : '(EXISTS (SELECT 1 FROM project_participants mp WHERE mp.order_id=o.id AND mp.employee_id=?) OR EXISTS (SELECT 1 FROM project_department_uploaders du WHERE du.order_id=o.id AND du.employee_id=?))';
     $params[] = $actor['employee_id'];
@@ -627,7 +627,7 @@ $resourceHint = function ($t) { return trim($t['name'] . ' ' . $t['specification
       <?php echo e(ps_label('settlement', $order['settlement_status'])); ?>
       <div><?php echo $order['delivery_status'] === 'finished' ? '<span class="badge badge-success">已交付完成</span>' : '<span class="badge badge-light border">交付未完成</span>'; ?></div>
     </td>
-    <td class="text-nowrap"><a class="btn btn-outline-primary btn-sm text-nowrap" href="<?php echo BASE_URL; ?>/project/order.php?id=<?php echo (int)$order['id']; ?>">打开结算单</a><?php if (empty($order['backend_tech_count']) && in_array(ps_business_normalize($order['project_type']), ['AI网站定制', '网站定制'], true) && !in_array($order['settlement_status'], ['approved','locked'], true)): ?><a class="btn btn-outline-info btn-sm text-nowrap ml-1" href="<?php echo BASE_URL; ?>/project/order.php?id=<?php echo (int)$order['id']; ?>" title="本单未分配后端技术"><i class="fas fa-server mr-1"></i>指定后端</a><?php endif; ?><?php if ($canDeleteOrders && !in_array($order['settlement_status'], ['approved','locked'], true)): ?><button type="submit" name="delete_order_id" value="<?php echo (int)$order['id']; ?>" class="btn btn-outline-danger btn-sm text-nowrap ml-1" onclick="return confirm('删除订单 <?php echo e($order['order_no']); ?>？将连同实收流水、成本、参与人和分成快照一并删除，不可恢复。')">删除</button><?php endif; ?></td>
+    <td class="text-nowrap"><a class="btn btn-outline-primary btn-sm text-nowrap" href="<?php echo BASE_URL; ?>/project/order.php?id=<?php echo (int)$order['id']; ?>">打开结算单</a><?php if (empty($order['backend_tech_count']) && ps_is_website_order($order['project_type']) && !in_array($order['settlement_status'], ['approved','locked'], true)): ?><a class="btn btn-outline-info btn-sm text-nowrap ml-1" href="<?php echo BASE_URL; ?>/project/order.php?id=<?php echo (int)$order['id']; ?>" title="本单未分配后端技术"><i class="fas fa-server mr-1"></i>指定后端</a><?php endif; ?><?php if ($canDeleteOrders && !in_array($order['settlement_status'], ['approved','locked'], true)): ?><button type="submit" name="delete_order_id" value="<?php echo (int)$order['id']; ?>" class="btn btn-outline-danger btn-sm text-nowrap ml-1" onclick="return confirm('删除订单 <?php echo e($order['order_no']); ?>？将连同实收流水、成本、参与人和分成快照一并删除，不可恢复。')">删除</button><?php endif; ?></td>
   </tr><?php endforeach; ?>
   <?php if (!$orders): ?><tr><td colspan="12" class="text-center text-muted py-4"><?php echo $keyword !== '' ? '没有匹配的订单' : '本月暂无可查看的项目订单'; ?></td></tr><?php endif; ?>
   </tbody></table></div></div>
