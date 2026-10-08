@@ -1,4 +1,5 @@
 <?php
+require_once __DIR__ . '/split_source.php';
 if (PHP_SAPI !== 'cli') { http_response_code(404); exit; }
 require_once __DIR__ . '/../includes/ProjectPartnerDashboard.php';
 $checks = 0;
@@ -23,7 +24,7 @@ dashboard_link_check('customer service cannot select another employee', ps_partn
 dashboard_link_check('technical cannot select another employee', ps_partner_list_employee_id(['role'=>'technical','employee_id'=>53],70),53);
 dashboard_link_check('historical business alias matches dashboard bucket', ps_partner_business_bucket('网站定制'),'AI网站定制');
 dashboard_link_check('unknown historical business matches other bucket', ps_partner_business_bucket('历史未知业务'),'其他业务');
-$source=file_get_contents(__DIR__.'/../project/index.php');
+$source=split_test_source('project/index.php');
 dashboard_link_check('participation filter survives form submits', strpos($source,'name="participating" value="1"')!==false,true);
 dashboard_link_check('employee and participation retained after bulk action', strpos($source,"'employee_id','participating'")!==false,true);
 echo "All $checks checks passed; no database writes.\n";

@@ -1,4 +1,5 @@
 <?php
+require_once __DIR__ . '/split_source.php';
 require_once __DIR__ . '/../includes/ProjectExpectedSettlement.php';
 require_once __DIR__ . '/../includes/ProjectImportClassification.php';
 require_once __DIR__ . '/../includes/ProjectIntake.php';
@@ -77,7 +78,7 @@ expect_value('headerless website product column is identified', $legacyMap['prog
 expect_value('unlabelled renewal price is not guessed as cost', isset($legacyMap['direct_cost']), false);
 $roles=ps_import_website_people_roles(['technical'=>[['name'=>'刘帅','role'=>'模板技术']],'customer_service'=>[]], 'AI网站定制');
 expect_value('custom internal frontend is not assigned template technical algorithm', $roles['technical'][0]['role'], '前端');
-expect_value('import does not overwrite per-row classified business', strpos(file_get_contents(__DIR__.'/../project/import.php'), "\$record['project_type'] = \$selectedBusiness;"), false);
+expect_value('import does not overwrite per-row classified business', strpos(split_test_source('project/import.php'), "\$record['project_type'] = \$selectedBusiness;"), false);
 $adjustment=['employee_id'=>84,'rule_type'=>'adjustment','rule_name'=>'跨月退款','paid_separately'=>0,'amount'=>-80,'detail'=>''];
 expect_value('cross month adjustment reduces expected total and commission',ps_expected_rollup(84,[],[$adjustment])['total'],-80);
 echo "All $checks checks passed; no database writes.\n";
