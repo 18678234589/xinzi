@@ -1,0 +1,765 @@
+{
+  "rules": [
+    {
+      "id": 1,
+      "name": "split_tier_rate",
+      "rule_type": "tier_rate",
+      "scope_business": "*",
+      "scope_group": "*",
+      "scope_role": "*",
+      "employee_id": null,
+      "metric": "profit",
+      "params": {
+        "amount": 500,
+        "tiers": [
+          {
+            "from": 0,
+            "rate": 0.2,
+            "base": 3000
+          }
+        ],
+        "threshold": 1000,
+        "rate": 0.1,
+        "share": 0.5,
+        "awards": [
+          300,
+          200,
+          100
+        ],
+        "fixed": [
+          {
+            "employee_id": 1,
+            "share": 0.1
+          }
+        ],
+        "members_share": 0.5,
+        "milestone": {
+          "from": 1000,
+          "step": 1000,
+          "amount": 10,
+          "cap": 1000
+        },
+        "module_name": "__split_missing_module__",
+        "separate": true
+      }
+    },
+    {
+      "id": 2,
+      "name": "split_threshold_bonus",
+      "rule_type": "threshold_bonus",
+      "scope_business": "*",
+      "scope_group": "*",
+      "scope_role": "*",
+      "employee_id": null,
+      "metric": "profit",
+      "params": {
+        "amount": 500,
+        "tiers": [
+          {
+            "from": 0,
+            "rate": 0.2,
+            "base": 3000
+          }
+        ],
+        "threshold": 1000,
+        "rate": 0.1,
+        "share": 0.5,
+        "awards": [
+          300,
+          200,
+          100
+        ],
+        "fixed": [
+          {
+            "employee_id": 1,
+            "share": 0.1
+          }
+        ],
+        "members_share": 0.5,
+        "milestone": {
+          "from": 1000,
+          "step": 1000,
+          "amount": 10,
+          "cap": 1000
+        },
+        "module_name": "__split_missing_module__",
+        "separate": true
+      }
+    },
+    {
+      "id": 3,
+      "name": "split_ranking",
+      "rule_type": "ranking",
+      "scope_business": "*",
+      "scope_group": "*",
+      "scope_role": "*",
+      "employee_id": null,
+      "metric": "profit",
+      "params": {
+        "amount": 500,
+        "tiers": [
+          {
+            "from": 0,
+            "rate": 0.2,
+            "base": 3000
+          }
+        ],
+        "threshold": 1000,
+        "rate": 0.1,
+        "share": 0.5,
+        "awards": [
+          300,
+          200,
+          100
+        ],
+        "fixed": [
+          {
+            "employee_id": 1,
+            "share": 0.1
+          }
+        ],
+        "members_share": 0.5,
+        "milestone": {
+          "from": 1000,
+          "step": 1000,
+          "amount": 10,
+          "cap": 1000
+        },
+        "module_name": "__split_missing_module__",
+        "separate": true
+      }
+    },
+    {
+      "id": 4,
+      "name": "split_dept_share",
+      "rule_type": "dept_share",
+      "scope_business": "*",
+      "scope_group": "*",
+      "scope_role": "*",
+      "employee_id": 1,
+      "metric": "profit",
+      "params": {
+        "amount": 500,
+        "tiers": [
+          {
+            "from": 0,
+            "rate": 0.2,
+            "base": 3000
+          }
+        ],
+        "threshold": 1000,
+        "rate": 0.1,
+        "share": 0.5,
+        "awards": [
+          300,
+          200,
+          100
+        ],
+        "fixed": [
+          {
+            "employee_id": 1,
+            "share": 0.1
+          }
+        ],
+        "members_share": 0.5,
+        "milestone": {
+          "from": 1000,
+          "step": 1000,
+          "amount": 10,
+          "cap": 1000
+        },
+        "module_name": "__split_missing_module__",
+        "separate": true
+      }
+    },
+    {
+      "id": 5,
+      "name": "split_profit_pool",
+      "rule_type": "profit_pool",
+      "scope_business": "*",
+      "scope_group": "*",
+      "scope_role": "*",
+      "employee_id": null,
+      "metric": "profit",
+      "params": {
+        "amount": 500,
+        "tiers": [
+          {
+            "from": 0,
+            "rate": 0.2,
+            "base": 3000
+          }
+        ],
+        "threshold": 1000,
+        "rate": 0.1,
+        "share": 0.5,
+        "awards": [
+          300,
+          200,
+          100
+        ],
+        "fixed": [
+          {
+            "employee_id": 1,
+            "share": 0.1
+          }
+        ],
+        "members_share": 0.5,
+        "milestone": {
+          "from": 1000,
+          "step": 1000,
+          "amount": 10,
+          "cap": 1000
+        },
+        "module_name": "__split_missing_module__",
+        "separate": true
+      }
+    },
+    {
+      "id": 6,
+      "name": "split_perf_rank",
+      "rule_type": "perf_rank",
+      "scope_business": "*",
+      "scope_group": "*",
+      "scope_role": "*",
+      "employee_id": 1,
+      "metric": "profit",
+      "params": {
+        "amount": 500,
+        "tiers": [
+          {
+            "from": 0,
+            "rate": 0.2,
+            "base": 3000
+          }
+        ],
+        "threshold": 1000,
+        "rate": 0.1,
+        "share": 0.5,
+        "awards": [
+          300,
+          200,
+          100
+        ],
+        "fixed": [
+          {
+            "employee_id": 1,
+            "share": 0.1
+          }
+        ],
+        "members_share": 0.5,
+        "milestone": {
+          "from": 1000,
+          "step": 1000,
+          "amount": 10,
+          "cap": 1000
+        },
+        "module_name": "__split_missing_module__",
+        "separate": true
+      }
+    },
+    {
+      "id": 7,
+      "name": "split_order_count",
+      "rule_type": "order_count",
+      "scope_business": "*",
+      "scope_group": "*",
+      "scope_role": "*",
+      "employee_id": 1,
+      "metric": "profit",
+      "params": {
+        "amount": 500,
+        "tiers": [
+          {
+            "from": 0,
+            "rate": 0.2,
+            "base": 3000
+          }
+        ],
+        "threshold": 1000,
+        "rate": 0.1,
+        "share": 0.5,
+        "awards": [
+          300,
+          200,
+          100
+        ],
+        "fixed": [
+          {
+            "employee_id": 1,
+            "share": 0.1
+          }
+        ],
+        "members_share": 0.5,
+        "milestone": {
+          "from": 1000,
+          "step": 1000,
+          "amount": 10,
+          "cap": 1000
+        },
+        "module_name": "__split_missing_module__",
+        "separate": true
+      }
+    },
+    {
+      "id": 8,
+      "name": "split_legacy_sheet",
+      "rule_type": "legacy_sheet",
+      "scope_business": "*",
+      "scope_group": "*",
+      "scope_role": "*",
+      "employee_id": 1,
+      "metric": "profit",
+      "params": {
+        "amount": 500,
+        "tiers": [
+          {
+            "from": 0,
+            "rate": 0.2,
+            "base": 3000
+          }
+        ],
+        "threshold": 1000,
+        "rate": 0.1,
+        "share": 0.5,
+        "awards": [
+          300,
+          200,
+          100
+        ],
+        "fixed": [
+          {
+            "employee_id": 1,
+            "share": 0.1
+          }
+        ],
+        "members_share": 0.5,
+        "milestone": {
+          "from": 1000,
+          "step": 1000,
+          "amount": 10,
+          "cap": 1000
+        },
+        "module_name": "__split_missing_module__",
+        "separate": true
+      }
+    },
+    {
+      "id": 9,
+      "name": "split_legacy_module",
+      "rule_type": "legacy_module",
+      "scope_business": "*",
+      "scope_group": "*",
+      "scope_role": "*",
+      "employee_id": 1,
+      "metric": "profit",
+      "params": {
+        "amount": 500,
+        "tiers": [
+          {
+            "from": 0,
+            "rate": 0.2,
+            "base": 3000
+          }
+        ],
+        "threshold": 1000,
+        "rate": 0.1,
+        "share": 0.5,
+        "awards": [
+          300,
+          200,
+          100
+        ],
+        "fixed": [
+          {
+            "employee_id": 1,
+            "share": 0.1
+          }
+        ],
+        "members_share": 0.5,
+        "milestone": {
+          "from": 1000,
+          "step": 1000,
+          "amount": 10,
+          "cap": 1000
+        },
+        "module_name": "__split_missing_module__",
+        "separate": true
+      }
+    },
+    {
+      "id": 10,
+      "name": "split_fixed",
+      "rule_type": "fixed",
+      "scope_business": "*",
+      "scope_group": "*",
+      "scope_role": "*",
+      "employee_id": 1,
+      "metric": "profit",
+      "params": {
+        "amount": 500,
+        "tiers": [
+          {
+            "from": 0,
+            "rate": 0.2,
+            "base": 3000
+          }
+        ],
+        "threshold": 1000,
+        "rate": 0.1,
+        "share": 0.5,
+        "awards": [
+          300,
+          200,
+          100
+        ],
+        "fixed": [
+          {
+            "employee_id": 1,
+            "share": 0.1
+          }
+        ],
+        "members_share": 0.5,
+        "milestone": {
+          "from": 1000,
+          "step": 1000,
+          "amount": 10,
+          "cap": 1000
+        },
+        "module_name": "__split_missing_module__",
+        "separate": true
+      }
+    },
+    {
+      "id": 11,
+      "name": "split_base_fee",
+      "rule_type": "base_fee",
+      "scope_business": "*",
+      "scope_group": "*",
+      "scope_role": "*",
+      "employee_id": 1,
+      "metric": "profit",
+      "params": {
+        "amount": 500,
+        "tiers": [
+          {
+            "from": 0,
+            "rate": 0.2,
+            "base": 3000
+          }
+        ],
+        "threshold": 1000,
+        "rate": 0.1,
+        "share": 0.5,
+        "awards": [
+          300,
+          200,
+          100
+        ],
+        "fixed": [
+          {
+            "employee_id": 1,
+            "share": 0.1
+          }
+        ],
+        "members_share": 0.5,
+        "milestone": {
+          "from": 1000,
+          "step": 1000,
+          "amount": 10,
+          "cap": 1000
+        },
+        "module_name": "__split_missing_module__",
+        "separate": true
+      }
+    },
+    {
+      "id": 12,
+      "name": "split_attendance_bonus",
+      "rule_type": "attendance_bonus",
+      "scope_business": "*",
+      "scope_group": "*",
+      "scope_role": "*",
+      "employee_id": 1,
+      "metric": "profit",
+      "params": {
+        "amount": 500,
+        "tiers": [
+          {
+            "from": 0,
+            "rate": 0.2,
+            "base": 3000
+          }
+        ],
+        "threshold": 1000,
+        "rate": 0.1,
+        "share": 0.5,
+        "awards": [
+          300,
+          200,
+          100
+        ],
+        "fixed": [
+          {
+            "employee_id": 1,
+            "share": 0.1
+          }
+        ],
+        "members_share": 0.5,
+        "milestone": {
+          "from": 1000,
+          "step": 1000,
+          "amount": 10,
+          "cap": 1000
+        },
+        "module_name": "__split_missing_module__",
+        "separate": true
+      }
+    },
+    {
+      "id": 13,
+      "name": "split_manual",
+      "rule_type": "manual",
+      "scope_business": "*",
+      "scope_group": "*",
+      "scope_role": "*",
+      "employee_id": null,
+      "metric": "profit",
+      "params": {
+        "amount": 500,
+        "tiers": [
+          {
+            "from": 0,
+            "rate": 0.2,
+            "base": 3000
+          }
+        ],
+        "threshold": 1000,
+        "rate": 0.1,
+        "share": 0.5,
+        "awards": [
+          300,
+          200,
+          100
+        ],
+        "fixed": [
+          {
+            "employee_id": 1,
+            "share": 0.1
+          }
+        ],
+        "members_share": 0.5,
+        "milestone": {
+          "from": 1000,
+          "step": 1000,
+          "amount": 10,
+          "cap": 1000
+        },
+        "module_name": "__split_missing_module__",
+        "separate": true
+      }
+    },
+    {
+      "id": 14,
+      "name": "split_sales_package",
+      "rule_type": "sales_package",
+      "scope_business": "*",
+      "scope_group": "*",
+      "scope_role": "*",
+      "employee_id": 1,
+      "metric": "profit",
+      "params": {
+        "amount": 500,
+        "tiers": [
+          {
+            "from": 0,
+            "rate": 0.2,
+            "base": 3000
+          }
+        ],
+        "threshold": 1000,
+        "rate": 0.1,
+        "share": 0.5,
+        "awards": [
+          300,
+          200,
+          100
+        ],
+        "fixed": [
+          {
+            "employee_id": 1,
+            "share": 0.1
+          }
+        ],
+        "members_share": 0.5,
+        "milestone": {
+          "from": 1000,
+          "step": 1000,
+          "amount": 10,
+          "cap": 1000
+        },
+        "module_name": "__split_missing_module__",
+        "separate": true
+      }
+    },
+    {
+      "id": 15,
+      "name": "split_per_unit",
+      "rule_type": "per_unit",
+      "scope_business": "*",
+      "scope_group": "*",
+      "scope_role": "*",
+      "employee_id": null,
+      "metric": "profit",
+      "params": {
+        "amount": 500,
+        "tiers": [
+          {
+            "from": 0,
+            "rate": 0.2,
+            "base": 3000
+          }
+        ],
+        "threshold": 1000,
+        "rate": 0.1,
+        "share": 0.5,
+        "awards": [
+          300,
+          200,
+          100
+        ],
+        "fixed": [
+          {
+            "employee_id": 1,
+            "share": 0.1
+          }
+        ],
+        "members_share": 0.5,
+        "milestone": {
+          "from": 1000,
+          "step": 1000,
+          "amount": 10,
+          "cap": 1000
+        },
+        "module_name": "__split_missing_module__",
+        "separate": true
+      }
+    },
+    {
+      "id": 16,
+      "name": "split_ranking_manual",
+      "rule_type": "ranking",
+      "scope_business": "*",
+      "scope_group": "*",
+      "scope_role": "*",
+      "employee_id": null,
+      "metric": "manual",
+      "params": {
+        "awards": [
+          200,
+          100
+        ]
+      }
+    }
+  ],
+  "inputs": {
+    "6": {
+      "1": {
+        "value": 4,
+        "note": "fixture"
+      },
+      "2": {
+        "value": 2,
+        "note": "fixture"
+      }
+    },
+    "7": {
+      "1": {
+        "value": 4,
+        "note": "fixture"
+      },
+      "2": {
+        "value": 2,
+        "note": "fixture"
+      }
+    },
+    "13": {
+      "1": {
+        "value": 4,
+        "note": "fixture"
+      },
+      "2": {
+        "value": 2,
+        "note": "fixture"
+      }
+    },
+    "15": {
+      "1": {
+        "value": 4,
+        "note": "fixture"
+      },
+      "2": {
+        "value": 2,
+        "note": "fixture"
+      }
+    },
+    "16": {
+      "1": {
+        "value": 1,
+        "note": ""
+      },
+      "2": {
+        "value": 2,
+        "note": ""
+      }
+    }
+  },
+  "snapshots": [
+    {
+      "employee_id": 1,
+      "order_id": 1,
+      "project_type": "网站模板",
+      "order_kind": "新订单",
+      "commission_group": "technical",
+      "role_name": "技术",
+      "calc_mode": "project",
+      "group_weight": 1,
+      "contribution_profit": 8000,
+      "income_amount": 10000,
+      "commission_amount": 101.24,
+      "commission_exact": 101.235,
+      "subsidy_amount": 0,
+      "direct_cost": 1500,
+      "service_fee": 500,
+      "order_contract_amount": 10000
+    },
+    {
+      "employee_id": 2,
+      "order_id": 2,
+      "project_type": "网站模板",
+      "order_kind": "新订单",
+      "commission_group": "technical",
+      "role_name": "技术",
+      "calc_mode": "project",
+      "group_weight": 1,
+      "contribution_profit": 16000,
+      "income_amount": 20000,
+      "commission_amount": 202.48,
+      "commission_exact": 202.47,
+      "subsidy_amount": 0,
+      "direct_cost": 3000,
+      "service_fee": 1000,
+      "order_contract_amount": 20000
+    }
+  ],
+  "attendance": {
+    "1": {
+      "work": 240,
+      "absent": 8
+    },
+    "2": {
+      "work": 240,
+      "absent": 0
+    }
+  }
+}

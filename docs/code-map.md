@@ -419,32 +419,42 @@
 - 加载：`require_once __DIR__ . '/ProjectKnowledge.php';`
 - 加载：`require_once __DIR__ . '/ProjectBusiness.php';`
 
-## includes/ProjectMonthly.php (913 行, 75.4 KB)
+## includes/ProjectMonthly.php (33 行, 3.4 KB)
 
-- `ps_monthly_types` L30–49
-- `ps_monthly_metrics` L51–54
-- `ps_monthly_rules_for` L56–64
-- `ps_monthly_scope_businesses` L66–70
-- `ps_monthly_snapshot_matches` L72–80
-- `ps_monthly_snapshots` L82–98
-- `ps_monthly_snapshot_values` L104–113
-- `ps_monthly_attendance` L116–128
-- `ps_monthly_prorate` L131–138
-- `ps_attendance_suggestion` L144–152
-- `ps_monthly_inputs` L154–161
-- `ps_monthly_pick_tier` L163–169
-- `ps_sales_package_calc` L178–201
-- `ps_legacy_sheet_orders` L210–299
-- `ps_monthly_results` L305–720
-- `ps_monthly_freeze` L722–729
-- `ps_monthly_params_from_input` L732–821
-- `ps_monthly_presets` L827–870
-- `ps_monthly_apply_presets` L872–912
 - 加载：`require_once __DIR__ . '/ProjectSettlement.php';`
 - 加载：`require_once __DIR__ . '/SalaryCalculator.php';`
-- 加载：`require_once __DIR__ . '/ProjectReviewPolicy.php';`
-- 加载：`require_once __DIR__ . '/functions.php';`
-- 加载：`require_once __DIR__ . '/ProjectReviewPolicy.php';`
+- 加载：`require_once __DIR__ . '/monthly/rules_data.php';`
+- 加载：`require_once __DIR__ . '/monthly/legacy_orders.php';`
+- 加载：`require_once __DIR__ . '/ProjectMonthlyResults.php';`
+- 加载：`require_once __DIR__ . '/monthly/config_presets.php';`
+
+## includes/ProjectMonthlyResults.php (217 行, 13.2 KB)
+
+- `ps_monthly_results` L7–216
+- 加载：`include __DIR__ . '/monthly/types/tier_rate.php';`
+- 加载：`include __DIR__ . '/monthly/types/threshold_bonus.php';`
+- 加载：`include __DIR__ . '/monthly/types/ranking_manual.php';`
+- 加载：`include __DIR__ . '/monthly/types/ranking.php';`
+- 加载：`include __DIR__ . '/monthly/types/dept_share.php';`
+- 加载：`include __DIR__ . '/monthly/types/profit_pool.php';`
+- 加载：`include __DIR__ . '/monthly/types/perf_rank.php';`
+- 加载：`include __DIR__ . '/monthly/types/order_count.php';`
+- 加载：`include __DIR__ . '/monthly/types/legacy_sheet_1.php';`
+- 加载：`include __DIR__ . '/monthly/types/legacy_sheet_2.php';`
+- 加载：`include __DIR__ . '/monthly/types/legacy_sheet_3.php';`
+- 加载：`include __DIR__ . '/monthly/types/legacy_module_1.php';`
+- 加载：`include __DIR__ . '/monthly/types/legacy_module_2.php';`
+- 加载：`include __DIR__ . '/monthly/types/legacy_module_3.php';`
+- 加载：`include __DIR__ . '/monthly/types/legacy_module_4.php';`
+- 加载：`include __DIR__ . '/monthly/types/fixed.php';`
+- 加载：`include __DIR__ . '/monthly/types/base_fee_1.php';`
+- 加载：`include __DIR__ . '/monthly/types/base_fee_2.php';`
+- 加载：`include __DIR__ . '/monthly/types/attendance_bonus_1.php';`
+- 加载：`include __DIR__ . '/monthly/types/attendance_bonus_2.php';`
+- 加载：`include __DIR__ . '/monthly/types/manual.php';`
+- 加载：`include __DIR__ . '/monthly/types/sales_package_1.php';`
+- 加载：`include __DIR__ . '/monthly/types/sales_package_2.php';`
+- 加载：`include __DIR__ . '/monthly/types/per_unit.php';`
 
 ## includes/ProjectOrderFix.php (168 行, 10.6 KB)
 
@@ -688,66 +698,22 @@
 - 加载：`require_once __DIR__ . '/ProjectSettlement.php';`
 - 加载：`require_once __DIR__ . '/ProjectBusiness.php';`
 
-## includes/ProjectSettlement.php (1257 行, 80.4 KB)
+## includes/ProjectSettlement.php (16 行, 1.1 KB)
 
-- `ps_actor` L7–15
-- `ps_governance_has_business` L18–28
-- `ps_require_actor` L30–69
-- `ps_require_finance` L71–76
-- `ps_csrf_token` L78–82
-- `ps_check_csrf` L84–87
-- `ps_order` L89–111
-- `ps_audit` L113–117
-- `ps_costs` L119–124
-- `ps_cash_movements` L126–131
-- `ps_recalculate_cash` L133–145
-- `ps_participants` L147–152
-- `ps_role_keys` L155–163
-- `ps_rule_for` L169–194
-- `ps_rules_for_person` L200–219
-- `ps_role_rule_order_kind` L222–230
-- `ps_rule` L232–235
-- `money_plain` L237–240
-- `ps_calc_person` L250–289
-- `ps_trademark_piece_calc` L295–304
-- `ps_summary` L306–508
-- `ps_group_share_cents` L514–534
-- `ps_allocate_pool_cents` L536–547
-- `ps_group_subsidy_cents` L550–567
-- `ps_settlement_preview` L569–576
-- `ps_technical_reconciliation_summary` L578–588
-- `ps_private_dir` L597–603
-- `ps_private_store` L606–613
-- `ps_private_read` L616–623
-- `ps_private_delete` L626–632
-- `ps_private_temp_copy` L635–642
-- `ps_detect_mime` L648–656
-- `ps_detect_file_mime` L658–665
-- `ps_upload_proof` L667–676
-- `ps_approve_order` L678–752
-- `ps_label` L755–766
-- `ps_order_todos` L772–789
-- `ps_mask_contact` L795–803
-- `ps_mask_id` L806–814
-- `ps_contact_for` L817–821
-- `ps_next_open_month` L824–834
-- `ps_post_adjustment` L841–916
-- `ps_reclassify_order_kind` L919–979
-- `ps_order_requests` L983–1004
-- `ps_order_pending_request` L1006–1021
-- `ps_create_order_request` L1023–1054
-- `ps_review_order_request` L1056–1139
-- `ps_auto_finish_trade_success_orders` L1146–1153
-- `ps_refund_later` L1156–1166
-- `ps_order_asof` L1169–1175
-- `ps_order_assign_backend` L1183–1256
 - 加载：`require_once __DIR__ . '/auth.php';`
 - 加载：`require_once __DIR__ . '/ProjectBusiness.php';`
 - 加载：`require_once __DIR__ . '/ProjectSystem.php';`
 - 加载：`require_once __DIR__ . '/ProjectDepartmentImport.php';`
-- 加载：`require_once __DIR__ . '/ProjectSiteProjects.php';`
-- 加载：`require_once __DIR__ . '/ProjectOrderItems.php';`
-- 加载：`require_once __DIR__ . '/ProjectAutoReview.php';`
+- 加载：`require_once __DIR__ . '/settlement/actor_auth.php';`
+- 加载：`require_once __DIR__ . '/settlement/audit_db.php';`
+- 加载：`require_once __DIR__ . '/settlement/rules.php';`
+- 加载：`require_once __DIR__ . '/settlement/summary.php';`
+- 加载：`require_once __DIR__ . '/settlement/private_files.php';`
+- 加载：`require_once __DIR__ . '/settlement/approval.php';`
+- 加载：`require_once __DIR__ . '/settlement/labels_todos.php';`
+- 加载：`require_once __DIR__ . '/settlement/adjustment.php';`
+- 加载：`require_once __DIR__ . '/settlement/requests.php';`
+- 加载：`require_once __DIR__ . '/settlement/backend.php';`
 
 ## includes/ProjectSheetEdit.php (328 行, 20.9 KB)
 
@@ -1193,6 +1159,116 @@
 - `match_shop_name` L95–153
 - `ensureOrderNoColumn` L159–184
 
+## includes/monthly/config_presets.php (4 行, 0.2 KB)
+
+- 加载：`require_once __DIR__ . '/inputs_freeze.php';`
+- 加载：`require_once __DIR__ . '/presets.php';`
+
+## includes/monthly/inputs_freeze.php (103 行, 8.3 KB)
+
+- `ps_monthly_freeze` L3–10
+- `ps_monthly_params_from_input` L13–102
+
+## includes/monthly/legacy_orders.php (100 行, 5.2 KB)
+
+- `ps_legacy_sheet_orders` L10–99
+- 加载：`require_once (dirname(__DIR__, 1)) . '/ProjectReviewPolicy.php';`
+
+## includes/monthly/presets.php (93 行, 16.9 KB)
+
+- `ps_monthly_presets` L7–50
+- `ps_monthly_apply_presets` L52–92
+
+## includes/monthly/rules_data.php (175 行, 10.2 KB)
+
+- `ps_monthly_types` L3–22
+- `ps_monthly_metrics` L24–27
+- `ps_monthly_rules_for` L29–37
+- `ps_monthly_scope_businesses` L39–43
+- `ps_monthly_snapshot_matches` L45–53
+- `ps_monthly_snapshots` L55–71
+- `ps_monthly_snapshot_values` L77–86
+- `ps_monthly_attendance` L89–101
+- `ps_monthly_prorate` L104–111
+- `ps_attendance_suggestion` L117–125
+- `ps_monthly_inputs` L127–134
+- `ps_monthly_pick_tier` L136–142
+- `ps_sales_package_calc` L151–174
+
+## includes/monthly/types/attendance_bonus_1.php (4 行, 0.1 KB)
+
+
+## includes/monthly/types/attendance_bonus_2.php (3 行, 0.2 KB)
+
+
+## includes/monthly/types/base_fee_1.php (5 行, 0.2 KB)
+
+
+## includes/monthly/types/base_fee_2.php (5 行, 0.5 KB)
+
+
+## includes/monthly/types/dept_share.php (31 行, 2.5 KB)
+
+
+## includes/monthly/types/fixed.php (5 行, 0.5 KB)
+
+
+## includes/monthly/types/legacy_module_1.php (6 行, 0.2 KB)
+
+
+## includes/monthly/types/legacy_module_2.php (12 行, 0.5 KB)
+
+
+## includes/monthly/types/legacy_module_3.php (6 行, 0.4 KB)
+
+
+## includes/monthly/types/legacy_module_4.php (3 行, 0.2 KB)
+
+
+## includes/monthly/types/legacy_sheet_1.php (6 行, 0.2 KB)
+
+
+## includes/monthly/types/legacy_sheet_2.php (22 行, 1.1 KB)
+
+- 加载：`require_once (dirname(__DIR__, 2)) . '/ProjectReviewPolicy.php';`
+
+## includes/monthly/types/legacy_sheet_3.php (64 行, 4 KB)
+
+
+## includes/monthly/types/manual.php (7 行, 0.3 KB)
+
+
+## includes/monthly/types/order_count.php (12 行, 0.9 KB)
+
+
+## includes/monthly/types/per_unit.php (8 行, 0.5 KB)
+
+
+## includes/monthly/types/perf_rank.php (18 行, 1.5 KB)
+
+- 加载：`require_once (dirname(__DIR__, 2)) . '/functions.php';`
+
+## includes/monthly/types/profit_pool.php (34 行, 3 KB)
+
+
+## includes/monthly/types/ranking.php (11 行, 0.7 KB)
+
+
+## includes/monthly/types/ranking_manual.php (9 行, 0.5 KB)
+
+
+## includes/monthly/types/sales_package_1.php (10 行, 0.6 KB)
+
+
+## includes/monthly/types/sales_package_2.php (5 行, 0.6 KB)
+
+
+## includes/monthly/types/threshold_bonus.php (8 行, 0.5 KB)
+
+
+## includes/monthly/types/tier_rate.php (8 行, 0.7 KB)
+
+
 ## includes/order_credentials_card.php (88 行, 11 KB)
 
 - 加载：`require_once __DIR__ . '/ProjectVault.php';`
@@ -1316,6 +1392,90 @@
 
 - `ModulesTypesTrait` L2–205
 - `ModulesTypesTrait::getAvailableTypes` L4–203
+
+## includes/settlement/actor_auth.php (108 行, 7.1 KB)
+
+- `ps_actor` L3–11
+- `ps_governance_has_business` L14–24
+- `ps_require_actor` L26–65
+- `ps_require_finance` L67–72
+- `ps_csrf_token` L74–78
+- `ps_check_csrf` L80–83
+- `ps_order` L85–107
+
+## includes/settlement/adjustment.php (162 行, 13.2 KB)
+
+- `ps_next_open_month` L4–14
+- `ps_post_adjustment` L21–96
+- `ps_reclassify_order_kind` L99–159
+
+## includes/settlement/approval.php (78 行, 6.7 KB)
+
+- `ps_approve_order` L3–77
+- 加载：`require_once (dirname(__DIR__, 1)) . '/ProjectSiteProjects.php';`
+- 加载：`require_once (dirname(__DIR__, 1)) . '/ProjectOrderItems.php';`
+
+## includes/settlement/audit_db.php (43 行, 2.3 KB)
+
+- `ps_audit` L3–7
+- `ps_costs` L9–14
+- `ps_cash_movements` L16–21
+- `ps_recalculate_cash` L23–35
+- `ps_participants` L37–42
+
+## includes/settlement/backend.php (119 行, 6.3 KB)
+
+- `ps_auto_finish_trade_success_orders` L8–15
+- `ps_refund_later` L18–28
+- `ps_order_asof` L31–37
+- `ps_order_assign_backend` L45–118
+- 加载：`require_once (dirname(__DIR__, 1)) . '/ProjectAutoReview.php';`
+
+## includes/settlement/labels_todos.php (71 行, 4.4 KB)
+
+- `ps_label` L4–15
+- `ps_order_todos` L21–38
+- `ps_mask_contact` L44–52
+- `ps_mask_id` L55–63
+- `ps_contact_for` L66–70
+
+## includes/settlement/private_files.php (83 行, 3.7 KB)
+
+- `ps_private_dir` L3–9
+- `ps_private_store` L12–19
+- `ps_private_read` L22–29
+- `ps_private_delete` L32–38
+- `ps_private_temp_copy` L41–48
+- `ps_detect_mime` L54–62
+- `ps_detect_file_mime` L64–71
+- `ps_upload_proof` L73–82
+
+## includes/settlement/requests.php (160 行, 7.4 KB)
+
+- `ps_order_requests` L3–24
+- `ps_order_pending_request` L26–41
+- `ps_create_order_request` L43–74
+- `ps_review_order_request` L76–159
+
+## includes/settlement/rules.php (154 行, 10.1 KB)
+
+- `ps_role_keys` L4–12
+- `ps_rule_for` L18–43
+- `ps_rules_for_person` L49–68
+- `ps_role_rule_order_kind` L71–79
+- `ps_rule` L81–84
+- `money_plain` L86–89
+- `ps_calc_person` L99–138
+- `ps_trademark_piece_calc` L144–153
+
+## includes/settlement/summary.php (293 行, 17.8 KB)
+
+- `ps_summary` L3–205
+- `ps_group_share_cents` L211–231
+- `ps_allocate_pool_cents` L233–244
+- `ps_group_subsidy_cents` L247–264
+- `ps_settlement_preview` L266–273
+- `ps_technical_reconciliation_summary` L275–285
 
 ## index.php (164 行, 11.6 KB)
 
@@ -2475,6 +2635,11 @@
 - 加载：`require_once __DIR__ . '/../includes/ProjectIntake.php';`
 - 加载：`require_once __DIR__ . '/../includes/ProjectPresets.php';`
 - 加载：`require_once __DIR__ . '/../includes/ProjectMonthly.php';`
+
+## tests/project_monthly_split_compare.php (38 行, 2 KB)
+
+- 加载：`require_once $argv[2] . '/includes/ProjectMonthly.php';`
+- 加载：`require_once __DIR__ . '/require_isolated_database.php';`
 
 ## tests/project_order_items_store_test.php (54 行, 4.2 KB)
 
