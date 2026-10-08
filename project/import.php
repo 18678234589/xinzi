@@ -2,6 +2,7 @@
 require_once __DIR__ . '/../includes/ProjectIntake.php';
 poi_ensure();
 require_once __DIR__ . '/../includes/ProjectOrderSplit.php';
+require_once __DIR__ . '/../includes/ProjectSiteProjects.php';
 require_once __DIR__ . '/../includes/ProjectTrademarkCost.php';
 require_once __DIR__ . '/../includes/ProjectBusiness.php';
 require_once __DIR__ . '/../includes/ProjectOrderSource.php';
@@ -120,6 +121,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $fixOrderNos = in_array($action, ['repair_preview', 'followup'], true) ? (array)($_POST['fix_order_no'] ?? []) : [];
             $fixDates = in_array($action, ['repair_preview', 'followup'], true) ? (array)($_POST['fix_date'] ?? []) : [];
             $fixPaymentReferences = in_array($action, ['repair_preview', 'followup'], true) ? (array)($_POST['fix_payment_reference'] ?? []) : [];
+            $fixSiteKeys = in_array($action, ['repair_preview', 'followup'], true) ? (array)($_POST['fix_site_key'] ?? []) : [];
             $sheetReport = [];
             $usedSheets = 0;
             $totalRows = 0;
@@ -133,7 +135,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $knownShops = db()->query('SELECT name FROM shops')->fetchAll(PDO::FETCH_COLUMN);
             $seen = [];
             $wxSeq = []; // 无订单号行的同键序号：同一张表里完全相同的行也各得一个稳定的内部号
-            $siteSeq = []; // 网站表同一订单号的多行（一个客户做多个网站）：第 2、3… 个网站各记一张订单 订单号#2、#3
+            $siteSeq = []; // 只计重复号；网站身份由项目标识决定，不能用行顺序决定
+            $siteSeenKeys = [];
             $blankRows = [];
             $preview = [];
             $exists = db()->prepare('SELECT o.id,o.project_type,o.settlement_status,o.shop,o.contract_amount,o.order_date,s.payment_nickname,s.payment_reference,s.price_source FROM project_orders o LEFT JOIN project_order_sources s ON s.order_id=o.id WHERE o.order_no=? LIMIT 1');
@@ -317,14 +320,48 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     if ($record['project_type'] !== $selectedBusiness) $record['warning'] .= ($record['warning'] ? '；' : '') . '按产品/技术岗位自动归入“' . $record['project_type'] . '”分成方案';
                     $record['order_no'] = ps_order_no_resolve($lookup($row, 'order_no'));
                     if ($record['order_no'] !== $lookup($row, 'order_no') && $lookup($row, 'order_no') !== '') $record['warning'] .= ($record['warning'] ? '；' : '') . '订单号“' . mb_substr($lookup($row, 'order_no'), 0, 40) . '”按“' . $record['order_no'] . '”识别（已去掉标签 / 备注，同号不会重复建单）';
-                    if ($record['order_no'] !== '' && in_array($selectedBusiness, ['网站模板', 'AI网站定制'], true) && $lookup($row, 'program_name') !== '') {
+                    $siteBaseType = null;
+                    if ($record['order_no'] !== '' && psp_is_website($record['project_type'])) {
+                        $siteTypeQuery = db()->prepare('SELECT project_type FROM project_orders WHERE order_no=? LIMIT 1');
+                        $siteTypeQuery->execute([$record['order_no']]);
+                        $siteBaseType = $siteTypeQuery->fetchColumn();
+                    }
+                    if ($record['order_no'] !== '' && psp_is_website($record['project_type']) && (!$siteBaseType || psp_is_website($siteBaseType))) {
                         $siteBase = $record['order_no'];
+                        $record['site_external_no'] = $siteBase;
                         $siteSeq[$siteBase] = ($siteSeq[$siteBase] ?? 0) + 1;
-                        if ($siteSeq[$siteBase] > 1) {
-                            $record['order_no'] = $siteBase . '#' . $siteSeq[$siteBase];
-                            $record['multi_site_parent_no'] = $siteBase;
-                            $record['warning'] .= ($record['warning'] ? '；' : '') . '同一订单号的第 ' . $siteSeq[$siteBase] . ' 个网站，另记一张订单（订单号 ' . $record['order_no'] . '），售价、域名、成本各记各的';
+                        $rawSiteKey = trim((string)($fixSiteKeys[$record['line']] ?? ''));
+                        if ($rawSiteKey === '') $rawSiteKey = $lookup($row, 'site_project_key') ?: $lookup($row, 'detail:website_url');
+                        $record['site_key'] = $rawSiteKey !== '' ? psp_key($rawSiteKey) : '';
+                        if ($record['site_key'] !== '') {
+                            if (isset($siteSeenKeys[$siteBase][$record['site_key']])) {
+                                $record['order_no'] = $siteBase . '~duplicate-' . $record['line'];
+                                $record['site_duplicate'] = true;
+                            } else {
+                                $siteSeenKeys[$siteBase][$record['site_key']] = true;
+                                $registered = psp_lookup($siteBase, $record['site_key']);
+                                if ($registered) {
+                                    $record['order_no'] = $registered['order_no'];
+                                    if ((int)$registered['root_order_id'] !== (int)$registered['order_id']) $record['multi_site_parent_no'] = $siteBase;
+                                } else {
+                                    $baseCheck = db()->prepare('SELECT id,project_type FROM project_orders WHERE order_no=?');
+                                    $baseCheck->execute([$siteBase]);
+                                    $baseOrder = $baseCheck->fetch();
+                                    if ($baseOrder) {
+                                        $baseSite = psp_order((int)$baseOrder['id']);
+                                        if (!$baseSite || (int)$baseSite['root_order_id'] !== (int)$baseOrder['id'] || !psp_is_website($baseOrder['project_type'])) throw new RuntimeException('原订单尚未绑定网站项目标识，请财务先在原订单页登记第一个网站');
+                                        $record['order_no'] = psp_child_no($siteBase, $record['site_key']);
+                                        $record['multi_site_parent_no'] = $siteBase;
+                                    } elseif ($siteSeq[$siteBase] > 1) {
+                                        $record['order_no'] = psp_child_no($siteBase, $record['site_key']);
+                                        $record['multi_site_parent_no'] = $siteBase;
+                                    }
+                                }
+                            }
+                        } elseif ($siteSeq[$siteBase] > 1) {
+                            $record['order_no'] = $siteBase . '~pending-' . $record['line'];
                         }
+                        if ($siteSeq[$siteBase] > 1) $record['warning'] .= ($record['warning'] ? '；' : '') . '同一付款号有多个网站，须逐个标识项目并由财务核对总付款分配';
                     }
                     $record['payment_reference'] = trim((string)($fixPaymentReferences[$record['line']] ?? $lookup($row, 'payment_reference')));
                     if (mb_strlen($record['payment_reference']) > 200) throw new RuntimeException('微信交易流水号或支付订单号过长');
@@ -724,6 +761,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 foreach ($sheetReport as $name => $info) $reasons[] = '“' . $name . '”' . $info['reason'];
                 throw new RuntimeException('没有与“' . $selectedBusiness . '”表头对应的工作表（' . implode('；', $reasons) . '）。请确认业务类型，或下载该业务模板对照表头');
             }
+            if (in_array($selectedBusiness, ['网站模板', 'AI网站定制'], true)) {
+                $siteKeysByExternal = [];
+                foreach ($preview as $candidate) if (!empty($candidate['site_external_no'])) $siteKeysByExternal[$candidate['site_external_no']][] = (string)($candidate['site_key'] ?? '');
+                foreach ($preview as &$siteRow) {
+                    $external = (string)($siteRow['site_external_no'] ?? '');
+                    if ($external === '' || ($siteSeq[$external] ?? 0) < 2) continue;
+                    $keys = $siteKeysByExternal[$external] ?? [];
+                    if (in_array('', $keys, true) || count(array_unique($keys)) !== count($keys)) {
+                        $siteRow['base_valid'] = false; $siteRow['status'] = '需确认网站项目';
+                        $siteRow['error'] = trim(($siteRow['error'] ?? '') . '；同一付款号的每个网站须填写互不相同的“网站项目标识”（建议用域名）', '；');
+                    }
+                }
+                unset($siteRow);
+            }
             // 同号加购先合并，再与原单比较；重复上传整张表不能拿每个分项价格和整单总价比。
             $previewForHint = $preview;
             $prevShopNick = null;
@@ -930,6 +981,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         $siteParent->execute([(string)$row['multi_site_parent_no']]);
                         if (($siteParentId = (int)$siteParent->fetchColumn()) && $siteParentId !== $orderId) pos_link($siteParentId, $orderId, $actor);
                     }
+                    if (!empty($row['site_key'])) {
+                        $rootId = !empty($row['multi_site_parent_no']) ? (int)($siteParentId ?? 0) : $orderId;
+                        if (!$rootId) throw new RuntimeException('同一付款号的原网站项目尚未建单，请重新预览');
+                        psp_register($orderId, $rootId, (string)$row['site_external_no'], (string)$row['site_key'], $actor);
+                    }
                     if (!empty($row['split_parent_id'])) {
                         $parentCheck = $pdo->prepare('SELECT id FROM project_orders WHERE id=? AND order_no=?');
                         $parentCheck->execute([(int)$row['split_parent_id'], (string)$row['split_parent_no']]);
@@ -1048,6 +1104,7 @@ foreach ($preview as $previewRow) {
 }
 $templateUrl = $selectedBusiness ? '?business=' . rawurlencode($selectedBusiness) . '&scope=' . ($departmentMode ? 'department' : 'personal') . '&download=1' : '';
 $repairableCount = count(array_filter($preview, function ($row) use ($isSkipRow) { return !$isSkipRow($row) && (empty($row['order_no']) || empty($row['order_date'])); }));
+$siteKeyFixCount = count(array_filter($preview, function ($row) use ($isSkipRow) { return !$isSkipRow($row) && !empty($row['site_external_no']); }));
 $suggestedDates = []; $lastDateBySheet = [];
 foreach ($preview as $previewRow) {
     $sheetKey = (string)($previewRow['sheet'] ?? '');
@@ -1126,7 +1183,7 @@ document.addEventListener('DOMContentLoaded', function () {
 });
 </script><?php endif; ?><div class="project-section-title"><span class="project-step">02</span><div><h5>核对预览</h5><p><?php echo $baseValidCount; ?> 行基础资料通过<?php echo $resourceSelection ? '；缺失域名规格的行请选标准模板，服务器成本可选填' : '；客服提交后由技术在同一订单确认资源与成本'; ?>。</p></div></div></div><div class="table-responsive"><table class="table project-preview-table mb-0"><thead><tr><th>行 / 订单</th><th>日期 / 售价</th><th>参与人</th><?php if ($businessDefinition['fields']): ?><th>业务信息</th><?php endif; ?><?php if ($resourceSelection && $usesProgram): ?><th>程序套餐</th><?php endif; ?><?php if ($resourceSelection): ?><th>域名选择与标准成本</th><th>服务器成本</th><?php endif; ?><th>核对结果</th></tr></thead><tbody>
 <?php foreach ($preview as $row): $skipRow = $isSkipRow($row); ?><tr class="<?php echo $skipRow ? 'table-secondary text-muted' : (empty($row['base_valid']) ? 'table-danger' : ($row['status'] === '可导入' ? '' : 'table-warning')); ?>">
-<td><small><?php echo count($previewSheets) > 1 && !empty($row['sheet']) ? '【' . e($row['sheet']) . '】' : ''; ?>第 <?php echo e(implode('、', array_map(function ($l) { return (int)$l % 10000; }, $row['lines'] ?? [$row['line']]))); ?> 行</small><br><?php if (empty($row['order_no'])): ?><input class="form-control form-control-sm mt-1" name="fix_order_no[<?php echo (int)$row['line']; ?>]" maxlength="100" placeholder="店铺订单号（有则填）" aria-label="第<?php echo (int)$row['line']; ?>行店铺订单号"><input class="form-control form-control-sm mt-1" name="fix_payment_reference[<?php echo (int)$row['line']; ?>]" maxlength="200" placeholder="或填微信交易流水号 / 支付订单号" aria-label="第<?php echo (int)$row['line']; ?>行微信交易流水号"><small class="text-danger">二者填一个即可；微信流水号生成内部关联号</small><?php else: ?><strong><?php echo e($row['order_no']); ?></strong><?php if (!empty($row['payment_reference'])): ?><br><small>微信流水号：<?php echo e($row['payment_reference']); ?></small><?php endif; ?><?php endif; ?><br><small><?php echo e($row['project_type'] ?? ''); ?></small></td>
+<td><small><?php echo count($previewSheets) > 1 && !empty($row['sheet']) ? '【' . e($row['sheet']) . '】' : ''; ?>第 <?php echo e(implode('、', array_map(function ($l) { return (int)$l % 10000; }, $row['lines'] ?? [$row['line']]))); ?> 行</small><br><?php if (empty($row['order_no'])): ?><input class="form-control form-control-sm mt-1" name="fix_order_no[<?php echo (int)$row['line']; ?>]" maxlength="100" placeholder="店铺订单号（有则填）" aria-label="第<?php echo (int)$row['line']; ?>行店铺订单号"><input class="form-control form-control-sm mt-1" name="fix_payment_reference[<?php echo (int)$row['line']; ?>]" maxlength="200" placeholder="或填微信交易流水号 / 支付订单号" aria-label="第<?php echo (int)$row['line']; ?>行微信流水号"><small class="text-danger">二者填一个即可；微信流水号生成内部关联号</small><?php else: ?><strong><?php echo e($row['order_no']); ?></strong><?php if (!empty($row['payment_reference'])): ?><br><small>微信流水号：<?php echo e($row['payment_reference']); ?></small><?php endif; ?><?php endif; ?><?php if (!empty($row['site_external_no'])): ?><input class="form-control form-control-sm mt-1" name="fix_site_key[<?php echo (int)$row['line']; ?>]" maxlength="160" value="<?php echo e($row['site_key'] ?? ''); ?>" placeholder="网站项目标识（建议域名）" aria-label="第<?php echo (int)$row['line']; ?>行网站项目标识"><small class="text-muted">同一付款号做多个网站时，每个网站填不同标识</small><?php endif; ?><br><small><?php echo e($row['project_type'] ?? ''); ?></small></td>
 <td><?php if (empty($row['order_date'])): ?><input type="date" class="form-control form-control-sm" name="fix_date[<?php echo (int)$row['line']; ?>]" value="<?php echo e($suggestedDates[(int)$row['line']] ?? ''); ?>" aria-label="第<?php echo (int)$row['line']; ?>行订单日期"><small class="text-warning"><?php echo isset($suggestedDates[(int)$row['line']]) ? '建议上一行日期，请核对' : '请补订单日期'; ?></small><?php else: ?><?php echo e($row['order_date']); ?><?php endif; ?><br><strong>¥<?php echo e(($row['contract_amount'] ?? '') === '' ? '待补' : $row['contract_amount']); ?></strong><?php if ($previewKinds && !empty($row['base_valid'])): $currentKind = ($row['order_kind'] ?? '') !== '' ? $row['order_kind'] : ($row['kind_guess'] ?? ''); ?><br><select class="form-control form-control-sm mt-1 js-kind-choice<?php echo ($row['order_kind'] ?? '') === '' ? ' is-invalid' : ''; ?>" name="kind_choice[<?php echo (int)$row['line']; ?>]" aria-label="订单类型"><option value="">选择订单类型</option><?php foreach ($previewKinds as $k): ?><option value="<?php echo e($k); ?>" <?php echo $currentKind === $k ? 'selected' : ''; ?>><?php echo e($k); ?></option><?php endforeach; ?></select><?php if (($row['order_kind'] ?? '') === '' && !empty($row['kind_guess'])): ?><small class="text-muted"><?php echo !empty($row['kind_from_ai']) ? 'AI 建议' : '按描述猜测'; ?>，请确认</small><?php endif; ?><?php elseif (($row['order_kind'] ?? '') !== ''): ?><br><small class="text-muted"><?php echo e($row['order_kind']); ?></small><?php endif; ?></td>
 <td><small>客服：<?php echo e(implode('、', array_column($row['people']['customer_service'], 'name')) ?: '—'); ?><br>技术：<?php echo e(implode('、', array_column($row['people']['technical'], 'name')) ?: '—'); ?></small><?php foreach ($row['items'] ?? [] as $oi): ?><div class="small text-muted mt-1"><?php echo e($oi['item_name']); ?><?php echo $oi['sale_amount']===null ? ' · 整单计价' : ' · ¥' . money($oi['sale_amount']); ?><?php echo $oi['category']==='certificate' ? ' · 证书独立保留' : ''; ?></div><?php endforeach; ?></td>
 <?php if ($businessDefinition['fields']): ?><td><small><?php foreach ($businessDefinition['fields'] as $key => $label): ?><?php echo e($label . '：' . ps_contact_for($actor, ($row['details'][$key] ?? '') ?: '—', $key === 'customer_wechat')); ?><br><?php endforeach; ?></small></td><?php endif; ?>
@@ -1144,7 +1201,7 @@ document.addEventListener('DOMContentLoaded', function () {
   <div class="import-fix-foot"><?php echo $actor['role'] === 'finance' ? '更正后点上方“重新核对”即可导入。' : '财务确认后，回到这里点“重新核对”就能导入；也可以改表格后重新上传。'; ?></div>
 </div>
 <?php endif; ?><?php endif; ?><?php if ($row['warning']): ?><div class="small import-warn mt-1"><?php echo e($row['warning']); ?></div><?php endif; ?></td></tr><?php endforeach; ?>
-</tbody></table></div><div class="card-body border-top d-flex flex-wrap justify-content-between align-items-center" style="gap:10px;position:sticky;bottom:0;z-index:20;background:#fff;box-shadow:0 -3px 10px rgba(15,64,40,.12);border-radius:0 0 14px 14px"><small class="text-muted">红色行不会入账；可先处理已通过的行。绿色按钮点击后订单才真正写入，仅上传预览不会入库。售价不会直接变成实收<?php echo $businessDefinition['resources'] ? '，SSL 报备价不会直接入成本' : ''; ?>。</small><div class="d-flex flex-wrap" style="gap:8px"><?php if ($repairableCount): ?><button class="btn btn-outline-primary mt-2" type="submit" name="action" value="repair_preview">应用补填并重新核对</button><?php endif; ?><button class="btn btn-success btn-lg mt-2" type="submit" name="action" value="commit" <?php echo $baseValidCount ? '' : 'disabled'; ?>><?php echo $invalidCount ? '先导入 ' . $baseValidCount . ' 行合格订单' : '确认导入已核对订单'; ?></button></div></div></form>
+</tbody></table></div><div class="card-body border-top d-flex flex-wrap justify-content-between align-items-center" style="gap:10px;position:sticky;bottom:0;z-index:20;background:#fff;box-shadow:0 -3px 10px rgba(15,64,40,.12);border-radius:0 0 14px 14px"><small class="text-muted">红色行不会入账；可先处理已通过的行。绿色按钮点击后订单才真正写入，仅上传预览不会入库。售价不会直接变成实收<?php echo $businessDefinition['resources'] ? '，SSL 报备价不会直接入成本' : ''; ?>。</small><div class="d-flex flex-wrap" style="gap:8px"><?php if ($repairableCount || $siteKeyFixCount): ?><button class="btn btn-outline-primary mt-2" type="submit" name="action" value="repair_preview">应用补填并重新核对</button><?php endif; ?><button class="btn btn-success btn-lg mt-2" type="submit" name="action" value="commit" <?php echo $baseValidCount ? '' : 'disabled'; ?>><?php echo $invalidCount ? '先导入 ' . $baseValidCount . ' 行合格订单' : '确认导入已核对订单'; ?></button></div></div></form>
 <?php endif; ?>
 </div>
 <script>

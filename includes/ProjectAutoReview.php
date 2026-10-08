@@ -1,6 +1,7 @@
 <?php
 require_once __DIR__ . '/ProjectSettlement.php';
 require_once __DIR__ . '/ProjectOrderSplit.php';
+require_once __DIR__ . '/ProjectSiteProjects.php';
 require_once __DIR__ . '/ProjectRefundTrash.php';
 require_once __DIR__ . '/ProjectAutoReviewMath.php';
 require_once __DIR__ . '/ProjectReviewPolicy.php';
@@ -85,6 +86,8 @@ function pa_context($orderId, $lock = false)
     }
     $cash = ps_cash_movements($orderId); $costs = ps_costs($orderId); $people = ps_participants($orderId);
     $payment = pa_payment_evidence(pa_sources($order, $source, $lock), trim((string)$order['shop']), date('Y-m-d H:i:s'));
+    $site = psp_order($orderId);
+    if ($site && count(psp_members((int)$site['root_order_id'])) > 1) $payment['warnings']['site_allocation'] = '同一付款对应多个网站项目，须由财务逐单分摊并确认，不自动把整笔实付记到任一项目';
     foreach ($payment['references'] as $reference) {
         $q = $p->prepare('SELECT order_id FROM project_auto_cash_evidence WHERE source_key=? AND order_id<>?' . ($lock ? ' FOR UPDATE' : ''));
         $q->execute([$reference['source_key'],$orderId]);

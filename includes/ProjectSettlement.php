@@ -683,6 +683,8 @@ function ps_approve_order($orderId, $actor, $payrollMonth)
     if ($nested) $pdo->exec('SAVEPOINT project_order_approval');
     else $pdo->beginTransaction();
     try {
+        require_once __DIR__ . '/ProjectSiteProjects.php';
+        psp_approve_guard($orderId);
         $q = $pdo->prepare('SELECT * FROM project_orders WHERE id=? FOR UPDATE');
         $q->execute([$orderId]);
         $order = $q->fetch();

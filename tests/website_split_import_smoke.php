@@ -1,6 +1,6 @@
 <?php
 // 网站：1) 两个部门同一订单号（网站售后先录、网站技术后录，技术表没有售价）后录的不再被拦；
-//       2) 一个客户做多个网站、订单号相同、客服分多行记录：每行各记一张订单，不合并成一张。
+//       2) 一个客户做多个网站、订单号相同、客服分多行记录：按稳定项目标识分别建单，重传和调序不重复计单。
 // 导入流程含建表语句会提前提交，所以只允许在本地临时库运行。DB_HOST=127.0.0.1 DB_PORT=13399 php tests/website_split_import_smoke.php
 if (PHP_SAPI !== 'cli') { http_response_code(403); exit; }
 require_once __DIR__ . '/../includes/ProjectIntake.php';
@@ -61,21 +61,27 @@ try {
     echo "=== 三、一个客户做多个网站：订单号相同、客服分多行记录 ===\n";
     $no3 = "33168$tag" . '50666';
     $no4 = "33168$tag" . '50668';
-    $csHead = "日期,店铺,付款昵称,订单编号,程序名称,客服,模板技术,售价,状态\n";
+    $csHead = "日期,店铺,付款昵称,订单编号,程序名称,客服,模板技术,售价,状态,网站项目标识\n";
     $csv = $csHead
-        . "2026.9.13,美呀美,qiangzi,$no3,jsp展示,宋倩倩,张强,350,已完成\n"
-        . "2026.9.13,美呀美,qiangzi,$no3,jsp展示,宋倩倩,张强,350,已完成\n"
-        . "2026.9.13,美呀美,qiangzi,$no4,jsp展示,宋倩倩,张强,350,已完成\n";
+        . "2026.9.13,美呀美,qiangzi,$no3,jsp展示,宋倩倩,张强,350,已完成,site-a.example\n"
+        . "2026.9.13,美呀美,qiangzi,$no3,jsp展示,宋倩倩,张强,350,已完成,site-b.example\n"
+        . "2026.9.13,美呀美,qiangzi,$no4,jsp展示,宋倩倩,张强,350,已完成,site-c.example\n";
     [$pv, $imp, $err] = $importAs($song, '网站模板', $csv);
     $check($err === '' && $imp === 3, '3 行导入 3 单（同号两行不再合并成一单）' . ($err ? '：' . $err : '') . " imported=$imp");
     $rows = array_merge($orders("$no3%"), $orders("$no4%"));
     $check(count($rows) === 3, '库里 3 张订单：' . implode('、', array_column($rows, 'order_no')));
     $check(array_sum(array_column($rows, 'contract_amount')) == 1050.0 && count(array_filter($rows, fn($r) => (float)$r['contract_amount'] === 350.0)) === 3, '每张 ¥350，合计 ¥1050，不是合并后的 ¥700 + ¥350');
-    $check(!!array_filter($rows, fn($r) => $r['order_no'] === "$no3#2"), '同号第 2 个网站订单号为“订单号#2”');
-    $link = $pdo->prepare('SELECT COUNT(*) FROM project_order_splits s JOIN project_orders c ON c.id=s.child_order_id WHERE c.order_no=?'); $link->execute(["$no3#2"]);
+    $siteChildNo = psp_child_no($no3, 'site-b.example');
+    $check(!!array_filter($rows, fn($r) => $r['order_no'] === $siteChildNo), '第二个网站使用项目标识生成稳定编号');
+    $link = $pdo->prepare('SELECT COUNT(*) FROM project_order_splits s JOIN project_orders c ON c.id=s.child_order_id WHERE c.order_no=?'); $link->execute([$siteChildNo]);
     $check((int)$link->fetchColumn() === 1, '第 2 个网站与第 1 个订单关联，收款证据按同一个店铺订单号核对');
     [$pv, $imp, $err] = $importAs($song, '网站模板', $csv);
     $check(count($orders("$no3%")) === 2 && count($orders("$no4%")) === 1, '整张表重复上传不重复建单');
+    $reordered = $csHead
+        . "2026.9.13,美呀美,qiangzi,$no3,jsp展示,宋倩倩,张强,350,已完成,site-b.example\n"
+        . "2026.9.13,美呀美,qiangzi,$no3,jsp展示,宋倩倩,张强,350,已完成,site-a.example\n";
+    $importAs($song, '网站模板', $reordered);
+    $check(count($orders("$no3%")) === 2, '行顺序调换后仍是相同两张网站项目订单');
 
     echo "=== 四、备案人员上传的订单号已是网站模板订单（备案是在网站订单上追加的服务） ===\n";
     $filer = $actorOf('刘媛媛');

@@ -223,6 +223,7 @@ function ps_business_import_columns($business)
         $columns['returning_marker'] = ['老客户'];
     }
     if (!empty($definition['program'])) $columns['program_name'] = ['程序名称', '程序套餐'];
+    if (in_array($business, ['网站模板', 'AI网站定制'], true)) $columns['site_project_key'] = ['网站项目标识', '网站项目名称', '项目网站', '项目域名'];
     if ($definition['resources']) {
         $columns['domain_used'] = ['域名使用（写是/否）', '域名使用'];
         $columns['ssl_used'] = ['SSL证书使用（写真实成本）', 'SSL证书使用', 'SSL使用'];
@@ -315,6 +316,7 @@ function ps_business_import_headers_base($business)
     if ($business === '网站修改') return ['店铺', '付款截图', '日期', '订单编号', '价格', '成本', '后台类型', '域名空间', '特殊情况备注', '分单备注金额', '状态'];
     $columns = ps_business_import_columns($business);
     $order = ['order_date','shop','business','payment_nickname','order_no','contract_amount','status','contact_note','customer_service','frontend','domain_used','ssl_used','backend','resource_note','order_kind','program_name'];
+    if (in_array($business, ['网站模板', 'AI网站定制'], true)) $order[] = 'site_project_key';
     if ($business !== 'AI网站定制') $order[] = 'payment_reference'; // 原 AI 定制 14 列模板不变，额外列仍可识别。
     // 精简模板：订单类型会自动识别；协作技术仅定制前后端需要；名称 / 制作要求 / 客户微信等由“业务”“备注”“付款昵称”自动补全。
     // 这些列写了仍会识别，只是不再放进下载模板，避免重复填写。
