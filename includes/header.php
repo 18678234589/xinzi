@@ -95,7 +95,7 @@ $nav = function ($href, $icon, $label, $active) {
     <link href="<?php echo BASE_URL; ?>/assets/lib/bootstrap/css/bootstrap.min.css" rel="stylesheet">
     <link href="<?php echo BASE_URL; ?>/assets/lib/font-awesome/css/all.min.css" rel="stylesheet">
     <link href="<?php echo BASE_URL; ?>/assets/css/style.css" rel="stylesheet">
-    <link href="<?php echo BASE_URL; ?>/assets/css/project-intake.css" rel="stylesheet">
+    <link href="<?php echo BASE_URL; ?>/assets/css/project-intake.css?v=20261008.1" rel="stylesheet">
     <link href="<?php echo BASE_URL; ?>/assets/css/theme.css" rel="stylesheet">
     <link href="<?php echo BASE_URL; ?>/assets/css/knowledge.css?v=20261002.3" rel="stylesheet">
     <style>
