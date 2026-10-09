@@ -166,6 +166,10 @@
                     }
                     $record['kind_missing'] = false;
                     // 森动备案：表格没写订单类型时按工作表 / 店铺判断——“二次备案”分表 → 二次备案；淘宝店铺 → 备案-淘宝；其余 → 备案
+                    // 森动备案：“业务”列直接写了订单类型（备案 / 二次备案）就以它为准；淘宝店铺的“备案”记为备案-淘宝
+                    if ($kindText === '' && $selectedBusiness === '森动备案' && in_array($sheetBusiness, $orderKinds, true)) {
+                        $kindText = $sheetBusiness === '备案' && mb_strpos($lookup($row, 'shop'), '淘宝') !== false ? '备案-淘宝' : $sheetBusiness;
+                    }
                     if ($kindText === '' && $selectedBusiness === '森动备案') {
                         $kindText = mb_strpos((string)$sheetName, '二次') !== false ? '二次备案' : (mb_strpos($lookup($row, 'shop'), '淘宝') !== false ? '备案-淘宝' : '备案'
     );
@@ -202,6 +206,7 @@
                             $costTotal += (float)$costText; $hasCost = true;
                         }
                         if ($hasCost) $record['direct_cost'] = number_format($costTotal, 2, '.', '');
+                        if ($selectedBusiness === '森动备案' && !$hasCost && in_array($kindText, ['备案', '备案-淘宝'], true)) $record['warning'] .= ($record['warning'] ? '；' : '') . '首次备案没填成本：提成按成本 0 计会偏高，请补“成本”列（如售价 100、成本 80）';
                     }
                     $record['domain_used'] = $businessDefinition['resources'] ? $lookup($row, 'domain_used') : '否';
                     $record['ssl_used'] = $businessDefinition['resources'] ? $lookup($row, 'ssl_used') : '';

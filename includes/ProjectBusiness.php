@@ -315,6 +315,7 @@ function ps_business_import_headers_base($business)
     // 网站售后部修改表按 2026-10 原表列序输出；原表无状态列，模板补「状态」由上传时按实际填写识别。
     if ($business === '网站修改') return ['店铺', '付款截图', '日期', '订单编号', '价格', '成本', '后台类型', '域名空间', '特殊情况备注', '分单备注金额', '状态'];
     $columns = ps_business_import_columns($business);
+    if ($business === '森动备案') return ['日期', '店铺', '业务', '付款昵称', '订单编号', '售价', '成本', '状态(填已完成/未完成)', '联系方式', '微信交易流水号', '联系微信号', '备案状态', '授权码', '程序', '域名', '接入商'];
     $order = ['order_date','shop','business','payment_nickname','order_no','contract_amount','status','contact_note','customer_service','frontend','domain_used','ssl_used','backend','resource_note','order_kind','program_name'];
     if (in_array($business, ['网站模板', 'AI网站定制'], true)) $order[] = 'site_project_key';
     if ($business !== 'AI网站定制') $order[] = 'payment_reference'; // 原 AI 定制 14 列模板不变，额外列仍可识别。

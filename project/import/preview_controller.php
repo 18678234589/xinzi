@@ -91,7 +91,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 if (ps_import_numeric_summary($row, $lookup($row, 'order_no'), $lookup($row, 'payment_reference'), $lookup($row, 'order_date'))) { $blankRows[$sheetName] = ($blankRows
     [$sheetName] ?? 0) + 1; continue; }
                 if ($lookup($row, 'order_no') === '' && $lookup($row, 'payment_reference') === '' && trim((string)($fixOrderNos[$rowLine] ?? '')) === '' && trim((string)($fixPaymentReferences
-    [$rowLine] ?? '')) === '' && ($amountCell === '' || (is_numeric($amountCell) && (float)$amountCell == 0))) { $blankRows[$sheetName] = ($blankRows[$sheetName] ?? 0) + 1; continue
+    [$rowLine] ?? '')) === '' && ($amountCell === '' || (is_numeric($amountCell) && (float)$amountCell == 0)) && !($selectedBusiness === '森动备案' && $lookup($row, 'detail:domain_name') !== '')) { $blankRows[$sheetName] = ($blankRows[$sheetName] ?? 0) + 1; continue
     ; }
                 // 只写了订单号的续行（同一客户的第二个订单号 / 加购单）：日期、店铺、付款昵称、客服、技术等沿用上一行
                 $continuationOf = 0;

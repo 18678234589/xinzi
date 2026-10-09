@@ -83,6 +83,15 @@
                         $record['order_no'] = ps_payment_reference_order_no($selectedBusiness, $record['payment_reference']);
                         $record['warning'] .= ($record['warning'] ? '；' : '') . '无店铺订单号，已按微信交易流水号生成内部关联号';
                     }
+                    // 森动备案二次备案（备案售后、迁移、改信息等杂项）：没有订单号 / 流水号 / 售价，只有域名和联系微信号。
+                    // 每一行是一次独立工作，各算一单：按“域名＋联系微信号＋月份＋同键序号”生成稳定的内部号（EB-…），重传不重复建单；与本月首次备案无关。
+                    if ($selectedBusiness === '森动备案' && $record['order_no'] === '' && $record['payment_reference'] === '' && $lookup($row, 'detail:domain_name') !== '') {
+                        $ebDate = ps_import_date($lookup($row, 'order_date'));
+                        $ebKey = mb_strtolower(trim($lookup($row, 'detail:domain_name')) . '|' . trim($lookup($row, 'detail:contact_wechat')) . '|' . trim($lookup($row, 'contact_note')) . '|' . substr((string)$ebDate, 0, 7));
+                        $wxSeq['eb|' . $ebKey] = ($wxSeq['eb|' . $ebKey] ?? 0) + 1;
+                        $record['order_no'] = 'EB-' . strtoupper(substr(hash('sha256', '森动备案|' . $ebKey . '|' . $wxSeq['eb|' . $ebKey]), 0, 12));
+                        $record['warning'] .= ($record['warning'] ? '；' : '') . '没有订单号：已按“域名＋联系微信号＋月份”生成内部订单号' . ($wxSeq['eb|' . $ebKey] > 1 ? '（同月同域名第 ' . $wxSeq['eb|' . $ebKey] . ' 次，按独立工作各记一单）' : '');
+                    }
                     // 微信付款等没有订单号的订单：只要有日期、金额和一个识别信息（付款昵称 / 联系方式 / 客服），就按这些内容生成稳定的内部订单号（WX-…），
                     // 同一张表重复上传得到同一个号，不会重复建单；拿到真实订单号后可在订单页补录。
                     if ($record['order_no'] === '' && $record['payment_reference'] === '') {
