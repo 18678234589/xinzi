@@ -31,7 +31,7 @@ $sk = '状态(填已完成/未完成)';
 $state = function ($no) use ($pdo) { $q = $pdo->prepare('SELECT delivery_status FROM project_orders WHERE order_no=?'); $q->execute([$no]); return $q->fetchColumn(); };
 try {
     $tech = $actorOf('石凯新');
-    $kk = '订单类型(新订单/其他订单/定制/续费)';
+    $kk = '订单类型(下拉选择)';
     $row = function ($i, $status) use ($tag, $sk, $kk) { return ['日期' => '2026.9.8', '店铺' => '美呀美', '业务' => '小程序商城', $kk => '新订单', '付款昵称' => "sf$tag$i", '订单编号' => "33195$tag" . "0000$i", '售价' => '300', $sk => $status, '客服' => '朱俊英', '制作技术' => '石凯新']; };
     $importAs($tech, '小程序开发', $csvOf('小程序开发', [$row(1, '未完成'), $row(2, '未完成'), $row(3, '已完成')]));
     $n = function ($i) use ($tag) { return "33195$tag" . "0000$i"; };

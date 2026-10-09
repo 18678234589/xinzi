@@ -88,6 +88,8 @@
                     // 小程序结算表的“备注”常写 新订单 / 续费 / 定制：识别为订单类型。
                     $kindText = $lookup($row, 'order_kind');
                     if ($kindText === '' && in_array($record['contact_note'], $orderKinds, true)) { $kindText = $record['contact_note']; $record['contact_note'] = ''; }
+                    // 订单类型写的是下拉里的说明性名称（如“小程序商城新注册搭建”）：换回库里存的类型值
+                    if ($kindText !== '') $kindText = pkl_kind_from_text($selectedBusiness, $kindText);
                     // 小程序技术：“新订单”特指在小程序商城新注册搭建的订单（每单 ¥20 补助）；其他订单（续费、注册公众号、重新注册等）没有补助。
                     // “其他订单 / 其它订单”记为技术服务（5%，无补助）；“业务”列或备注里写了“新订单 / 其他订单”也识别；定制、续费仍须明确写出
                     if ($selectedBusiness === '小程序开发') {

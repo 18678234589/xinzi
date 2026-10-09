@@ -85,6 +85,7 @@ function ps_business_service_fee_rate($business)
     return (float)(ps_business_catalog()[ps_business_normalize($business)]['service_fee_rate'] ?? 0);
 }
 
+require_once __DIR__ . '/ProjectKindLabels.php'; // 订单类型的说明性显示名
 function ps_business_order_kinds($business)
 {
     return ps_business_catalog()[ps_business_normalize($business)]['order_kinds'] ?? [];
@@ -207,7 +208,7 @@ function ps_business_import_columns($business)
     ];
     if (ps_business_order_kinds($business)) $columns['order_kind'] = ['订单类型', '类型'];
     // 小程序模板的列名直接写明可选值，避免“新订单”被理解成别的意思（新订单 = 小程序商城新注册搭建，其余是其他订单）
-    if ($business === '小程序开发') $columns['order_kind'] = array_merge(['订单类型(新订单/其他订单/定制/续费)'], $columns['order_kind']);
+    if ($business === '小程序开发') $columns['order_kind'] = array_merge(['订单类型(下拉选择)', '订单类型(新订单/其他订单/定制/续费)'], $columns['order_kind']);
     // 代写 / 期刊 / 微信代写：成本 = 写手稿费或杂志社费用，随订单导入；“提成”列为 0 的代写行识别为合并单；期刊“模式”列识别代付版面费。
     if (!empty($definition['import_cost'])) {
         $columns['direct_cost'] = ['实际稿费', '成本', '稿费', '杂志社费用'];

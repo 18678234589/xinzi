@@ -300,7 +300,7 @@ while (count($tiers) < 7) $tiers[] = ['from' => '', 'rate' => '', 'base' => ''];
 <div class="table-responsive"><table class="table table-sm mb-0 project-rule-table"><thead><tr><th>业务 · 组别</th><th>岗位 / 订单类型</th><th>方式</th><th>比例 %</th><th>服务费 %</th><th>补助 ¥</th><th>补助限定</th><th>最低售价 ¥</th><th>成本下限 %</th><th>说明</th><th></th></tr></thead><tbody>
 <?php foreach ($rules as $r): $formId = 'rule' . (int)$r['id']; ?><tr class="<?php echo $r['is_active'] ? '' : 'text-muted'; ?>">
 <td><?php echo e($r['project_type'] === '*' ? '全部业务' : $r['project_type']); ?><div class="small text-muted"><?php echo e(ps_label('group', $r['commission_group'])); ?> · <?php echo e($r['effective_from']); ?> 起<?php echo $r['is_active'] ? '' : ' · 已停用'; ?></div></td>
-<td><?php echo e($r['role_name'] === '*' ? '全部岗位' : $r['role_name']); ?><div class="small text-muted"><?php echo e($r['order_kind'] === '*' ? '全部类型' : $r['order_kind']); ?></div></td>
+<td><?php echo e($r['role_name'] === '*' ? '全部岗位' : $r['role_name']); ?><div class="small text-muted"><?php echo e($r['order_kind'] === '*' ? '全部类型' : pkl_label($r['project_type'], $r['order_kind'])); ?></div></td>
 <td><select form="<?php echo $formId; ?>" name="calc_mode" class="form-control form-control-sm"><option value="pool">组池</option><option value="individual" <?php echo $r['calc_mode'] === 'individual' ? 'selected' : ''; ?>>独立</option></select></td>
 <td><input form="<?php echo $formId; ?>" name="rate_percent" type="number" step="0.0001" min="0" max="100" class="form-control form-control-sm" style="width:84px" value="<?php echo e(rtrim(rtrim(number_format($r['rate'] * 100, 4, '.', ''), '0'), '.')); ?>"></td>
 <td><input form="<?php echo $formId; ?>" name="fee_percent" type="number" step="0.0001" min="0" max="100" class="form-control form-control-sm" style="width:84px" value="<?php echo $r['service_fee_rate'] === null ? '' : e(rtrim(rtrim(number_format($r['service_fee_rate'] * 100, 4, '.', ''), '0'), '.')); ?>" placeholder="默认"></td>
@@ -408,8 +408,9 @@ $pendingAttendance = count(array_filter($attendanceRules, function ($r) use ($in
 <script>
 (function(){
   var kinds=<?php echo json_encode(array_map(function ($d) { return $d['order_kinds'] ?? []; }, ps_business_catalog()), JSON_UNESCAPED_UNICODE); ?>;
+  var kindLabels=<?php echo json_encode(pkl_js_map(), JSON_UNESCAPED_UNICODE); ?>;
   var ruleBusiness=document.getElementById('ruleBusiness'),ruleKind=document.getElementById('ruleKind');
-  function refreshKinds(){var list=kinds[ruleBusiness.value]||[];ruleKind.innerHTML='<option value="">全部</option>';list.forEach(function(k){var o=document.createElement('option');o.value=k;o.textContent=k;ruleKind.appendChild(o);});ruleKind.disabled=!list.length;}
+  function refreshKinds(){var list=kinds[ruleBusiness.value]||[];ruleKind.innerHTML='<option value="">全部</option>';list.forEach(function(k){var o=document.createElement('option');o.value=k;o.textContent=((kindLabels[ruleBusiness.value]||{})[k])||k;ruleKind.appendChild(o);});ruleKind.disabled=!list.length;}
   if(ruleBusiness){ruleBusiness.addEventListener('change',refreshKinds);refreshKinds();}
   var type=document.getElementById('monthlyType');
   function refreshType(){var t=type.value;document.querySelectorAll('#monthlyForm [data-for]').forEach(function(el){var show=el.getAttribute('data-for').split(' ').indexOf(t)!==-1;el.hidden=!show;el.querySelectorAll('input,select').forEach(function(i){i.disabled=!show;});});

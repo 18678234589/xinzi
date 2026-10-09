@@ -291,8 +291,9 @@ $pct = function ($value) { return rtrim(rtrim(number_format((float)$value * 100,
   var employee=document.getElementById('newProjectEmployee');var business=document.getElementById('newProjectBusiness');
   if(employee&&business)employee.addEventListener('change',function(){var option=employee.options[employee.selectedIndex];business.value=option.dataset.business||'';});
   var kinds=<?php echo json_encode(array_map(function ($d) { return $d['order_kinds'] ?? []; }, ps_business_catalog()), JSON_UNESCAPED_UNICODE); ?>;
+  var kindLabels=<?php echo json_encode(pkl_js_map(), JSON_UNESCAPED_UNICODE); ?>;
   var ruleBusiness=document.getElementById('ruleBusiness'),ruleKind=document.getElementById('ruleKind');
-  function refreshKinds(){var list=kinds[ruleBusiness.value]||[];ruleKind.innerHTML='<option value="">全部</option>';list.forEach(function(k){var o=document.createElement('option');o.value=k;o.textContent=k;ruleKind.appendChild(o);});ruleKind.disabled=!list.length;}
+  function refreshKinds(){var list=kinds[ruleBusiness.value]||[];ruleKind.innerHTML='<option value="">全部</option>';list.forEach(function(k){var o=document.createElement('option');o.value=k;o.textContent=((kindLabels[ruleBusiness.value]||{})[k])||k;ruleKind.appendChild(o);});ruleKind.disabled=!list.length;}
   if(ruleBusiness){ruleBusiness.addEventListener('change',refreshKinds);refreshKinds();}
   var filter=document.getElementById('templateFilter');
   if(filter)filter.addEventListener('input',function(){var q=filter.value.trim().toLowerCase();document.querySelectorAll('#templateTable tbody tr[data-search]').forEach(function(tr){tr.hidden=q!==''&&tr.dataset.search.indexOf(q)===-1;});});
