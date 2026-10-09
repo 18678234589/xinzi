@@ -5,3 +5,4 @@
     echo $departmentMode ? 'department' : 'personal'; ?>&download=1">下载此业务模板（含示例行）</a><?php $tplExtras = ps_import_role_extras($selectedBusiness, $actor,
     ps_business_import_headers_base($selectedBusiness)); if ($tplExtras): ?><span class="small text-muted ml-2">已按你的岗位加入“<?php echo e(implode('、', $tplExtras));
     ?>”列</span><?php endif; ?></form>
+<?php if ($selectedBusiness === '小程序开发'): ?><div class="alert alert-warning small"><strong>模板已更新（2026-10-09），请先点上面的“下载此业务模板”获取新版。</strong> 新增“订单类型”列，写明可选值：<b>新订单</b>＝在小程序商城新注册搭建的订单（每单 20 元补助）；<b>其他订单</b>＝注册公众号、重新注册、认证、小修改等（没有补助）；<b>定制</b>、<b>续费</b>单独填写。旧表仍可上传，但没写类型的行只按“业务 / 制作要求”文字猜，拿不准一律按“其他订单”。</div><?php endif; ?>

@@ -58,7 +58,26 @@ if (isset($_GET['download']) && $selectedBusiness && $_SERVER['REQUEST_METHOD'] 
     $templateHeaders = ps_business_import_headers($selectedBusiness, $actor);
     fputcsv($output, $templateHeaders);
     // 附一行示例（订单号以“示例”开头，上传时自动跳过），照着填即可
-    fputcsv($output, ps_business_import_example_row($selectedBusiness, $templateHeaders));
+    $exampleRow = ps_business_import_example_row($selectedBusiness, $templateHeaders);
+    if ($selectedBusiness === '小程序开发') {
+        // 小程序：用 4 行示例把“新订单 / 其他订单 / 定制 / 续费”各演示一遍（均以“示例”开头，上传时自动跳过）
+        $miniExamples = [
+            ['新订单', '小程序商城搭建', '在小程序商城新注册搭建的订单才填“新订单”，每单有 20 元补助'],
+            ['其他订单', '注册公众号', '注册公众号、重新注册、认证、小修改等都填“其他订单”（续费单独填“续费”），没有补助'],
+            ['定制', '定制开发某某功能', '按客户需求定制开发的订单填“定制”'],
+            ['续费', '小程序续费1年', '续年费的订单填“续费”'],
+        ];
+        foreach ($miniExamples as [$exKind, $exBusiness, $exNote]) {
+            $line = $exampleRow;
+            foreach ($templateHeaders as $exIndex => $exHead) {
+                if (strpos($exHead, '订单类型') === 0) $line[$exIndex] = $exKind;
+                elseif ($exHead === '业务') $line[$exIndex] = $exBusiness;
+                elseif ($exHead === '订单编号') $line[$exIndex] = '示例-' . $exKind . '（本行可删，上传时自动跳过）';
+                elseif (mb_strpos($exHead, '备注') === 0) $line[$exIndex] = $exNote;
+            }
+            fputcsv($output, $line);
+        }
+    } else fputcsv($output, $exampleRow);
     fclose($output);
     exit;
 }

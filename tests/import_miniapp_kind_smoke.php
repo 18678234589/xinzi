@@ -36,8 +36,9 @@ $sk = '状态(填已完成/未完成)';
 try {
     $tech = $actorOf('石凯新');
     $check($tech, '石凯新账号存在');
-    $check(in_array('订单类型', ps_business_import_headers('小程序开发'), true), '小程序开发模板有“订单类型”列');
-    $mk = function ($i, $kind, $biz, $note = '') use ($tag, $sk) { return ['日期' => '2026.9.5', '店铺' => '美呀美', '业务' => $biz, '订单类型' => $kind, '付款昵称' => "mk$tag$i", '订单编号' => "33190$tag" . "0000$i", '售价' => '300', $sk => '已完成', '备注（写客户电话或者微信）' => $note, '客服' => '朱俊英', '制作技术' => '石凯新']; };
+    $check(in_array('订单类型(新订单/其他订单/定制/续费)', ps_business_import_headers('小程序开发'), true), '小程序开发模板有写明可选值的“订单类型”列');
+    $kk = '订单类型(新订单/其他订单/定制/续费)';
+    $mk = function ($i, $kind, $biz, $note = '') use ($tag, $sk, $kk) { return ['日期' => '2026.9.5', '店铺' => '美呀美', '业务' => $biz, $kk => $kind, '付款昵称' => "mk$tag$i", '订单编号' => "33190$tag" . "0000$i", '售价' => '300', $sk => '已完成', '备注（写客户电话或者微信）' => $note, '客服' => '朱俊英', '制作技术' => '石凯新']; };
     $rows = [
         $mk(1, '新订单', '小程序商城'),
         $mk(2, '其他订单', '小程序商城'),
@@ -59,6 +60,13 @@ try {
     [$pv2, $imp2, $err2] = $importAs($tech, '小程序开发', $csvOf('小程序开发', [$g(1, '小程序商城'), $g(2, '注册公众号'), $g(3, '重新注册'), $g(4, '外卖小程序'), $g(5, '张三的东西')]));
     $kinds2 = array_column($pv2, 'order_kind');
     $check($kinds2 === ['新订单', '技术服务', '技术服务', '新订单', '技术服务'], '按描述识别：商城/外卖=新订单，公众号/重新注册/不明=其他订单：' . implode(',', $kinds2) . ' ' . $err2);
+    // 旧版模板（没有订单类型列）上传：给出下载新版的提醒
+    $old = "日期,店铺,业务,付款昵称,订单编号,售价,状态(填已完成/未完成),客服,制作技术\n2026.9.7,美呀美,小程序商城,old$tag,33192{$tag}00001,300,已完成,朱俊英,石凯新\n";
+    $fileId = $upload($tech, '小程序开发', $old);
+    $run($tech, ['action' => 'repreview', 'business' => '小程序开发', 'file_id' => $fileId, 'all_sheets' => 1]);
+    $notes = implode(' ', array_column($_SESSION['project_import_sheets'] ?? [], 'ai'));
+    $check(mb_strpos($notes, '旧版模板') !== false && mb_strpos($notes, '下载此业务模板') !== false, '旧版表上传时提醒下载新版');
+    $check(($_SESSION['project_import_preview'][0]['order_kind'] ?? '') === '新订单', '旧表里“小程序商城”仍识别为新订单');
     echo "\n=== 小程序订单类型测试全部通过 ===\n";
 } catch (Throwable $e) {
     fwrite(STDERR, $e->getMessage() . "\n");

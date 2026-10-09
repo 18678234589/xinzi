@@ -146,6 +146,8 @@
                 else {
                     // 表头按别名匹配：原 AI 定制模板、部门现有表（付款账号 / 接单日期 / 到账情况 / 程序名称…）都可直接上传。
                     try { $entry['map'] = ps_business_import_map($selectedBusiness, $head, $requirePeople); } catch (RuntimeException $e) { $entry['reason'] = $e->getMessage(); }
+                    // 小程序旧版模板没有“订单类型”列：提醒下载新版（新订单 = 小程序商城新注册搭建，每单 20 元补助；其他订单没有）
+                    if ($entry['map'] !== null && $selectedBusiness === '小程序开发' && !isset($entry['map']['order_kind'])) $entry['ai'] = trim($entry['ai'] . ' 这张表没有“订单类型”列（旧版模板）：未写类型的行只按“业务 / 制作要求”文字猜，描述不清一律按“其他订单”（无 20 元补助）。请点“下载此业务模板”获取新版，新订单（小程序商城新注册搭建）在“订单类型”列写“新订单”。');
                 }
                 $parsedSheets[(string)$sheetName] = $entry;
             }

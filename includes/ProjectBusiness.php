@@ -202,6 +202,8 @@ function ps_business_import_columns($business)
         $columns['direct_cost2'] = ['我司写手承担写作的写手费用', '写手费用'];
         $columns['unit_marker'] = ['提成'];
         $columns['pay_mode'] = ['模式'];
+    // 小程序模板的列名直接写明可选值，避免“新订单”被理解成别的意思（新订单 = 小程序商城新注册搭建，其余是其他订单）
+    if ($business === '小程序开发') $columns['order_kind'] = array_merge(['订单类型(新订单/其他订单/定制/续费)'], $columns['order_kind']);
     }
     // 设计部总表：“序号”列写的是客服，“设计师佣金”列出现即 PPT 表，按“旺旺”识别同一客户
     if ($business === '设计') {
