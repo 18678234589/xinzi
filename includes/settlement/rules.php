@@ -153,10 +153,12 @@ function ps_calc_person($rule, $income, $directCost, $contract, $weight, $busine
 function ps_trademark_piece_calc($calc, $count)
 {
     if (!$calc || $calc['blocked'] || $calc['subsidy'] <= 0) return $calc;
-    $unit = $calc['subsidy'];
+    // 每件单价取规则的整单补助（不乘组权重）：资料专员、提交专员各自按自己经手的商标件数全额计，不因岗位人数被均分（一件 = 2.2，而不是 1.1）
+    $unit = (float)($calc['subsidy_pool'] ?? $calc['subsidy']);
     $pieces = $count === null ? 0.0 : (float)$count;
     $calc['subsidy'] = round($unit * $pieces, 2);
-    $calc['subsidy_pool'] = round((float)($calc['subsidy_pool'] ?? $unit) * $pieces, 2);
+    $calc['subsidy_pool'] = $calc['subsidy'];
+    if (isset($calc['mode'])) $calc['mode'] = 'individual'; // 补助不再按权重在组内分摊
     $calc['note'] .= $pieces > 0 ? '（每件 × 商标 ' . rtrim(rtrim(number_format($pieces, 2, '.', ''), '0'), '.') . ' 件 = ' . money_plain($calc['subsidy']) . '）' : '（未填商标个数，不计件）'
     ;
     return $calc;

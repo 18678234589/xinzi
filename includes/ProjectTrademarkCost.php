@@ -110,3 +110,73 @@ function ptc_backfill($actor)
     }
     return ['orders' => $orders, 'costs' => $costs];
 }
+
+/**
+ * 商标订单成本的统一落账（新建、补充上传、修复工具共用）：
+ *   自动成本 = 商标个数 × 成本中心服务项目单价（按文字识别服务名，识别不到按“注册”）；
+ *   Excel 成本 = 本次表格“成本”列，或订单上此前从 Excel 导入的成本；
+ *   订单成本取两者较大者——自动算不出来时以 Excel 为准，自动成本比 Excel 低时也以 Excel 为准；Excel 没写时用自动成本。
+ * 商标成本都是标准官费，不再因超过 ¥500 卡在待审核（待审核的成本不进“直接成本”，订单会显示成本 ¥0）。
+ * 订单上有人工填写的其他成本（非模板、非 Excel 导入）时不改动。返回做了什么：none / added / raised / approved / ok / manual / skip。
+ */
+function ptc_sync_order_cost($orderId, $actor, $origin, $excelCost = null, $text = null)
+{
+    $pdo = db();
+    $order = $pdo->prepare('SELECT project_type,note,settlement_status FROM project_orders WHERE id=?');
+    $order->execute([(int)$orderId]);
+    $order = $order->fetch();
+    if (!$order || $order['project_type'] !== '商标' || in_array($order['settlement_status'], ['approved', 'locked'], true)) return 'skip';
+    $detail = $pdo->prepare('SELECT details_json FROM project_order_details WHERE order_id=?');
+    $detail->execute([(int)$orderId]);
+    $details = json_decode((string)$detail->fetchColumn(), true) ?: [];
+    $count = $details['trademark_count'] ?? '';
+    $text = $text ?? implode(' ', [$details['service_type'] ?? '', $details['trademark_name'] ?? '', $order['note'] ?? '']);
+    $service = is_numeric($count) && (float)$count > 0 ? ptc_detect_service(ptc_templates(), $text) : null;
+    $auto = null;
+    if ($service) { [, $autoAmount] = ps_template_cost_amount($service, 0, (float)$count); $auto = round((float)$autoAmount, 2); }
+    $excel = ($excelCost !== null && $excelCost !== '' && is_numeric($excelCost)) ? round((float)$excelCost, 2) : 0.0;
+
+    $rows = $pdo->prepare("SELECT id,template_id,amount,quantity,review_status,reason FROM project_costs WHERE order_id=? AND review_status<>'rejected' ORDER BY id FOR UPDATE");
+    $rows->execute([(int)$orderId]);
+    $rows = $rows->fetchAll();
+    $excelRows = []; $autoRows = []; $otherRows = [];
+    foreach ($rows as $r) {
+        if ($r['template_id'] !== null && (int)$r['template_id'] > 0) $autoRows[] = $r;
+        elseif (strpos((string)$r['reason'], 'Excel') === 0) $excelRows[] = $r;
+        else $otherRows[] = $r;
+    }
+    if ($otherRows) return 'manual';
+    $excel = max($excel, round(array_sum(array_map(function ($r) { return (float)$r['amount']; }, $excelRows)), 2));
+    $target = max($auto ?? 0.0, $excel);
+    $insertExcel = function ($amount, $why) use ($pdo, $orderId, $actor) {
+        $pdo->prepare("INSERT INTO project_costs (order_id,category,item_name,quantity,unit,unit_price,amount,cost_kind,is_custom,reason,review_status,submitted_by_employee) VALUES (?,'outsourcing','商标官费',1,'项',?,?,'one_time',1,?,'approved',?)")
+            ->execute([(int)$orderId, $amount, $amount, $why, $actor['employee_id'] ?? null]);
+        return (int)$pdo->lastInsertId();
+    };
+    if (!$rows) {
+        if ($auto !== null && $auto >= $excel) { ps_intake_add_template_cost($orderId, $service, $actor, $origin . '：' . ptc_keyword($service) . ' × ' . ptc_count_label($count) . ' 件', (float)$count, (int)$service['auto_approve'] === 1 ? 'approved' : 'pending'); return 'added'; }
+        if ($excel > 0) { $id = $insertExcel($excel, (strpos($origin, 'Excel') === 0 ? '' : 'Excel ') . $origin . '导入'); ps_audit('cost', $id, 'create_from_intake', $actor, ['order_id' => (int)$orderId, 'amount' => $excel, 'origin' => $origin]); return 'added'; }
+        return 'none';
+    }
+    $done = 'ok';
+    // 待审核的 Excel 成本：商标官费直接通过
+    foreach ($excelRows as $r) if ($r['review_status'] === 'pending') {
+        $pdo->prepare("UPDATE project_costs SET review_status='approved',review_note=CONCAT_WS('；',NULLIF(review_note,''),'商标成本按标准官费自动通过') WHERE id=?")->execute([(int)$r['id']]);
+        ps_audit('cost', (int)$r['id'], 'auto_approve_trademark', $actor, ['order_id' => (int)$orderId, 'amount' => (float)$r['amount'], 'origin' => $origin]);
+        $done = 'approved';
+    }
+    $current = round(array_sum(array_map(function ($r) { return (float)$r['amount']; }, $rows)), 2);
+    if ($current + 0.004 < $target) {
+        $why = '；' . $origin . '：成本取成本中心标准价与 Excel 中较大者 ¥' . number_format($target, 2, '.', '');
+        if (count($rows) === 1) {
+            $r = $rows[0]; $quantity = max((float)$r['quantity'], 1);
+            $pdo->prepare("UPDATE project_costs SET amount=?,unit_price=ROUND(?/?,2),review_status='approved',reason=LEFT(CONCAT(reason,?),500) WHERE id=?")->execute([$target, $target, $quantity, $why, (int)$r['id']]);
+            ps_audit('cost', (int)$r['id'], 'raise_trademark_cost', $actor, ['order_id' => (int)$orderId, 'from' => (float)$r['amount'], 'to' => $target, 'origin' => $origin]);
+        } else {
+            $id = $insertExcel(round($target - $current, 2), $origin . '：补差至成本中心标准价与 Excel 中较大者 ¥' . number_format($target, 2, '.', ''));
+            ps_audit('cost', $id, 'raise_trademark_cost', $actor, ['order_id' => (int)$orderId, 'from' => $current, 'to' => $target, 'origin' => $origin]);
+        }
+        $done = 'raised';
+    }
+    return $done;
+}

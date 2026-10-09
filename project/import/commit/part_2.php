@@ -120,6 +120,8 @@
                         if (!empty($row['renewal_extras'])) $pdo->prepare("UPDATE project_orders SET note=CONCAT_WS('；', NULLIF(note,''), ?) WHERE id=?")->execute([implode('；',
     $row['renewal_extras']), $orderId]);
                         if (empty($row['join_parent'])) poi_save($orderId, $row['items'] ?? [], (int)$_SESSION['project_import_file'], $actor);
+                        // 商标：补充上传（如资料专员的表补上商标个数）后也要把成本补齐 / 取较大者，不能只有先建单的那一份有成本
+                        if (ps_business_normalize($existing['project_type']) === '商标') ptc_sync_order_cost($orderId, $actor, 'Excel 第' . $row['line'] . '行补充', $row['direct_cost'] ?? '');
                         ps_audit('order', $orderId, 'import_supplement', $actor, ['line' => $row['line'], 'order_no' => $row['order_no']]);
                         if ($departmentMode) ps_department_import_record($orderId, $actor);
                         $imported++;
@@ -175,10 +177,10 @@
                     if ($domainTemplate) ps_intake_add_template_cost($orderId, $domainTemplate, $actor, 'Excel 第' . $row['line'] . '行：域名');
                     if ($serverTemplate) ps_intake_add_template_cost($orderId, $serverTemplate, $actor, 'Excel 第' . $row['line'] . '行：服务器');
                     poi_save($orderId, $row['items'] ?? [], (int)$_SESSION['project_import_file'], $actor);
-                    if ($writeBusiness === '商标' && (($row['direct_cost'] ?? '') === '' || (float)$row['direct_cost'] == 0)) ptc_apply($orderId, $row['details']['trademark_count'
-    ] ?? '', $actor, 'Excel 第' . $row['line'] . '行', implode(' ', [$row['details']['trademark_name'] ?? '', $row['details']['service_type'] ?? '', $row['contact_note'] ?? '', $row
+                    // 商标成本：成本中心标准价（件数 × 单价）与 Excel 成本取较大者，都自动通过；算不出标准价就以 Excel 为准（见 ptc_sync_order_cost）
+                    if ($writeBusiness === '商标') ptc_sync_order_cost($orderId, $actor, 'Excel 第' . $row['line'] . '行', $row['direct_cost'] ?? '', implode(' ', [$row['details']['trademark_name'] ?? '', $row['details']['service_type'] ?? '', $row['contact_note'] ?? '', $row
     ['business_text'] ?? '', $row['resource_note'] ?? '']));
-                    if (($row['direct_cost'] ?? '') !== '' && (float)$row['direct_cost'] != 0) {
+                    elseif (($row['direct_cost'] ?? '') !== '' && (float)$row['direct_cost'] != 0) {
                         // 部门结算表的稿费 / 杂志社费用：¥500 以内自动通过，超过的由财务审核（与成本中心模板阈值一致）。
                         $costAmount = round((float)$row['direct_cost'], 2);
                         $costStatus = abs($costAmount) <= 500 ? 'approved' : 'pending';
