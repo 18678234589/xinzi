@@ -122,6 +122,14 @@
                         if (empty($row['join_parent'])) poi_save($orderId, $row['items'] ?? [], (int)$_SESSION['project_import_file'], $actor);
                         // 商标：补充上传（如资料专员的表补上商标个数）后也要把成本补齐 / 取较大者，不能只有先建单的那一份有成本
                         if (ps_business_normalize($existing['project_type']) === '商标') ptc_sync_order_cost($orderId, $actor, 'Excel 第' . $row['line'] . '行补充', $row['direct_cost'] ?? '');
+                        // 森动备案：原单还没有成本时按表格“成本”补录（之前没带成本列上传的订单，重传带成本的表即可补上）
+                        if (($row['project_type'] ?? $selectedBusiness) === '森动备案' && ps_business_normalize($existing['project_type']) === '森动备案') pfc_supplement_cost($orderId, $row, $actor);
+                        // 状态只前进：原单未完成而本次表格写已完成 / 到账，更新为已完成（已审核 / 锁定的订单不动）
+                        if (($row['delivery_status'] ?? '') === 'finished') {
+                            $finish = $pdo->prepare("UPDATE project_orders SET delivery_status='finished',row_version=row_version+1 WHERE id=? AND delivery_status<>'finished' AND settlement_status NOT IN ('approved','locked')");
+                            $finish->execute([$orderId]);
+                            if ($finish->rowCount()) ps_audit('order', $orderId, 'import_delivery_finished', $actor, ['line' => $row['line'], 'from' => 'unfinished', 'to' => 'finished']);
+                        }
                         ps_audit('order', $orderId, 'import_supplement', $actor, ['line' => $row['line'], 'order_no' => $row['order_no']]);
                         if ($departmentMode) ps_department_import_record($orderId, $actor);
                         $imported++;

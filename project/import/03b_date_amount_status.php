@@ -65,6 +65,8 @@
                     if ($record['delivery_status'] === null) { $record['delivery_status'] = 'unfinished'; $record['warning'] .= ($record['warning'] ? '；' : '') . '状态“' . mb_substr
     ($status, 0, 20) . '”无法识别，已按未完成导入，交付后请在订单里标记完成'; }
                     $record['trade_status'] = mb_strpos($status, '交易关闭') !== false ? '交易关闭' : '';
+                    // 之前传表时还没完成 / 没到账，这次表里写了已完成 / 到账：导入时把原单状态更新为已完成（只前进，已审核订单不动）
+                    if ($existing && ($existing['delivery_status'] ?? '') === 'unfinished' && $record['delivery_status'] === 'finished' && !in_array($existing['settlement_status'], ['approved', 'locked'], true)) $record['warning'] .= ($record['warning'] ? '；' : '') . '原单状态是“未完成”，本次表格写已完成 / 到账，导入后将更新为已完成';
                     if ($record['trade_status'] !== '') $record['warning'] = '表格写交易关闭：请财务核对退款';
                     $sheetBusiness = $lookup($row, 'business');
                     $record['business_text'] = '';

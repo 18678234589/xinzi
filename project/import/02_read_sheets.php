@@ -66,7 +66,7 @@
             $siteExplicit = []; // 同付款号里已有行写明网站项目标识 / 网址的，其余行不自动编号
             $blankRows = [];
             $preview = [];
-            $exists = db()->prepare('SELECT o.id,o.project_type,o.settlement_status,o.shop,o.contract_amount,o.order_date,s.payment_nickname,s.payment_reference,s.price_source FROM project_orders o LEFT JOIN project_order_sources s ON s.order_id=o.id WHERE o.order_no=? LIMIT 1'
+            $exists = db()->prepare('SELECT o.id,o.project_type,o.settlement_status,o.delivery_status,o.shop,o.contract_amount,o.order_date,s.payment_nickname,s.payment_reference,s.price_source FROM project_orders o LEFT JOIN project_order_sources s ON s.order_id=o.id WHERE o.order_no=? LIMIT 1'
     );
             $existingAccess = db()->prepare('SELECT 1 FROM project_participants WHERE order_id=? AND employee_id=? LIMIT 1');
             $existingResource = db()->prepare('SELECT domain_mode FROM project_order_resources WHERE order_id=?');
