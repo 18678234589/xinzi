@@ -73,6 +73,7 @@ function ps_role_rule_order_kind($projectType, $group, $role, $orderKind)
 {
     if ($projectType !== '小程序开发' || $orderKind === '续费') return $orderKind;
     if (in_array($orderKind, ['模板', '模板订单', '新建站'], true)) return '新订单';
+    if (in_array($orderKind, ['开发定制', '定制开发'], true)) return '定制';
     $roles = ps_role_keys($role);
     if ($group === 'technical' && array_intersect($roles, ['定制技术15', '定制技术', '定制技术30'])) return '定制';
     if ($group === 'customer_service' && in_array('定制客服', $roles, true)) return '定制';

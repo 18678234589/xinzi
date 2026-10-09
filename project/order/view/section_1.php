@@ -27,8 +27,8 @@
 <?php endforeach; ?>
 <div class="card mb-3"><div class="card-body">
   <div class="row"><div class="col-md-3"><small class="text-muted">客户</small><div><?php echo e($order['customer_name'] ?: '待补充'); ?></div></div><div class="col-md-3"><small class="text-muted">业务 / 订单类型</small><div><?php
-    echo e($order['project_type']); ?><?php if ($orderKinds): ?> · <?php if ($canEdit && ($actor['role'] === 'finance' || trim((string)$order['order_kind']) === '')): ?><form method="post" class="d-inline-flex align-items-center"><input type="hidden" name="csrf" value="<?php
-    echo e(ps_csrf_token()); ?>"><input type="hidden" name="action" value="set_order_kind"><select name="order_kind" class="form-control form-control-sm mr-1" aria-label="订单类型"><option value="">选择订单类型</option><?php
+    echo e($order['project_type']); ?><?php if ($orderKinds): ?> · <?php if ($canEdit && in_array($actor['role'], ['customer_service', 'technical', 'finance'], true)): ?><form method="post" class="d-inline-flex align-items-center flex-wrap" style="gap:4px"><input type="hidden" name="csrf" value="<?php
+    echo e(ps_csrf_token()); ?>"><input type="hidden" name="action" value="set_order_kind"><select name="order_kind" class="form-control form-control-sm mr-1" style="width:auto;display:inline-block" aria-label="订单类型"><option value="">选择订单类型</option><?php
     foreach ($orderKinds as $kindName): ?><option value="<?php echo e($kindName); ?>" <?php echo $order['order_kind'] === $kindName ? 'selected' : ''; ?>><?php echo e($kindName); ?></option><?php
     endforeach; ?></select><?php if ($actor['role'] === 'finance'): ?><label class="small mb-0 mr-1"><input type="checkbox" name="apply_future" value="1" checked> 今后同类上传也按此类</label><?php
     endif; ?><button class="btn btn-sm btn-outline-primary">保存类型</button></form><?php else: ?><?php echo e($order['order_kind'] ?: '未填'); ?><?php endif; ?><?php endif;

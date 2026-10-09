@@ -13,7 +13,7 @@ function ps_business_catalog()
         '环境配置' => ['departments' => ['环境配置','服务器配置'], 'resources' => false, 'requires_technical' => true, 'service_fee_rate' => 0.03, 'order_kinds' => [], 'fields' => ['service_item' => '服务内容', 'server_info' => '服务器 / 环境说明']],
         // 旧分类只用于展示历史订单；新订单按产品类型建单，客服作为参与人加入同一订单号。
         '网站客服' => ['departments' => ['网站客服'], 'resources' => false, 'fields' => ['website_url' => '网站地址', 'service_item' => '服务事项'], 'legacy' => true],
-        '小程序开发' => ['departments' => ['小程序技术','小程序','标书小程序'], 'resources' => false, 'requires_technical' => true, 'service_fee_rate' => 0.03, 'order_kinds' => ['新订单','定制','续费','技术服务'], 'kind_required' => true, 'fields' => ['miniapp_name' => '小程序名称', 'make_requirement' => '制作要求', 'customer_wechat' => '客户微信', 'service_term' => '业务种类']],
+        '小程序开发' => ['departments' => ['小程序技术','小程序','标书小程序'], 'resources' => false, 'requires_technical' => true, 'service_fee_rate' => 0.03, 'order_kinds' => ['新订单','开发定制','定制','续费','技术服务'], 'kind_required' => true, 'fields' => ['miniapp_name' => '小程序名称', 'make_requirement' => '制作要求', 'customer_wechat' => '客户微信', 'service_term' => '业务种类']],
         '小额引流' => ['departments' => [], 'resources' => false, 'requires_technical' => false, 'service_fee_rate' => 0, 'order_kinds' => [], 'fields' => ['refund_diff' => '客户退差价金额', 'service_item' => '业务说明']],
         '小程序客服' => ['departments' => ['小程序客服'], 'resources' => false, 'fields' => ['miniapp_name' => '小程序名称', 'service_item' => '服务事项'], 'legacy' => true],
         // 设计客服：PPT (售价 − 5.5% − 设计师 40%) × 5%；图片 (售价 − 3.1%) × 5% + 0.5 元/单（同一客户当月只计一单，其余记“图片同客户”）。
@@ -174,6 +174,10 @@ function ps_order_kind_valid($business, $kind)
 {
     $kind = trim((string)$kind);
     if ($kind === '') return '';
+    $business = ps_business_normalize($business);
+    if ($business === '小程序开发') {
+        if ($kind === '定制开发') $kind = '开发定制';
+    }
     if (!in_array($kind, ps_business_order_kinds($business), true)) throw new RuntimeException('订单类型无效，请从列表中选择');
     return $kind;
 }
@@ -202,14 +206,14 @@ function ps_business_import_columns($business)
         'backend' => array_values(array_unique([$labels['backend'], '后端', '技术协作', '协作技术', '提交', '提交专员'])),
     ];
     if (ps_business_order_kinds($business)) $columns['order_kind'] = ['订单类型', '类型'];
+    // 小程序模板的列名直接写明可选值，避免“新订单”被理解成别的意思（新订单 = 小程序商城新注册搭建，其余是其他订单）
+    if ($business === '小程序开发') $columns['order_kind'] = array_merge(['订单类型(新订单/其他订单/定制/续费)'], $columns['order_kind']);
     // 代写 / 期刊 / 微信代写：成本 = 写手稿费或杂志社费用，随订单导入；“提成”列为 0 的代写行识别为合并单；期刊“模式”列识别代付版面费。
     if (!empty($definition['import_cost'])) {
         $columns['direct_cost'] = ['实际稿费', '成本', '稿费', '杂志社费用'];
         $columns['direct_cost2'] = ['我司写手承担写作的写手费用', '写手费用'];
         $columns['unit_marker'] = ['提成'];
         $columns['pay_mode'] = ['模式'];
-    // 小程序模板的列名直接写明可选值，避免“新订单”被理解成别的意思（新订单 = 小程序商城新注册搭建，其余是其他订单）
-    if ($business === '小程序开发') $columns['order_kind'] = array_merge(['订单类型(新订单/其他订单/定制/续费)'], $columns['order_kind']);
     }
     // 设计部总表：“序号”列写的是客服，“设计师佣金”列出现即 PPT 表，按“旺旺”识别同一客户
     if ($business === '设计') {
@@ -333,9 +337,9 @@ function ps_business_import_headers_base($business)
     if ($business === '备案-提成') return ['日期', '店铺', '付费旺旺', '订单编号', '售价', '成本', '快递费', '建站订单', '截图', '状态', '备注'];
     if ($business === '备案-单量') return ['联系方式', '域名', '状态'];
     // 网站售后部修改表按 2026-10 原表列序输出；原表无状态列，模板补「状态」由上传时按实际填写识别。
+    if ($business === '森动备案') return ['日期', '店铺', '业务', '付款昵称', '订单编号', '售价', '成本', '状态(填已完成/未完成)', '联系方式', '微信交易流水号', '联系微信号', '备案状态', '授权码', '程序', '域名', '接入商'];
     if ($business === '网站修改') return ['店铺', '付款截图', '日期', '订单编号', '价格', '成本', '后台类型', '域名空间', '特殊情况备注', '分单备注金额', '状态'];
     $columns = ps_business_import_columns($business);
-    if ($business === '森动备案') return ['日期', '店铺', '业务', '付款昵称', '订单编号', '售价', '成本', '状态(填已完成/未完成)', '联系方式', '微信交易流水号', '联系微信号', '备案状态', '授权码', '程序', '域名', '接入商'];
     $order = ['order_date','shop','business','payment_nickname','order_no','contract_amount','status','contact_note','customer_service','frontend','domain_used','ssl_used','backend','resource_note','order_kind','program_name'];
     if (in_array($business, ['网站模板', 'AI网站定制'], true)) $order[] = 'site_project_key';
     if ($business !== 'AI网站定制') $order[] = 'payment_reference'; // 原 AI 定制 14 列模板不变，额外列仍可识别。
@@ -346,17 +350,17 @@ function ps_business_import_headers_base($business)
     $headers = [];
     foreach ($order as $key) if (isset($columns[$key]) && !in_array($key, $optional, true)) $headers[] = $columns[$key][0];
     foreach ($columns as $key => $aliases) if (strpos($key, 'detail:') === 0 && !in_array($key, $optional, true)) $headers[] = $aliases[0];
+    // 小程序技术表：新订单有每单 ¥20 补助、其他订单没有——模板带上“订单类型”列（新订单 / 其他订单 / 定制 / 续费），避免靠系统猜
+    if ($business === '小程序开发' && isset($columns['order_kind'])) {
+        $at = array_search($columns['business'][0], $headers, true);
+        array_splice($headers, $at === false ? count($headers) : $at + 1, 0, [$columns['order_kind'][0]]);
+    }
     return $headers;
 }
 
 /** 表头 => 列序号映射；缺少订单编号或全部人员列时报错。 */
 function ps_business_import_map($business, $head, $requirePeople = true)
 {
-    // 小程序技术表：新订单有每单 ¥20 补助、其他订单没有——模板带上“订单类型”列（新订单 / 其他订单 / 定制 / 续费），避免靠系统猜
-    if ($business === '小程序开发' && isset($columns['order_kind'])) {
-        $at = array_search($columns['business'][0], $headers, true);
-        array_splice($headers, $at === false ? count($headers) : $at + 1, 0, [$columns['order_kind'][0]]);
-    }
     $map = [];
     foreach (ps_business_import_columns($business) as $key => $aliases) {
         foreach ($aliases as $alias) {
