@@ -51,12 +51,12 @@ if (!preg_match('/^\d{4}-(0[1-9]|1[0-2])$/', $ruleMonth)) $ruleMonth = date('Y-m
 $renewalRates = $departmentMode ? ps_department_renewal_rates($ruleMonth) : [];
 $businessDefinition = $selectedBusiness ? ps_business_catalog()[$selectedBusiness] : null;
 if (isset($_GET['download']) && $selectedBusiness && $_SERVER['REQUEST_METHOD'] === 'GET') {
-    // 小程序开发：默认下载 xlsx 模板（订单类型 / 业务种类 / 状态为下拉选择，日期和长数字列带格式，附填写说明）；?format=csv 可下载纯文本版
-    if ($selectedBusiness === '小程序开发' && ($_GET['format'] ?? '') !== 'csv') {
-        require_once (dirname(__DIR__, 1)) . '/../includes/ProjectMiniappTemplate.php';
+    // 小程序开发 / 网站模板 / AI网站定制：默认下载 xlsx 模板（订单类型 / 业务种类 / 状态为下拉选择，日期和长数字列带格式，附填写说明）；?format=csv 可下载纯文本版
+    require_once (dirname(__DIR__, 1)) . '/../includes/ProjectMiniappTemplate.php';
+    if (in_array($selectedBusiness, pmt_businesses(), true) && ($_GET['format'] ?? '') !== 'csv') {
         header('Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-        header('Content-Disposition: attachment; filename="miniapp-order-template.xlsx"; filename*=UTF-8' . chr(39) . chr(39) . rawurlencode($selectedBusiness . '-订单模板.xlsx'));
-        echo pmt_xlsx();
+        header('Content-Disposition: attachment; filename="order-template.xlsx"; filename*=UTF-8' . chr(39) . chr(39) . rawurlencode($selectedBusiness . '-订单模板.xlsx'));
+        echo pmt_xlsx($selectedBusiness);
         exit;
     }
     header('Content-Type: text/csv; charset=UTF-8');
@@ -65,10 +65,9 @@ if (isset($_GET['download']) && $selectedBusiness && $_SERVER['REQUEST_METHOD'] 
     $output = fopen('php://output', 'wb');
     $templateHeaders = ps_business_import_headers($selectedBusiness, $actor);
     fputcsv($output, $templateHeaders);
-    if ($selectedBusiness === '小程序开发') {
-        // 小程序 csv 版：示例行与 xlsx 模板一致（均以“示例”开头，上传时自动跳过）
-        require_once (dirname(__DIR__, 1)) . '/../includes/ProjectMiniappTemplate.php';
-        foreach (pmt_example_rows() as $exampleData) fputcsv($output, array_map(function ($head) use ($exampleData) { return $exampleData[$head] ?? ''; }, $templateHeaders));
+    if (in_array($selectedBusiness, pmt_businesses(), true)) {
+        // csv 版：示例行与 xlsx 模板一致（均以“示例”开头，上传时自动跳过）
+        foreach (pmt_example_rows($selectedBusiness) as $exampleData) fputcsv($output, array_map(function ($head) use ($exampleData) { return $exampleData[$head] ?? ''; }, $templateHeaders));
     } else {
         // 附一行示例（订单号以“示例”开头，上传时自动跳过），照着填即可
         fputcsv($output, ps_business_import_example_row($selectedBusiness, $templateHeaders));

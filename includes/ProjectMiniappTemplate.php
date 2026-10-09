@@ -1,13 +1,20 @@
 <?php
 /**
- * 小程序开发订单模板（xlsx）：订单类型 / 业务种类 / 状态为下拉选择，日期列带日期格式，订单号等长数字列为文本格式，
+ * 带到期日期 / 客户联系方式的业务订单模板（xlsx）——小程序开发、网站模板、AI网站定制：订单类型 / 业务种类 / 状态为下拉选择，日期列带日期格式，订单号等长数字列为文本格式，
  * 带示例行和“填写说明”分表。不依赖 ZipArchive（自带最小 zip 写入），本机无 zip 扩展也能生成。
  * 列名与导入识别的别名一一对应（见 ps_business_import_columns）：改列名要同步改那边的别名。
  */
 
-/** 列定义：[表头, 列宽, 类型 text|date|list|plain, 下拉选项, 是否必填, 说明] */
-function pmt_columns()
+/** 有专用 xlsx 模板的业务。 */
+function pmt_businesses()
 {
+    return ['小程序开发', '网站模板', 'AI网站定制'];
+}
+
+/** 列定义：[表头, 列宽, 类型 text|date|list|plain, 下拉选项, 是否必填, 说明] */
+function pmt_columns($business = '小程序开发')
+{
+    if ($business === '网站模板' || $business === 'AI网站定制') return pmt_web_columns($business);
     return [
         ['日期', 12, 'date', [], true, '下单 / 付款日期，如 2026-09-01'],
         ['店铺', 14, 'plain', [], false, '店铺名称'],
@@ -27,14 +34,63 @@ function pmt_columns()
     ];
 }
 
-function pmt_headers()
+/** 网站类业务（网站模板 / AI网站定制）的列：域名、域名 / 服务器到期日期、续费联系方式都是一等公民。 */
+function pmt_web_columns($business)
 {
-    return array_map(function ($c) { return $c[0]; }, pmt_columns());
+    $template = $business === '网站模板';
+    $cols = [
+        ['日期', 12, 'date', [], true, '下单 / 付款日期，如 2026-09-01'],
+        ['店铺', 14, 'plain', [], false, '店铺名称'],
+        ['付款昵称', 16, 'plain', [], false, '客户付款账号 / 旺旺'],
+        ['订单编号', 24, 'text', [], true, '店铺订单号；微信付款没有订单号时留空并填“微信交易流水号”'],
+        ['售价', 10, 'plain', [], true, '客户实付金额，数字'],
+    ];
+    if ($template) $cols[] = ['订单类型', 14, 'list', ['新订单', '续费', '加购/纯利润'], false, '新订单＝新建站；续费＝续费单；加购/纯利润＝加购、补差价等。不填系统按描述猜，请用下拉选择'];
+    if ($template) $cols[] = ['程序名称', 18, 'plain', [], true, '建站用的程序 / 套餐，如 森动中级版、jsp展示中级版'];
+    $cols = array_merge($cols, [
+        ['网站域名', 22, 'text', [], true, '客户网站域名，如 example.com。同一付款号做多个网站时，每个网站一行，各写各的域名'],
+        ['域名使用', 11, 'list', ['是', '否'], false, '这单是否用了域名（是 / 否），请用下拉选择'],
+        ['域名归属', 13, 'list', ['我们代管', '客户自有'], false, '我们代管＝由我们续费；客户自有＝客户自备域名，不提醒续费。请用下拉选择'],
+        ['域名到期日期', 14, 'date', [], false, '域名到期日；永久的可直接写“永久”'],
+        ['服务器到期日期', 14, 'date', [], false, '服务器 / 空间到期日；永久的可直接写“永久”'],
+        ['续费联系方式', 20, 'text', [], true, '客户手机号，或海外客户微信号；用于到期短信提醒和续费联系'],
+        ['SSL证书使用', 12, 'plain', [], false, 'SSL 证书真实成本，没有填 0 或 无'],
+        ['域名或空间', 22, 'plain', [], false, '域名 / 空间的补充说明'],
+        ['业务', 18, 'plain', [], false, '具体做了什么，如 企业官网、商城'],
+        ['状态(填已完成/未完成)', 14, 'list', ['已完成', '未完成'], true, '订单进度，请用下拉选择'],
+        ['客服', 10, 'plain', [], false, '客服姓名'],
+    ]);
+    if ($template) $cols[] = ['模板技术', 10, 'plain', [], false, '负责建站的技术姓名'];
+    else { $cols[] = ['前端（技术）', 12, 'plain', [], false, '前端技术姓名'];  $cols[] = ['后端', 10, 'plain', [], false, '后端技术姓名']; }
+    $cols[] = ['备注', 24, 'plain', [], false, '其他需要说明的内容'];
+    $cols[] = ['微信交易流水号', 24, 'text', [], false, '微信付款订单没有订单编号时填这里'];
+    if ($template) { $cols[] = ['模板名称 / 版本', 18, 'plain', [], false, '使用的模板名称和版本']; $cols[] = ['部署与交付说明', 24, 'plain', [], false, '部署、交付情况说明']; }
+    return $cols;
+}
+
+function pmt_web_examples($business)
+{
+    $template = $business === '网站模板';
+    $tech = $template ? ['模板技术' => '张强'] : ['前端（技术）' => '张强', '后端' => '李四'];
+    $base = ['日期' => '2026-09-01', '店铺' => '美呀美旗舰店', '付款昵称' => 'tb12345678', '售价' => '998', '状态(填已完成/未完成)' => '已完成', '客服' => '宋倩倩'] + $tech;
+    $rows = [
+        $base + ['订单编号' => '示例-新建站', '程序名称' => '森动中级版', '网站域名' => 'example.com', '域名使用' => '是', '域名归属' => '我们代管', '域名到期日期' => '2027-09-01', '服务器到期日期' => '2027-09-01', '续费联系方式' => '13800138000', 'SSL证书使用' => '0', '业务' => '企业官网', '备注' => '新建站：填域名、域名和服务器的到期日期、客户联系方式', '订单类型' => '新订单'],
+        $base + ['订单编号' => '示例-客户自备域名', '程序名称' => '森动中级版', '网站域名' => 'customer-own.com', '域名使用' => '否', '域名归属' => '客户自有', '服务器到期日期' => '永久', '续费联系方式' => 'example_wechat', '业务' => '企业官网', '备注' => '客户自备域名选“客户自有”；永久的到期日期直接写“永久”；海外客户填微信号', '订单类型' => '新订单'],
+        $base + ['订单编号' => '示例-续费', '程序名称' => '森动中级版', '网站域名' => 'example.com', '域名到期日期' => '2028-09-01', '服务器到期日期' => '2028-09-01', '续费联系方式' => '13800138000', '售价' => '300', '业务' => '续费一年', '备注' => '续费单：填新的到期日期', '订单类型' => '续费'],
+    ];
+    if (!$template) foreach ($rows as &$row) unset($row['程序名称'], $row['订单类型']);
+    return $rows;
+}
+
+function pmt_headers($business = '小程序开发')
+{
+    return array_map(function ($c) { return $c[0]; }, pmt_columns($business));
 }
 
 /** 示例行（订单编号以“示例”开头，上传时自动跳过）。 */
-function pmt_example_rows()
+function pmt_example_rows($business = '小程序开发')
 {
+    if ($business === '网站模板' || $business === 'AI网站定制') return pmt_web_examples($business);
     $base = ['日期' => '2026-09-01', '店铺' => '美呀美旗舰店', '付款昵称' => 'tb12345678', '售价' => '350', '状态(填已完成/未完成)' => '已完成', '客服' => '王宁', '制作技术' => '石凯新'];
     $k = '订单类型(新订单/其他订单/定制/续费)'; $t = '业务种类(永久/年费)';
     return [
@@ -88,9 +144,9 @@ function pmt_cell($ref, $value, $style, $number = false)
 }
 
 /** 生成 xlsx 二进制内容。 */
-function pmt_xlsx()
+function pmt_xlsx($business = '小程序开发')
 {
-    $columns = pmt_columns();
+    $columns = pmt_columns($business);
     $last = pmt_col_letter(count($columns) - 1);
     $maxRow = 1000;
     // 样式：0 默认；1 必填表头；2 选填表头；3 日期；4 文本；5 示例文本；6 示例日期；7 说明正文（换行）；8 说明标题
@@ -121,13 +177,13 @@ function pmt_xlsx()
     $rows = '<row r="1" ht="42" customHeight="1">';
     foreach ($columns as $i => $c) $rows .= pmt_cell(pmt_col_letter($i) . '1', $c[0], $c[4] ? 1 : 2);
     $rows .= '</row>';
-    foreach (pmt_example_rows() as $n => $example) {
+    foreach (pmt_example_rows($business) as $n => $example) {
         $r = $n + 2;
         $rows .= '<row r="' . $r . '">';
         foreach ($columns as $i => $c) {
             $value = $example[$c[0]] ?? '';
             $ref = pmt_col_letter($i) . $r;
-            if ($c[2] === 'date' && $value !== '') $rows .= pmt_cell($ref, pmt_serial($value), 6, true);
+            if ($c[2] === 'date' && $value !== '' && preg_match('/^\d{4}-\d{2}-\d{2}$/', $value)) $rows .= pmt_cell($ref, pmt_serial($value), 6, true);
             else $rows .= pmt_cell($ref, $value, 5);
         }
         $rows .= '</row>';
@@ -139,24 +195,30 @@ function pmt_xlsx()
         if ($c[2] === 'list') {
             $validations .= '<dataValidation type="list" allowBlank="1" showInputMessage="1" showErrorMessage="1" errorTitle="请从下拉里选择" error="请点单元格右侧的小箭头，从列表里选择：' . pmt_xml(implode(' / ', $c[3])) . '" promptTitle="' . pmt_xml(explode('(', $c[0])[0]) . '" prompt="请从下拉列表选择" sqref="' . $range . '"><formula1>"' . pmt_xml(implode(',', $c[3])) . '"</formula1></dataValidation>';
             $count++;
+        } elseif ($c[2] === 'date' && mb_strpos($c[5], '永久') !== false) {
+            // 到期日期既可填日期也可写“永久”：自定义校验放行日期、“永久”和空白
+            $first = pmt_col_letter($i) . '2';
+            $validations .= '<dataValidation type="custom" allowBlank="1" showErrorMessage="1" errorTitle="到期日期" error="请填写日期（如 2027-09-01），永久的写“永久”" sqref="' . $range . '"><formula1>OR(' . $first . '="",' . $first . '="永久",ISNUMBER(' . $first . '))</formula1></dataValidation>';
+            $count++;
         } elseif ($c[2] === 'date') {
             $validations .= '<dataValidation type="date" operator="greaterThan" allowBlank="1" showErrorMessage="1" errorTitle="日期格式" error="请填写日期，如 2026-09-01" sqref="' . $range . '"><formula1>36526</formula1></dataValidation>';
             $count++;
         }
     }
     $sheet1 = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
-        . '<dimension ref="A1:' . $last . (count(pmt_example_rows()) + 1) . '"/>'
-        . '<sheetViews><sheetView workbookViewId="0" tabSelected="1"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/><selection pane="bottomLeft" activeCell="A7" sqref="A7"/></sheetView></sheetViews>'
+        . '<dimension ref="A1:' . $last . (count(pmt_example_rows($business)) + 1) . '"/>'
+        . '<sheetViews><sheetView workbookViewId="0" tabSelected="1"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/><selection pane="bottomLeft" activeCell="A' . (count(pmt_example_rows($business)) + 2) . '" sqref="A' . (count(pmt_example_rows($business)) + 2) . '"/></sheetView></sheetViews>'
         . '<sheetFormatPr defaultRowHeight="18"/><cols>' . $cols . '</cols><sheetData>' . $rows . '</sheetData>'
-        . '<dataValidations count="' . $count . '">' . $validations . '</dataValidations>'
+        . ($count ? '<dataValidations count="' . $count . '">' . $validations . '</dataValidations>' : '')
         . '<pageMargins left="0.7" right="0.7" top="0.75" bottom="0.75" header="0.3" footer="0.3"/></worksheet>';
 
     // 填写说明
     $help = [['列名', '是否必填', '怎么填']];
     foreach ($columns as $c) $help[] = [$c[0], $c[4] ? '必填' : '选填', $c[5]];
     $help[] = ['', '', ''];
-    $help[] = ['示例行', '', '表格前 5 行灰色字是示例，订单编号以“示例”开头，上传时自动跳过，可删可留；从第 7 行起填写真实订单。'];
-    $help[] = ['续费提醒', '', '年费业务填了到期日期和续费联系方式后，系统会在到期前 10 / 3 / 1 天自动短信提醒客户；永久业务不提醒。'];
+    $exampleCount = count(pmt_example_rows($business));
+    $help[] = ['示例行', '', '表格前 ' . $exampleCount . ' 行灰色字是示例，订单编号以“示例”开头，上传时自动跳过，可删可留；从第 ' . ($exampleCount + 2) . ' 行起填写真实订单。'];
+    $help[] = ['续费提醒', '', '填了到期日期和续费联系方式后，系统会在到期前 10 / 3 / 1 天自动短信提醒客户；到期日期写“永久”的不提醒。'];
     $helpRows = '';
     foreach ($help as $n => $line) {
         $r = $n + 1;

@@ -231,7 +231,7 @@ function ps_business_import_columns($business)
         $columns['returning_marker'] = ['老客户'];
     }
     if (!empty($definition['program'])) $columns['program_name'] = ['程序名称', '程序套餐'];
-    if (in_array($business, ['网站模板', 'AI网站定制'], true)) $columns['site_project_key'] = ['网站项目标识', '网站项目名称', '项目网站', '项目域名'];
+    if (in_array($business, ['网站模板', 'AI网站定制'], true)) $columns['site_project_key'] = ['网站项目标识', '网站项目名称', '项目网站', '项目域名', '网站域名'];
     if ($definition['resources']) {
         $columns['domain_used'] = ['域名使用（写是/否）', '域名使用'];
         $columns['ssl_used'] = ['SSL证书使用（写真实成本）', 'SSL证书使用', 'SSL使用'];
@@ -292,6 +292,7 @@ function ps_business_import_columns($business)
 /** 按岗位给网站类模板追加的列：客服 / 售后补“客户手机号”，技术补“客户域名”（便于到期提醒和续费联系）。 */
 function ps_import_role_extras($business, $actor, array $headers = [])
 {
+    foreach ($headers as $h) if (trim((string)$h) === '续费联系方式') return []; // 新版 xlsx 模板已自带联系方式 / 域名 / 到期日期列
     if ($actor && $business === '小程序开发' && ($actor['role'] ?? '') !== 'finance') {
         foreach ($headers as $h) if (preg_match('/服务器.*(到期|有效期)|(到期|有效期).*服务器|^到期日期$/u', (string)$h)) return [];
         return ['服务器到期日']; // 小程序订单需提供服务器到期日，用于续费提醒和续费分成
@@ -323,7 +324,7 @@ function ps_business_import_headers($business, $actor = null)
 
 function ps_business_import_headers_base($business)
 {
-    if ($business === '小程序开发') { require_once __DIR__ . '/ProjectMiniappTemplate.php'; return pmt_headers(); }
+    if (in_array($business, ['小程序开发', '网站模板', 'AI网站定制'], true)) { require_once __DIR__ . '/ProjectMiniappTemplate.php'; return pmt_headers($business); }
     // 网站售后部续费表按原表列序输出，中间保留一列空表头与原表一致。
     if ($business === '网站续费') return ['接单客服', '拍建站', '续费年数', '程序名称', '版本', '店铺', '付费旺旺', '日期', '订单编号', '售价', '总成本', '空间成本', '域名成本', '域名真实成本', '', '空间域名', '备注1', '备注2'];
     // 网站售后部备案两表按原表列序输出（原表无状态列，模板补「状态」列由上传时按实际填写）。
