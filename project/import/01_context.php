@@ -61,7 +61,7 @@ if (isset($_GET['download']) && $selectedBusiness && $_SERVER['REQUEST_METHOD'] 
     }
     header('Content-Type: text/csv; charset=UTF-8');
     header('Content-Disposition: attachment; filename="project-order-template.csv"; filename*=UTF-8' . chr(39) . chr(39) . rawurlencode($selectedBusiness . '-订单模板.csv'));
-    echo "ï»¿";
+    echo "\xEF\xBB\xBF";
     $output = fopen('php://output', 'wb');
     $templateHeaders = ps_business_import_headers($selectedBusiness, $actor);
     fputcsv($output, $templateHeaders);
