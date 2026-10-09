@@ -36,6 +36,7 @@ function pr_phone($phone, $strictMobile = false)
     if ($phone === '') return '';
     if (preg_match('/^1[3-9][0-9]{9}$/D', $phone)) return $phone;
     if ($strictMobile) throw new RuntimeException('请填写客户的中国大陆 11 位手机号；不是合作人员手机号');
+    if (!preg_match('/^\+?[0-9]{7,15}$/D', $phone)) throw new RuntimeException('手机号请填写 7～15 位数字；海外客户微信号请填在微信号栏');
     return $phone;
 }
 function pr_type_labels() { return ['miniapp_certification' => '微信认证', 'icp' => '备案', 'domain' => '域名', 'server' => '服务器']; }
@@ -46,6 +47,24 @@ function pr_types_for($projectType)
     if ($projectType === '小程序开发') return $all;
     unset($all['miniapp_certification']);
     return $all;
+}
+/** 海外客户微信号：2～60 位字母 / 数字 / 下划线 / 短横线 / 点 / @。 */
+function pr_wechat($wechat)
+{
+    $w = preg_replace('/\s+/u', '', trim((string)$wechat));
+    if ($w === '') return '';
+    if (!preg_match('/^[\p{L}0-9_\-.@]{2,60}$/u', $w)) throw new RuntimeException('微信号格式不正确（2～60 位字母、数字或 _ - . @）');
+    return $w;
+}
+/** 联系方式可二选一，也可同时填写；微信号不等于短信手机号。 */
+function pr_has_contact(array $item)
+{
+    return !empty($item['phone_hash']) || !empty($item['wechat_hash']);
+}
+function pr_contact_missing_sql($alias = 'r')
+{
+    if (!preg_match('/^[a-z][a-z0-9_]*$/iD', $alias)) throw new InvalidArgumentException('Invalid SQL alias');
+    return "($alias.phone_hash='' AND COALESCE($alias.wechat_hash,'')='')";
 }
 function pr_owner_labels() { return ['ours' => '我们代管', 'customer' => '客户自有（不续费）']; }
 function pr_default_type($projectType) { return $projectType === '小程序开发' ? 'miniapp_certification' : 'domain'; }

@@ -289,6 +289,8 @@ function ps_import_role_extras($business, $actor, array $headers = [])
     if ($role === 'customer_service') {
         $has = false; foreach ($headers as $h) if (preg_match('/^(客户)?(手机号?码?|电话|联系电话|联系方式)$/u', trim((string)$h))) $has = true; // 只有专门的手机号列才算已有；“备注（写客户电话或者微信）”这类备注列不算
         if (!$has) $extras[] = '客户手机号';
+        $hasWx = false; foreach ($headers as $h) if (preg_match('/海外.*微信|^客户微信号|^微信号$/u', trim((string)$h))) $hasWx = true;
+        if (!$hasWx) $extras[] = '海外客户微信号'; // 海外客户没有手机号时填微信号，与手机号二选一
     } elseif ($role === 'technical') {
         $has = false; foreach ($headers as $h) if (in_array(trim((string)$h), ['域名', '域名地址', '网站域名', '客户域名'], true)) $has = true;
         if (!$has) $extras[] = '客户域名';

@@ -1,4 +1,7 @@
 <div class="project-intake-page">
+<?php require_once dirname(__DIR__,3).'/includes/ProjectRenewals.php'; if(pr_ready() && pr_scope($actor)!=='none'): ?>
+<div class="mb-3 d-flex align-items-center flex-wrap" style="gap:10px"><a class="btn btn-success btn-sm" style="color:#fff" href="<?php echo BASE_URL; ?>/project/batch_fill.php?month=<?php echo e($month); ?>"><i class="fas fa-file-upload mr-1"></i> 批量补全已有订单</a><span class="small text-muted">下载缺项模板，填空后上传；原有单笔修改与新订单导入都保留。</span></div>
+<?php endif; ?>
 <div class="card mb-3" style="background:linear-gradient(115deg,#eef8f2,#fff9ef);border-color:#d4e5dc"><div class="card-body d-flex align-items-center justify-content-between flex-wrap" style="gap:12px"><div><strong style="color:#2e6450"><i class="fas fa-shield-alt mr-1"></i> 系统核对，让分成更清楚</strong><div class="small text-muted mt-1">资料齐全自动核算；缺流水、缺资料和异常分别提示。售价不代替实收，付款不代替交付。</div></div><?php
     if($actor['role']==='finance'): ?><a class="btn btn-outline-primary btn-sm" href="<?php echo BASE_URL; ?>/project/review.php?month=<?php echo e($month); ?>">查看系统核对</a><?php
     endif; ?></div></div>

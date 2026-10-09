@@ -41,8 +41,9 @@
     echo e($_POST['order_date'] ?? ''); ?>"><small class="text-muted">店铺订单号已同步时可自动带入；微信付款请填写支付日期</small></div>
     </div>
     <div class="form-row" id="intakeRenewalInfo">
-      <div class="form-group col-md-3" data-for="web"><label for="intakePhone">客户手机号 / 微信号 <span class="text-danger info-star" data-role="customer_service" hidden>*</span></label><input class="form-control" id="intakePhone" name="customer_phone" maxlength="50" value="<?php
-    echo e($_POST['customer_phone'] ?? ''); ?>" placeholder="11 位手机号（海外客户可填微信/国际号）"></div>
+      <div class="form-group col-md-3" data-for="web"><label for="intakePhone">客户手机号（与微信号二选一）</label><input class="form-control" id="intakePhone" name="customer_phone" type="tel" maxlength="20" value="<?php
+    echo e($_POST['customer_phone'] ?? ''); ?>" placeholder="手机号，海外号码可带 + 区号"></div>
+      <div class="form-group col-md-3" data-for="web"><label for="intakeWechat">海外客户微信号（与手机号二选一）</label><input class="form-control" id="intakeWechat" name="customer_wechat" maxlength="60" value="<?php echo e($_POST['customer_wechat'] ?? ''); ?>" placeholder="填写实际微信号，不是昵称"><small class="text-muted">两者至少填写一项；微信号不发送短信</small></div>
       <div class="form-group col-md-3" data-for="web"><label for="intakeDomain">域名 <span class="text-danger info-star" data-role="technical" hidden>*</span></label><input class="form-control" id="intakeDomain" name="customer_domain" maxlength="120" value="<?php
     echo e($_POST['customer_domain'] ?? ''); ?>" placeholder="如 example.com"></div>
       <div class="form-group col-md-3" data-for="mini"><label for="intakeServerExpiry">服务器到期日 <span class="text-danger info-star" data-role="*" hidden>*</span></label><input class="form-control" id="intakeServerExpiry" type="date" name="server_expiry" value="<?php

@@ -187,6 +187,7 @@
     )
                             ->execute([$orderId, $costItemName, $costAmount, $costAmount, 'Excel 第' . $row['line'] . '行导入', $costStatus, $actor['employee_id'] ?? null]);
                     }
+                    if ($writeBusiness === '森动备案' && (($row['direct_cost'] ?? '') === '' || (float)$row['direct_cost'] == 0)) pfc_apply($orderId, $row['order_kind'] ?? '', $actor, 'Excel 第' . $row['line'] . '行');
                     ps_audit('order', $orderId, 'import', $actor, ['line' => $row['line'], 'order_no' => $row['order_no'], 'domain_template_id' => $domainTemplate['id'] ?? null]);
                     $imported++;
                 }

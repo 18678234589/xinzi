@@ -74,6 +74,7 @@ function pse_parse($file, $sheetName, $actor, $sheets = null)
         if ($kinds[$i] !== '') continue;
         if (preg_match('/^域名归属/u', $label)) $kinds[$i] = 'domain_owner';
         elseif (preg_match('/服务器.*(到期|有效期)|(到期|有效期).*服务器/u', $label) && !preg_match('/域名/u', $label)) $kinds[$i] = 'server_expiry';
+        elseif (preg_match('/海外.*微信|^客户微信号$|^微信号$/u', $label) && !preg_match('/客服/u', $label)) $kinds[$i] = 'wechat';
         elseif (preg_match('/^(客户)?(手机号?码?|电话|联系电话|联系方式)$/u', $label)) $kinds[$i] = 'phone'; // 只认专门的手机号列；“备注（写客户电话或者微信）”常写微信号，不当手机号
         elseif (in_array($label, ['域名', '域名地址', '网站域名', '客户域名'], true)) $kinds[$i] = 'domain';
         elseif (preg_match('/日期|时间/u', $label)) $kinds[$i] = 'date';
@@ -98,8 +99,12 @@ function pse_parse($file, $sheetName, $actor, $sheets = null)
     if (!$extras && ($actor['role'] ?? '') === 'finance') {
         // 财务查看 / 更正：网站类订单补手机号 + 域名，小程序补手机号 + 服务器到期日（已有同名列则不重复）
         $biz = (string)$file['business_name'];
-        $want = $biz === '小程序开发' ? ['客户手机号', '服务器到期日'] : (in_array($biz, ['AI网站定制', '网站模板', '网站续费', '网站修改', '备案-提成'], true) ? ['客户手机号', '客户域名', '域名归属'] : []);
+        $want = $biz === '小程序开发' ? ['客户手机号', '海外客户微信号', '服务器到期日'] : (in_array($biz, ['AI网站定制', '网站模板', '网站续费', '网站修改', '备案-提成'], true) ? ['客户手机号', '海外客户微信号', '客户域名', '域名归属'] : []);
         foreach ($want as $w) {
+            if ($w === '海外客户微信号') {
+                if (!in_array('wechat', $kinds, true)) $extras[] = $w;
+                continue;
+            }
             $has = false;
             foreach ($head as $h) { $l = preg_replace('/[\s（）()：:]/u', '', (string)$h); if ($w === '域名归属' ? preg_match('/^域名归属/u', $l) : ($w === '客户手机号' ? preg_match('/^(客户)?(手机号?码?|电话|联系电话|联系方式)$/u', $l) : ($w === '客户域名' ? in_array($l, ['域名', '域名地址', '网站域名', '客户域名'], true) : preg_match('/服务器.*(到期|有效期)/u', $l)))) $has = true; }
             if (!$has) $extras[] = $w;
@@ -107,7 +112,7 @@ function pse_parse($file, $sheetName, $actor, $sheets = null)
     }
     if (is_array($layout) && array_slice($layout, 0, $width) === $head) $extras = array_slice($layout, $width);
     foreach ($extras as $extra) {
-        $head[] = $extra; $kinds[] = $extra === '客户手机号' ? 'phone' : ($extra === '服务器到期日' ? 'server_expiry' : ($extra === '域名归属' ? 'domain_owner' : ($extra === '客户域名' ? 'domain' : ''))); $virtual++;
+        $head[] = $extra; $kinds[] = $extra === '客户手机号' ? 'phone' : ($extra === '海外客户微信号' ? 'wechat' : ($extra === '服务器到期日' ? 'server_expiry' : ($extra === '域名归属' ? 'domain_owner' : 'domain'))); $virtual++;
     }
     $total = count($head);
     $data = []; $truncated = false;
@@ -126,7 +131,7 @@ function pse_parse($file, $sheetName, $actor, $sheets = null)
     return ['head' => $head, 'kinds' => $kinds, 'width' => $total, 'rows' => $data, 'orderCol' => $orderCol === false ? null : $orderCol, 'virtual' => $virtual, 'truncated' => $truncated];
 }
 
-function pse_editable_kind($kind) { return in_array($kind, ['phone', 'domain', 'domain_owner', 'server_expiry', 'amount', 'shop', 'nick'], true); }
+function pse_editable_kind($kind) { return in_array($kind, ['phone', 'wechat', 'domain', 'domain_owner', 'server_expiry', 'amount', 'shop', 'nick'], true); }
 
 /** 全部原表列可修改；文件权限仍由 ps_import_file_get 校验。 */
 function pse_can_edit($file, $actor)
@@ -281,6 +286,24 @@ function pse_set_phone($orderId, $phone, $actor)
     }
 }
 
+/** 原有在线更正入口仍可修改微信号；批量补全入口另行坚持只填空白。 */
+function pse_set_wechat($orderId, $wechat, $actor)
+{
+    $wechat = pr_wechat($wechat);
+    if ($wechat === '') throw new RuntimeException('微信号为空');
+    if (!pr_ready()) throw new RuntimeException('续费资料暂时无法保存');
+    pr_order($orderId, $actor);
+    $hash = hash_hmac('sha256', mb_strtolower($wechat), pv_key());
+    $q = db()->prepare("SELECT id,wechat_hash FROM project_renewal_items WHERE order_id=? AND status<>'closed'");
+    $q->execute([(int)$orderId]); $rows = $q->fetchAll();
+    if (!$rows) { pr_import_apply((int)$orderId, ['wechat'=>$wechat, 'resources'=>[]], $actor); return; }
+    foreach ($rows as $r) {
+        if (($r['wechat_hash']??'') === $hash) continue;
+        db()->prepare('UPDATE project_renewal_items SET wechat_cipher=?,wechat_hash=?,revision=revision+1,updated_at=NOW() WHERE id=?')->execute([pv_encrypt($wechat), $hash, (int)$r['id']]);
+        ps_audit('renewal', (int)$r['id'], 'sheet_wechat', $actor, ['order_id'=>(int)$orderId]);
+    }
+}
+
 /** 单元格文字 → [归属, 备注]。“客户自有” / “客户自有：已交付源码” / “我们代管”。 */
 function pse_parse_owner($v)
 {
@@ -380,6 +403,7 @@ function pse_submit($fileId, $sheet, $actor, $dry = false)
             foreach ($pendingCells as $c => $v) {
                 $kind = $p['kinds'][$c];
                 if ($kind === 'phone') { if ($v !== '') pse_set_phone((int)$order['id'], $v, $actor); $done[] = $c; }
+                elseif ($kind === 'wechat') { if ($v !== '') pse_set_wechat((int)$order['id'], $v, $actor); $done[] = $c; }
                 elseif ($kind === 'domain') { if ($v !== '') pse_set_domain((int)$order['id'], $v, $actor); $done[] = $c; }
                 elseif ($kind === 'domain_owner') { if ($v !== '') { [$ow, $ownNote] = pse_parse_owner($v); pse_set_domain_owner((int)$order['id'], $ow, $ownNote, $actor); } $done[] = $c; }
                 elseif ($kind === 'server_expiry') { if ($v !== '') pse_set_server_expiry((int)$order['id'], $v, $actor); $done[] = $c; }
@@ -393,7 +417,7 @@ function pse_submit($fileId, $sheet, $actor, $dry = false)
                 $msg[] = $r['mode'] === 'applied' ? '售价/店铺/昵称已更正' : '售价/店铺/昵称已提交财务确认';
                 $res['result'] = $r['mode'] === 'applied' ? '已更正' : '已提交财务确认';
             } else $res['result'] = '已更正';
-            if (array_intersect(array_map(function ($c) use ($p) { return $p['kinds'][$c]; }, $done), ['phone', 'domain', 'domain_owner', 'server_expiry'])) $msg[] = '手机号/域名/域名归属/服务器到期日已写入续费资料';
+            if (array_intersect(array_map(function ($c) use ($p) { return $p['kinds'][$c]; }, $done), ['phone', 'wechat', 'domain', 'domain_owner', 'server_expiry'])) $msg[] = '联系方式/域名/域名归属/服务器到期日已写入续费资料';
             $res['message'] = implode('；', $msg);
             foreach ($done as $c) $mark->execute([(int)$file['id'], $sheet, $no, $c]);
         } catch (Throwable $e) {

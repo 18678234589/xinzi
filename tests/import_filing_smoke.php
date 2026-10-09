@@ -37,6 +37,7 @@ try {
     $luan = $actorOf('栾鑫');
     $check($luan !== false && $luan !== null, '栾鑫账号存在');
     $check(in_array('成本', ps_business_import_headers('森动备案'), true), '森动备案模板有“成本”列');
+    $pdo->prepare("INSERT INTO project_cost_templates (category,business_scope,name,specification,unit,price_mode,cost_kind,price,requires_proof,auto_approve,version) VALUES ('other','森动备案','森动备案成本','首次备案 · 每单','单','fixed','one_time',80,0,1,1)")->execute();
     $d1 = "t$tag-a.com"; $d2 = "t$tag-b.com";
     $rows = [
         ['日期' => '2026.9.5', '店铺' => '微信', '业务' => '备案', '付款昵称' => 'nickE' . $tag, '售价' => '100', '成本' => '80', $sk => '已完成', '微信交易流水号' => 'WXE' . $tag, '联系微信号' => 'nickE' . $tag, '域名' => $d1],
@@ -54,13 +55,18 @@ try {
     $check($kinds === ['备案', '备案', '二次备案', '二次备案', '二次备案'], '订单类型按“业务”列：' . implode(',', $kinds));
     $nos = array_column($pv, 'order_no');
     $check(count(array_unique($nos)) === 5 && strpos($nos[2], 'EB-') === 0 && strpos($nos[3], 'EB-') === 0, '同月同域名的两次二次备案各一单，号不同：' . implode(',', array_slice($nos, 2)));
-    $check(mb_strpos((string)$pv[1]['warning'], '没填成本') !== false && mb_strpos((string)$pv[0]['warning'], '没填成本') === false, '首次备案：填了成本不提示，没填提示');
+    $check(mb_strpos((string)$pv[1]['warning'], '成本中心') !== false && mb_strpos((string)$pv[0]['warning'], '没填成本') === false, '首次备案：填了成本不提示，没填提示将按成本中心补录');
     $q = $pdo->prepare("SELECT order_kind,COUNT(*) FROM project_orders WHERE order_no IN (" . implode(',', array_fill(0, 5, '?')) . ") GROUP BY order_kind");
     $q->execute($nos);
     $by = $q->fetchAll(PDO::FETCH_KEY_PAIR);
     $check(($by['备案'] ?? 0) == 2 && ($by['二次备案'] ?? 0) == 3, '落库：备案 2、二次备案 3');
-    $cost = $pdo->prepare("SELECT COALESCE(SUM(amount),0) FROM project_costs WHERE order_id=(SELECT id FROM project_orders WHERE order_no=?)"); $cost->execute([$nos[0]]);
-    $check((float)$cost->fetchColumn() === 80.0, '首次备案成本 80 已记入');
+    $cost = $pdo->prepare("SELECT COALESCE(SUM(amount),0), COUNT(*) FROM project_costs WHERE order_id=(SELECT id FROM project_orders WHERE order_no=?)");
+    $cost->execute([$nos[0]]); [$c0, $n0] = $cost->fetch(PDO::FETCH_NUM);
+    $cost->execute([$nos[1]]); [$c1, $n1] = $cost->fetch(PDO::FETCH_NUM);
+    $cost->execute([$nos[2]]); [$c2, $n2] = $cost->fetch(PDO::FETCH_NUM);
+    $check((float)$c0 === 80.0 && (int)$n0 === 1, '表里写了成本 80：按表格记 1 笔，不重复补录');
+    $check((float)$c1 === 80.0 && (int)$n1 === 1, '表里没写成本：自动按成本中心模板补录 ¥80');
+    $check((int)$n2 === 0, '二次备案不带成本');
     [$pv2, $imp2] = $importAs($luan, '森动备案', $csv);
     $n = $pdo->prepare("SELECT COUNT(*) FROM project_orders WHERE order_no IN (" . implode(',', array_fill(0, 5, '?')) . ")"); $n->execute($nos);
     $check((int)$n->fetchColumn() === 5, '整张表重传不重复建单');

@@ -23,7 +23,8 @@ $item['status']='active';$item['sms_enabled']=0;check('opt-out',pr_reminder_day(
 $item['sms_enabled']=1;$item['phone_hash']='';check('missing phone',pr_reminder_day($item,'2026-10-02'),null);
 check('mainland normalize',pr_phone('+86 138-0000-0000'),'13800000000');
 check('empty phone',pr_phone(''),'');
-reject('foreign phone not silently sent',function(){pr_phone('+15555555555');});
+reject('foreign phone not silently sent',function(){pr_phone('+15555555555',true);});
+check('foreign number allowed as contact',pr_phone('+15555555555'),'+15555555555');
 reject('wrong phone',function(){pr_phone('123456');});
 check('finance all',pr_policy_scope('finance','','',[]),'all');
 check('aftersales web',pr_policy_scope('customer_service','网站售后部','刘某',[]),'web');

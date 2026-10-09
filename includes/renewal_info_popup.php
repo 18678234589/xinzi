@@ -19,7 +19,7 @@ function rip_missing($actor, $limit = 8)
         $since = (new DateTimeImmutable(pr_today()))->modify('-90 day')->format('Y-m-d');
         $mine = "(EXISTS (SELECT 1 FROM project_participants p WHERE p.order_id=o.id AND p.employee_id=?) OR EXISTS (SELECT 1 FROM project_department_uploaders u WHERE u.order_id=o.id AND u.employee_id=?))";
         $sql = "SELECT o.id,o.order_no,o.customer_name,o.project_type,o.order_date,
-                  (o.project_type<>'小程序开发' AND NOT EXISTS (SELECT 1 FROM project_renewal_items r WHERE r.order_id=o.id AND ((r.phone_hash<>'' AND r.status<>'closed') OR r.owner='customer')) AND COALESCE(o.note,'') NOT REGEXP '(^|[^0-9])1[3-9][0-9]{9}([^0-9]|$)' AND COALESCE(o.note,'') NOT REGEXP '(微信|微信号|wx|海外|国外|邮箱|@)') AS need_phone,
+                  (o.project_type<>'小程序开发' AND NOT EXISTS (SELECT 1 FROM project_renewal_items r WHERE r.order_id=o.id AND (((r.phone_hash<>'' OR COALESCE(r.wechat_hash,'')<>'') AND r.status<>'closed') OR r.owner='customer'))) AS need_phone,
                   (o.project_type<>'小程序开发' AND COALESCE(res.domain_mode,'pending')<>'none' AND NOT EXISTS (SELECT 1 FROM project_renewal_items r WHERE r.order_id=o.id AND r.resource_type='domain' AND ((r.resource_name<>'' AND r.status<>'closed') OR r.owner='customer'))) AS need_domain,
                   (o.project_type='小程序开发' AND NOT EXISTS (SELECT 1 FROM project_renewal_items r WHERE r.order_id=o.id AND r.resource_type='server' AND r.expires_on IS NOT NULL AND r.expiry_source IN ('confirmed','imported') AND r.status<>'closed')) AS need_server
                 FROM project_orders o LEFT JOIN project_order_resources res ON res.order_id=o.id
@@ -33,7 +33,7 @@ function rip_missing($actor, $limit = 8)
         $rows = [];
         foreach (array_slice($all, 0, (int)$limit) as $r) {
             $need = [];
-            if ($r['need_phone']) $need[] = '客户手机号';
+            if ($r['need_phone']) $need[] = '手机号或客户微信号';
             if ($r['need_domain']) $need[] = '域名';
             if ($r['need_server']) $need[] = '服务器到期日';
             $r['need'] = $need; $rows[] = $r;
@@ -71,7 +71,7 @@ if ($rip !== null):
   <div class="rip-box" role="dialog" aria-modal="true" aria-labelledby="ripTitle">
     <div class="rip-head">
       <h5 id="ripTitle"><i class="fas fa-exclamation-triangle"></i>有 <?php echo (int)$rip['total']; ?> 张订单缺少续费资料</h5>
-      <div class="rip-rule">网站类订单请提交 <strong>客户手机号和域名</strong>；微信小程序订单请提交 <strong>服务器到期日</strong>（订单里填写，或在上传的表格里带上对应列）。<strong>未提供将不会获得本订单的续费分成。</strong></div>
+      <div class="rip-rule">网站类订单请补充 <strong>手机号或海外客户微信号（二选一），以及域名</strong>；微信小程序订单请补充 <strong>服务器到期日</strong>。可以逐单填写，也可下载缺项模板一次补齐。微信号仅用于人工联系，不发送短信。</div>
     </div>
     <div class="rip-body">
       <?php foreach ($rip['rows'] as $r): ?>
@@ -83,8 +83,8 @@ if ($rip !== null):
       <?php if ($rip['total'] > count($rip['rows'])): ?><div class="small text-muted">还有 <?php echo (int)($rip['total'] - count($rip['rows'])); ?> 张，点“去补充”在“待补资料”页里集中填写。</div><?php endif; ?>
     </div>
     <div class="rip-foot">
-      <span class="small text-muted">也可以在“我上传的表格”里直接像 Excel 一样补手机号 / 域名，再提交更正。</span>
-      <span><button type="button" class="later" id="ripLater">稍后提醒</button> <a class="go" href="<?php echo BASE_URL; ?>/project/renewal_gaps.php">去补充</a></span>
+      <span class="small text-muted">原有表格更正入口仍可使用；批量补全只填空白。</span>
+      <span><button type="button" class="later" id="ripLater">稍后提醒</button> <a class="go" href="<?php echo BASE_URL; ?>/project/batch_fill.php">批量补全</a> <a class="go" href="<?php echo BASE_URL; ?>/project/renewal_gaps.php">在线补充</a></span>
     </div>
   </div>
 </div>

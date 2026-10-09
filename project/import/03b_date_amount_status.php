@@ -206,7 +206,10 @@
                             $costTotal += (float)$costText; $hasCost = true;
                         }
                         if ($hasCost) $record['direct_cost'] = number_format($costTotal, 2, '.', '');
-                        if ($selectedBusiness === '森动备案' && !$hasCost && in_array($kindText, ['备案', '备案-淘宝'], true)) $record['warning'] .= ($record['warning'] ? '；' : '') . '首次备案没填成本：提成按成本 0 计会偏高，请补“成本”列（如售价 100、成本 80）';
+                        if ($selectedBusiness === '森动备案' && !$hasCost && pfc_applies($kindText)) {
+                            $filingTemplate = $filingTemplate ?? (pfc_template() ?: false);
+                            $record['warning'] .= ($record['warning'] ? '；' : '') . ($filingTemplate ? '首次备案没填成本：导入时按成本中心“' . $filingTemplate['name'] . '” ¥' . number_format((float)$filingTemplate['price'], 2, '.', '') . ' 自动补录' : '首次备案没填成本，成本中心也没有“森动备案成本”模板：提成按成本 0 计会偏高，请补“成本”列或联系财务设置模板');
+                        }
                     }
                     $record['domain_used'] = $businessDefinition['resources'] ? $lookup($row, 'domain_used') : '否';
                     $record['ssl_used'] = $businessDefinition['resources'] ? $lookup($row, 'ssl_used') : '';

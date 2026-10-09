@@ -18,10 +18,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         // 续费所需资料：网站客服 / 售后填客户手机号，网站技术填域名，小程序填服务器到期日；暂时拿不到可勾选“稍后补充”（未补充将不会获得本订单的续费分成）
         $custPhone = trim((string)($_POST['customer_phone'] ?? '')); $custDomain = trim((string)($_POST['customer_domain'] ?? '')); $serverExpiry = trim((string)($_POST['server_expiry'
     ] ?? ''));
+        require_once (dirname(__DIR__, 2)) . '/../includes/ProjectRenewalMath.php';
+        $custWechat = pr_wechat($_POST['customer_wechat'] ?? '');
+        $custPhone = pr_phone($custPhone);
         if ($actor['role'] !== 'finance' && empty($_POST['info_later'])) {
             $webBiz = in_array($projectType, ['AI网站定制', '网站模板', '网站续费', '网站修改', '备案-提成'], true);
             $contactNote = trim((string)($_POST['contact_note'] ?? ''));
-            $hasContact = ($custPhone !== '') || ($contactNote !== '');
+            $hasContact = ($custPhone !== '') || ($custWechat !== '');
             if ($webBiz && $actor['role'] === 'customer_service' && !$hasContact) $needInfo[] = '客户手机号或微信号';
             if ($webBiz && $actor['role'] === 'technical' && $custDomain === '') $needInfo[] = '域名';
             if ($projectType === '小程序开发' && $serverExpiry === '') $needInfo[] = '服务器到期日';
@@ -174,10 +177,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         ps_sync_existing_shop_order($id, $no, $shop);
         db()->commit();
         pa_after_save([$id]);
-        if ($custPhone !== '' || $custDomain !== '' || $serverExpiry !== '') {
+        if ($custPhone !== '' || $custWechat !== '' || $custDomain !== '' || $serverExpiry !== '') {
             try {
                 require_once (dirname(__DIR__, 2)) . '/../includes/ProjectSheetEdit.php';
                 if ($custPhone !== '') pse_set_phone($id, $custPhone, $actor);
+                if ($custWechat !== '') pse_set_wechat($id, $custWechat, $actor);
                 if ($custDomain !== '') pse_set_domain($id, $custDomain, $actor);
                 if ($serverExpiry !== '') pse_set_server_expiry($id, $serverExpiry, $actor);
             } catch (Throwable $infoError) { ps_audit('order', $id, 'renewal_info_failed', $actor, ['error' => mb_substr($infoError->getMessage(), 0, 200)]); }
@@ -191,4 +195,3 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 // GET 只展示核对结果；自动核对由上传完成、显式 POST 或定时任务执行。
 $autoFinishInfo = null;
-

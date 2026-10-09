@@ -95,7 +95,12 @@ function pr_sms_run($send = false, $transport = null, $now = null)
             $q=$pdo->prepare("SELECT COUNT(*) FROM project_renewal_sms WHERE attempt_day=? AND state IN ('sent','sending','unknown') AND phone_hash=?"); $q->execute([$today,$item['phone_hash']]);
             $daily=$pdo->prepare("SELECT COUNT(*) FROM project_renewal_sms WHERE attempt_day=? AND state IN ('sent','sending','unknown')"); $daily->execute([$today]);
             if ($q->fetchColumn() || (int)$daily->fetchColumn()>=(int)$fresh['daily_limit']) { $pdo->rollBack(); $summary['deferred']++; continue; }
-            $phone=pr_phone(pv_decrypt($item['phone_cipher']));
+            // 联系资料允许海外号码 / 微信号，但国内短信接口只接受已核实的大陆手机号。
+            try { $phone=pr_phone(pv_decrypt($item['phone_cipher']),true); }
+            catch (RuntimeException $e) {
+                $pdo->prepare("UPDATE project_renewal_sms SET state='cancelled',provider_code='PHONE_NOT_MAINLAND',updated_at=NOW() WHERE id=?")->execute([$id]);
+                $pdo->commit(); $summary['cancelled']++; continue;
+            }
             if (!$phone) { $pdo->prepare("UPDATE project_renewal_sms SET state='cancelled',provider_code='PHONE_UNAVAILABLE',updated_at=NOW() WHERE id=?")->execute([$id]); $pdo->commit(); $summary['cancelled']++; continue; }
             $pdo->prepare("UPDATE project_renewal_sms SET state='sending',attempts=attempts+1,attempt_day=?,updated_at=NOW() WHERE id=?")->execute([$today,$id]);
             // Persist sending intent BEFORE network IO: a crash can never silently retry it.

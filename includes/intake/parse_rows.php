@@ -15,6 +15,7 @@ function ps_business_import_example_row($business, $headers)
         $value = '';
         foreach ($columns as $key => $aliases) if (in_array($label, $aliases, true)) { $value = $samples[$key] ?? (strpos($key, 'detail:') === 0 ? '按实际填写' : ''); break; }
         if ($label === '客户手机号') $value = '13800138000';
+        elseif ($label === '海外客户微信号') $value = 'example_wechat';
         elseif ($label === '客户域名') $value = 'example.com';
         elseif ($label === '服务器到期日') $value = '2027-09-01';
         elseif ($label === '域名归属') $value = '我们代管';

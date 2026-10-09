@@ -1,0 +1,82 @@
+<?php
+/** All writes shadow real tables with connection-local temporary tables. */
+if(PHP_SAPI!=='cli' || !in_array('--isolated-temporary-tables',$argv,true))exit('Use --isolated-temporary-tables');
+require_once __DIR__.'/../includes/ProjectBatchFill.php';
+$pdo=db();
+$tables=['project_orders','project_order_resources','project_renewal_items','project_renewal_history','project_renewal_sms','project_audit_logs','project_participants','project_department_uploaders','employees','project_user_businesses'];
+foreach($tables as $t){
+    $ddl=$pdo->query('SHOW CREATE TABLE '.$t)->fetch(PDO::FETCH_NUM)[1];
+    $needsWechat=$t==='project_renewal_items' && strpos($ddl,'wechat_hash')===false;
+    $needsOwner=$t==='project_renewal_items' && strpos($ddl,'`owner`')===false;
+    $ddl=preg_replace('/^\s*CONSTRAINT .*FOREIGN KEY.*\n?/m','',$ddl);$ddl=preg_replace('/,\n\)/',"\n)",$ddl);
+    $pdo->exec(preg_replace('/^CREATE TABLE/','CREATE TEMPORARY TABLE',$ddl,1));
+    if($needsWechat)$pdo->exec("ALTER TABLE project_renewal_items ADD COLUMN wechat_cipher TEXT NULL, ADD COLUMN wechat_hash CHAR(64) NOT NULL DEFAULT ''");
+    if($needsOwner)$pdo->exec("ALTER TABLE project_renewal_items ADD COLUMN owner VARCHAR(10) NOT NULL DEFAULT 'ours'");
+    // Exercise ambiguity handling on the TEMPORARY shadow only, including future shared-order layouts.
+    if($t==='project_orders' && strpos($ddl,'`uk_project_order_no`')!==false)$pdo->exec('ALTER TABLE project_orders DROP INDEX uk_project_order_no');
+}
+$n=0;
+function check($name,$actual,$expected){global $n;$n++;if($actual!==$expected)throw new RuntimeException($name.': '.json_encode($actual,JSON_UNESCAPED_UNICODE));}
+function reject($name,$fn){global $n;$n++;try{$fn();}catch(RuntimeException $e){return;}throw new RuntimeException($name.' did not reject');}
+$finance=['type'=>'admin','id'=>99999,'employee_id'=>null,'role'=>'finance'];
+$pdo->exec("INSERT INTO employees(id,name,department,password) VALUES(990001,'补全测试技术','网站定制部','fixture-only'),(990002,'补全测试客服','网站客服','fixture-only')");
+$pdo->exec("INSERT INTO project_user_businesses(user_id,business_name,is_default) VALUES(990001,'AI网站定制',1),(990002,'AI网站定制',1)");
+$tech=['type'=>'employee','id'=>990001,'employee_id'=>990001,'role'=>'technical'];
+$cs=['type'=>'employee','id'=>990002,'employee_id'=>990002,'role'=>'customer_service'];
+$pdo->exec("INSERT INTO project_orders(id,order_no,project_type,order_date,contract_amount,receipt_amount,refund_amount,settlement_status) VALUES(990001,'PBF-1','AI网站定制','2026-09-01',1000,1000,0,'draft'),(990002,'PBF-2','AI网站定制','2026-09-02',800,800,0,'locked'),(990003,'PBF-1','小程序开发','2026-09-03',900,900,0,'draft')");
+$pdo->exec("INSERT INTO project_participants(order_id,employee_id,role_name,commission_group) VALUES(990001,990001,'技术','technical'),(990001,990002,'客服','customer_service')");
+$pdo->exec("INSERT INTO project_renewal_items(id,order_id,resource_type,seed_key,expires_on) VALUES(990001,990001,'domain','domain','2027-09-01')");
+$before=$pdo->query('SELECT id,contract_amount,receipt_amount,refund_amount,settlement_status FROM project_orders ORDER BY id')->fetchAll();
+$row=['id'=>990001,'order_no'=>'PBF-1','business'=>'AI网站定制','values'=>['wechat'=>'overseas_test','domain'=>'example.com','domain_expiry'=>'2027-09-22','server_expiry'=>'2027-10-01'],'issues'=>[],'source'=>'测试 第2行'];
+check('tech sees linked CS order',pbf_order($row,$tech)['id'],990001);
+reject('tech cannot touch unlinked order',function()use($tech){pbf_order(['id'=>990002],$tech);});
+reject('unknown does not create',function()use($finance){pbf_order(['order_no'=>'PBF-NOT-EXIST'],$finance);});
+reject('same order number ambiguity',function()use($finance){pbf_order(['order_no'=>'PBF-1'],$finance);});
+check('business resolves duplicate orderno',pbf_order(['order_no'=>'PBF-1','business'=>'AI网站定制'],$finance)['id'],990001);
+reject('id and number conflict',function()use($finance){pbf_order(['id'=>990001,'order_no'=>'WRONG'],$finance);});
+$plan=pbf_preview([$row],$tech)[0];check('four fields ready',count($plan['changes']),4);
+$r=pbf_commit_row($row,$tech,'test-batch');check('four fields applied',count($r['applied']),4);
+$items=pbf_existing(990001);check('only two renewal resources',count($items),2);
+check('phone remains empty',$items[0]['phone_hash'],'');check('wechat encrypted',pv_decrypt($items[0]['wechat_cipher']),'overseas_test');
+check('server inherits contact',pv_decrypt($items[1]['wechat_cipher']),'overseas_test');
+check('wechat counts as contact',pr_has_contact($items[0]),true);
+check('date imported',$items[0]['expiry_source'],'imported');
+check('CS sees same updated record',pbf_existing(pbf_order($row,$cs)['id'])[0]['resource_name'],'example.com');
+$r=pbf_commit_row($row,$tech,'test-repeat');check('repeat applies nothing',count($r['applied']),0);
+check('repeat no extra resources',count(pbf_existing(990001)),2);
+$conflict=$row;$conflict['values']=['domain'=>'different.com','wechat'=>'different_wx','server_expiry'=>'2028-10-01','phone'=>'13800138000'];
+$r=pbf_commit_row($conflict,$tech,'test-conflict');check('only blank phone applied',$r['applied'],['phone']);check('conflicts separate',count($r['issues']),3);
+check('domain not overwritten',pbf_existing(990001)[0]['resource_name'],'example.com');
+check('wechat not overwritten',pv_decrypt(pbf_existing(990001)[0]['wechat_cipher']),'overseas_test');
+check('verified expiry not overwritten',pbf_existing(990001)[1]['expires_on'],'2027-10-01');
+$partial=$row;$partial['values']=['icp_expiry'=>'2027-12-01','phone'=>'13900139000'];
+$r=pbf_commit_row($partial,$finance,'test-partial');check('valid field alongside conflict',$r['applied'],['icp_expiry']);
+$a=$row;$a['values']=['miniapp_name'=>'ignore'];$plans=pbf_preview([$a],$finance);check('unsupported type warns',count($plans[0]['changes']),0);
+$a=$row;$a['values']=['domain_expiry'=>'2027-09-22'];$plans=pbf_preview([$a],$tech);check('same row skips',count($plans[0]['changes']),0);
+check('no new orders',(int)$pdo->query('SELECT COUNT(*) FROM project_orders')->fetchColumn(),3);
+check('finances unchanged',$pdo->query('SELECT id,contract_amount,receipt_amount,refund_amount,settlement_status FROM project_orders ORDER BY id')->fetchAll(),$before);
+$locked=['id'=>990002,'order_no'=>'PBF-2','values'=>['wechat'=>'locked_contact'],'issues'=>[],'source'=>'fixture'];
+check('locked non-financial fill',pbf_commit_row($locked,$finance,'test-locked')['applied'],['wechat']);
+check('locked financial record unchanged',$pdo->query('SELECT id,contract_amount,receipt_amount,refund_amount,settlement_status FROM project_orders ORDER BY id')->fetchAll(),$before);
+check('audit evidence',(int)$pdo->query("SELECT COUNT(*) FROM project_audit_logs WHERE action='batch_fill'")->fetchColumn(),4);
+$first=$row;$first['values']=['miniapp_name'=>'商店甲'];$first['id']=990003;$first['business']='小程序开发';
+$second=$first;$second['values']=['miniapp_name'=>'商店乙'];
+$plans=pbf_preview([$first,$second],$finance);
+check('same-file first field ready',count($plans[0]['changes']),1);
+check('same-file competing field excluded',count($plans[1]['changes']),0);
+check('same-file conflict visible',count($plans[1]['issues']),1);
+require_once __DIR__.'/../includes/ProjectSheetEdit.php';
+$parsed=pse_parse(['business_name'=>'AI网站定制','stored_name'=>'fixture.csv','content'=>"订单号,海外客户微信号\nPBF-1,overseas_test\n"],'CSV',$cs);
+check('existing editor wechat kind',$parsed['kinds'][1],'wechat');
+check('existing editor wechat editable',pse_editable_kind('wechat'),true);
+pse_set_wechat(990001,'corrected_wechat',$tech);
+check('original modification still works',pv_decrypt(pbf_existing(990001)[0]['wechat_cipher']),'corrected_wechat');
+$lockedItem=pbf_existing(990002)[0];
+$form=['id'=>$lockedItem['id'],'order_id'=>990002,'resource_type'=>'domain','resource_name'=>'locked.com','expires_on'=>'2027-09-02','expiry_confirmed'=>1,'phone'=>'','wechat'=>'only_wechat','sms_enabled'=>0,'status'=>'active','revision'=>$lockedItem['revision']];
+pr_save($form,$finance);
+check('wechat-only form saves',pv_decrypt(pbf_existing(990002)[0]['wechat_cipher']),'only_wechat');
+$form['sms_enabled']=1;$form['revision']=pbf_existing(990002)[0]['revision'];
+reject('wechat-only SMS forbidden',function()use($form,$finance){pr_save($form,$finance);});
+check('wechat-only not incomplete by contact',pr_has_contact(pbf_existing(990002)[0]),true);
+check('form finances still unchanged',$pdo->query('SELECT id,contract_amount,receipt_amount,refund_amount,settlement_status FROM project_orders ORDER BY id')->fetchAll(),$before);
+echo "PASS $n isolated temporary-table checks; real orders/config untouched\n";

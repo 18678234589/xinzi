@@ -15,8 +15,17 @@ function pr_ensure_owner()
 {
     static $done = false;
     if ($done) return;
-    $has = (int)db()->query("SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='project_renewal_items' AND COLUMN_NAME='owner'")->fetchColumn();
-    if (!$has) db()->exec("ALTER TABLE project_renewal_items ADD COLUMN owner VARCHAR(10) NOT NULL DEFAULT 'ours' AFTER status");
+    $has = (bool)db()->query("SHOW COLUMNS FROM project_renewal_items LIKE 'owner'")->fetch();
+    if (!$has) {
+        if (db()->inTransaction()) throw new RuntimeException('续费归属字段尚未初始化，请刷新后重试');
+        db()->exec("ALTER TABLE project_renewal_items ADD COLUMN owner VARCHAR(10) NOT NULL DEFAULT 'ours' AFTER status");
+    }
+    // 海外客户没有手机号：可改填微信号（与手机号二选一）。微信号同样加密保存。
+    $hasWx = (bool)db()->query("SHOW COLUMNS FROM project_renewal_items LIKE 'wechat_hash'")->fetch();
+    if (!$hasWx) {
+        if (db()->inTransaction()) throw new RuntimeException('续费联系方式字段尚未初始化，请刷新后重试');
+        db()->exec("ALTER TABLE project_renewal_items ADD COLUMN wechat_cipher TEXT NULL, ADD COLUMN wechat_hash CHAR(64) NOT NULL DEFAULT ''");
+    }
     $done = true;
 }
 
@@ -109,6 +118,9 @@ function pr_save($source, $actor)
     $expirySource=$expiry && (!empty($source['expiry_confirmed']) || $expiry!==pr_default_expiry($order['order_date'])) ? 'confirmed' : 'estimated';
     if ($expirySource==='estimated') $expiry=pr_default_expiry($order['order_date']);
     $phone = pr_phone($source['phone'] ?? '');
+    // 兼容旧页面提交：没有微信字段时保留原值，不能默默清空。
+    $beforeContact = $id ? pr_item($id, $actor) : [];
+    $wechat = array_key_exists('wechat', $source) ? pr_wechat($source['wechat']) : pv_decrypt($beforeContact['wechat_cipher'] ?? '');
     $sms = !empty($source['sms_enabled']) ? 1 : 0;
     if ($sms && (!$expiry || !$phone || !preg_match('/^1[3-9][0-9]{9}$/D', $phone))) throw new RuntimeException('启用短信前，请补齐实际到期日和客户中国大陆 11 位手机号（海外客户或微信号无法发送短信提醒）');
     $status = (string)($source['status'] ?? 'active');
@@ -118,6 +130,8 @@ function pr_save($source, $actor)
     $renewed = ($source['action'] ?? '') === 'renew';
     $cipher = $phone === '' ? '' : pv_encrypt($phone);
     $hash = $phone === '' ? '' : hash_hmac('sha256', $phone, pv_key());
+    $wxCipher = $wechat === '' ? '' : pv_encrypt($wechat);
+    $wxHash = $wechat === '' ? '' : hash_hmac('sha256', mb_strtolower($wechat), pv_key());
     $pdo = db(); $pdo->beginTransaction();
     try {
         $q=$pdo->prepare('SELECT id FROM project_orders WHERE id=? FOR UPDATE'); $q->execute([$orderId]);
@@ -128,14 +142,14 @@ function pr_save($source, $actor)
             $q = $pdo->prepare('SELECT * FROM project_renewal_items WHERE id=? FOR UPDATE'); $q->execute([$id]); $old = $q->fetch();
             if (!$old || (int)$old['order_id'] !== $orderId || (int)$old['revision'] !== (int)($source['revision'] ?? 0)) throw new RuntimeException('资料已被同事更新，请刷新后再保存');
             if ($renewed && ($expirySource!=='confirmed' || !$expiry || !$old['expires_on'] || $expiry <= $old['expires_on'])) throw new RuntimeException('确认续费时，请核实并填写晚于原日期的新到期日');
-            $pdo->prepare('UPDATE project_renewal_items SET resource_type=?,resource_name=?,expires_on=?,expiry_source=?,phone_cipher=?,phone_hash=?,sms_enabled=?,status=?,note=?,revision=revision+1,updated_at=NOW() WHERE id=?')->execute([$type,$name,$expiry,$expirySource,$cipher,$hash,$sms,$status,$note,$id]);
+            $pdo->prepare('UPDATE project_renewal_items SET resource_type=?,resource_name=?,expires_on=?,expiry_source=?,phone_cipher=?,phone_hash=?,wechat_cipher=?,wechat_hash=?,sms_enabled=?,status=?,note=?,revision=revision+1,updated_at=NOW() WHERE id=?')->execute([$type,$name,$expiry,$expirySource,$cipher,$hash,$wxCipher,$wxHash,$sms,$status,$note,$id]);
         } else {
             if ($renewed) throw new RuntimeException('请先登记原资源，再确认续费');
-            $pdo->prepare('INSERT INTO project_renewal_items (order_id,resource_type,resource_name,expires_on,expiry_source,phone_cipher,phone_hash,sms_enabled,status,note) VALUES (?,?,?,?,?,?,?,?,?,?)')->execute([$orderId,$type,$name,$expiry,$expirySource,$cipher,$hash,$sms,$status,$note]); $id = (int)$pdo->lastInsertId();
+            $pdo->prepare('INSERT INTO project_renewal_items (order_id,resource_type,resource_name,expires_on,expiry_source,phone_cipher,phone_hash,wechat_cipher,wechat_hash,sms_enabled,status,note) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)')->execute([$orderId,$type,$name,$expiry,$expirySource,$cipher,$hash,$wxCipher,$wxHash,$sms,$status,$note]); $id = (int)$pdo->lastInsertId();
         }
         // Cancel stale pending jobs. Sent/unknown evidence must never be deleted.
         $pdo->prepare("UPDATE project_renewal_sms SET state='cancelled',provider_code='RESOURCE_UPDATED',updated_at=NOW() WHERE item_id=? AND state IN ('pending','failed') AND (expires_on<>? OR ?=0 OR ?<>'active' OR phone_hash<>?)")->execute([$id,$expiry ?: '2000-01-01',$sms,$status,$hash]);
-        $details = ['type'=>$type,'name'=>$name,'status'=>$status,'expiry_source'=>$expirySource,'sms_enabled'=>$sms,'phone_changed'=>!$old || $old['phone_hash']!==$hash,'note'=>$note];
+        $details = ['type'=>$type,'name'=>$name,'status'=>$status,'expiry_source'=>$expirySource,'sms_enabled'=>$sms,'phone_changed'=>!$old || $old['phone_hash']!==$hash,'wechat_changed'=>!$old || ($old['wechat_hash']??'')!==$wxHash,'note'=>$note];
         $pdo->prepare('INSERT INTO project_renewal_history (item_id,action,actor_type,actor_id,old_expiry,new_expiry,details_json) VALUES (?,?,?,?,?,?,?)')->execute([$id,$renewed?'renew':'save',$actor['type'],(int)$actor['id'],$old['expires_on']??null,$expiry,json_encode($details,JSON_UNESCAPED_UNICODE)]);
         ps_audit('renewal',$id,$renewed?'confirmed_renewal':'save_renewal',$actor,['order_id'=>$orderId,'old_expiry'=>$old['expires_on']??null,'new_expiry'=>$expiry,'sms_enabled'=>$sms]);
         $pdo->commit(); return $id;
@@ -144,6 +158,7 @@ function pr_save($source, $actor)
 function pr_stats($actor)
 {
     $params = []; $where = pr_order_where($actor,$params); $today = pr_today();
-    $q = db()->prepare("SELECT COUNT(DISTINCT CASE WHEN r.status='active' AND r.expires_on<=DATE_ADD('$today',INTERVAL 30 DAY) THEN o.id END) due_orders, SUM(r.status='active' AND r.expires_on<'$today') overdue, SUM(r.status='active' AND (r.expires_on IS NULL OR r.expiry_source='estimated' OR r.resource_name='' OR r.phone_hash='')) incomplete, COUNT(DISTINCT CASE WHEN r.status='active' THEN o.id END) active_orders FROM project_renewal_items r JOIN project_orders o ON o.id=r.order_id WHERE $where");
+    $missingContact = pr_contact_missing_sql();
+    $q = db()->prepare("SELECT COUNT(DISTINCT CASE WHEN r.status='active' AND r.expires_on<=DATE_ADD('$today',INTERVAL 30 DAY) THEN o.id END) due_orders, SUM(r.status='active' AND r.expires_on<'$today') overdue, SUM(r.status='active' AND (r.expires_on IS NULL OR r.expiry_source='estimated' OR r.resource_name='' OR $missingContact)) incomplete, COUNT(DISTINCT CASE WHEN r.status='active' THEN o.id END) active_orders FROM project_renewal_items r JOIN project_orders o ON o.id=r.order_id WHERE $where");
     $q->execute($params); return $q->fetch();
 }
