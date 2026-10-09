@@ -1,0 +1,6 @@
+FROM php:7.4-fpm-bullseye
+RUN printf "deb https://archive.debian.org/debian bullseye main\ndeb https://archive.debian.org/debian-security bullseye-security main\n" > /etc/apt/sources.list && rm -f /etc/apt/sources.list.d/* && apt-get -o Acquire::Check-Valid-Until=false update && apt-get install -y --no-install-recommends libzip-dev libpng-dev libjpeg62-turbo-dev libfreetype6-dev libicu-dev libxml2-dev \
+ && docker-php-ext-configure gd --with-freetype --with-jpeg \
+ && docker-php-ext-install -j4 bcmath gd intl mysqli pdo_mysql zip soap sockets pcntl opcache \
+ && rm -rf /var/lib/apt/lists/*
+WORKDIR /myprograms/hezuoshang

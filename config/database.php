@@ -7,7 +7,7 @@
  */
 $isLocalDev = (PHP_OS_FAMILY === 'Windows' && file_exists((getenv('USERPROFILE') ?: '') . '\.ssh\id_ed25519_tfdev'));
 
-define('DB_HOST', getenv('DB_HOST') ?: ($isLocalDev ? '127.0.0.1' : '192.168.1.254'));
+define('DB_HOST', getenv('DB_HOST') ?: ($isLocalDev ? '127.0.0.1' : '1Panel-mysql-migrated'));
 define('DB_PORT', getenv('DB_PORT') ?: ($isLocalDev ? '13306' : '3306'));
 define('DB_NAME', getenv('DB_NAME') ?: 'xinzi');
 define('DB_USER', getenv('DB_USER') ?: 'xinzi');
@@ -35,10 +35,8 @@ function ensure_ssh_tunnel(): bool
         if (!file_exists($sshKey)) {
             return false;
         }
-        $cmd = sprintf(
-            'cmd.exe /c start "dev-mysql-tunnel" /min "C:\Windows\System32\OpenSSH\ssh.exe" -i "%s" -o IdentitiesOnly=yes -o BatchMode=yes -o ServerAliveInterval=30 -o ServerAliveCountMax=3 -o ExitOnForwardFailure=yes -N -L 13306:192.168.1.254:3306 -p 20622 root@58.58.98.150',
-            $sshKey
-        );
+        $script = dirname(__DIR__) . '\tools\start_mysql_tunnel.ps1';
+        $cmd = 'powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "' . $script . '"';
         pclose(popen($cmd, 'r'));
     }
     for ($i = 0; $i < 15; $i++) {

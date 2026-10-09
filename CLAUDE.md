@@ -11,6 +11,8 @@
 
 - 生产 PHP 7.4，不引入命名空间、Composer 或自动加载，不使用 PHP 8 专属语法。
 - 测试写入仅允许本地隔离数据库（库名以 `_test`、`_ci` 或 `_sandbox` 结尾），不能通过默认连接运行写入测试。
+- 当前生产：`vps4` / `58.58.97.174:5024`，目录 `/myprograms/hezuoshang`；PHP 在 `hezuoshang-php` 容器运行。旧 `ai` 入口只转发，不能再向旧目录部署。
+- 部署使用 `python tools/deploy_hezuoshang.py`；先 `fetch` 保存哈希基线，再 `push --manifest <清单> --dry-run`，验证后正式推送。见 `ops/hezuoshang/README.md`。
 - `系统连接方式.local` 是本地连接说明；部署不上传 `config/`、本地配置、测试或临时文件。
 - 结构拆分只搬运原代码，功能修改另行处理。原入口和所有依赖分片必须一起部署。
 - 页面分片在原作用域加载；不能把入口级 `return` 移进分片。`continue` / `break` 及控制结构必须留在所属循环中。

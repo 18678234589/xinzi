@@ -1,0 +1,3 @@
+tools/*.sh text eol=lf
+ops/hezuoshang/* text eol=lf
+.gitignore text eol=lf

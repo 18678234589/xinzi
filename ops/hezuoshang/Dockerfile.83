@@ -1,0 +1,5 @@
+FROM php:8.3-cli-bookworm
+RUN apt-get update && apt-get install -y --no-install-recommends libzip-dev libpng-dev libjpeg62-turbo-dev libfreetype6-dev libicu-dev libxml2-dev && docker-php-ext-configure gd --with-freetype --with-jpeg \
+ && docker-php-ext-install -j4 bcmath gd intl mysqli pdo_mysql zip soap sockets pcntl opcache \
+ && rm -rf /var/lib/apt/lists/*
+WORKDIR /myprograms/hezuoshang

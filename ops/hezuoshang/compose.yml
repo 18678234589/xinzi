@@ -1,0 +1,32 @@
+services:
+  php:
+    image: hezuoshang-php:7.4
+    container_name: hezuoshang-php
+    restart: unless-stopped
+    environment:
+      DB_HOST: 1Panel-mysql-migrated
+      DB_PORT: "3306"
+    volumes:
+      - /myprograms/hezuoshang:/myprograms/hezuoshang
+      - ./php.ini:/usr/local/etc/php/conf.d/hezuoshang.ini:ro
+      - /etc/laibangwo-workbench:/etc/laibangwo-workbench:ro
+      - /var/lib/laibangwo-sso:/var/lib/laibangwo-sso
+    networks: [app, database]
+  nginx:
+    image: nginx:1.25-alpine
+    container_name: hezuoshang-nginx
+    restart: unless-stopped
+    depends_on: [php]
+    ports: ["10.99.0.4:80:80"]
+    extra_hosts: ["host.docker.internal:host-gateway"]
+    volumes:
+      - /myprograms/hezuoshang:/myprograms/hezuoshang:ro
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./state:/run/hezuoshang:ro
+    networks: [app]
+networks:
+  app:
+    name: hezuoshang-network
+  database:
+    external: true
+    name: 1panel-network

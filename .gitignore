@@ -1,4 +1,6 @@
 # Debug logs
+__pycache__/
+*.pyc
 debug_*.txt
 php_server.log
 
