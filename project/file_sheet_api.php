@@ -14,7 +14,12 @@ try {
     if (!hash_equals(ps_csrf_token(), (string)($in['csrf'] ?? ''))) $reply(['error' => '页面已过期，请刷新后重试'], 403);
     $file = (int)($in['file'] ?? 0); $sheet = (string)($in['sheet'] ?? '');
     $action = (string)($in['action'] ?? '');
-    if ($action === 'save') $reply(['ok' => true, 'saved' => pse_save($file, $sheet, (array)($in['edits'] ?? []), $actor), 'at' => date('H:i:s')]);
+    if ($action === 'save') {
+        $saved = pse_save($file, $sheet, (array)($in['edits'] ?? []), $actor);
+        $q = db()->prepare('SELECT COUNT(*) FROM project_import_edits WHERE file_id=? AND sheet=? AND NOT (BINARY applied_value <=> BINARY value)');
+        $q->execute([$file, $sheet]);
+        $reply(['ok' => true, 'saved' => $saved, 'pending' => (int)$q->fetchColumn(), 'at' => date('H:i:s')]);
+    }
     if ($action === 'preview') $reply(['ok' => true, 'results' => pse_submit($file, $sheet, $actor, true)]);
     if ($action === 'submit') $reply(['ok' => true, 'results' => pse_submit($file, $sheet, $actor, false)]);
     $reply(['error' => '未知操作'], 400);

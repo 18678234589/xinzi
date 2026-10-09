@@ -110,12 +110,12 @@ try:
   dest=root/path;dest.parent.mkdir(parents=True,exist_ok=True);assert not dest.is_symlink()
   temp=dest.with_name(dest.name+'.deploy-new');shutil.copy2(stage/path,temp);os.chmod(temp,0o644);os.chown(temp,0,33);os.replace(temp,dest);written.append(path)
   assert hashlib.sha256(dest.read_bytes()).hexdigest()==h
+ subprocess.run(['docker','kill','--signal=USR2','hezuoshang-php'],check=True,capture_output=True)
 except Exception:
  for path in reversed(written):
   if baseline[path] is None:(root/path).unlink()
   else:shutil.copy2(backup/path,root/path)
  raise
-subprocess.run(['docker','exec','hezuoshang-php','kill','-USR2','1'],check=True)
 print(json.dumps({'deployed':len(files),'backup':str(backup)}))
 ''')
     return {**result, 'smoke': smoke(client)}
@@ -157,7 +157,7 @@ for path,h in m['after'].items():
 for path,h in m['before'].items():
  if h is None:(root/path).unlink()
  else:shutil.copy2(backup/path,root/path)
-subprocess.run(['docker','exec','hezuoshang-php','kill','-USR2','1'],check=True)
+subprocess.run(['docker','kill','--signal=USR2','hezuoshang-php'],check=True,capture_output=True)
 print(json.dumps({'rolled_back':len(m['before'])}))
 ''')
             result['smoke'] = smoke(client)

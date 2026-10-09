@@ -1,6 +1,7 @@
 <?php
             if (!$preview || $previewOwner !== $actorKey || $previewBusiness !== $selectedBusiness || $previewScope !== $scope) throw new RuntimeException('预览已失效，请重新上传'
     );
+            pse_ensure();
             $choices = $_POST['domain_choice'] ?? [];
             $serverChoices = $_POST['server_template_id'] ?? [];
             $programChoices = $_POST['program_choice'] ?? [];

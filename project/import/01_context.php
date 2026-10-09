@@ -11,6 +11,7 @@ require_once (dirname(__DIR__, 1)) . '/../includes/ProjectAiFallback.php';
 require_once (dirname(__DIR__, 1)) . '/../includes/ProjectDepartmentImport.php';
 require_once (dirname(__DIR__, 1)) . '/../includes/ProjectImportResult.php';
 require_once (dirname(__DIR__, 1)) . '/../includes/ProjectImportClassification.php';
+require_once (dirname(__DIR__, 1)) . '/../includes/ProjectSheetEdit.php';
 require_once (dirname(__DIR__, 1)) . '/../classes/SimpleXLSX.php';
 pos_ensure();
 $actor = ps_require_actor();
@@ -79,4 +80,3 @@ $serverTemplates = ps_intake_templates('server');
 $programTemplates = $selectedBusiness ? ps_intake_templates('program', $selectedBusiness) : [];
 $usesProgram = $businessDefinition && !empty($businessDefinition['program']);
 $resourceSelection = $businessDefinition && $businessDefinition['resources'] && $actor['role'] !== 'customer_service';
-

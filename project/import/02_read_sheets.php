@@ -74,7 +74,7 @@
             $requirePeople = $actor['role'] === 'finance' && !$departmentMode;
             $importColumns = ps_business_import_columns($selectedBusiness);
             $parsedSheets = [];
-            foreach (ps_import_file_sheets($fileRow) as $sheetName => $raw) {
+            foreach (pse_import_sheets($fileRow, $actor) as $sheetName => $raw) {
                 $raw = array_values(array_filter($raw, function ($r) { return is_array($r); }));
                 $head = $raw ? array_map(function ($v) { return trim((string)$v); }, array_shift($raw)) : [];
                 if ($head) $head[0] = preg_replace('/^\xEF\xBB\xBF/', '', $head[0] ?? '');

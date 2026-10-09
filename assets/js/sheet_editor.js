@@ -6,6 +6,8 @@
   window.SheetEditor = function (root) {
     var cfg = { api: root.getAttribute('data-api'), csrf: root.getAttribute('data-csrf'), file: root.getAttribute('data-file'), sheet: root.getAttribute('data-sheet'), canEdit: root.getAttribute('data-can-edit') === '1' };
     var gridEl = root.querySelector('.se-grid'), statusEl = root.querySelector('.se-status'), submitBtn = root.querySelector('.se-submit'), modal = root.querySelector('.se-modal');
+    var importBtn = root.querySelector('.se-import'), saveBtn = root.querySelector('.se-save'), cellInput = root.querySelector('.se-cell-input'), cellLabel = root.querySelector('.se-cell-label');
+    var scrollBar = root.querySelector('.se-scrollbar'), scrollSpace = root.querySelector('.se-scroll-space'), selected = null, saving = null, submitting = false;
     var table = null, meta = null, queue = {}, timer = null, inflight = false, pendingCount = 0, localChanged = {};
 
     function setStatus(text, kind) { statusEl.textContent = text; statusEl.className = 'se-status small ' + (kind || 'text-muted'); }
@@ -15,7 +17,9 @@
         .then(function (r) { return r.json().then(function (d) { if (!r.ok) throw new Error(d.error || '操作失败'); return d; }); });
     }
     function updateSubmit() {
-      submitBtn.disabled = !cfg.canEdit || pendingCount <= 0;
+      submitBtn.disabled = submitting || !cfg.canEdit || pendingCount <= 0;
+      if (importBtn) importBtn.disabled = submitting || !cfg.canEdit || !meta || !meta.rows.length;
+      if (saveBtn) saveBtn.disabled = submitting || !cfg.canEdit || !meta;
       submitBtn.textContent = pendingCount > 0 ? '提交更正（' + pendingCount + ' 处待提交）' : '提交更正';
     }
     function mark(y, x, applied) {
@@ -25,20 +29,57 @@
 
     // ---- 自动保存：合并连续编辑，停手 0.9 秒后一次提交；保存中的新编辑排队，不丢 ----
     function flush() {
-      if (inflight) return;
-      var keys = Object.keys(queue); if (!keys.length) return;
-      var edits = keys.map(function (k) { return queue[k]; }); queue = {};
+      if (saving) return saving.then(flush);
+      var keys = Object.keys(queue).slice(0, 500); if (!keys.length) return Promise.resolve();
+      var edits = keys.map(function (k) { var ed = queue[k]; delete queue[k]; return ed; });
       inflight = true; setStatus('正在保存…');
-      call({ action: 'save', edits: edits }).then(function (d) {
-        inflight = false; setStatus('已自动保存 ' + d.at, 'text-success');
-        if (Object.keys(queue).length) flush();
-      }).catch(function (e) {
-        inflight = false; edits.forEach(function (ed) { var k = ed.row + ':' + ed.col; if (!queue[k]) queue[k] = ed; });
+      saving = call({ action: 'save', edits: edits }).then(function (d) {
+        inflight = false; saving = null; setStatus('已保存 ' + d.at, 'text-success');
+        if (!Object.keys(queue).length && typeof d.pending === 'number') { pendingCount = d.pending; updateSubmit(); }
+        return flush();
+      }, function (e) {
+        inflight = false; saving = null; edits.forEach(function (ed) { var k = ed.row + ':' + ed.col; if (!queue[k]) queue[k] = ed; });
         setStatus('保存失败：' + e.message + '（修改还在，5 秒后自动重试）', 'text-danger');
-        clearTimeout(timer); timer = setTimeout(flush, 5000);
+        clearTimeout(timer); timer = setTimeout(function () { flush().catch(function () {}); }, 5000);
+        throw e;
       });
+      return saving;
     }
-    function schedule() { clearTimeout(timer); setStatus('有修改，稍后自动保存…', 'text-warning'); timer = setTimeout(flush, 900); }
+    function schedule() { clearTimeout(timer); setStatus('有修改，稍后自动保存…', 'text-warning'); timer = setTimeout(function () { flush().catch(function () {}); }, 900); }
+
+    function selectCell(instance, x, y) {
+      if (!table || !meta || !cellInput || !meta.rowNos[y]) return;
+      selected = { x: Number(x), y: Number(y) };
+      cellLabel.textContent = '第 ' + (meta.rowNos[y] + 1) + ' 行 · ' + (meta.head[meta.order[x]] || ('列 ' + (Number(x) + 1)));
+      cellInput.value = table.getValueFromCoords(Number(x), Number(y)); cellInput.disabled = !cfg.canEdit;
+    }
+    function applyCell() {
+      if (selected && cfg.canEdit && !cellInput.disabled) table.setValueFromCoords(selected.x, selected.y, cellInput.value);
+    }
+    function finishEditing() {
+      if (table && table.edition) table.closeEditor(table.edition[0], true);
+      applyCell();
+    }
+    function resizeGrid() {
+      if (!table) return;
+      var content = gridEl.querySelector('.jexcel_content');
+      if (!content) return;
+      var width = Math.max(160, root.clientWidth - 2);
+      content.style.width = width + 'px';
+      table.options.tableWidth = width + 'px';
+      if (scrollSpace) scrollSpace.style.width = content.scrollWidth + 'px';
+    }
+    if (cellInput) {
+      cellInput.addEventListener('change', applyCell);
+      cellInput.addEventListener('keydown', function (e) { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); applyCell(); cellInput.blur(); } });
+      root.querySelector('.se-cell-apply').addEventListener('click', applyCell);
+    }
+    if (scrollBar) scrollBar.addEventListener('scroll', function () { var c = gridEl.querySelector('.jexcel_content'); if (c && c.scrollLeft !== scrollBar.scrollLeft) c.scrollLeft = scrollBar.scrollLeft; });
+    root.querySelectorAll('[data-se-scroll]').forEach(function (btn) {
+      btn.addEventListener('click', function () { var c = gridEl.querySelector('.jexcel_content'); if (c) c.scrollLeft += Number(btn.getAttribute('data-se-scroll')) * c.clientWidth * 0.7; });
+    });
+    window.addEventListener('resize', resizeGrid);
+    if (window.ResizeObserver) new ResizeObserver(resizeGrid).observe(root);
 
     function onAfterChanges(instance, records) {
       var any = false;
@@ -52,6 +93,7 @@
         queue[meta.rowNos[y] + ':' + x] = { row: meta.rowNos[y], col: x, v: v };
         var key = y + ':' + x; if (!localChanged[key]) { localChanged[key] = 1; pendingCount++; }
         mark(y, dx, false); any = true;
+        if (selected && selected.x === dx && selected.y === y && cellInput) cellInput.value = v;
       });
       if (any) { updateSubmit(); schedule(); }
     }
@@ -60,12 +102,10 @@
       if (table) { try { jspreadsheet.destroy(gridEl, true); } catch (e) { /* 重新载入时先销毁旧表 */ } gridEl.innerHTML = ''; table = null; }
       localChanged = {}; queue = {};
       meta = sheet;
-      // 列顺序：订单号在最前（并冻结），紧跟着是可编辑列（客户手机号 / 域名 / 到期日 / 售价…），最后才是只读的原表其它列，
-      // 这样要填的地方一打开就能看到，不用先横向拖到最右边。
-      var n = sheet.head.length, order = [], used = {}, first = sheet.orderCol != null ? sheet.orderCol : 0;
-      if (n > 0) { order.push(first); used[first] = 1; }
-      sheet.editable.forEach(function (e, i) { if (e && !used[i]) { order.push(i); used[i] = 1; } });
-      for (var i2 = 0; i2 < n; i2++) if (!used[i2]) order.push(i2);
+      if (typeof sheet.canEdit === 'boolean') cfg.canEdit = sheet.canEdit;
+      // 保留上传表的列顺序，复制整片区域时不会错列。
+      var n = sheet.head.length, order = [];
+      for (var i2 = 0; i2 < n; i2++) order.push(i2);
       var inv = []; order.forEach(function (orig, pos) { inv[orig] = pos; });
       meta.order = order; meta.inv = inv;
       var cols = order.map(function (i) {
@@ -76,20 +116,44 @@
       pendingCount = sheet.pending || 0;
       var h = Math.max(320, (window.innerHeight || 700) - 330);
       table = jspreadsheet(gridEl, {
-        data: rows.length ? rows : [[]], columns: cols, freezeColumns: 1,
-        tableOverflow: true, tableWidth: '100%', tableHeight: h + 'px', lazyLoading: true, loadingSpin: true,
+        data: rows.length ? rows : [[]], columns: cols, freezeColumns: 0,
+        tableOverflow: true, tableWidth: Math.max(160, root.clientWidth - 2) + 'px', tableHeight: h + 'px', lazyLoading: true, loadingSpin: true,
+        parseFormulas: false, autoCasting: false,
         columnSorting: false, allowInsertRow: false, allowManualInsertRow: false, allowInsertColumn: false, allowManualInsertColumn: false,
         allowDeleteRow: false, allowDeleteColumn: false, allowRenameColumn: false, allowComments: false, allowExport: false,
         selectionCopy: true, search: true, defaultColWidth: 110, rowResize: false, columnResize: true,
-        contextMenu: function () { return []; }, onafterchanges: onAfterChanges,
+        contextMenu: function () { return []; }, onafterchanges: onAfterChanges, onselection: selectCell, onresizecolumn: resizeGrid,
         text: { search: '在表中查找…', showingPage: '第 {0} / {1} 页', entries: '', noRecordsFound: '没有找到' }
       });
+      var content = gridEl.querySelector('.jexcel_content');
+      if (content && scrollBar) content.addEventListener('scroll', function () { if (scrollBar.scrollLeft !== content.scrollLeft) scrollBar.scrollLeft = content.scrollLeft; });
+      if (content) {
+        var touch = null;
+        content.addEventListener('touchstart', function (e) {
+          if (e.touches.length !== 1 || e.target.closest('input,textarea')) { touch = null; return; }
+          touch = { x: e.touches[0].clientX, y: e.touches[0].clientY, left: content.scrollLeft };
+        }, { passive: true });
+        content.addEventListener('touchmove', function (e) {
+          if (!touch || e.touches.length !== 1) return;
+          var dx = touch.x - e.touches[0].clientX, dy = touch.y - e.touches[0].clientY;
+          if (Math.abs(dx) > 8 && Math.abs(dx) > Math.abs(dy)) {
+            content.scrollLeft = touch.left + dx;
+            if (typeof jspreadsheet.touchEndControls === 'function') jspreadsheet.touchEndControls(e);
+            if (e.cancelable) e.preventDefault();
+          }
+        }, { passive: false });
+        content.addEventListener('touchend', function () { touch = null; });
+        content.addEventListener('touchcancel', function () { touch = null; });
+      }
+      resizeGrid();
+      selected = null;
+      if (cellInput) { cellInput.value = ''; cellInput.disabled = true; cellLabel.textContent = '点选单元格后编辑'; }
       // 可编辑列的表头加底色，让人一眼知道哪些能改
       var heads = gridEl.querySelectorAll('thead tr td[data-x]');
       heads.forEach(function (td) { var x = parseInt(td.getAttribute('data-x'), 10); if (sheet.editable[order[x]] && cfg.canEdit) td.classList.add('se-edit-head'); });
       (sheet.changed || []).forEach(function (c) { mark(c[0], inv[c[1]], c[2] === 1); });
       var note = root.querySelector('.se-trunc'); if (note) note.hidden = !sheet.truncated;
-      updateSubmit(); setStatus(cfg.canEdit ? '修改会自动保存' : '只读（你没有编辑权限）', 'text-muted');
+      updateSubmit(); setStatus(cfg.canEdit ? '全部字段可编辑，修改会自动保存' : '只读（你没有编辑权限）', 'text-muted');
     }
 
     function load() {
@@ -107,6 +171,16 @@
     }
     function closeModal() { modal.hidden = true; }
     modal.querySelectorAll('.se-close').forEach(function (b) { b.addEventListener('click', closeModal); });
+    if (saveBtn) saveBtn.addEventListener('click', function () { finishEditing(); clearTimeout(timer); flush().catch(function () {}); });
+    if (importBtn) importBtn.addEventListener('click', function () {
+      finishEditing(); clearTimeout(timer); submitting = true; updateSubmit();
+      flush().then(function () {
+        var form = document.createElement('form'); form.method = 'POST'; form.action = root.getAttribute('data-import-url');
+        var fields = { csrf: cfg.csrf, action: 'repreview', resume_file: cfg.file, file_id: cfg.file, business: meta.file.business, all_sheets: '1' };
+        Object.keys(fields).forEach(function (name) { var input = document.createElement('input'); input.type = 'hidden'; input.name = name; input.value = fields[name]; form.appendChild(input); });
+        document.body.appendChild(form); form.submit();
+      }).catch(function () { submitting = false; updateSubmit(); });
+    });
     function table2(results) {
       var rows = results.map(function (r) {
         var ch = Object.keys(r.changes).map(function (k) { return '<span class="badge badge-light border">' + esc(k) + '：' + esc(r.changes[k]) + '</span>'; }).join(' ');
@@ -116,7 +190,7 @@
       return '<div class="table-responsive"><table class="table table-sm"><thead><tr><th>行</th><th>订单号</th><th>修改内容</th><th>状态</th></tr></thead><tbody>' + rows + '</tbody></table></div>';
     }
     submitBtn.addEventListener('click', function () {
-      clearTimeout(timer);
+      finishEditing(); clearTimeout(timer);
       var go = function () {
         showModal('<div class="text-muted">正在核对你的修改…</div>', null);
         call({ action: 'preview' }).then(function (d) {
@@ -132,7 +206,8 @@
         }).catch(function (e) { showModal('<div class="alert alert-danger mb-0">' + esc(e.message) + '</div>', null); });
       };
       // 先把还在排队的修改保存完再预览
-      if (Object.keys(queue).length || inflight) { var t = setInterval(function () { if (!inflight && !Object.keys(queue).length) { clearInterval(t); go(); } else flush(); }, 300); } else go();
+      submitting = true; updateSubmit();
+      flush().then(go).catch(function () {}).then(function () { submitting = false; updateSubmit(); });
     });
     window.addEventListener('beforeunload', function (e) { if (Object.keys(queue).length || inflight) { e.preventDefault(); e.returnValue = ''; } });
     load();

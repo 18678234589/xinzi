@@ -5,12 +5,21 @@
 .se-hint { font-size: .82rem; color: #5f6b64; padding: 8px 16px; border-bottom: 1px solid #eef3ef; }
 .se-legend { display: inline-block; width: 12px; height: 12px; border-radius: 3px; vertical-align: -1px; margin: 0 4px 0 10px; border: 1px solid #d9c46a; background: #fff3c4; }
 .se-legend.done { border-color: #9cc9a8; background: #e7f4ea; }
-.se-actions { display: flex; align-items: center; gap: 12px; }
+.se-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.se-card, .project-file-view, .project-file-view > .card-body { min-width: 0; max-width: 100%; }
+.se-import { background: #2e805e; color: #fff; border: 0; border-radius: 10px; padding: 7px 16px; font-weight: 600; }
+.se-import:disabled { background: #b7c9bf; cursor: not-allowed; }
+.se-cell-editor { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 10px 16px; }
+.se-cell-label { margin: 0; font-size: .82rem; min-width: 150px; }
+.se-cell-input { flex: 1 1 220px; min-width: 0; }
+.se-scroll-tools { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 0 12px 6px; }
+.se-scrollbar { overflow-x: auto; overflow-y: hidden; height: 22px; width: 100%; }
+.se-scroll-space { height: 1px; }
 .se-submit { background: #2e805e; color: #fff !important; border: 0; border-radius: 10px; padding: 7px 16px; font-weight: 600; }
 .se-submit:hover:not(:disabled) { background: #256b51; }
 .se-submit:disabled { background: #b7c9bf; cursor: not-allowed; }
 .se-body { padding: 0; }
-.se-grid { min-height: 120px; }
+.se-grid { min-height: 120px; min-width: 0; width: 100%; overflow: hidden; }
 .se-grid .jexcel_container { max-width: 100%; }
 .se-grid .jexcel > thead > tr > td.se-edit-head { background: #fff3c4 !important; color: #5b4a00; font-weight: 700; }
 .se-grid .jexcel > tbody > tr > td.readonly { color: #5f6b64; background: #fafbfa; }
@@ -23,7 +32,11 @@
 .se-modal-foot { padding: 12px 18px; border-top: 1px solid #e8eee9; display: flex; justify-content: flex-end; gap: 8px; }
 .se-ok { background: #2e805e; color: #fff !important; border: 0; border-radius: 10px; padding: 7px 18px; font-weight: 600; }
 .se-close { border: 1px solid #cdd8d1; background: #fff; border-radius: 10px; padding: 7px 14px; }
-.se-grid .jexcel_content { overflow: auto !important; scrollbar-width: auto; }
+.se-grid .jexcel_content { overflow: auto !important; max-width: 100%; scrollbar-width: auto; touch-action: pan-x pan-y; -webkit-overflow-scrolling: touch; }
+.se-grid table.jexcel { width: max-content !important; table-layout: fixed; }
+.se-grid table.jexcel td { display: table-cell !important; }
+.project-sheet-wrap { overflow-x: auto !important; touch-action: pan-x pan-y; }
+.project-sheet { width: max-content; min-width: 100%; }
 .se-grid .jexcel_content::-webkit-scrollbar { height: 14px; width: 14px; }
 .se-grid .jexcel_content::-webkit-scrollbar-thumb { background: #9db8a8; border-radius: 8px; border: 3px solid #f4f7f5; }
 .se-grid .jexcel_content::-webkit-scrollbar-track { background: #f4f7f5; }

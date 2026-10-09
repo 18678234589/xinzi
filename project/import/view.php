@@ -48,6 +48,7 @@ $previewSheets = $preview ? array_filter($_SESSION['project_import_sheets'] ?? [
 $sheetReport = $preview ? ($_SESSION['project_import_sheets'] ?? []) : [];
 $previewFileId = $preview ? (int)($_SESSION['project_import_file'] ?? 0) : 0;
 ?>
+<?php if ($previewFileId): ?><div class="alert alert-info d-flex flex-wrap align-items-center" style="gap:10px"><span>需要修改表格字段？订单号、日期、姓名、金额和备注都可以在线修改，保存后重新核对即可。</span><a class="btn btn-success btn-sm" href="<?php echo BASE_URL; ?>/project/files.php?view=<?php echo $previewFileId; ?>">编辑全部字段</a></div><?php endif; ?>
 <?php if ($fixGuides): ?>
 <div class="modal fade" id="importFixGuide" tabindex="-1" role="dialog" aria-labelledby="importFixGuideTitle" aria-hidden="true"><div class="modal-dialog modal-lg modal-dialog-scrollable" role="document"><div class="modal-content">
 <div class="modal-header"><h5 class="modal-title" id="importFixGuideTitle"><i class="fas fa-hand-point-right text-warning mr-1"></i>表格有 <?php echo count($fixGuides); ?> 处填写需要改一下</h5><button type="button" class="close" data-dismiss="modal" aria-label="关闭"><span aria-hidden="true">&times;</span></button></div>

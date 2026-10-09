@@ -5,7 +5,7 @@ $files = [];
 $iterator = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($root, FilesystemIterator::SKIP_DOTS));
 foreach ($iterator as $file) {
     $path = str_replace('\\', '/', substr($file->getPathname(), strlen($root) + 1));
-    if (preg_match('~^(?:\.|vendor/|node_modules/|config/)~', $path) || substr($path, -4) !== '.php') continue;
+    if (preg_match('~^(?:\.|vendor/|node_modules/|config/|storage/)~', $path) || substr($path, -4) !== '.php') continue;
     $files[$path] = $file->getPathname();
 }
 ksort($files);

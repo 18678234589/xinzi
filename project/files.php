@@ -3,6 +3,7 @@
 require_once __DIR__ . '/../includes/ProjectIntake.php';
 require_once __DIR__ . '/../includes/ProjectBusiness.php';
 require_once __DIR__ . '/../includes/ProjectImportResult.php';
+require_once __DIR__ . '/../includes/ProjectSheetEdit.php';
 $actor = ps_require_actor();
 $isFinance = $actor['role'] === 'finance';
 
@@ -87,12 +88,14 @@ include __DIR__ . '/../includes/header.php';
   <div class="d-flex" style="gap:6px"><a class="btn btn-sm btn-outline-secondary" href="<?php echo BASE_URL; ?>/project/files.php?<?php echo e(http_build_query(array_diff_key($_GET, ['view' => 1, 'sheet' => 1]))); ?>">返回列表</a><?php if (!$isFinance): ?><a class="btn btn-sm btn-outline-success" href="<?php echo BASE_URL; ?>/project/import.php?business=<?php echo rawurlencode((string)$viewFile['business_name']); ?>&amp;scope=personal&amp;download=1" title="按你的岗位带手机号 / 域名 / 服务器到期日列"><i class="fas fa-download mr-1"></i>下载本业务模板</a><?php endif; ?><a class="btn btn-sm btn-primary" href="<?php echo BASE_URL; ?>/project/files.php?download=<?php echo (int)$viewFile['id']; ?>">下载原文件</a></div>
 </div><div class="card-body">
   <?php if (count($sheetNames) > 1): ?><nav class="app-tabs mb-3" aria-label="工作表"><?php foreach ($sheetNames as $name): ?><a href="<?php echo BASE_URL; ?>/project/files.php?<?php echo e(http_build_query(array_merge($_GET, ['sheet' => $name]))); ?>" class="<?php echo $name === $current ? 'active' : ''; ?>"><?php echo e($name); ?> <small>(<?php echo max(count($sheets[$name]) - 1, 0); ?>)</small></a><?php endforeach; ?></nav><?php endif; ?>
-  <?php $canEditSheet = $isFinance || ((int)$viewFile['employee_id'] === (int)($actor['employee_id'] ?? 0) && $viewFile['uploaded_by_type'] === 'employee'); ?>
+  <?php $canEditSheet = pse_can_edit($viewFile, $actor); ?>
   <link href="<?php echo BASE_URL; ?>/assets/lib/jspreadsheet/jsuites.css" rel="stylesheet"><link href="<?php echo BASE_URL; ?>/assets/lib/jspreadsheet/jspreadsheet.css" rel="stylesheet"><link href="<?php echo BASE_URL; ?>/assets/css/sheet_editor.css?v=<?php echo @filemtime(__DIR__ . '/../assets/css/sheet_editor.css'); ?>" rel="stylesheet">
   <div class="d-flex flex-wrap align-items-center mb-2" style="gap:8px"><button type="button" class="btn btn-sm btn-success" id="seModeEdit" style="color:#fff">在线编辑 / 提交更正</button><button type="button" class="btn btn-sm btn-outline-secondary" id="seModeView">只读查看（可搜索）</button></div>
-  <div class="se-card" id="seRoot" data-api="<?php echo BASE_URL; ?>/project/file_sheet_api.php" data-csrf="<?php echo e(ps_csrf_token()); ?>" data-file="<?php echo (int)$viewFile['id']; ?>" data-sheet="<?php echo e($current); ?>" data-can-edit="<?php echo $canEditSheet ? '1' : '0'; ?>">
-    <div class="se-head"><div class="se-title"><i class="fas fa-table"></i>像 Excel 一样编辑</div><div class="se-actions"><span class="se-status small text-muted"></span><button class="se-submit" type="button" disabled>提交更正</button></div></div>
-    <div class="se-hint"><span class="se-legend"></span>浅黄色表头的列可以修改（客户手机号、客户域名、服务器到期日、售价、店铺、付款昵称），其余列是原表内容、只读。修改会自动保存，可直接从 Excel 复制粘贴；改完点“提交更正”：手机号 / 域名 / 服务器到期日直接写入续费资料，售价 / 店铺 / 付款昵称<?php echo $isFinance ? '直接更正订单' : '提交给财务确认'; ?>。<span class="se-legend done"></span>绿色 = 已提交。原始上传文件不会被改动。</div>
+  <div class="se-card" id="seRoot" data-api="<?php echo BASE_URL; ?>/project/file_sheet_api.php" data-import-url="<?php echo BASE_URL; ?>/project/import.php" data-csrf="<?php echo e(ps_csrf_token()); ?>" data-file="<?php echo (int)$viewFile['id']; ?>" data-sheet="<?php echo e($current); ?>" data-can-edit="<?php echo $canEditSheet ? '1' : '0'; ?>">
+    <div class="se-head"><div class="se-title"><i class="fas fa-table"></i>全部字段在线编辑</div><div class="se-actions"><span class="se-status small text-muted"></span><button class="btn btn-sm btn-outline-success se-save" type="button" disabled>保存修改</button><button class="se-import" type="button" disabled>核对并提交到系统</button><button class="se-submit" type="button" disabled>更正已导入订单资料</button></div></div>
+    <div class="se-hint">全部原表字段都可编辑，包括订单号、日期、参与人和备注。双击单元格，或点选后在下方输入；支持从 Excel 复制粘贴。修改自动保存，改好后点“核对并提交到系统”，确认核对结果后导入，无需下载重传。已有订单的售价 / 店铺 / 昵称及续费资料可用“更正已导入订单资料”处理，其他订单字段按导入核对规则处理。<span class="se-legend"></span>黄色 = 待提交。<span class="se-legend done"></span>绿色 = 已提交。原始附件保留。</div>
+    <div class="se-cell-editor"><label class="se-cell-label" for="seCellInput">点选单元格后编辑</label><textarea id="seCellInput" class="form-control se-cell-input" rows="1" disabled placeholder="选中任意字段后在这里修改"></textarea><button class="btn btn-sm btn-outline-success se-cell-apply" type="button">写入单元格</button></div>
+    <div class="se-scroll-tools"><button class="btn btn-sm btn-light" type="button" data-se-scroll="-1" aria-label="向左滚动表格">← 向左</button><span class="small text-muted">拖动滚动条或触屏左右滑动查看全部字段</span><button class="btn btn-sm btn-light" type="button" data-se-scroll="1" aria-label="向右滚动表格">向右 →</button></div><div class="se-scrollbar" tabindex="0" aria-label="表格横向滚动条"><div class="se-scroll-space"></div></div>
     <div class="se-body"><div class="se-grid"></div></div><div class="se-trunc" hidden>为保证流畅只载入前 3000 行，完整内容请下载原文件。</div>
     <div class="se-modal" hidden><div class="se-modal-box"><div class="se-modal-head"><span>提交更正</span><button class="se-close" type="button">关闭</button></div><div class="se-modal-body"></div><div class="se-modal-foot"><button class="se-close" type="button">取消</button><button class="se-ok" type="button">确认提交</button></div></div></div>
   </div>
@@ -151,10 +154,7 @@ include __DIR__ . '/../includes/header.php';
 <script>
 function confirmFileDelete(form, importedCount) {
   var message = '确定删除这张原始表格吗？删除后不可恢复。';
-  if (importedCount > 0) message = '这张表格已导入 ' + importedCount + ' 单：“删除原件”只移除表格文件，订单会保留。
-如果是传错了想连订单一起撤回，请点“撤销上传”。
-
-仍要只删除原件吗？';
+  if (importedCount > 0) message = '这张表格已导入 ' + importedCount + ' 单：“删除原件”只移除表格文件，订单会保留。\n如果是传错了想连订单一起撤回，请点“撤销上传”。\n\n仍要只删除原件吗？';
   return window.confirm(message);
 }
 </script>

@@ -2,7 +2,7 @@
 /**
  * 原始表格在线编辑（像 Excel 一样改，自动保存，提交后更正自己的订单）。
  * - 原始上传文件永不改动；编辑内容单独存 project_import_edits（只存与原表不同的格子），随时可恢复。
- * - 可编辑列只有：客户手机号、客户域名、售价、店铺、付款昵称；其余列只读（订单号、日期等）。
+ * - 原表全部字段可编辑；核对导入读取保存后的表格，原始附件保持不变。
  * - 提交更正：手机号 / 域名直接写入该订单的续费资料；售价 / 店铺 / 付款昵称走现有“订单更正”（财务直接生效，其他人提交财务确认）。
  */
 require_once __DIR__ . '/ProjectIntake.php';
@@ -17,6 +17,13 @@ function pse_ensure()
 {
     static $done = false;
     if ($done) return;
+    try {
+        db()->query('SELECT 1 FROM project_import_edits LIMIT 0');
+        $done = true;
+        return;
+    } catch (PDOException $e) {
+        if ((string)$e->getCode() !== '42S02') throw $e;
+    }
     db()->exec("CREATE TABLE IF NOT EXISTS project_import_edits (
         file_id INT NOT NULL, sheet VARCHAR(120) NOT NULL, row_no INT NOT NULL, col_idx SMALLINT NOT NULL,
         value TEXT NOT NULL, applied_value TEXT NULL,
@@ -48,9 +55,9 @@ function pse_excel_date($s)
 }
 
 /** 解析一张工作表：列含义、虚拟列、行数据（原值，不含编辑内容）。 */
-function pse_parse($file, $sheetName, $actor)
+function pse_parse($file, $sheetName, $actor, $sheets = null)
 {
-    $sheets = ps_import_file_sheets($file);
+    if ($sheets === null) $sheets = ps_import_file_sheets($file);
     if (!isset($sheets[$sheetName])) throw new RuntimeException('找不到这张工作表');
     $rows = array_values(array_filter($sheets[$sheetName], 'is_array'));
     if (!$rows) return ['head' => [], 'kinds' => [], 'width' => 0, 'rows' => [], 'orderCol' => null, 'virtual' => 0, 'truncated' => false];
@@ -73,6 +80,20 @@ function pse_parse($file, $sheetName, $actor)
     }
     // 虚拟列：模板里没有、但本岗位需要的列（客户手机号 / 客户域名）
     $virtual = 0;
+    // 保存后固定补充列的含义，财务代导与上传人看到同一布局。
+    pse_ensure();
+    $layoutQuery = db()->prepare('SELECT value FROM project_import_edits WHERE file_id=? AND sheet=? AND row_no=0 AND col_idx=0');
+    $layoutQuery->execute([(int)$file['id'], (string)$sheetName]);
+    $layout = json_decode((string)($layoutQuery->fetchColumn() ?: ''), true);
+    if (!$layout) {
+        $legacy = db()->prepare('SELECT updated_by_type,updated_by_id FROM project_import_edits WHERE file_id=? AND sheet=? AND row_no>0 AND col_idx>=? ORDER BY updated_at DESC LIMIT 1');
+        $legacy->execute([(int)$file['id'], (string)$sheetName, $width]); $writer = $legacy->fetch();
+        if ($writer && $writer['updated_by_type'] === 'admin') $actor = ['role' => 'finance'];
+        elseif ($writer) {
+            $roleQuery = db()->prepare('SELECT role FROM project_users WHERE id=?'); $roleQuery->execute([(int)$writer['updated_by_id']]);
+            $writerRole = $roleQuery->fetchColumn(); if ($writerRole) $actor = ['role' => $writerRole];
+        }
+    }
     $extras = ps_import_role_extras((string)$file['business_name'], $actor, $head);
     if (!$extras && ($actor['role'] ?? '') === 'finance') {
         // 财务查看 / 更正：网站类订单补手机号 + 域名，小程序补手机号 + 服务器到期日（已有同名列则不重复）
@@ -84,8 +105,9 @@ function pse_parse($file, $sheetName, $actor)
             if (!$has) $extras[] = $w;
         }
     }
+    if (is_array($layout) && array_slice($layout, 0, $width) === $head) $extras = array_slice($layout, $width);
     foreach ($extras as $extra) {
-        $head[] = $extra; $kinds[] = $extra === '客户手机号' ? 'phone' : ($extra === '服务器到期日' ? 'server_expiry' : ($extra === '域名归属' ? 'domain_owner' : 'domain')); $virtual++;
+        $head[] = $extra; $kinds[] = $extra === '客户手机号' ? 'phone' : ($extra === '服务器到期日' ? 'server_expiry' : ($extra === '域名归属' ? 'domain_owner' : ($extra === '客户域名' ? 'domain' : ''))); $virtual++;
     }
     $total = count($head);
     $data = []; $truncated = false;
@@ -105,6 +127,44 @@ function pse_parse($file, $sheetName, $actor)
 }
 
 function pse_editable_kind($kind) { return in_array($kind, ['phone', 'domain', 'domain_owner', 'server_expiry', 'amount', 'shop', 'nick'], true); }
+
+/** 全部原表列可修改；文件权限仍由 ps_import_file_get 校验。 */
+function pse_can_edit($file, $actor)
+{
+    return ($actor['role'] ?? '') === 'finance' || ($file['uploaded_by_type'] === ($actor['type'] ?? '') && (int)$file['employee_id'] === (int)($actor['employee_id'] ?? 0));
+}
+
+/** 导入时读取编辑后的数据，包括补充列；原始文件和源表行号不变。 */
+function pse_import_sheets($file, $actor)
+{
+    $revision = pse_revision((int)$file['id']);
+    $sheets = ps_import_file_sheets($file);
+    foreach ($sheets as $name => &$rows) {
+        $p = pse_parse($file, (string)$name, $actor, $sheets);
+        if (!$rows) continue;
+        $rows = array_values(array_filter($rows, 'is_array'));
+        $rows[0] = $p['head'];
+        foreach (pse_overlay((int)$file['id'], (string)$name) as $no => $cells) {
+            if ($no < 1 || !isset($rows[$no])) continue;
+            foreach ($cells as $col => $edit) if ($col >= 0 && $col < $p['width']) $rows[$no][$col] = $edit['value'];
+            ksort($rows[$no]);
+            $rows[$no] = array_replace(array_fill(0, $p['width'], ''), $rows[$no]);
+        }
+    }
+    unset($rows);
+    if ($revision !== pse_revision((int)$file['id'])) throw new RuntimeException('表格正在被修改，请保存完成后重新核对');
+    $_SESSION['pse_import_revisions'][(int)$file['id']] = $revision;
+    return $sheets;
+}
+
+/** 防止核对后又编辑表格却提交旧预览；提交事务内锁住该文件的编辑记录。 */
+function pse_revision($fileId, $lock = false)
+{
+    pse_ensure();
+    $q = db()->prepare('SELECT sheet,row_no,col_idx,value FROM project_import_edits WHERE file_id=? ORDER BY sheet,row_no,col_idx' . ($lock ? ' FOR UPDATE' : ''));
+    $q->execute([(int)$fileId]);
+    return hash('sha256', json_encode($q->fetchAll(PDO::FETCH_NUM), JSON_UNESCAPED_UNICODE));
+}
 
 function pse_overlay($fileId, $sheet)
 {
@@ -135,12 +195,12 @@ function pse_load($fileId, $sheet, $actor)
         }
         $rows[] = $cells; $rowNos[] = $no;
     }
-    $editable = array_map('pse_editable_kind', $p['kinds']);
+    $editable = array_fill(0, $p['width'], true);
     // 缓存供自动保存校验（避免每次保存都重新解析整张表）
     $orig = [];
-    foreach ($p['rows'] as $no => $cells) foreach ($p['kinds'] as $c => $k) if (pse_editable_kind($k)) $orig[$no][$c] = $cells[$c];
-    if (session_status() === PHP_SESSION_ACTIVE) $_SESSION['pse_cache'][(int)$file['id'] . '|' . $sheet] = ['kinds' => $p['kinds'], 'width' => $p['width'], 'orig' => $orig];
-    return ['head' => $p['head'], 'kinds' => $p['kinds'], 'editable' => $editable, 'rows' => $rows, 'rowNos' => $rowNos, 'orderCol' => $p['orderCol'], 'virtual' => $p['virtual'], 'truncated' => $p['truncated'], 'pending' => $pending, 'changed' => $changed,
+    foreach ($p['rows'] as $no => $cells) $orig[$no] = $cells;
+    $_SESSION['pse_cache'][(int)$file['id'] . '|' . $sheet] = ['head' => $p['head'], 'kinds' => $p['kinds'], 'width' => $p['width'], 'orig' => $orig];
+    return ['head' => $p['head'], 'kinds' => $p['kinds'], 'editable' => $editable, 'canEdit' => pse_can_edit($file, $actor), 'rows' => $rows, 'rowNos' => $rowNos, 'orderCol' => $p['orderCol'], 'virtual' => $p['virtual'], 'truncated' => $p['truncated'], 'pending' => $pending, 'changed' => $changed,
             'file' => ['id' => (int)$file['id'], 'name' => $file['original_name'], 'business' => $file['business_name']]];
 }
 
@@ -148,26 +208,45 @@ function pse_load($fileId, $sheet, $actor)
 function pse_save($fileId, $sheet, array $edits, $actor)
 {
     $file = pse_file($fileId, $actor);
+    if (!pse_can_edit($file, $actor)) throw new RuntimeException('没有编辑这份表格的权限');
     $key = (int)$file['id'] . '|' . $sheet;
     $cache = $_SESSION['pse_cache'][$key] ?? null;
-    if (!$cache) {
+    if (!$cache || !isset($cache['head']) || count($cache['orig'] ? reset($cache['orig']) : []) !== (int)$cache['width']) {
         $p = pse_parse($file, $sheet, $actor);
         $orig = [];
-        foreach ($p['rows'] as $no => $cells) foreach ($p['kinds'] as $c => $k) if (pse_editable_kind($k)) $orig[$no][$c] = $cells[$c];
-        $cache = ['kinds' => $p['kinds'], 'width' => $p['width'], 'orig' => $orig];
+        foreach ($p['rows'] as $no => $cells) $orig[$no] = $cells;
+        $cache = ['head' => $p['head'], 'kinds' => $p['kinds'], 'width' => $p['width'], 'orig' => $orig];
         $_SESSION['pse_cache'][$key] = $cache;
     }
     pse_ensure();
     $up = db()->prepare('INSERT INTO project_import_edits (file_id,sheet,row_no,col_idx,value,updated_by_type,updated_by_id) VALUES (?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE value=VALUES(value),updated_by_type=VALUES(updated_by_type),updated_by_id=VALUES(updated_by_id)');
     $del = db()->prepare('DELETE FROM project_import_edits WHERE file_id=? AND sheet=? AND row_no=? AND col_idx=?');
     $saved = 0;
-    foreach (array_slice($edits, 0, 500) as $e) {
+    if (count($edits) > 500) throw new RuntimeException('单次最多保存 500 个单元格，请分批提交');
+    foreach ($edits as $e) {
         $row = (int)($e['row'] ?? 0); $col = (int)($e['col'] ?? -1); $v = trim((string)($e['v'] ?? ''));
-        if ($row < 1 || $col < 0 || $col >= $cache['width'] || !pse_editable_kind($cache['kinds'][$col] ?? '') || !array_key_exists($row, $cache['orig'])) continue;
-        if (mb_strlen($v) > 200) $v = mb_substr($v, 0, 200);
+        if ($row < 1 || $col < 0 || $col >= $cache['width'] || !array_key_exists($row, $cache['orig'])) throw new RuntimeException('单元格位置无效，请重新载入表格');
+        if (mb_strlen($v) > 10000) throw new RuntimeException('单元格内容超过 10000 字，请缩短后保存');
+    }
+    $pdo = db(); $nested = $pdo->inTransaction();
+    if ($nested) $pdo->exec('SAVEPOINT sheet_edit_save'); else $pdo->beginTransaction();
+    try {
+      $lock = $pdo->prepare('SELECT id FROM project_import_files WHERE id=? FOR UPDATE'); $lock->execute([(int)$file['id']]);
+      if (!$lock->fetchColumn()) throw new RuntimeException('表格已删除，请返回列表');
+      $layoutQuery = $pdo->prepare('SELECT value FROM project_import_edits WHERE file_id=? AND sheet=? AND row_no=0 AND col_idx=0'); $layoutQuery->execute([(int)$file['id'], $sheet]);
+      $existingHead = $layoutQuery->fetchColumn(); $headJson = json_encode($cache['head'], JSON_UNESCAPED_UNICODE);
+      if ($existingHead !== false && $existingHead !== $headJson) throw new RuntimeException('表格列布局已更新，请重新载入后编辑');
+      if ($existingHead === false) $pdo->prepare('INSERT INTO project_import_edits (file_id,sheet,row_no,col_idx,value,applied_value,updated_by_type,updated_by_id) VALUES (?,?,0,0,?,?,?,?)')->execute([(int)$file['id'], $sheet, $headJson, $headJson, $actor['type'], (int)$actor['id']]);
+      foreach ($edits as $e) {
+        $row = (int)$e['row']; $col = (int)$e['col']; $v = trim((string)($e['v'] ?? ''));
         if ($v === (string)($cache['orig'][$row][$col] ?? '')) $del->execute([(int)$file['id'], $sheet, $row, $col]);
         else $up->execute([(int)$file['id'], $sheet, $row, $col, $v, $actor['type'], (int)$actor['id']]);
         $saved++;
+      }
+      if ($nested) $pdo->exec('RELEASE SAVEPOINT sheet_edit_save'); else $pdo->commit();
+    } catch (Throwable $e) {
+        if ($nested) $pdo->exec('ROLLBACK TO SAVEPOINT sheet_edit_save'); elseif ($pdo->inTransaction()) $pdo->rollBack();
+        throw $e;
     }
     return $saved;
 }

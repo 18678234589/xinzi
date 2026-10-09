@@ -1,5 +1,9 @@
 <?php
             try {
+                $draftFileId = (int)($_SESSION['project_import_file'] ?? 0);
+                $draftRevision = $_SESSION['pse_import_revisions'][$draftFileId] ?? null;
+                if ($draftRevision !== null) { $draftLock = $pdo->prepare('SELECT id FROM project_import_files WHERE id=? FOR UPDATE'); $draftLock->execute([$draftFileId]); }
+                if ($draftRevision !== null && $draftRevision !== pse_revision($draftFileId, true)) throw new RuntimeException('表格在核对后又有修改，请重新核对再提交');
                 $insertOrder = $pdo->prepare('INSERT INTO project_orders (order_no,customer_name,project_type,order_kind,shop,contract_amount,receipt_amount,order_date,delivery_status,note,created_by_admin) VALUES (?,?,?,?,?,?,0,?,?,?,?)'
     );
                 foreach ($ready as [$row, $domainTemplate, $serverTemplate, $programTemplate, $forcedMode]) {

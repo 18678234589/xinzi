@@ -93,6 +93,25 @@ try {
     $rows = $orders("$no5%");
     $check($err === '' && $imp === 1 && count($rows) === 2 && $rows[1]['project_type'] === '备案-提成', '备案另记一张“备案-提成”订单，网站订单不变');
 
+    echo "=== 五、原始表格在线编辑后直接核对并导入 ===\n";
+    require_once __DIR__ . '/../includes/ProjectSheetEdit.php';
+    $editedNo = '63990' . $tag . '1234567890';
+    $fileId = $upload($zhang, '网站模板', "日期,店铺,订单编号,程序名称,模板技术,域名使用（写是/否）,备注\n2026-09-01,美呀美,原订单号,jsp展示,张强,否,原备注\n");
+    $file = pse_file($fileId, $zhang); $sheet = (string)array_keys(ps_import_file_sheets($file))[0];
+    pse_load($fileId, $sheet, $zhang);
+    pse_save($fileId, $sheet, [['row' => 1, 'col' => 0, 'v' => '2026-10-08'], ['row' => 1, 'col' => 2, 'v' => $editedNo], ['row' => 1, 'col' => 6, 'v' => '在线更改的备注']], $zhang);
+    $run($zhang, ['action' => 'repreview', 'business' => '网站模板', 'file_id' => $fileId, 'all_sheets' => 1]);
+    $pv = $_SESSION['project_import_preview'] ?? [];
+    $check(!empty($pv[0]['base_valid']) && $pv[0]['order_no'] === $editedNo && $pv[0]['order_date'] === '2026-10-08', '核对页面使用在线修改后的订单号和日期');
+    // 核对后再修改必须阻止旧预览提交；重新核对后才能导入。
+    pse_save($fileId, $sheet, [['row' => 1, 'col' => 0, 'v' => '2026-10-09']], $zhang);
+    $run($zhang, ['action' => 'commit', 'business' => '网站模板']);
+    $check(mb_strpos($GLOBALS['error'], '核对后又有修改') !== false && !$orders($editedNo), '核对后的新修改不会被旧预览覆盖');
+    $run($zhang, ['action' => 'repreview', 'business' => '网站模板', 'file_id' => $fileId, 'all_sheets' => 1]);
+    $run($zhang, ['action' => 'commit', 'business' => '网站模板']);
+    $q = $pdo->prepare('SELECT order_date FROM project_orders WHERE order_no=?'); $q->execute([$editedNo]);
+    $check($GLOBALS['error'] === '' && $q->fetchColumn() === '2026-10-09', '用户确认后正确写入订单，原附件不需重传');
+
     echo "\n=== 网站分单与多网站同号测试全部通过 ===\n";
 } catch (Throwable $e) {
     fwrite(STDERR, $e->getMessage() . "\n");

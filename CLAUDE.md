@@ -26,3 +26,4 @@
 | 会话 | 文件 | 状态 |
 |---|---|---|
 | 大文件拆分 | P0–P6 全部 16 个入口 | 已完成，锁已释放；见 `docs/split-progress.md` |
+| 在线表格编辑 | includes/ProjectSheetEdit.php、project/files.php、project/import/ 与 assets/*/sheet_editor.* | 已上线并验证，锁已释放；见 docs/table-editing.md。共享文件请保留海外微信会话的独立改动 |
