@@ -56,6 +56,9 @@ function pr_url($filter,$search='',$page=1) { global $viewEmployee; return BASE_
  </section>
  <div class="pr-notice"><i class="fas fa-info-circle"></i><span>实际填写／表格到期日优先；未填写时按下单日期 + 1 年标为“预计到期”。<strong><?php echo $config['enabled']?'阿里云自动短信已启用':'自动短信暂未启用'; ?></strong>；每条资源还需启用客户续费通知。<?php if (pr_is_super($actor)): ?> <a href="<?php echo BASE_URL; ?>/project/renewal_sms.php">配置阿里云短信 →</a><?php endif; ?></span></div>
  <div class="pr-notice"><i class="fas fa-file-upload"></i><span>多单一起补：<a href="<?php echo BASE_URL; ?>/project/batch_fill.php">下载预填订单号的补全模板 / 上传补全</a>。已有内容不会被覆盖，不新增订单，也不改金额。</span></div>
+<?php if ($order) { require_once __DIR__.'/../includes/ProjectRenewalFill.php'; $quickRows=prf_missing($actor,1,120,'','',(int)$order['id']); if ($quickRows): echo prf_assets(); ?>
+ <section class="rf-quick" data-rf-endpoint="<?php echo BASE_URL; ?>/project/renewal_fill.php" data-rf-csrf="<?php echo e(ps_csrf_token()); ?>"><h3>快速补录这张订单的资料</h3><?php echo prf_card($quickRows[0]); ?></section>
+ <?php endif; } ?>
  <?php if ($order): $form=$edit?:['id'=>0,'order_id'=>$order['id'],'resource_type'=>pr_default_type($order['project_type']),'resource_name'=>'','expires_on'=>pr_default_expiry($order['order_date']),'expiry_source'=>'estimated','sms_enabled'=>0,'status'=>'active','revision'=>0,'note'=>'']; $phone=array_key_exists('phone',$form)?$form['phone']:pv_decrypt($form['phone_cipher']??''); $wechat=array_key_exists('wechat',$form)?$form['wechat']:pv_decrypt($form['wechat_cipher']??''); ?>
  <section class="pr-panel" id="renewal-form"><div class="pr-panel-title"><div><small><?php echo e($order['project_type'].' · '.$order['order_no']); ?></small><h2><?php echo $edit?'快速更新续费资料':'登记续费资源'; ?></h2></div><a href="<?php echo e(pr_url($filter,$search,$page)); ?>" class="pr-link">收起 ×</a></div>
  <form method="post" class="pr-form">
