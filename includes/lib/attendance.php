@@ -1,5 +1,7 @@
 <?php
 
+require_once __DIR__ . '/../ProjectOvertime.php';
+
 /**
  * 考勤记录表辅助函数
  */
@@ -23,6 +25,16 @@ function ensureAttendanceTable()
             UNIQUE KEY `uk_emp_month` (`employee_id`, `year`, `month`),
             INDEX `idx_year_month` (`year`, `month`)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT '考勤记录'");
+    }
+    // 延时服务天数：1 倍（普通日期）与 1.5 倍（节假日当天）分开存，超时补贴按固定服务费 ÷ 30 计算（见 includes/ProjectOvertime.php）
+    foreach (['attendances', 'attendance_pending'] as $otTable) {
+        try {
+            if (!db()->query("SHOW COLUMNS FROM `$otTable` LIKE 'overtime_days'")->fetchAll()) {
+                db()->exec("ALTER TABLE `$otTable` ADD COLUMN `overtime_days` DECIMAL(5,2) NOT NULL DEFAULT 0 COMMENT '延时服务天数（1倍）', ADD COLUMN `holiday_overtime_days` DECIMAL(5,2) NOT NULL DEFAULT 0 COMMENT '节假日延时服务天数（1.5倍）'");
+            }
+        } catch (\Throwable $e) {
+            error_log('attendance overtime columns: ' . $e->getMessage());
+        }
     }
     // 考勤卡片隐藏记录表（用于"删除年份卡片"功能）
     try {
@@ -126,19 +138,20 @@ function backfill_pending_attendance($employeeId, $employeeName)
     if ($employeeId <= 0 || $employeeName === '') return 0;
 
     try {
+        ensureAttendanceTable(); // 补齐延时服务列后再写入
         $rows = db()->prepare("SELECT * FROM attendance_pending WHERE employee_name = ?");
         $rows->execute([$employeeName]);
         $pending = $rows->fetchAll();
         if (empty($pending)) return 0;
 
-        $ins = db()->prepare("INSERT INTO attendances (employee_id, year, month, work_hours, absent_hours, remark)
-                              VALUES (?, ?, ?, ?, ?, ?)
-                              ON DUPLICATE KEY UPDATE work_hours=VALUES(work_hours), absent_hours=VALUES(absent_hours), remark=VALUES(remark)");
+        $ins = db()->prepare("INSERT INTO attendances (employee_id, year, month, work_hours, absent_hours, remark, overtime_days, holiday_overtime_days)
+                              VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                              ON DUPLICATE KEY UPDATE work_hours=VALUES(work_hours), absent_hours=VALUES(absent_hours), remark=VALUES(remark), overtime_days=VALUES(overtime_days), holiday_overtime_days=VALUES(holiday_overtime_days)");
         $del = db()->prepare("DELETE FROM attendance_pending WHERE id = ?");
         db()->beginTransaction();
         $count = 0;
         foreach ($pending as $p) {
-            $ins->execute([$employeeId, $p['year'], $p['month'], $p['work_hours'], $p['absent_hours'], $p['remark']]);
+            $ins->execute([$employeeId, $p['year'], $p['month'], $p['work_hours'], $p['absent_hours'], $p['remark'], $p['overtime_days'] ?? 0, $p['holiday_overtime_days'] ?? 0]);
             $del->execute([$p['id']]);
             $count++;
         }

@@ -15,6 +15,7 @@
  *   per_unit         计件奖励：当月件数 × 单价，件数由财务在规则中心填写（优站模板每个 15 元）
  *   base_fee         固定服务费（原“基本工资”）：按考勤折算——请假 ≤4 天：金额 − 金额/30 × 请假天数；>4 天：金额/30 × 实际出勤天数；
  *                    当月可填写金额覆盖默认值（如网站客服每月不同的“补单提成”）
+ *   overtime_pay     （即加班费，用户界面一律写“超时补贴”）超时补贴：固定服务费 ÷ 30 × 延时服务天数 × 倍率；节假日当天（元旦、除夕、春节初一 / 初二、清明、5.1、端午、中秋、10.1）1.5 倍，其余日期 1 倍；延时服务天数来自考勤表（见 includes/ProjectOvertime.php）
  *   attendance_bonus 全勤奖：默认不发，财务在规则中心“全勤奖审批”批准后按批准金额计入（考勤仅作建议：请假 <4 小时全额、≥4 小时减半、≥8 小时不发）
  *   manual           手工调整：当月逐人填写（上月漏记、未接入系统的业务提成等）
  *   legacy_sheet     原系统单量补贴（精确还原旧 referral_order staff_match）：门控列（接单客服）出现本人姓名 → 整表归属本人，
@@ -26,6 +27,7 @@
  */
 require_once __DIR__ . '/ProjectSettlement.php';
 require_once __DIR__ . '/SalaryCalculator.php';
+require_once __DIR__ . '/ProjectOvertime.php';
 /* split: includes/monthly/rules_data.php */ require_once __DIR__ . '/monthly/rules_data.php';
 /* split: includes/monthly/legacy_orders.php */ require_once __DIR__ . '/monthly/legacy_orders.php';
 /* split: includes/ProjectMonthlyResults.php */ require_once __DIR__ . '/ProjectMonthlyResults.php';

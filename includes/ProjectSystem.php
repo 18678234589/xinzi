@@ -238,19 +238,21 @@ function ps_admin_reviewers()
     }
 }
 
-/** 业务审核人映射：业务名 => 管理员登录名（如 'songwenna'）。网站类业务默认由“宋文娜”负责。 */
+/** 默认分工可由系统设置中的明确指派覆盖。 */
+function ps_business_default_reviewers()
+{
+    return [
+        'AI网站定制' => 'songwenna', '网站模板' => 'songwenna',
+        '网站续费' => 'songwenna', '网站修改' => 'songwenna',
+        '小程序开发' => 'weihuizi', '标书' => 'weihuizi',
+        '软文代写' => 'wangfang', '微信代写' => 'weihuizi',
+    ];
+}
+
 function ps_business_reviewers()
 {
     $stored = ps_setting_get('business_reviewers', []);
-    if (!is_array($stored)) $stored = [];
-    $defaultSongwenna = 'songwenna';
-    $defaults = [
-        'AI网站定制' => $defaultSongwenna,
-        '网站模板'   => $defaultSongwenna,
-        '网站续费'   => $defaultSongwenna,
-        '网站修改'   => $defaultSongwenna,
-    ];
-    return array_merge($defaults, $stored);
+    return array_merge(ps_business_default_reviewers(), is_array($stored) ? $stored : []);
 }
 
 /** 获取某一业务指派的审核人用户名 */
@@ -265,10 +267,12 @@ function ps_business_reviewer($business)
 function ps_actor_can_review_business($actor, $business)
 {
     if (($actor['role'] ?? '') !== 'finance') return false;
-    $username = strtolower((string)($actor['username'] ?? ''));
+    $username = ps_finance_username($actor);
     if ($username === 'admin') return true; // 超级管理员始终有权
     $assigned = strtolower((string)ps_business_reviewer($business));
     if ($assigned === '' || $assigned === 'all') return true;
     return $username === $assigned;
 }
+
+require_once __DIR__ . '/ProjectFinanceAssignment.php';
 

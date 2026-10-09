@@ -8,7 +8,7 @@ require_once __DIR__ . '/ProjectSettlement.php';
 require_once __DIR__ . '/ProjectBusiness.php';
 
 const PRA_GROUPS = ['technical' => '技术', 'customer_service' => '客服'];
-const PRA_MONTHLY_TYPES = ['tier_rate' => '阶梯比例', 'threshold_bonus' => '达标奖金', 'ranking' => '排名奖', 'dept_share' => '部门主管提成', 'fixed' => '固定补助', 'per_unit' => '计件奖励', 'base_fee' => '固定服务费', 'attendance_bonus' => '全勤奖', 'manual' => '手工项', 'profit_pool' => '利润池分配', 'perf_rank' => '绩效排名', 'order_count' => '单量奖励', 'sales_package' => '套餐销售'];
+const PRA_MONTHLY_TYPES = ['tier_rate' => '阶梯比例', 'threshold_bonus' => '达标奖金', 'ranking' => '排名奖', 'dept_share' => '部门主管提成', 'fixed' => '固定补助', 'per_unit' => '计件奖励', 'base_fee' => '固定服务费', 'attendance_bonus' => '全勤奖', 'overtime_pay' => '超时补贴', 'manual' => '手工项', 'profit_pool' => '利润池分配', 'perf_rank' => '绩效排名', 'order_count' => '单量奖励', 'sales_package' => '套餐销售'];
 
 function pra_ensure()
 {
@@ -183,6 +183,10 @@ function pra_monthly_text(array $m)
     } elseif ($type === 'attendance_bonus') {
         $headline = '全勤奖 ' . pra_money($amount ?? 0) . ' / 月';
         $details[] = '默认不发，财务在“全勤奖审批”批准后按批准金额计入；考勤只作建议：请假 < 4 小时全额、≥ 4 小时减半、≥ 8 小时不发';
+    } elseif ($type === 'overtime_pay') {
+        $headline = '固定服务费 ÷ 30 × 延时服务天数 × 倍率';
+        $details[] = '节假日当天（元旦、除夕、春节初一 / 初二、清明、5.1、端午、中秋、10.1）按 ' . rtrim(rtrim(number_format((float)($p['holiday_rate'] ?? 1.5), 2, '.', ''), '0'), '.') . ' 倍，其余日期按 ' . rtrim(rtrim(number_format((float)($p['normal_rate'] ?? 1), 2, '.', ''), '0'), '.') . ' 倍';
+        $details[] = '延时服务天数以考勤表为准：“26+2”= 延时服务 2 天，节假日延时服务写“26+1(10.1)”';
     } elseif ($type === 'fixed') {
         $headline = '每月固定 ' . pra_money($amount ?? 0);
         if (!empty($p['separate'])) $details[] = '由关联公司另行支付，单列展示，不计入应结算金额';

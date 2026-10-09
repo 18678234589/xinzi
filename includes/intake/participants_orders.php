@@ -127,7 +127,7 @@ function ps_trademark_fix_row($row, $map)
     // 订单号可带前缀（如“致2026081303”）：含 6 位以上连续数字即视为订单行
     if (!preg_match('/^[A-Za-z0-9_-]{8,}$/', $orderNo) && !preg_match('/\d{6,}/', $orderNo) && $get('payment_reference') === '') {
         if ($orderNo !== '' && !ps_import_date($get('order_date')) && !ps_import_date($get('shop'))) return null;
-        if (preg_match('/合计|总计|底薪|全勤|提成|单价|出勤|请假/u', implode(' ', array_map('strval', $row)))) return null;
+        if (preg_match('/合计|总计|底薪|全勤|提成|单价|出勤|请假|到岗确认|服务暂停/u', implode(' ', array_map('strval', $row)))) return null;
     }
     if (isset($map['order_date'], $map['shop']) && !ps_import_date($get('order_date')) && $get('shop') !== '' && ps_import_date($get('shop'))) {
         [$row[$map['order_date']], $row[$map['shop']]] = [$row[$map['shop']], $row[$map['order_date']]];

@@ -11,6 +11,7 @@ function ps_monthly_types()
         'per_unit' => '计件奖励',
         'base_fee' => '固定服务费（按考勤折算）',
         'attendance_bonus' => '全勤奖',
+        'overtime_pay' => '超时补贴（固定服务费 ÷ 30 × 天数 × 倍率）',
         'manual' => '手工调整（每月填写）',
         'legacy_sheet' => '原系统单量补贴（接单客服门控计列）',
         'legacy_module' => '原系统单模块（直接调用旧引擎）',
@@ -93,9 +94,15 @@ function ps_monthly_attendance($month)
     [$year, $mon] = array_map('intval', explode('-', $month));
     $out = [];
     try {
-        $q = db()->prepare('SELECT employee_id,work_hours,absent_hours FROM attendances WHERE year=? AND month=?');
-        $q->execute([$year, $mon]);
-        foreach ($q->fetchAll() as $row) $out[(int)$row['employee_id']] = ['work' => (float)$row['work_hours'], 'absent' => (float)$row['absent_hours']];
+        try {
+            $q = db()->prepare('SELECT employee_id,work_hours,absent_hours,overtime_days,holiday_overtime_days FROM attendances WHERE year=? AND month=?');
+            $q->execute([$year, $mon]);
+        } catch (PDOException $columnMissing) { // 延时服务列还没建（考勤页首次打开时自动补建）：按没有延时服务处理
+            $q = db()->prepare('SELECT employee_id,work_hours,absent_hours FROM attendances WHERE year=? AND month=?');
+            $q->execute([$year, $mon]);
+        }
+        foreach ($q->fetchAll() as $row) $out[(int)$row['employee_id']] = ['work' => (float)$row['work_hours'], 'absent' => (float)$row['absent_hours'],
+            'ot_days' => (float)($row['overtime_days'] ?? 0), 'ot_holiday_days' => (float)($row['holiday_overtime_days'] ?? 0)];
     } catch (PDOException $e) {
         // 未启用考勤模块时按满勤处理
     }

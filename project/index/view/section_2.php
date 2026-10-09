@@ -139,6 +139,7 @@
     echo BASE_URL; ?>/project/dashboard.php?<?php echo e(http_build_query(['employee_id' => $filterEmployeeId, 'month' => $month])); ?>">返回经营看板</a></div><?php endif; ?>
 <div class="card mb-3"><div class="card-body py-3"><form method="get" class="form-row align-items-end">
 <?php if ($importFileId): ?><input type="hidden" name="import_file" value="<?php echo $importFileId; ?>"><?php endif; ?>
+<?php if ($actor['role'] === 'finance'): ?><div class="col-md-2 mb-2"><label class="small text-muted mb-1" for="filterFinance">核算财务</label><select class="form-control" name="filter_finance" id="filterFinance"><option value="all" <?php echo $filterFinance === 'all' ? 'selected' : ''; ?>>全部业务</option><?php foreach (ps_admin_reviewers() as $finance): $financeLogin = strtolower($finance['username']); ?><option value="<?php echo e($financeLogin); ?>" <?php echo $filterFinance === $financeLogin ? 'selected' : ''; ?>><?php echo e($finance['real_name']); ?>负责的业务</option><?php endforeach; ?></select></div><?php endif; ?>
 <?php if ($participationOnly): ?><input type="hidden" name="participating" value="1"><?php if ($actor['role'] !== 'finance'): ?><input type="hidden" name="employee_id" value="<?php
     echo $filterEmployeeId; ?>"><?php endif; ?><?php endif; ?>
 <?php if ($actor['role'] === 'finance' || ps_is_management($actor)): ?><div class="col-md-2 mb-2"><label class="small text-muted mb-1" for="filterEmployee">合作人员</label><select class="form-control" name="employee_id" id="filterEmployee"><option value="0">全部合作人员</option><?php

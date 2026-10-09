@@ -1,108 +1,133 @@
 <?php
-/**
- * 本站 → ETMLL 订单推送（与 etmll_sync.php 的 ETMLL → 本站 组成双向同步）。
- * 范围：只同步“近一年”的订单（按订单日期）；只推正数金额的店铺订单；退款/负数流水、等待付款的订单不推。
- * 归属：只能确定商户（按店铺名取 ETMLL 里的商户），合伙人 / 归属 assignment 留空，由 ETMLL 自己分配；佣金按 ETMLL 通行的 5% 计，代垫 = 订单金额 − 佣金。
- * 安全：推到 ETMLL 的行打标 remark_tag='本站同步'，可整体识别和撤回；ETMLL 已有的订单号一律不覆盖（ETMLL 是结算口径来源）。
- * 增量：自动运行只推“开启同步之后新上传”的订单（orders.created_at >= etmll_push_since）；历史订单需在同步页手动确认回填。
- */
+/** 本站→ETMLL：新订单及已有订单最新交易状态。结算、分配、人工金额不覆盖。 */
 require_once __DIR__ . '/etmll_sync.php';
-
 const ETMLL_PUSH_TAG = '本站同步';
 const ETMLL_PUSH_COMMISSION_RATE = 0.05;
-
-function etmll_sync_cutoff(): string
-{
-    return date('Y-m-d', strtotime('-1 year'));
-}
-
-/** 店铺名 → ETMLL 商户 id（取该店铺订单最多的商户）。 */
+function etmll_sync_cutoff(): string { return date('Y-m-d',strtotime('-1 year')); }
 function etmll_push_shop_merchants(PDO $epdo): array
 {
-    $map = [];
-    foreach ($epdo->query("SELECT shop_name,merchant_id,COUNT(*) c FROM `order` WHERE shop_name<>'' GROUP BY shop_name,merchant_id ORDER BY c DESC") as $r) {
-        if (!isset($map[$r['shop_name']])) $map[$r['shop_name']] = (int)$r['merchant_id'];
-    }
+    $map=[];
+    foreach($epdo->query("SELECT shop_name,merchant_id,COUNT(*) c FROM `order` WHERE shop_name<>'' AND status IN (0,1) GROUP BY shop_name,merchant_id ORDER BY c DESC") as $r) if(!isset($map[$r['shop_name']])) $map[$r['shop_name']]=(int)$r['merchant_id'];
     return $map;
 }
-
-function etmll_push_since(): string
+function etmll_push_since(): string { return (string)ps_setting_get('etmll_push_since',''); }
+function etmll_push_date($value): ?string
 {
-    return (string)ps_setting_get('etmll_push_since', '');
+    if(!preg_match('/^(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2}:\d{2})/',trim((string)$value),$m)) return null;
+    $date=$m[1].' '.$m[2];$parsed=DateTimeImmutable::createFromFormat('!Y-m-d H:i:s',$date);
+    return $parsed && $parsed->format('Y-m-d H:i:s')===$date ? $date : null;
 }
-
-/**
- * @param bool $dryRun   只统计不写入
- * @param bool $backfill true=包含开启同步之前上传的历史订单（仍限近一年）
- * @param int  $limit    单次最多推送条数
- */
-function etmll_push_run(bool $dryRun = false, bool $backfill = false, int $limit = 3000): array
+function etmll_push_local_source(array $raw): bool
 {
-    $pdo = db(); $epdo = etmll_connect();
-    $since = etmll_push_since();
-    $result = ['dry_run' => $dryRun, 'backfill' => $backfill, 'since' => $since, 'candidates' => 0, 'pushed' => 0, 'would_push' => 0, 'skipped_existing' => 0, 'skipped_unpaid' => 0, 'skipped_no_shop' => 0, 'by_shop' => [], 'amount' => 0.0];
-    if (!$backfill && $since === '') { $result['note'] = '尚未开启本站→ETMLL 同步（etmll_push_since 未设置）'; return $result; }
-    $lockName = 'etmll_push_' . substr(hash('sha256', (string)$pdo->query('SELECT DATABASE()')->fetchColumn()), 0, 24);
-    if (!$dryRun) {
-        $lock = $pdo->prepare('SELECT GET_LOCK(?,0)'); $lock->execute([$lockName]);
-        if ((int)$lock->fetchColumn() !== 1) throw new RuntimeException('已有推送在进行，请稍后再试');
+    if(!empty($raw['__statement_uploaded_at__']) && ($raw['__financial_source__'] ?? '')==='shop_statement') return true;
+    return empty($raw['__etmll_id__']) && ($raw['数据来源'] ?? '')!=='ETMLL自动同步';
+}
+/** State only advances; older exports cannot reopen trades. Money is not a patch field. */
+function etmll_push_status_patch(array $raw,array $target): array
+{
+    $status=trim((string)($raw['订单状态'] ?? $raw['__order_status__'] ?? ''));
+    $normalized=trim((string)($raw['__order_status__'] ?? ''));
+    if(ps_shop_status_rank($normalized)>ps_shop_status_rank($status)) $status=$normalized;
+    $old=trim((string)($target['raw_status'] ?? ''));
+    if($status==='' || ps_shop_status_rank($status)<ps_shop_status_rank($old)) return [];
+    $patch=[];
+    if(ps_shop_status_rank($status)>ps_shop_status_rank($old)) $patch['raw_status']=mb_substr($status,0,50);
+    $shipping=etmll_push_date($raw['发货时间'] ?? '');$oldShipping=etmll_push_date($target['shipping_time'] ?? '');
+    if($shipping && (!$oldShipping || $shipping>$oldShipping)) $patch['shipping_time']=$shipping;
+    $title=trim((string)($raw['商品标题'] ?? ''));
+    if($title!=='' && trim((string)($target['product_title'] ?? ''))==='') $patch['product_title']=mb_substr($title,0,500);
+    $payNo=trim((string)($raw['支付宝交易号'] ?? $raw['支付宝流水号'] ?? ''));
+    if($payNo!=='' && mb_strlen($payNo)<=64 && trim((string)($target['alipay_no'] ?? ''))==='') $patch['alipay_no']=$payNo;
+    return $patch;
+}
+function etmll_push_run(bool $dryRun=false,bool $backfill=false,int $limit=3000,?string $onlyShop=null): array
+{
+    $r=etmll_push_orders(db(),etmll_connect(),$dryRun,$backfill,$limit,$onlyShop,etmll_push_since(),etmll_sync_cutoff());
+    if(!$dryRun && $r['pushed']+$r['updated']>0) {
+        try { ps_audit('etmll_push',0,$backfill?'backfill':'push',['type'=>'system','id'=>0],$r); }
+        catch(Throwable $e) { error_log('etmll_push 审计未写入'); }
     }
+    return $r;
+}
+/** Injected connections allow temporary-table regressions, without touching real orders. */
+function etmll_push_orders(PDO $pdo,PDO $epdo,bool $dryRun,bool $backfill,int $limit,?string $onlyShop,string $since,string $cutoff): array
+{
+    if(!preg_match('/^\d{4}-\d{2}-\d{2}$/D',$cutoff) || $limit<1) throw new InvalidArgumentException('Invalid sync boundary or limit');
+    $r=['dry_run'=>$dryRun,'backfill'=>$backfill,'since'=>$since,'candidates'=>0,'pushed'=>0,'updated'=>0,'would_push'=>0,'would_update'=>0,
+        'skipped_existing'=>0,'skipped_unpaid'=>0,'skipped_no_shop'=>0,'skipped_deleted'=>0,'skipped_history'=>0,'skipped_refund'=>0,'skipped_source'=>0,'skipped_shop_conflict'=>0,
+        'by_shop'=>[],'by_shop_updated'=>[],'amount'=>0.0];
+    if(!$backfill && $since==='') { $r['note']='尚未开启本站→ETMLL 同步（etmll_push_since 未设置）';return $r; }
+    $lockName='etmll_push_'.substr(hash('sha256',(string)$pdo->query('SELECT DATABASE()')->fetchColumn()),0,24);
+    if(!$dryRun) {
+        $lock=$pdo->prepare('SELECT GET_LOCK(?,0)');$lock->execute([$lockName]);
+        if((int)$lock->fetchColumn()!==1) throw new RuntimeException('已有推送在进行，请稍后再试');
+    }
+    $buffered=$pdo->getAttribute(PDO::MYSQL_ATTR_USE_BUFFERED_QUERY);$stream=null;
     try {
-        $shops = etmll_push_shop_merchants($epdo);
-        if (!$shops) return $result;
-        $cutoff = etmll_sync_cutoff();
-        $in = implode(',', array_map(function ($s) use ($pdo) { return $pdo->quote($s); }, array_keys($shops)));
-        $sql = "SELECT id,shop,order_no,order_amount,order_date,raw_data FROM orders
-                WHERE employee_id=0 AND order_scope='department' AND COALESCE(is_deleted,0)=0 AND order_no<>'' AND order_amount>0
-                  AND order_date>=" . $pdo->quote($cutoff) . " AND shop IN ($in)
-                  AND raw_data NOT LIKE '%ETMLL自动同步%' AND raw_data NOT LIKE '%\"__etmll_id__\"%' AND raw_data NOT LIKE '%\"__is_refund__\"%'"
-             . ($backfill ? '' : ' AND created_at>=' . $pdo->quote($since)) . ' ORDER BY id ASC';
-        $existing = array_fill_keys($epdo->query('SELECT order_no FROM `order`')->fetchAll(PDO::FETCH_COLUMN), true);
-        $insert = $epdo->prepare("INSERT IGNORE INTO `order` (order_no,merchant_id,total_amount,commission,proxy_amount,status,created_at,product_title,raw_status,refund_amount,confirmed_amount,buyer_paid_amount,order_create_time,order_pay_time,shop_name,shop_id,remark_tag)
-            VALUES (?,?,?,?,?,0,?,?,?,0,?,?,?,?,?,'0',?)");
-        // 流式读取：近一年订单带 raw_data，缓冲读取会撑爆内存
-        $buffered = $pdo->getAttribute(PDO::MYSQL_ATTR_USE_BUFFERED_QUERY);
-        $pdo->setAttribute(PDO::MYSQL_ATTR_USE_BUFFERED_QUERY, false);
-        $stream = $pdo->query($sql);
-        foreach ($stream as $row) {
-            $result['candidates']++;
-            if (isset($existing[$row['order_no']])) { $result['skipped_existing']++; continue; }
-            $raw = json_decode((string)$row['raw_data'], true) ?: [];
-            $status = trim((string)($raw['订单状态'] ?? $raw['__order_status__'] ?? ''));
-            if (mb_strpos($status, '等待买家付款') !== false) { $result['skipped_unpaid']++; continue; }
-            if (($result['would_push'] + $result['pushed']) >= $limit) { $result['truncated'] = true; break; }
-            $total = round((float)$row['order_amount'], 2);
-            $commission = round($total * ETMLL_PUSH_COMMISSION_RATE, 4);
-            $trade = trim((string)($raw['付款时间'] ?? $raw['__trade_time__'] ?? ''));
-            $at = preg_match('/^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}/', $trade) ? substr(str_replace('T', ' ', $trade), 0, 19) : $row['order_date'] . ' 00:00:00';
-            $shopKey = $row['shop'];
-            $result['by_shop'][$shopKey] = ($result['by_shop'][$shopKey] ?? 0) + 1;
-            $result['amount'] += $total;
-            if ($dryRun) { $result['would_push']++; $existing[$row['order_no']] = true; continue; }
-            $insert->execute([$row['order_no'], $shops[$shopKey], $total, $commission, round($total - $commission, 4), $at, mb_substr(trim((string)($raw['商品标题'] ?? '')), 0, 500),
-                $status !== '' ? mb_substr($status, 0, 50) : '交易成功', $total, $total, $at, $at, $shopKey, ETMLL_PUSH_TAG]);
-            if ($insert->rowCount()) { $result['pushed']++; $existing[$row['order_no']] = true; } else $result['skipped_existing']++;
+        $shops=etmll_push_shop_merchants($epdo);
+        if($onlyShop!==null) $shops=array_intersect_key($shops,[$onlyShop=>true]);
+        if(!$shops) return $r;
+        $in=implode(',',array_map([$pdo,'quote'],array_keys($shops)));
+        // creation cutoff applies only to unseen historical inserts, never to updates.
+        $sql="SELECT id,shop,order_no,order_amount,order_date,raw_data,created_at FROM orders
+            WHERE employee_id=0 AND order_scope='department' AND COALESCE(is_deleted,0)=0 AND order_no<>''
+            AND order_date>=".$pdo->quote($cutoff)." AND shop IN ($in) ORDER BY id ASC";
+        $existing=[];
+        foreach($epdo->query('SELECT id,order_no,shop_name,status,raw_status,shipping_time,product_title,alipay_no FROM `order`') as $row) $existing[$row['order_no']]=$row;
+        $insert=$epdo->prepare("INSERT IGNORE INTO `order` (order_no,merchant_id,total_amount,commission,proxy_amount,status,created_at,product_title,raw_status,refund_amount,confirmed_amount,buyer_paid_amount,order_create_time,order_pay_time,shop_name,shop_id,remark_tag,shipping_time,alipay_no)
+            VALUES (?,?,?,?,?,0,?,?,?,0,?,?,?,?,?,'0',?,?,?)");
+        $updates=[];$pdo->setAttribute(PDO::MYSQL_ATTR_USE_BUFFERED_QUERY,false);$stream=$pdo->query($sql);
+        foreach($stream as $row) {
+            $r['candidates']++;$raw=json_decode((string)$row['raw_data'],true) ?: [];
+            if(!etmll_push_local_source($raw)) { $r['skipped_source']++;continue; }
+            if(isset($existing[$row['order_no']])) {
+                $target=$existing[$row['order_no']];
+                if(!in_array((int)$target['status'],[0,1],true)) { $r['skipped_deleted']++;continue; }
+                if(trim((string)$target['shop_name'])!==$row['shop']) { $r['skipped_shop_conflict']++;continue; }
+                $patch=etmll_push_status_patch($raw,$target);
+                if(!$patch) { $r['skipped_existing']++;continue; }
+                if($r['would_push']+$r['would_update']+$r['pushed']+$r['updated']>=$limit) { $r['truncated']=true;break; }
+                if(!$dryRun) {
+                    $fields=array_keys($patch);$key=implode(',',$fields);
+                    if(!isset($updates[$key])) $updates[$key]=$epdo->prepare('UPDATE `order` SET '.implode(',',array_map(function($f){return '`'.$f.'`=?';},$fields)).' WHERE id=? AND shop_name=? AND status IN (0,1) AND COALESCE(raw_status,\'\')=? AND '.implode(' AND ',array_map(function($f){return '`'.$f.'` <=> ?';},$fields)));
+                    $previous=array_map(function($f)use($target){return $target[$f];},$fields);
+                    $updates[$key]->execute(array_merge(array_values($patch),[$target['id'],$row['shop'],(string)($target['raw_status'] ?? '')],$previous));
+                    if(!$updates[$key]->rowCount()) { $r['skipped_existing']++;continue; }
+                    $r['updated']++;
+                } else $r['would_update']++;
+                $r['by_shop_updated'][$row['shop']]=($r['by_shop_updated'][$row['shop']] ?? 0)+1;
+                $existing[$row['order_no']]=array_merge($target,$patch);continue;
+            }
+            if(!$backfill && $row['created_at']<$since) { $r['skipped_history']++;continue; }
+            $status=trim((string)($raw['__order_status__'] ?? $raw['订单状态'] ?? ''));
+            if(mb_strpos($status,'等待买家付款')!==false) { $r['skipped_unpaid']++;continue; }
+            if((float)$row['order_amount']<=0 || !empty($raw['__is_refund__']) || ps_shop_status_rank($status)===5) { $r['skipped_refund']++;continue; }
+            if($r['would_push']+$r['would_update']+$r['pushed']+$r['updated']>=$limit) { $r['truncated']=true;break; }
+            $total=round((float)($raw['__original_price__'] ?? $row['order_amount']),2);
+            if($total<=0) $total=round((float)$row['order_amount'],2);
+            $commission=round($total*ETMLL_PUSH_COMMISSION_RATE,4);
+            $at=etmll_push_date($raw['付款时间'] ?? $raw['__trade_time__'] ?? '') ?: $row['order_date'].' 00:00:00';
+            $paid=null;
+            foreach(['买家实付金额','实付金额','买家实际支付金额'] as $f) if(isset($raw[$f]) && is_numeric($raw[$f])) { $paid=round((float)$raw[$f],4);break; }
+            $shipping=etmll_push_date($raw['发货时间'] ?? '');$payNo=trim((string)($raw['支付宝交易号'] ?? $raw['支付宝流水号'] ?? ''));
+            if($dryRun) $r['would_push']++;
+            else {
+                $insert->execute([$row['order_no'],$shops[$row['shop']],$total,$commission,round($total-$commission,4),$at,mb_substr(trim((string)($raw['商品标题'] ?? '')),0,500),mb_substr($status,0,50),$paid,$paid,$at,etmll_push_date($raw['付款时间'] ?? $raw['__trade_time__'] ?? ''),$row['shop'],ETMLL_PUSH_TAG,$shipping,mb_substr($payNo,0,64)]);
+                if(!$insert->rowCount()) { $r['skipped_existing']++;continue; }$r['pushed']++;
+            }
+            $existing[$row['order_no']]=['id'=>0,'order_no'=>$row['order_no'],'shop_name'=>$row['shop'],'status'=>0,'raw_status'=>$status,'shipping_time'=>$shipping,'product_title'=>$raw['商品标题'] ?? '','alipay_no'=>$payNo];
+            $r['by_shop'][$row['shop']]=($r['by_shop'][$row['shop']] ?? 0)+1;$r['amount']+=$total;
         }
-        $stream->closeCursor();
-        $pdo->setAttribute(PDO::MYSQL_ATTR_USE_BUFFERED_QUERY, $buffered);
-        $result['amount'] = round($result['amount'], 2);
-        if (!$dryRun && $result['pushed'] > 0) {
-            try { ps_audit('etmll_push', 0, $backfill ? 'backfill' : 'push', ['type' => 'system', 'id' => 0], $result); } catch (Throwable $e) { error_log('etmll_push 审计未写入'); }
-        }
-        return $result;
+        $r['amount']=round($r['amount'],2);return $r;
     } finally {
-        $pdo->setAttribute(PDO::MYSQL_ATTR_USE_BUFFERED_QUERY, true);
-        if (!$dryRun) { $u = $pdo->prepare('SELECT RELEASE_LOCK(?)'); $u->execute([$lockName]); }
+        if($stream) $stream->closeCursor();$pdo->setAttribute(PDO::MYSQL_ATTR_USE_BUFFERED_QUERY,$buffered);
+        if(!$dryRun) { $q=$pdo->prepare('SELECT RELEASE_LOCK(?)');$q->execute([$lockName]); }
     }
 }
-
-/** 同步页展示：近一年里已推送过的条数、仍待回填的历史订单数。 */
 function etmll_push_status(): array
 {
-    $epdo = etmll_connect();
-    $q = $epdo->prepare('SELECT COUNT(*) FROM `order` WHERE remark_tag=?'); $q->execute([ETMLL_PUSH_TAG]);
-    $history = etmll_push_run(true, true, 100000);
-    $fresh = etmll_push_since() !== '' ? etmll_push_run(true, false, 100000) : ['would_push' => 0];
-    return ['pushed_total' => (int)$q->fetchColumn(), 'since' => etmll_push_since(), 'pending_new' => (int)$fresh['would_push'],
-            'pending_history' => max(0, (int)$history['would_push'] - (int)$fresh['would_push']), 'history_amount' => $history['amount'], 'history_by_shop' => $history['by_shop']];
+    $q=etmll_connect()->prepare('SELECT COUNT(*) FROM `order` WHERE remark_tag=?');$q->execute([ETMLL_PUSH_TAG]);
+    $history=etmll_push_run(true,true,100000);$fresh=etmll_push_since()!=='' ? etmll_push_run(true,false,100000) : ['would_push'=>0,'would_update'=>0];
+    return ['pushed_total'=>(int)$q->fetchColumn(),'since'=>etmll_push_since(),'pending_new'=>(int)$fresh['would_push'],'pending_updates'=>(int)$fresh['would_update'],
+        'pending_history'=>max(0,(int)$history['would_push']-(int)$fresh['would_push']),'history_amount'=>$history['amount'],'history_by_shop'=>$history['by_shop']];
 }

@@ -79,6 +79,8 @@
                     <b><i class="fas fa-info-circle text-info"></i> 文件格式要求：</b><br>
                     表头需包含：<code>姓名/合作人员</code> + <code>满勤天数</code> + <code>实际出勤天数</code>，可选 <code>备注</code><br>
                     系统按"满勤天数 × 8小时"计算应出勤，按"(满勤天数 - 实际出勤天数) × 8小时"计算请假<br>
+                    延时服务写法：<code>26+2</code>（出勤 26 天 + 延时服务 2 天，按 1 倍）；节假日当天延时服务在加号后用括号写日期，按 1.5 倍，如 <code>26+1(10.1)</code>、<code>26+3(5.1,5.2)</code>（其中 5.1 是节假日按 1.5 倍，5.2 按 1 倍），也可写节日名 <code>26+1(国庆)</code>。<br>
+                    1.5 倍节假日只有：元旦、除夕、春节初一 / 初二、清明、5.1、端午、中秋、10.1；超时补贴 = 固定服务费 ÷ 30 × 天数 × 倍率，在规则中心“超时补贴”规则里计算。延时服务不计入出勤天数，也不冲抵请假<br>
                     也兼容旧格式：<code>应出勤(小时)</code> / <code>请假(小时)</code><br>
                     合作人员姓名必须与系统合作人员名一致，否则该行跳过
                 </div>
@@ -112,6 +114,17 @@
                             <label>实际出勤天数</label>
                             <input type="number" name="actual_days" id="actualDays" class="form-control" step="0.5" min="0" value="22">
                             <small class="text-muted">请假 = (满勤 - 实际出勤) × 8小时</small>
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group col-md-6">
+                            <label>延时服务天数（1 倍）</label>
+                            <input type="number" name="overtime_days" class="form-control" step="0.5" min="0" value="0">
+                        </div>
+                        <div class="form-group col-md-6">
+                            <label>节假日延时服务天数（1.5 倍）</label>
+                            <input type="number" name="holiday_overtime_days" class="form-control" step="0.5" min="0" value="0">
+                            <small class="text-muted">仅限元旦、除夕、春节初一 / 初二、清明、5.1、端午、中秋、10.1 当天</small>
                         </div>
                     </div>
                     <div class="form-group">
@@ -157,6 +170,7 @@
                                     <th class="text-right">满勤天数</th>
                                     <th class="text-right">实际出勤</th>
                                     <th class="text-right">请假(h)</th>
+                                    <th class="text-right">延时服务(天)</th>
                                     <th>备注</th>
                                     <th style="width:70px">状态</th>
                                     <th style="width:60px">操作</th>
@@ -175,6 +189,13 @@
                                     <td class="text-right"><?php echo number_format($fullDays, 2); ?>天</td>
                                     <td class="text-right <?php echo $isFull ? 'text-success' : ''; ?>"><?php echo number_format($actDays, 2); ?>天</td>
                                     <td class="text-right <?php echo $isFull ? '' : 'text-warning font-weight-bold'; ?>"><?php echo number_format($r['absent_hours'], 2); ?>h</td>
+                                    <td class="text-right"><?php
+                                        $otN = (float)($r['overtime_days'] ?? 0); $otH = (float)($r['holiday_overtime_days'] ?? 0);
+                                        if ($otN <= 0 && $otH <= 0) echo '<span class="text-muted">--</span>';
+                                        else {
+                                            if ($otH > 0) echo '<span class="badge badge-danger" title="节假日延时服务，按 1.5 倍">节假日 ' . rtrim(rtrim(number_format($otH, 2), '0'), '.') . '</span> ';
+                                            if ($otN > 0) echo '<span class="badge badge-info" title="按 1 倍">' . rtrim(rtrim(number_format($otN, 2), '0'), '.') . '</span>';
+                                        } ?></td>
                                     <td><small class="text-muted"><?php echo e($r['remark']); ?></small></td>
                                     <td>
                                         <?php if ($isFull): ?>

@@ -105,12 +105,12 @@ $adminReviewers = ps_admin_reviewers();
 $assignedReviewers = ps_business_reviewers();
 foreach (ps_business_catalog() as $bizName => $bizDef):
     if (!empty($bizDef['legacy'])) continue;
-    $currentReviewer = strtolower($assignedReviewers[$bizName] ?? ($assignedReviewers['default'] ?? 'songwenna'));
+    $currentReviewer = strtolower(ps_business_reviewer($bizName));
 ?>
 <tr>
     <td class="font-weight-bold"><?php echo e($bizName); ?></td>
     <td class="small text-muted"><?php echo e(implode('、', $bizDef['departments'] ?? [])); ?></td>
-    <td class="small"><?php echo in_array($bizName, ['AI网站定制','网站模板','网站续费','网站修改','备案-提成','备案-单量'], true) ? '<span class="badge badge-info">宋文娜（网站专责）</span>' : '<span class="badge badge-light">全体财务</span>'; ?></td>
+    <td class="small"><span class="badge badge-light"><?php echo e(ps_finance_name(ps_business_default_reviewers()[$bizName] ?? 'songwenna')); ?></span></td>
     <td style="max-width:240px">
         <select class="form-control form-control-sm" name="reviewer[<?php echo e($bizName); ?>]">
             <option value="all" <?php echo $currentReviewer === 'all' ? 'selected' : ''; ?>>全体财务 / 不限</option>

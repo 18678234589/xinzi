@@ -42,7 +42,9 @@ if (empty($delCols)) {
 /* split: shops/upload/actions/dispatch.php */ include (dirname(__DIR__, 1)) . '/upload/actions/dispatch.php';
 
 // 查询该店铺已有订单（按月份分组汇总）
-$filter_month = $_GET['month'] ?? date('Y-m', strtotime('-1 month'));
+// 默认列出全部归属月份（按月分组可展开）；只有明确选了月份才按月筛选，避免上传到别的月份后在列表里“看不见”
+$filter_month = trim((string)($_GET['month'] ?? ''));
+if ($filter_month !== '' && !preg_match('/^\d{4}-(0[1-9]|1[0-2])$/', $filter_month)) $filter_month = '';
 $search_no = trim($_GET['search_no'] ?? '');
 $baseWhere  = " WHERE o.shop = ? AND COALESCE(o.is_deleted, 0) = 0";
 $baseParams = [$shop['name']];

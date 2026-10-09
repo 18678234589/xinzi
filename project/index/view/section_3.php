@@ -94,7 +94,7 @@
     if (empty($order['backend_tech_count']) && ps_is_website_order($order['project_type']) && !$isLocked): ?><a class="btn btn-outline-info btn-sm text-nowrap ml-1" href="<?php
     echo BASE_URL; ?>/project/order.php?id=<?php echo (int)$order['id']; ?>" title="本单未分配后端技术"><i class="fas fa-server mr-1"></i>指定后端</a><?php endif; ?><?php
     if ($canDeleteOrders && $order['settlement_status'] !== 'locked'): ?><button type="submit" name="delete_order_id" value="<?php echo (int)$order['id']
-    ; ?>" class="btn btn-outline-danger btn-sm text-nowrap ml-1" onclick="return confirm('删除订单 <?php echo e($order['order_no']); ?>？<?php echo $order['settlement_status'] === 'approved' ? '这是已审核订单，会连同分成快照一并删除（删除前自动备份）。' : ''; ?>订单会放入“回收站”，30 天内可以还原。')">删除</button><?php
+    ; ?>" class="btn btn-outline-danger btn-sm text-nowrap ml-1" onclick="return confirm('删除订单 <?php echo e($order['order_no']); ?>？<?php echo $order['settlement_status'] === 'approved' ? '这是已审核订单，会连同分成快照一并放入回收站。' : ''; ?>订单会放入“回收站”，30 天内可以还原。')">删除</button><?php
     endif; ?></td>
   </tr><?php endforeach; ?>
   <?php if (!$orders): ?><tr><td colspan="12" class="text-center text-muted py-4"><?php echo $keyword !== '' ? '没有匹配的订单' : '本月暂无可查看的项目订单'; ?></td></tr><?php

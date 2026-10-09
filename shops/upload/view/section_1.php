@@ -35,9 +35,16 @@
 
                     <!-- 订单日期：淘宝导出的表格本身有付款时间，每笔订单按自己的日期入账；只有表格没有日期列时才需要选月份兜底 -->
                     <div class="form-group">
-                        <label><i class="fas fa-calendar text-warning"></i> 兜底月份 <span class="text-muted">（可不选）</span></label>
-                        <input type="month" name="upload_month" class="form-control" value="<?php echo e($_POST['upload_month'] ?? ''); ?>" min="2020-01" max="2030-12">
-                        <small class="text-muted"><i class="fas fa-info-circle"></i> 订单日期自动取表格里每笔订单的付款 / 下单时间，<strong>不用选</strong>。只有表格没有日期列（或某行日期缺失）时，才会按这里选的月份入账；不选则这些行不导入。</small>
+                        <label for="uploadMonth"><i class="fas fa-calendar text-warning"></i> 归属月份 <span class="text-muted">（表格有日期可不选）</span></label>
+                        <input type="month" id="uploadMonth" name="upload_month" class="form-control" value="<?php echo e($_POST['upload_month'] ?? ''); ?>" min="2020-01" max="2030-12">
+                        <div class="mt-1" id="uploadMonthQuick">
+                            <?php foreach ([0 => '本月', 1 => '上月', 2 => '上上月'] as $back => $text): $qm = date('Y-m', strtotime(date('Y-m-01') . " -{$back} month")); ?>
+                                <button type="button" class="btn btn-xs btn-outline-secondary py-0 px-2 mr-1" style="font-size:.8em" data-month="<?php echo $qm; ?>"><?php echo $text; ?> <?php echo $qm; ?></button>
+                            <?php endforeach; ?>
+                            <button type="button" class="btn btn-xs btn-link py-0 px-1" style="font-size:.8em" data-month="">清除</button>
+                        </div>
+                        <script>document.getElementById('uploadMonthQuick').addEventListener('click', function (ev) { var b = ev.target.closest('button[data-month]'); if (b) document.getElementById('uploadMonth').value = b.getAttribute('data-month'); });</script>
+                        <small class="text-muted d-block mt-1"><i class="fas fa-info-circle"></i> 订单所属月份自动取表格里每笔订单的付款 / 下单时间。只有表格没有日期列（或某行日期缺失）时，才会按这里选的月份入账；不选则这些行不导入。</small>
                     </div>
 
                     <div class="form-group">
@@ -92,7 +99,7 @@
                     <form method="get" class="form-inline" id="filterForm">
                         <input type="hidden" name="shop_id" value="<?php echo $shop_id; ?>">
                         <input type="text" name="search_no" value="<?php echo e($search_no); ?>" class="form-control form-control-sm mr-1" placeholder="搜索订单号…" style="width:160px">
-                        <input type="month" name="month" class="form-control form-control-sm mr-1" value="<?php echo e($filter_month); ?>" onchange="document.getElementById('filterForm').submit()">
+                        <input type="month" name="month" class="form-control form-control-sm mr-1" value="<?php echo e($filter_month); ?>" title="按归属月份筛选；留空显示全部月份" onchange="document.getElementById('filterForm').submit()">
                         <button type="submit" class="btn btn-sm btn-outline-primary mr-1"><i class="fas fa-search"></i></button>
                         <?php if ($filter_month || $search_no): ?>
                             <a href="?shop_id=<?php echo $shop_id; ?>" class="btn btn-sm btn-outline-secondary" title="清除筛选"><i class="fas fa-times"></i></a>

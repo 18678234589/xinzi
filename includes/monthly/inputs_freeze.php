@@ -40,6 +40,7 @@ function ps_monthly_params_from_input($type, $input)
     ] ?? '') === 'revenue' ? 'revenue' : 'profit', 'deduct_commissions' => !empty($input['deduct_commissions'])];
     if ($type === 'fixed') return ['amount' => $num($input['amount'] ?? '', '金额'), 'separate' => !empty($input['separate'])];
     if ($type === 'base_fee') return ['amount' => $num($input['amount'] ?? '0', '金额'), 'no_prorate' => !empty($input['no_prorate'])];
+    if ($type === 'overtime_pay') return ['holiday_rate' => $num($input['holiday_rate'] ?? '1.5', '节假日倍率'), 'normal_rate' => $num($input['normal_rate'] ?? '1', '普通日期倍率')];
     if ($type === 'per_unit' || $type === 'attendance_bonus' || $type === 'order_count') return ['amount' => $num($input['amount'] ?? '0', '金额')];
     if ($type === 'sales_package') {
         // 每行“营业额上限,底薪,比例%,≥门槛每单,<门槛每单”，如 6000,2100,5,2,0.5

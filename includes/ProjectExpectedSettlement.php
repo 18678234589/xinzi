@@ -69,7 +69,7 @@ function ps_expected_rollup($employeeId, $snapshots, $monthly)
         if ((int)$item['employee_id'] !== (int)$employeeId || !empty($item['paid_separately'])) continue;
         $amount = (float)$item['amount'];
         $type = $item['rule_type'];
-        $bucket = in_array($type, ['base_fee', 'fixed'], true) ? 'fixed_fee'
+        $bucket = in_array($type, ['base_fee', 'fixed', 'overtime_pay'], true) ? 'fixed_fee'
             : ($type === 'attendance_bonus' ? 'attendance' : 'commission');
         // 营业额阶梯的保底/固定服务费与分成分开，避免保底计入“项目分成”。
         if ($type === 'sales_package' && strpos($item['rule_name'], ' · 底薪') !== false) $bucket = 'fixed_fee';

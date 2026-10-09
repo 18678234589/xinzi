@@ -3,6 +3,7 @@ require_once __DIR__ . '/../includes/auth.php';
 require_login();
 require_once __DIR__ . '/../includes/etmll_sync.php';
 require_once __DIR__ . '/../includes/etmll_push.php';
+require_once __DIR__ . '/../includes/etmll_bidirectional.php';
 
 $page_title = 'ETMLL订单同步';
 $success = '';
@@ -17,11 +18,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     set_time_limit(0);
     try {
         if ($action === 'sync') {
-            $result  = etmll_sync_run(false);
-            $success = "同步完成：已核对 {$result['scanned']} 条来源记录，新增 {$result['inserted']} 条、更新 {$result['updated']} 条、关联已有流水 {$result['linked_existing']} 条"
+            if (etmll_push_since() === '') ps_setting_set('etmll_push_since',date('Y-m-d H:i:s'),(int)$_SESSION['admin_id']);
+            $both=etmll_bidirectional_run(false,100000);$result=$both['pull'];$push=$both['push'];
+            $success = "双向同步完成：本站→ETMLL 新增 {$push['pushed']} 条、订单信息更新 {$push['updated']} 条；ETMLL→本站已核对 {$result['scanned']} 条来源记录，新增 {$result['inserted']} 条、更新 {$result['updated']} 条、关联已有流水 {$result['linked_existing']} 条"
                      . ($result['project_filled'] > 0 ? "；已自动补全 {$result['project_filled']} 张项目订单" : '')
                      . "；项目状态更新 {$result['project_status_updated']} 条、已有流水状态更新 {$result['linked_status_updated']} 条、退款证据更新 {$result['linked_evidence_updated']} 条";
-            if ($result['inserted']+$result['updated']+$result['linked_existing']+$result['project_filled']+$result['project_status_updated']+$result['linked_status_updated']+$result['linked_evidence_updated'] === 0) $notice = '已成功核对，但来源没有新变化。此同步读取居间系统数据库，不会直接连接淘宝；若淘宝已成功而此处仍待发货，请在居间系统导入最新淘宝订单导出表，再同步。';
+            if ($push['pushed']+$push['updated']+$result['inserted']+$result['updated']+$result['linked_existing']+$result['project_filled']+$result['project_status_updated']+$result['linked_status_updated']+$result['linked_evidence_updated'] === 0) $notice = '两边已核对，没有新订单或状态变化。先在任一系统导入最新淘宝表；同步不直接连接淘宝。开启同步之前未推送的历史订单需单独预览回填。';
             try {
                 ps_audit('etmll_sync',0,'sync',['type'=>'admin','id'=>(int)$_SESSION['admin_id']],$result);
             } catch (Throwable $auditError) {
@@ -32,9 +34,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $dry = $action === 'push_preview';
             $pushResult = etmll_push_run($dry, true, 20000);
             $notice = $dry
-                ? '回填预览（未写入）：近一年内本站有、ETMLL 没有的订单共 ' . $pushResult['would_push'] . ' 条，合计 ¥' . number_format($pushResult['amount'], 2) . '。确认无误后点“确认回填到 ETMLL”。'
+                ? '回填预览（未写入）：近一年内本站有、ETMLL 没有的订单共 ' . $pushResult['would_push'] . ' 条，合计 ¥' . number_format($pushResult['amount'], 2) . '；已有订单预计更新信息 ' . $pushResult['would_update'] . ' 条。确认无误后点“确认回填到 ETMLL”。'
                 : '';
-            if (!$dry) $success = '已回填 ' . $pushResult['pushed'] . ' 条订单到 ETMLL（合计 ¥' . number_format($pushResult['amount'], 2) . '），已有订单号 ' . $pushResult['skipped_existing'] . ' 条未覆盖；这些订单在 ETMLL 标记为“' . ETMLL_PUSH_TAG . '”，合伙人归属待分配。';
+            if (!$dry) $success = '已回填 ' . $pushResult['pushed'] . ' 条订单到 ETMLL（合计 ¥' . number_format($pushResult['amount'], 2) . '），已有订单信息更新 ' . $pushResult['updated'] . ' 条，无需更新 ' . $pushResult['skipped_existing'] . ' 条；新回填订单标记为“' . ETMLL_PUSH_TAG . '”，合伙人归属待分配。';
         } elseif ($action === 'preview') {
             $preview = etmll_sync_run(true);
             $notice  = "预览完成：预计新增 {$preview['inserted']} 条、更新 {$preview['updated']} 条、关联已有流水 {$preview['linked_existing']} 条；尚未写入。";
@@ -105,20 +107,20 @@ include __DIR__ . '/../includes/header.php';
         </div></div>
     </div>
 </div>
-<div class="alert alert-light border mb-3"><i class="fas fa-clock text-info"></i> ETMLL 来源最新付款：<strong><?php echo e(substr((string)$status['latest_source_paid'],0,19) ?: '暂无付款记录'); ?></strong>。同步会读取来源现有订单；尚未进入来源库的新订单，需先在 ETMLL 完成导入。</div>
+<div class="alert alert-light border mb-3"><i class="fas fa-clock text-info"></i> ETMLL 来源最新付款：<strong><?php echo e(substr((string)$status['latest_source_paid'],0,19) ?: '暂无付款记录'); ?></strong>。该日期表示已有数据的付款时间；请先在任一系统导入最新淘宝订单表，再执行双向同步。</div>
 <?php $pull = $status['last_pull']; ?>
 <div class="alert <?php echo !$pull || $pull['run_status'] !== 'success' || strtotime($pull['finished_at'] ?: $pull['started_at']) < time()-900 ? 'alert-warning' : 'alert-info'; ?> mb-3">
     <i class="fas fa-heartbeat"></i> 最近拉取：<?php echo e($pull ? ($pull['finished_at'] ?: $pull['started_at']) : '暂无运行记录'); ?>
     · <?php echo e($pull ? (['success'=>'核对完成','failed'=>'同步失败，请检查任务日志','running'=>'正在同步'][$pull['run_status']] ?? '待检查') : '请运行一次同步'); ?>。
     超过 15 分钟没有完成记录时，请检查定时任务。零新增不代表失败，状态更新也会单独统计。
 </div>
-<div class="alert alert-light border mb-3">状态来源说明：居间系统目前依赖淘宝订单表导入，并非淘宝实时接口。请导出包含已有订单最新状态的表格；重复导入用于更新，不需新建订单。本系统每 5 分钟自动拉取，保留人工金额及已结算记录。</div>
+<div class="alert alert-light border mb-3">状态来源说明：交易状态来自已导入的淘宝订单表。请导出包含已有订单最新状态的表格；重复导入用于更新，不需新建订单。按钮和每 5 分钟任务均执行双向同步，保留人工金额及已结算记录。</div>
 
 <?php $pushSince = etmll_push_since(); ?>
 <div class="card mb-3 border-info">
     <div class="card-header bg-white"><h5 class="mb-0"><i class="fas fa-exchange-alt text-info"></i> 双向自动同步（仅近一年订单）</h5></div>
     <div class="card-body">
-        <p class="mb-2 small text-muted">每 5 分钟自动同步一次：ETMLL 新订单 → 本站店铺流水；本站新上传的店铺订单 → ETMLL（只推正数金额、近一年、ETMLL 已有的订单号不覆盖；合伙人归属留空由 ETMLL 分配，在 ETMLL 标记为“<?php echo e(ETMLL_PUSH_TAG); ?>”）。</p>
+        <p class="mb-2 small text-muted">按钮和每 5 分钟任务均双向核对近一年订单。任一端导入的新订单与交易状态变化都会核对；本站上传可推进 ETMLL 已有订单的状态、补充发货时间，不覆盖结算金额、分账或归属。旧状态不回退，回收站不恢复。未曾推送的历史订单仍需预览回填。</p>
         <p class="mb-2">自动推送起点：<strong><?php echo e($pushSince ?: '未开启'); ?></strong>（此后新上传的订单才自动推送）</p>
         <?php if (!empty($pushResult)): ?><div class="alert alert-light border small mb-2">近一年历史订单：本站有而 ETMLL 没有 <strong><?php echo (int)($pushResult['would_push'] + $pushResult['pushed']); ?></strong> 条，¥<?php echo number_format($pushResult['amount'], 2); ?>
             <?php foreach ($pushResult['by_shop'] as $sn => $cnt): ?><span class="badge badge-light border ml-1"><?php echo e($sn); ?> <?php echo (int)$cnt; ?></span><?php endforeach; ?></div><?php endif; ?>
@@ -162,7 +164,7 @@ include __DIR__ . '/../includes/header.php';
                 <form method="post" class="mb-2" data-sync-form>
                     <input type="hidden" name="csrf" value="<?php echo e(ps_csrf_token()); ?>">
                     <input type="hidden" name="action" value="sync">
-                    <button type="submit" class="btn btn-success btn-block"><i class="fas fa-sync-alt"></i> 立即同步</button>
+                    <button type="submit" class="btn btn-success btn-block"><i class="fas fa-sync-alt"></i> 立即双向同步订单与状态</button>
                 </form>
                 <form method="post" data-sync-form>
                     <input type="hidden" name="csrf" value="<?php echo e(ps_csrf_token()); ?>">

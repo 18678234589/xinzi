@@ -209,6 +209,10 @@
     ;
                     }
                     $record['order_kind'] = $kindText;
+                    // 森动备案“二次备案”分表只登记已做完的工作（备案售后、迁移、改信息等），没有状态列：按已完成计，不再因状态为空落成“未完成”
+                    if ($selectedBusiness === '森动备案' && $kindText === '二次备案' && !isset($columnMap['status']) && $status === '') {
+                        $record['delivery_status'] = 'finished';
+                    }
                     // 部门代录补充：同号原单建单时默认记了类型，表格明确给出拍建站时提示按表格更正。
                     if ($departmentMode && !empty($record['kind_mapped']) && !empty($existing['order_kind']) && $existing['order_kind'] !== $kindText) $record['warning'] .= ($record
     ['warning'] ? '；' : '') . '原单类型“' . $existing['order_kind'] . '”将按表格更正为“' . $kindText . '”';
@@ -221,7 +225,10 @@
                             if ($costText === '' || !is_numeric($costText)) continue;
                             $costTotal += (float)$costText; $hasCost = true;
                         }
-                        if ($hasCost) $record['direct_cost'] = number_format($costTotal, 2, '.', '');
+                        // 二次备案（备案售后、迁移等杂项）没有成本：表里即使填了也不记
+                        if ($hasCost && $kindText === '二次备案') {
+                            if ($costTotal != 0) $record['warning'] .= ($record['warning'] ? '；' : '') . '二次备案没有成本，表里填的成本 ¥' . number_format($costTotal, 2, '.', '') . ' 已忽略';
+                        } elseif ($hasCost) $record['direct_cost'] = number_format($costTotal, 2, '.', '');
                         if ($selectedBusiness === '森动备案' && !$hasCost && pfc_applies($kindText)) {
                             $filingTemplate = $filingTemplate ?? (pfc_template() ?: false);
                             $record['warning'] .= ($record['warning'] ? '；' : '') . ($filingTemplate ? '首次备案没填成本：导入时按成本中心“' . $filingTemplate['name'] . '” ¥' . number_format((float)$filingTemplate['price'], 2, '.', '') . ' 自动补录' : '首次备案没填成本，成本中心也没有“森动备案成本”模板：提成按成本 0 计会偏高，请补“成本”列或联系财务设置模板');

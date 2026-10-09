@@ -66,6 +66,15 @@ function ps_monthly_results($month, $forceLive = false, $context = null)
     0) : '')];
         }
     }
+    // 超时补贴的计算基数：每人固定服务费规则的本月金额（未按考勤折算前，口径同固定服务费）。
+    $baseAmounts = [];
+    $overtimeDone = [];
+    foreach ($rules as $r) {
+        if ($r['rule_type'] !== 'base_fee' || $r['employee_id'] === null) continue;
+        $baseEid = (int)$r['employee_id'];
+        $baseOverride = $inputs[(int)$r['id']][$baseEid] ?? null;
+        $baseAmounts[$baseEid] = ($baseAmounts[$baseEid] ?? 0) + ($baseOverride !== null ? (float)$baseOverride['value'] : (float)($tierBases[$baseEid]['amount'] ?? $r['params']['amount'] ?? 0));
+    }
     $add = function ($employeeId, $rule, $amount, $detail, $keepZero = false) use (&$results, &$rounding) {
         $exact = (float)$amount;
         $amount = round($amount, 2);
@@ -177,6 +186,9 @@ function ps_monthly_results($month, $forceLive = false, $context = null)
 
             if ($amount <= 0) continue;
             /* split: includes/monthly/types/base_fee_2.php */ include __DIR__ . '/monthly/types/base_fee_2.php';
+
+        } elseif ($type === 'overtime_pay') {
+            /* split: includes/monthly/types/overtime_pay.php */ include __DIR__ . '/monthly/types/overtime_pay.php';
 
         } elseif ($type === 'attendance_bonus') {
             if ($rule['employee_id'] === null) continue;

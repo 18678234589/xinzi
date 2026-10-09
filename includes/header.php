@@ -1,4 +1,6 @@
 <?php
+require_once __DIR__ . '/ProjectTerms.php';
+pt_start(); // 页面输出统一换成对外用语（规则见 ProjectTerms.php）
 if (!defined('BASE_PATH')) {
     define('BASE_PATH', dirname(__DIR__));
 }

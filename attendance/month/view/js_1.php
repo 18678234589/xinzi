@@ -37,11 +37,11 @@ document.getElementById('uploadForm').addEventListener('submit', function(e){
 function batchDelete(){
     var n = document.querySelectorAll('.row-chk:checked').length;
     if (n === 0) { alert('请先勾选要删除的记录'); return; }
-    if (!confirm('确定删除选中的 ' + n + ' 条考勤记录？')) return;
+    if (!confirm('确定删除选中的 ' + n + ' 条服务时长确认单？')) return;
     document.getElementById('delForm').submit();
 }
 function delOne(id){
-    if (!confirm('删除该考勤记录？')) return;
+    if (!confirm('删除该服务时长确认单？')) return;
     var f = document.createElement('form');
     f.method = 'post';
     f.style.display = 'none';

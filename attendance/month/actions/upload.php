@@ -68,7 +68,8 @@
                                             || mb_strpos($cv, '实际出勤') !== false || mb_strpos($cv, '实到') !== false
                                             || mb_strpos($cv, '出勤天数') !== false
                                             || mb_strpos($cv, '应出勤小时') !== false || mb_strpos($cv, '出勤小时') !== false
-                                            || mb_strpos($cv, '请假') !== false || mb_strpos($cv, '缺勤') !== false) {
+                                            || mb_strpos($cv, '请假') !== false || mb_strpos($cv, '缺勤') !== false
+                                            || mb_strpos($cv, '到岗确认') !== false || mb_strpos($cv, '服务暂停') !== false || mb_strpos($cv, '未履约') !== false) {
                                             $score++;
                                         }
                                     }
@@ -142,15 +143,15 @@
     '名字') !== false || stripos($k, 'name') !== false)) $idxName = $idx;
                         // 满勤天数（新格式）—— 支持"满勤天数/满勤/应出勤天数/应出勤/全勤天数/全勤"等多种表头
                         if ($idxFullDays === null && (mb_strpos($k, '满勤天数') !== false || mb_strpos($k, '满勤') !== false || mb_strpos($k, '应出勤天数') !== false ||
-    mb_strpos($k, '应出勤') !== false || mb_strpos($k, '全勤天数') !== false || mb_strpos($k, '全勤') !== false)) $idxFullDays = $idx;
+    mb_strpos($k, '应出勤') !== false || mb_strpos($k, '应到岗确认') !== false || mb_strpos($k, '全勤天数') !== false || mb_strpos($k, '全勤') !== false)) $idxFullDays = $idx;
                         // 实际出勤天数（新格式）
-                        if ($idxActualDays === null && (mb_strpos($k, '实际出勤') !== false || mb_strpos($k, '实到') !== false || mb_strpos($k, '实际') !== false || mb_strpos
+                        if ($idxActualDays === null && (mb_strpos($k, '实际出勤') !== false || mb_strpos($k, '实际到岗') !== false || mb_strpos($k, '实到') !== false || mb_strpos($k, '实际') !== false || mb_strpos
     ($k, '出勤天数') !== false)) $idxActualDays = $idx;
                         // 应出勤小时（旧格式兼容）
                         if ($idxWork === null && (mb_strpos($k, '应出勤小时') !== false || mb_strpos($k, '出勤小时') !== false || mb_strpos($k, '应到') !== false)) $idxWork
     = $idx;
                         // 请假小时（旧格式兼容）
-                        if ($idxAbsent === null && (mb_strpos($k, '请假') !== false || mb_strpos($k, '缺勤') !== false)) $idxAbsent = $idx;
+                        if ($idxAbsent === null && (mb_strpos($k, '请假') !== false || mb_strpos($k, '缺勤') !== false || mb_strpos($k, '服务暂停') !== false || mb_strpos($k, '未履约') !== false)) $idxAbsent = $idx;
                         if ($idxRemark === null && (mb_strpos($k, '备注') !== false || mb_strpos($k, '说明') !== false || stripos($k, 'remark') !== false)) $idxRemark = $idx;
                     }
                     if ($idxName === null) {
@@ -194,12 +195,12 @@
                         // 同步清空该月的待匹配记录（避免重复堆积）
                         db()->prepare("DELETE FROM attendance_pending WHERE year=? AND month=?")->execute([$year, $month]);
 
-                        $inserted = 0; $skipped = 0; $notFound = [];
-                        $ins = db()->prepare("INSERT INTO attendances (employee_id, year, month, work_hours, absent_hours, remark)
-                                              VALUES (?, ?, ?, ?, ?, ?)
-                                              ON DUPLICATE KEY UPDATE work_hours=VALUES(work_hours), absent_hours=VALUES(absent_hours), remark=VALUES(remark)");
-                        $insPending = db()->prepare("INSERT INTO attendance_pending (employee_name, year, month, work_hours, absent_hours, remark)
-                                                     VALUES (?, ?, ?, ?, ?, ?)");
+                        $inserted = 0; $skipped = 0; $notFound = []; $otPeople = [];
+                        $ins = db()->prepare("INSERT INTO attendances (employee_id, year, month, work_hours, absent_hours, remark, overtime_days, holiday_overtime_days)
+                                              VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                                              ON DUPLICATE KEY UPDATE work_hours=VALUES(work_hours), absent_hours=VALUES(absent_hours), remark=VALUES(remark), overtime_days=VALUES(overtime_days), holiday_overtime_days=VALUES(holiday_overtime_days)");
+                        $insPending = db()->prepare("INSERT INTO attendance_pending (employee_name, year, month, work_hours, absent_hours, remark, overtime_days, holiday_overtime_days)
+                                                     VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
                         db()->beginTransaction();
                         // 解析天数/小时值，支持 "25+2.5" 这类简单加减表达式（避免被 preg_replace 误拼成 252.5）
                         $parseNum = function($val) {
@@ -220,9 +221,19 @@
                             if ($empName === '') continue;
 
                             // 优先按"天数"格式计算（满勤天数 × 8 = 应出勤小时；请假小时 = (满勤-实际)×8）
+                            $otNormal = 0.0; $otHoliday = 0.0;
                             if ($idxFullDays !== null || $idxActualDays !== null) {
-                                $fullDays  = $idxFullDays  !== null ? $parseNum($r[$idxFullDays]  ?? '') : 0;
-                                $actDays   = $idxActualDays !== null ? $parseNum($r[$idxActualDays] ?? '') : $fullDays;
+                                // “26+2”= 出勤 26 天 + 延时服务 2 天（1 倍）；节假日延时服务在加号后括号写日期，如“26+1(10.1)”按 1.5 倍（规则见 includes/ProjectOvertime.php）
+                                [$fullBase, $fullExtra] = $idxFullDays !== null ? ot_split_cell($r[$idxFullDays] ?? '') : ['', ''];
+                                [$actBase, $actExtra]   = $idxActualDays !== null ? ot_split_cell($r[$idxActualDays] ?? '') : ['', ''];
+                                $fullDays = $idxFullDays !== null ? $parseNum($fullBase) : 0;
+                                $actDays  = $idxActualDays !== null ? $parseNum($actBase) : $fullDays;
+                                // 满勤列、实际出勤列都写了延时服务时取天数多的那个，避免重复计算
+                                $otA = ot_parse_extra($fullExtra, $year, $month); $otB = ot_parse_extra($actExtra, $year, $month);
+                                $pick = ($otB['normal'] + $otB['holiday']) >= ($otA['normal'] + $otA['holiday']) ? $otB : $otA;
+                                $otNormal = $pick['normal']; $otHoliday = $pick['holiday'];
+                                // 实际出勤超过满勤天数（如单元格公式 =26+2 得 28）：超出部分按普通延时服务记
+                                if ($idxFullDays !== null && $fullDays > 0 && $actDays > $fullDays) { $otNormal = max($otNormal, round($actDays - $fullDays - $otHoliday, 2)); $actDays = $fullDays; }
                                 $wh  = $fullDays * 8;                       // 应出勤小时 = 满勤天数 × 8
                                 $ah  = max(0, ($fullDays - $actDays) * 8);  // 请假小时 = (满勤-实际出勤) × 8
                             } elseif ($autoDayMode) {
@@ -233,7 +244,7 @@
                                     if (isset($holidayCols[$di])) continue;
                                     $v = trim($r[$di] ?? '');
                                     // 有打卡时间/标记（非空、非"-"、"无"等）算出勤
-                                    if ($v !== '' && $v !== '-' && $v !== '无' && mb_strpos($v, '请假') === false && mb_strpos($v, '缺勤') === false) {
+                                    if ($v !== '' && $v !== '-' && $v !== '无' && mb_strpos($v, '请假') === false && mb_strpos($v, '缺勤') === false && mb_strpos($v, '服务暂停') === false && mb_strpos($v, '未履约') === false) {
                                         $actDays++;
                                     }
                                 }
@@ -251,16 +262,18 @@
                                 // 合作人员尚未添加：暂存到待匹配表，合作人员添加后自动补录
                                 $notFound[] = $empName;
                                 $skipped++;
-                                $insPending->execute([$empName, $year, $month, $wh, $ah, $rm]);
+                                $insPending->execute([$empName, $year, $month, $wh, $ah, $rm, $otNormal, $otHoliday]);
                                 continue;
                             }
-                            $ins->execute([$empId, $year, $month, $wh, $ah, $rm]);
+                            $ins->execute([$empId, $year, $month, $wh, $ah, $rm, $otNormal, $otHoliday]);
+                            if ($otNormal > 0 || $otHoliday > 0) $otPeople[] = $empName . '：' . ($otHoliday > 0 ? '节假日 ' . $otHoliday . ' 天' . ($otNormal > 0 ? ' + ' : '') : '') . ($otNormal > 0 ? '其他 ' . $otNormal . ' 天' : '');
                             $inserted++;
                         }
                         db()->commit();
                         $msg = "导入完成：成功 {$inserted} 条";
                         if ($skipped > 0) $msg .= "，暂存待匹配 {$skipped} 条（合作人员添加后自动补录）";
                         if (!empty($notFound)) $msg .= "，未匹配合作人员：" . implode('、', array_slice($notFound, 0, 5)) . (count($notFound) > 5 ? ' 等' : '');
+                        if ($otPeople) $msg .= '，延时服务 ' . count($otPeople) . ' 人（' . implode('；', array_slice($otPeople, 0, 8)) . (count($otPeople) > 8 ? ' 等' : '') . '）';
                         // 附加识别信息便于排查
                         $mode = $autoDayMode ? '自动统计(每日打卡列)' : '天数列直读';
                         $msg .= "【模式:{$mode}；姓名列:{$idxName}；满勤列:" . ($idxFullDays ?? '无') . "；实际出勤列:" . ($idxActualDays ?? '无') . "；数据行:"

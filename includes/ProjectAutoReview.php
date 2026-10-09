@@ -211,7 +211,7 @@ function pa_check_order_once($orderId, $apply = false, $persist = false)
     }
 }
 
-function pa_batch($limit = 200, $apply = false, $persist = false, $month = '')
+function pa_batch($limit = 200, $apply = false, $persist = false, $month = '', $financeUsername = '')
 {
     $limit = max(1, min(10000, (int)$limit));
     $where = ''; $params = [];
@@ -219,6 +219,7 @@ function pa_batch($limit = 200, $apply = false, $persist = false, $month = '')
         if (!preg_match('/^\d{4}-(0[1-9]|1[0-2])$/D', $month)) throw new RuntimeException('月份无效');
         $where = " WHERE o.order_date>=? AND o.order_date<DATE_ADD(?,INTERVAL 1 MONTH)"; $params = [$month . '-01', $month . '-01'];
     }
+    if ($financeUsername !== '' && $financeUsername !== 'all') $where .= ($where === '' ? ' WHERE ' : ' AND ') . ps_finance_business_condition($financeUsername);
     $join = pa_storage_available() ? ' LEFT JOIN project_auto_reviews a ON a.order_id=o.id' : '';
     $changedChildren = " OR EXISTS(SELECT 1 FROM project_participants p WHERE p.order_id=o.id AND p.created_at>a.checked_at) OR EXISTS(SELECT 1 FROM project_costs c WHERE c.order_id=o.id AND c.created_at>a.checked_at) OR EXISTS(SELECT 1 FROM project_cash_movements m WHERE m.order_id=o.id AND m.created_at>a.checked_at) OR EXISTS(SELECT 1 FROM project_audit_logs l WHERE l.entity_type='order' AND l.entity_id=o.id AND l.created_at>a.checked_at AND l.action NOT IN('auto_review_check','auto_review_passed'))";
     $sort = $join ? "CASE WHEN a.order_id IS NULL OR a.checked_row_version<>o.row_version OR a.policy_version<>'" . PA_POLICY_VERSION . "' OR NOT(a.checked_source_at<=>s.synced_at) OR o.updated_at>a.checked_at" . $changedChildren . " THEN 0 ELSE 1 END,a.checked_at ASC," : '';

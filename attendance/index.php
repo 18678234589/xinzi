@@ -146,7 +146,7 @@ include __DIR__ . '/../includes/header.php';
                         <i class="fas fa-<?php echo $hasData ? 'arrow-right' : 'plus'; ?>"></i>
                         <?php echo $hasData ? '查看月份' : '开始录入'; ?>
                     </span>
-                    <form method="post" class="mb-0" onclick="event.stopPropagation()" onsubmit="return confirm('确定删除 <?php echo $y; ?> 年的考勤卡片？')">
+                    <form method="post" class="mb-0" onclick="event.stopPropagation()" onsubmit="return confirm('确定删除 <?php echo $y; ?> 年的服务时长确认卡片？')">
                         <input type="hidden" name="action" value="delete_year">
                         <input type="hidden" name="year" value="<?php echo $y; ?>">
                         <button type="submit" class="btn btn-sm btn-link text-danger p-0" title="删除<?php echo $y; ?>年卡片">

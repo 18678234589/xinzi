@@ -67,6 +67,7 @@ function ps_monthly_presets()
     'note' => '平面设计：按月营业额落档，底薪按考勤折算；老客户找回 +10%；好评率每月填写，低于 10% 扣 100'],
         ['name' => '阎泸琪 全勤奖', 'rule_type' => 'attendance_bonus', 'scope_business' => '*', 'scope_group' => '*', 'scope_role' => '*', 'employee' => '阎泸琪', 'metric'
     => 'profit', 'params' => ['amount' => 200], 'note' => '请假 <4 小时全额、≥4 小时减半、≥8 小时不发'],
+        ['name' => '超时补贴', 'rule_type' => 'overtime_pay', 'scope_business' => '*', 'scope_group' => '*', 'scope_role' => '*', 'employee' => null, 'metric' => 'profit', 'params' => ['holiday_rate' => 1.5, 'normal_rate' => 1], 'note' => '固定服务费 ÷ 30 × 延时服务天数 × 倍率：节假日当天（元旦、除夕、春节初一 / 初二、清明、5.1、端午、中秋、10.1）1.5 倍，其余日期 1 倍；延时服务天数取自考勤表（“26+2”，节假日写“26+1(10.1)”）'],
         ['name' => '其他调整', 'rule_type' => 'manual', 'scope_business' => '*', 'scope_group' => '*', 'scope_role' => '*', 'employee' => null, 'metric' => 'profit', 'params' =>
     [], 'note' => '上月漏记、临时奖扣等，每月填写并写明原因'],
     ];
