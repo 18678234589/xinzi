@@ -334,6 +334,11 @@ function ps_business_import_headers_base($business)
 /** 表头 => 列序号映射；缺少订单编号或全部人员列时报错。 */
 function ps_business_import_map($business, $head, $requirePeople = true)
 {
+    // 小程序技术表：新订单有每单 ¥20 补助、其他订单没有——模板带上“订单类型”列（新订单 / 其他订单 / 定制 / 续费），避免靠系统猜
+    if ($business === '小程序开发' && isset($columns['order_kind'])) {
+        $at = array_search($columns['business'][0], $headers, true);
+        array_splice($headers, $at === false ? count($headers) : $at + 1, 0, [$columns['order_kind'][0]]);
+    }
     $map = [];
     foreach (ps_business_import_columns($business) as $key => $aliases) {
         foreach ($aliases as $alias) {

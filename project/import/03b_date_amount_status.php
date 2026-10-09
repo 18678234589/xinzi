@@ -86,6 +86,15 @@
                     // 小程序结算表的“备注”常写 新订单 / 续费 / 定制：识别为订单类型。
                     $kindText = $lookup($row, 'order_kind');
                     if ($kindText === '' && in_array($record['contact_note'], $orderKinds, true)) { $kindText = $record['contact_note']; $record['contact_note'] = ''; }
+                    // 小程序技术：新订单有每单 ¥20 补助，其他订单没有。“其他订单 / 其它订单”记为技术服务（5%，无补助）；“业务”列或备注里写了“新订单 / 其他订单”也识别；定制、续费仍须明确写出
+                    if ($selectedBusiness === '小程序开发') {
+                        if (in_array($kindText, ['其他订单', '其它订单', '其他', '其它'], true)) $kindText = '技术服务';
+                        elseif (in_array($kindText, ['新单', '新建', '新建站'], true)) $kindText = '新订单';
+                        if ($kindText === '') foreach ([$lookup($row, 'business'), $record['contact_note']] as $kindCell) {
+                            if (mb_strpos($kindCell, '新订单') !== false) { $kindText = '新订单'; break; }
+                            if (mb_strpos($kindCell, '其他订单') !== false || mb_strpos($kindCell, '其它订单') !== false) { $kindText = '技术服务'; break; }
+                        }
+                    }
                     if ($kindText !== '' && !in_array($kindText, $orderKinds, true)) {
                         // 网站续费表“拍建站”列常写拍下的具体内容（网站链接/小程序链接/域名等）：有值一律记为“拍链接”。
                         if ($selectedBusiness === '网站续费') {
