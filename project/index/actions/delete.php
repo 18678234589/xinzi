@@ -13,7 +13,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['delete_order_id'])) {
         $orderNo = $row['order_no'];
         // 删除规则统一见 includes/ProjectOrderDelete.php（已审核订单：财务 / 售后部的售后业务可删，删前完整备份）
         if (($why = pod_blocker($row, $actor)) !== '') throw new RuntimeException($why);
-        $backupFile = pod_backup($deleteId, $orderNo);
+        $backupFile = pod_backup($deleteId, $orderNo, $actor);
         $deleteOrderRows($deleteId);
         ps_audit('order', $deleteId, 'delete_order', $actor, ['order_no' => $orderNo, 'was_status' => $row['settlement_status'], 'backup' => basename($backupFile)]);
         db()->commit();

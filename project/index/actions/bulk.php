@@ -66,7 +66,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['bulk_action'])) {
             } elseif ($bulkAction === 'delete') {
                 // 批量删除传错的订单；规则统一见 includes/ProjectOrderDelete.php（已审核订单：财务 / 售后部的售后业务可删，删前完整备份）
                 if (($why = pod_blocker($row, $actor)) !== '') throw new RuntimeException($why);
-                $backupFile = pod_backup($orderId, $orderNo);
+                $backupFile = pod_backup($orderId, $orderNo, $actor);
                 $deleteOrderRows($orderId);
                 ps_audit('order', $orderId, 'bulk_delete', $actor, ['order_no' => $orderNo, 'was_status' => $row['settlement_status'], 'backup' => basename($backupFile)]);
             } else throw new RuntimeException('操作无效');

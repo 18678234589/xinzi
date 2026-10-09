@@ -90,6 +90,9 @@ if ($actor['role'] !== 'finance' && !empty($actor['employee_id'])) {
 }
 $deleteAllowEmployeeIds = [55 => '栾鑫']; // 个人放行：运营经理部，同样只能删本人参与/代录的未审核单
 require_once __DIR__ . '/../includes/ProjectOrderDelete.php';
+require_once __DIR__ . '/../includes/ProjectOrderTrash.php';
+pot_ensure(); // 建表放在任何事务之前（DDL 会隐式提交）
+if ($_SERVER['REQUEST_METHOD'] !== 'POST') pot_purge_expired(); // 回收站保留 30 天，过期顺手清除
 $canDeleteOrders = $actor['role'] === 'finance' || $isAfterSalesDept || (isset($deleteAllowEmployeeIds[(int)($actor['employee_id'] ?? 0)])) || in_array($actor['role'], ['customer_service', 'technical'], true); // 客服 / 技术可删本人参与、未审核的订单（规则见 pod_blocker）
 $canSelectOrders = $canDeleteOrders || in_array($actor['role'], ['customer_service', 'technical', 'finance'], true);
 

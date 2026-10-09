@@ -37,8 +37,32 @@ try {
     $check(strpos(pod_blocker($old, $finance), '已核算') !== false, '已核算月份（2026-07）的已审核订单：财务也不能删');
     $locked = $mk('E', '备案-单量', 'locked', '2026-10-06', $dept['employee_id']);
     $check(pod_blocker($locked, $finance) !== '', '已锁定订单不能删');
-    $file = pod_backup($appr['id'], $appr['order_no']);
-    $last = trim((string)array_slice(file($file), -1)[0]);
-    $check($last !== '' && strpos($last, $appr['order_no']) !== false, '删除前备份已写入：' . basename($file));
+    // 回收站：删除 → 进回收站 → 还原
+    require_once __DIR__ . '/../includes/ProjectOrderTrash.php';
+    pot_ensure();
+    $pdo->prepare("INSERT INTO project_participants (order_id,employee_id,commission_group,role_name,group_weight) VALUES (?,?,'technical','技术',1)")->execute([$appr['id'], $cs['employee_id']]);
+    $pdo->prepare("INSERT INTO project_costs (order_id,category,item_name,quantity,unit,unit_price,amount,cost_kind,is_custom,reason,review_status) VALUES (?,'outsourcing','测试成本',1,'项',10,10,'one_time',1,'测试','approved')")->execute([$appr['id']]);
+    $trashId = (int)substr(pod_backup($appr['id'], $appr['order_no'], $dept), strlen('回收站#'));
+    $check($trashId > 0, '放入回收站：记录 #' . $trashId);
+    foreach (['project_participants', 'project_costs'] as $t) $pdo->prepare("DELETE FROM $t WHERE order_id=?")->execute([$appr['id']]);
+    $pdo->prepare('DELETE FROM project_orders WHERE id=?')->execute([$appr['id']]);
+    $check(count(array_filter(pot_list($dept), function ($r) use ($trashId) { return (int)$r['id'] === $trashId; })) === 1, '删除人在回收站里看得到');
+    $check(count(array_filter(pot_list($other), function ($r) use ($trashId) { return (int)$r['id'] === $trashId; })) === 0, '别的客服看不到这条');
+    $bad = false; try { pot_restore($trashId, $other); } catch (RuntimeException $x) { $bad = true; }
+    $check($bad, '别的客服不能还原');
+    $no = pot_restore($trashId, $dept);
+    $r = $pdo->prepare('SELECT (SELECT COUNT(*) FROM project_orders WHERE id=?) o,(SELECT COUNT(*) FROM project_participants WHERE order_id=?) p,(SELECT COUNT(*) FROM project_costs WHERE order_id=?) c'); $r->execute([$appr['id'], $appr['id'], $appr['id']]);
+    $row = $r->fetch(); $check($no === $appr['order_no'] && (int)$row['o'] === 1 && (int)$row['p'] === 2 && (int)$row['c'] === 1, '还原：订单、参与人、成本都回来了');
+    $bad = false; try { pot_restore($trashId, $dept); } catch (RuntimeException $x) { $bad = true; }
+    $check($bad, '同一条不能重复还原');
+    // 订单号被新订单占用时不能还原
+    $t2 = (int)substr(pod_backup($appr['id'], $appr['order_no'], $dept), strlen('回收站#'));
+    $pdo->prepare('DELETE FROM project_participants WHERE order_id=?')->execute([$appr['id']]); $pdo->prepare('DELETE FROM project_costs WHERE order_id=?')->execute([$appr['id']]); $pdo->prepare('DELETE FROM project_orders WHERE id=?')->execute([$appr['id']]);
+    $pdo->prepare("INSERT INTO project_orders (order_no,customer_name,project_type,order_kind,shop,contract_amount,order_date,delivery_status,note) VALUES (?,'新','备案-单量','','',0,'2026-10-06','finished','重新导入')")->execute([$appr['order_no']]);
+    $bad = false; try { pot_restore($t2, $dept); } catch (RuntimeException $x) { $bad = mb_strpos($x->getMessage(), '已被') !== false; }
+    $check($bad, '订单号被重新导入的订单占用时，提示先处理');
+    $pdo->prepare("UPDATE project_order_trash SET expires_at=DATE_SUB(NOW(),INTERVAL 1 DAY) WHERE id=?")->execute([$t2]);
+    pot_purge_expired(); $c = $pdo->prepare('SELECT COUNT(*) FROM project_order_trash WHERE id=?'); $c->execute([$t2]);
+    $check((int)$c->fetchColumn() === 0, '超过 30 天的记录自动清除');
     echo "\n=== 订单删除规则测试全部通过 ===\n";
 } catch (Throwable $e) { fwrite(STDERR, $e->getMessage() . "\n"); exit(1); }

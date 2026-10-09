@@ -4,7 +4,7 @@
  * - 财务：任意订单（含已审核）；所在月份已核算（refund_settled_through 及以前）、已锁定的订单除外；
  * - 网站售后部：本人参与 / 代录的订单，以及同部门成员的售后部业务订单（参与人全是售后部的人）；已审核的订单只限售后部业务（备案-单量 / 备案-提成 / 网站修改 / 网站续费）——核对后发现算法错了要整批删掉重导；
  * - 客服 / 技术：本人参与、还没审核的订单（上传错表、测试单），且没有收款 / 退款登记、没有别人的分单。
- * 已审核订单删除前，完整备份订单及其分成快照、成本、收款等行到 JSON 文件，并记审计，可据此还原。
+ * 删除的订单进回收站（订单及分成快照、成本、收款等关联行完整保存，30 天内可还原，过期自动清除），并记审计。
  */
 const POD_DEPT_BUSINESSES = ['备案-单量', '备案-提成', '网站修改', '网站续费'];
 
@@ -49,18 +49,9 @@ function pod_blocker(array $row, $actor)
     return '';
 }
 
-/** 删除前备份：订单及关联行（含分成快照、成本、收款），已审核订单必须成功备份才删。返回备份文件路径。 */
-function pod_backup($orderId, $orderNo)
+/** 删除前放入回收站（保留 30 天可还原，见 ProjectOrderTrash.php）；返回“回收站#id”，用于审计。 */
+function pod_backup($orderId, $orderNo, $actor = null)
 {
-    $pdo = db();
-    $dump = ['order_no' => $orderNo, 'order' => null, 'deleted_at' => date('c')];
-    $o = $pdo->prepare('SELECT * FROM project_orders WHERE id=?'); $o->execute([(int)$orderId]); $dump['order'] = $o->fetch();
-    foreach (['project_participants', 'project_costs', 'project_commission_snapshots', 'project_commission_adjustments', 'project_cash_movements', 'project_order_sources', 'project_order_details', 'project_order_resources', 'project_order_items', 'project_order_requests'] as $table) {
-        try { $s = $pdo->prepare("SELECT * FROM $table WHERE order_id=?"); $s->execute([(int)$orderId]); $dump[$table] = $s->fetchAll(); } catch (Throwable $e) { $dump[$table] = 'unavailable'; }
-    }
-    $dir = dirname(__DIR__) . '/.deploy';
-    if (!is_dir($dir) || !is_writable($dir)) $dir = sys_get_temp_dir();
-    $file = $dir . '/deleted_orders_' . date('Ymd') . '.jsonl';
-    if (file_put_contents($file, json_encode($dump, JSON_UNESCAPED_UNICODE | JSON_PARTIAL_OUTPUT_ON_ERROR) . "\n", FILE_APPEND | LOCK_EX) === false) throw new RuntimeException('删除前备份失败，已取消删除');
-    return $file;
+    require_once __DIR__ . '/ProjectOrderTrash.php';
+    return '回收站#' . pot_trash($orderId, $orderNo, $actor ?: ['type' => 'system', 'id' => 0]);
 }
