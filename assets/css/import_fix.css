@@ -1,0 +1,23 @@
+/* 上传预览：需要处理的订单（清单式卡片） */
+.fx-panel{margin:0 18px 16px;padding:16px 18px;background:linear-gradient(180deg,#fff7f3,#fffdfb);border:1px solid #f3d9cf;border-radius:16px}
+.fx-title{display:flex;align-items:center;gap:12px;margin-bottom:12px}
+.fx-badge{flex:none;min-width:38px;height:38px;border-radius:12px;background:#e5533d;color:#fff;font-weight:700;font-size:1.05rem;display:flex;align-items:center;justify-content:center;padding:0 8px}
+.fx-title h5{margin:0;font-size:1.05rem;font-weight:700;color:#7a2e1d}
+.fx-title p{margin:2px 0 0;font-size:.82rem;color:#8a5a4c;line-height:1.55}
+.fx-card{background:#fff;border:1px solid #f0e2db;border-radius:12px;padding:12px 14px;margin-bottom:10px;box-shadow:0 1px 2px rgba(120,50,30,.04)}
+.fx-card:focus-within{border-color:#e0a592;box-shadow:0 4px 14px rgba(200,80,50,.1)}
+.fx-head{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 12px}
+.fx-head b{color:#7a2e1d;font-size:.95rem}.fx-head span{color:#6d7a72;font-size:.84rem}.fx-head small{color:#9aa6a0}
+.fx-msg{margin:4px 0 8px;font-size:.84rem;color:#c2410c;line-height:1.55}
+.fx-controls{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:10px}
+.fx-f{display:block;margin:0}
+.fx-f>span{display:block;font-size:.75rem;color:#6d7a72;margin-bottom:3px}
+.fx-f input,.fx-f select{width:100%;height:36px;border:1px solid #d9dfdb;border-radius:9px;padding:0 10px;font-size:.9rem;background:#fcfdfc;color:#1f3a2c}
+.fx-f input:focus,.fx-f select:focus{outline:0;border-color:#2d8a5e;box-shadow:0 0 0 3px rgba(45,138,94,.14);background:#fff}
+.fx-other{margin-top:6px;background:#fff;border:1px solid #f0e2db;border-radius:12px;padding:8px 14px}
+.fx-other summary{cursor:pointer;font-size:.88rem;color:#7a2e1d;font-weight:600;padding:4px 0}
+.fx-item{padding:8px 0;border-top:1px dashed #f0e2db;font-size:.84rem}.fx-item:first-of-type{border-top:0}
+.fx-item b{color:#7a2e1d;margin-right:8px}.fx-no{color:#6d7a72;font-size:.78rem}
+.fx-how{color:#5d6f64;font-size:.8rem;margin-top:2px}
+.fx-foot{display:flex;align-items:center;gap:12px;margin-top:10px}.fx-foot span{font-size:.8rem;color:#8a5a4c}
+@media(max-width:560px){.fx-panel{margin:0 8px 12px;padding:12px}}

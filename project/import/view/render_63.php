@@ -1,6 +1,4 @@
-<td><?php if (empty($row['order_date'])): ?><input type="date" class="form-control form-control-sm" name="fix_date[<?php echo (int)$row['line']; ?>]" value="<?php echo e($suggestedDates
-    [(int)$row['line']] ?? ''); ?>" aria-label="第<?php echo (int)$row['line']; ?>行订单日期"><small class="import-field-hint"><i class="far fa-calendar-alt" aria-hidden="true"></i><?php
-    echo isset($suggestedDates[(int)$row['line']]) ? '请核对建议日期' : '请补订单日期'; ?></small><?php else: ?><?php echo e($row['order_date']); ?><?php endif; ?><br><strong>¥<?php
+<td><?php if (empty($row['order_date'])): ?><small class="text-danger">缺订单日期：请在上方“需要处理的订单”里补填</small><?php else: ?><?php echo e($row['order_date']); ?><?php endif; ?><br><strong>¥<?php
     echo e(($row['contract_amount'] ?? '') === '' ? '待补' : $row['contract_amount']); ?></strong><?php if ($previewKinds && !empty($row['base_valid'])): $currentKind = ($row['order_kind'
     ] ?? '') !== '' ? $row['order_kind'] : ($row['kind_guess'] ?? ''); ?><br><select class="form-control form-control-sm mt-1 js-kind-choice<?php echo ($row['order_kind'] ?? '') ===
     '' ? ' is-invalid' : ''; ?>" name="kind_choice[<?php echo (int)$row['line']; ?>]" aria-label="订单类型"><option value="">选择订单类型</option><?php foreach ($previewKinds
