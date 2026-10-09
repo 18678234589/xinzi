@@ -66,4 +66,13 @@ $message='';try{pbf_parse_sheets(['未知表'=>[['说明'],['123','wx']]]);}catc
 check('unknown template feedback offers correct template',strpos($message,'未识别到')!==false && strpos($message,'下载本页补全模板')!==false,true);
 $onlyWx=['status'=>'active','sms_enabled'=>1,'phone_hash'=>'','wechat_hash'=>'wx','resource_name'=>'example.com','expires_on'=>'2026-10-18'];
 check('wechat never SMS',pr_reminder_day($onlyWx,'2026-10-08'),null);
+$server=['resource_type'=>'server','status'=>'active','owner'=>'ours','phone_hash'=>'phone','wechat_hash'=>'','resource_name'=>'','expires_on'=>'2027-09-01','expiry_source'=>'manual'];
+$cert=array_merge($server,['resource_type'=>'miniapp_certification','resource_name'=>'小程序','expiry_source'=>'estimated']);
+check('certification missing date remains downloadable',pbf_missing_fields(['project_type'=>'小程序开发'],[$server,$cert]),['微信认证到期日']);
+$filing=array_merge($server,['resource_type'=>'icp','expires_on'=>null]);
+check('existing filing missing date remains downloadable',pbf_missing_fields(['project_type'=>'网站模板','domain_mode'=>'none'],[$server,$filing]),['备案到期日']);
+$cert['resource_name']='';$cert['expiry_source']='manual';
+check('certification missing name remains downloadable',pbf_missing_fields(['project_type'=>'小程序开发'],[$server,$cert]),['小程序名称']);
+$owned=array_merge($server,['resource_type'=>'domain','status'=>'closed','owner'=>'customer','expires_on'=>null]);
+check('customer-owned closed domain stays exempt',pbf_missing_fields(['project_type'=>'网站模板','domain_mode'=>'pending'],[$owned]),[]);
 echo "PASS $n batch/contact pure checks\n";
