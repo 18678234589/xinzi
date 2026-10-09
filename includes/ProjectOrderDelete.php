@@ -2,7 +2,7 @@
 /**
  * 订单删除规则（订单列表“删除 / 批量删除”共用）：
  * - 财务：任意订单（含已审核）；所在月份已核算（refund_settled_through 及以前）、已锁定的订单除外；
- * - 网站售后部：本人参与 / 代录的订单；已审核的订单只限售后部业务（备案-单量 / 备案-提成 / 网站修改 / 网站续费）——核对后发现算法错了要整批删掉重导；
+ * - 网站售后部：本人参与 / 代录的订单，以及同部门成员的售后部业务订单（参与人全是售后部的人）；已审核的订单只限售后部业务（备案-单量 / 备案-提成 / 网站修改 / 网站续费）——核对后发现算法错了要整批删掉重导；
  * - 客服 / 技术：本人参与、还没审核的订单（上传错表、测试单），且没有收款 / 退款登记、没有别人的分单。
  * 已审核订单删除前，完整备份订单及其分成快照、成本、收款等行到 JSON 文件，并记审计，可据此还原。
  */
@@ -29,7 +29,17 @@ function pod_blocker(array $row, $actor)
     if ($role !== 'finance') {
         $p = $pdo->prepare('SELECT 1 FROM project_participants WHERE order_id=? AND employee_id=? UNION SELECT 1 FROM project_department_uploaders WHERE order_id=? AND employee_id=? LIMIT 1');
         $p->execute([(int)$row['id'], (int)($actor['employee_id'] ?? 0), (int)$row['id'], (int)($actor['employee_id'] ?? 0)]);
-        if (!$p->fetchColumn()) return '只能删除本人参与的订单';
+        if (!$p->fetchColumn()) {
+            // 售后部成员（主管）可删同部门成员的售后业务订单：订单参与人全部是网站售后部的人
+            $sameDept = false;
+            if ($isDept && in_array($row['project_type'], POD_DEPT_BUSINESSES, true)) {
+                $d = $pdo->prepare("SELECT COUNT(*) total, SUM(e.department='网站售后部') dept FROM project_participants p JOIN employees e ON e.id=p.employee_id WHERE p.order_id=?");
+                $d->execute([(int)$row['id']]);
+                $r = $d->fetch();
+                $sameDept = (int)$r['total'] > 0 && (int)$r['total'] === (int)$r['dept'];
+            }
+            if (!$sameDept) return '只能删除本人参与的订单';
+        }
         if (!$isDept) { // 普通客服 / 技术：有收款 / 退款登记或分单（别人的数据）时不能自己删
             $c = $pdo->prepare('SELECT (SELECT COUNT(*) FROM project_cash_movements WHERE order_id=?)+(SELECT COUNT(*) FROM project_order_splits WHERE parent_order_id=? OR child_order_id=?)');
             $c->execute([(int)$row['id'], (int)$row['id'], (int)$row['id']]);

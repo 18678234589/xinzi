@@ -28,6 +28,9 @@ try {
     $check(pod_blocker($appr, $dept) === '', '售后部删除已审核的备案-单量订单：允许');
     $check(pod_blocker($appr, $cs) !== '', '普通客服不能删已审核订单');
     $check(pod_blocker($appr, $finance) === '', '财务删除已审核订单：允许');
+    $otherDept = $mk('F', '备案-单量', 'approved', '2026-10-06', $pdo->query("SELECT id FROM employees WHERE name='房烁'")->fetchColumn());
+    $check(pod_blocker($otherDept, $dept) === '', '售后部主管可删同部门成员（房烁）的已审核备案-单量订单');
+    $check(pod_blocker($otherDept, $cs) !== '', '网站客服不能删售后部成员的订单');
     $apprWeb = $mk('C', '网站模板', 'approved', '2026-10-06', $dept['employee_id']);
     $check(pod_blocker($apprWeb, $dept) !== '', '售后部不能删已审核的非售后业务订单（网站模板）');
     $old = $mk('D', '备案-单量', 'approved', '2026-07-06', $dept['employee_id']);
