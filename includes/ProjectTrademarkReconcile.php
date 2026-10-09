@@ -9,6 +9,7 @@ function ptc_reconcile_order_cost($orderId, $actor, $origin, $excelCost = null, 
     $order = $q->fetch();
     if (!$order || $order['project_type'] !== '商标' || in_array($order['settlement_status'], ['approved', 'locked'], true)) return 'skip';
     [$details, $context] = ptc_order_pricing_data($orderId);
+    $oldDetails = $details;
     $context .= ' ' . (string)$text;
     $q = $pdo->prepare("SELECT c.*,t.business_scope AS template_scope,t.unit AS template_unit,t.price AS template_price FROM project_costs c LEFT JOIN project_cost_templates t ON t.id=c.template_id WHERE c.order_id=? AND c.review_status<>'rejected' ORDER BY c.id FOR UPDATE");
     $q->execute([(int)$orderId]);
@@ -30,9 +31,15 @@ function ptc_reconcile_order_cost($orderId, $actor, $origin, $excelCost = null, 
         if (!is_numeric($excelCost) || (float)$excelCost < 0) throw new RuntimeException('商标实际成本金额无效');
         $excel = max($excel, round((float)$excelCost, 2));
     }
+    $q=$pdo->prepare("SELECT * FROM project_costs WHERE order_id=? AND review_status='rejected' AND reviewed_by_admin IS NOT NULL ORDER BY id FOR UPDATE");
+    $q->execute([(int)$orderId]);$rejected=$q->fetchAll();
+    foreach($rejected as$r)if(strpos((string)$r['reason'],'Excel 商标成本补差')===0&&preg_match('/整单实际成本 ¥([0-9.]+)/u',(string)$r['reason'],$m)&&abs((float)$m[1]-$excel)<0.004){
+        // 同一份错误 Excel 成本已被财务驳回，重复上传不能自动加回差额。
+        $excel=0;unset($details['trademark_excel_cost']);
+    }
     $plan = ptc_cost_plan(ptc_templates(), $details, $context, $excel > 0 ? $excel : null);
     if ($plan['status'] !== 'ready') return 'unresolved';
-    $oldDetails = $details;
+    foreach($rejected as$r)foreach($plan['lines']as$line)if($line['template']&&(int)$r['template_id']===(int)$line['template']['id']&&abs((float)$r['amount']-$line['amount'])<0.004&&abs((float)$r['quantity']-$line['quantity'])<0.004&&preg_match('/^(?:Excel|商标自动|成本修复|补带)/u',(string)$r['reason']))return 'rejected';
     $details['trademark_service'] = $plan['service'];
     if ($excel > 0) $details['trademark_excel_cost'] = $excel;
     if ($details !== $oldDetails) {

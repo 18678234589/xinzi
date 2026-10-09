@@ -888,9 +888,9 @@
 - `ptc_merge_import_details` L163–170
 - `ptc_approval_guard` L173–194
 
-## includes/ProjectTrademarkReconcile.php (89 行, 6.7 KB)
+## includes/ProjectTrademarkReconcile.php (96 行, 7.6 KB)
 
-- `ptc_reconcile_order_cost` L3–88
+- `ptc_reconcile_order_cost` L3–95
 
 ## includes/ProjectVault.php (295 行, 18.2 KB)
 
@@ -3236,11 +3236,13 @@
 - 加载：`require __DIR__.'/../migrations/apply_management_accounts.php';`
 - 加载：`include __DIR__.'/../project/import.php';`
 
-## tests/trademark_pricing_smoke.php (85 行, 8.5 KB)
+## tests/trademark_pricing_smoke.php (96 行, 9.8 KB)
 
 - 加载：`require_once __DIR__ . '/../includes/ProjectTrademarkCost.php';`
 - 加载：`require_once __DIR__ . '/../includes/ProjectOrderSource.php';`
 - 加载：`require_once __DIR__ . '/require_isolated_database.php';`
+- 加载：`include __DIR__.'/../project/order/actions/cost/review_cost.php';`
+- 加载：`include __DIR__.'/../project/order/actions/cost/review_cost.php';`
 
 ## tests/trademark_upload_flow_202608.php (81 行, 5.7 KB)
 
