@@ -136,3 +136,40 @@ function poj_apply_price($orderId, $newPrice, $flowPrice, $actor, $context = [])
     ps_audit('order', (int)$orderId, 'import_price_arbitrated', $actor, ['from' => (float)$order['contract_amount'], 'to' => round((float)$newPrice, 2), 'shop_flow_price' => $flowPrice, 'basis' => '店铺流水价与表格价一致'] + $context);
     return true;
 }
+
+/**
+ * 重新上传覆盖：同号订单再次上传时，表格里填了、且与系统不同的“描述性”基础字段（店铺、订单日期、付款昵称）以本次表格为准更新。
+ * 只改未审核 / 未锁定的订单；已核算月份（refund_settled_through 及以前）的日期不改；售价、成本、商标件数另有规则，不在这里改。
+ * 返回实际更新了哪些字段 [字段 => [旧, 新]]。
+ */
+function poj_overwrite_basics($orderId, array $row, $actor)
+{
+    $pdo = db();
+    $q = $pdo->prepare('SELECT o.shop,o.order_date,o.customer_name,o.settlement_status,s.payment_nickname FROM project_orders o LEFT JOIN project_order_sources s ON s.order_id=o.id WHERE o.id=? FOR UPDATE');
+    $q->execute([(int)$orderId]);
+    $o = $q->fetch();
+    if (!$o || in_array($o['settlement_status'], ['approved', 'locked'], true)) return [];
+    $changes = [];
+    $shop = trim((string)($row['shop'] ?? ''));
+    if ($shop !== '' && $shop !== (string)$o['shop']) $changes['shop'] = [(string)$o['shop'], $shop];
+    $nick = trim((string)($row['payment_nickname'] ?? ''));
+    if ($nick !== '' && $nick !== (string)$o['payment_nickname']) $changes['payment_nickname'] = [(string)$o['payment_nickname'], $nick];
+    $date = (string)($row['order_date'] ?? '');
+    if ($date !== '' && $date !== (string)$o['order_date']) {
+        $settled = (string)ps_setting_get('refund_settled_through', '');
+        $locked = $settled !== '' && (substr($date, 0, 7) <= $settled || substr((string)$o['order_date'], 0, 7) <= $settled);
+        if (!$locked) $changes['order_date'] = [(string)$o['order_date'], $date];
+    }
+    if (!$changes) return [];
+    if (isset($changes['shop']) || isset($changes['order_date']) || isset($changes['payment_nickname'])) {
+        $newCustomer = isset($changes['payment_nickname']) && ((string)$o['customer_name'] === '' || (string)$o['customer_name'] === (string)$o['payment_nickname']) ? $changes['payment_nickname'][1] : (string)$o['customer_name'];
+        $pdo->prepare('UPDATE project_orders SET shop=?,order_date=?,customer_name=?,row_version=row_version+1 WHERE id=?')
+            ->execute([$changes['shop'][1] ?? (string)$o['shop'], $changes['order_date'][1] ?? $o['order_date'], $newCustomer, (int)$orderId]);
+    }
+    if (isset($changes['payment_nickname'])) {
+        $pdo->prepare("INSERT INTO project_order_sources (order_id,payment_nickname,nickname_source) VALUES (?,?,'manual') ON DUPLICATE KEY UPDATE payment_nickname=VALUES(payment_nickname),nickname_source='manual'")
+            ->execute([(int)$orderId, $changes['payment_nickname'][1]]);
+    }
+    ps_audit('order', (int)$orderId, 'import_overwrite_basics', $actor, ['line' => $row['line'] ?? null, 'changes' => $changes]);
+    return $changes;
+}

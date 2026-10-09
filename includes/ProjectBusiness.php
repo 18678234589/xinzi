@@ -342,7 +342,7 @@ function ps_business_import_headers_base($business)
     // 精简模板：订单类型会自动识别；协作技术仅定制前后端需要；名称 / 制作要求 / 客户微信等由“业务”“备注”“付款昵称”自动补全。
     // 这些列写了仍会识别，只是不再放进下载模板，避免重复填写。
     $optional = ['order_kind', 'detail:miniapp_name', 'detail:make_requirement', 'detail:customer_wechat', 'detail:service_item', 'detail:design_item', 'detail:renew_item'];
-    if ($business !== 'AI网站定制') $optional[] = 'backend';
+    if ($business !== 'AI网站定制' && $business !== '商标') $optional[] = 'backend'; // 商标模板要带“提交专员”列（资料专员 / 提交专员各一列）
     $headers = [];
     foreach ($order as $key) if (isset($columns[$key]) && !in_array($key, $optional, true)) $headers[] = $columns[$key][0];
     foreach ($columns as $key => $aliases) if (strpos($key, 'detail:') === 0 && !in_array($key, $optional, true)) $headers[] = $aliases[0];

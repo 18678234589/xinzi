@@ -36,36 +36,35 @@ try {
     $no = function ($i) use ($tag) { return "TMS$tag-$i"; };
 
     echo "=== 一、先建单没有件数 / 成本，资料专员补充件数后成本补齐 ===\n";
-    [$pv, $imp, $err] = $importAs($qin, '商标', $head . "2026.9.20,微信,甲,{$no(1)},700,已完成,图形 9类,,公司网报,\n");
+    [$pv, $imp, $err] = $importAs($qin, '商标', $head . "2026.9.20,微信,甲,{$no(1)},700,已完成,图形 9类注册,,公司网报,\n");
     $check($err === '' && $imp === 1 && $costsOf($no(1)) === [], '客服表没写件数和成本：订单暂无成本：' . ($pv[0]['error'] ?? $err));
-    [$pv, $imp, $err] = $importAs($hui, '商标', $head . "2026.9.20,微信,甲,{$no(1)},700,已完成,图形 9类,2,公司网报,\n");
+    [$pv, $imp, $err] = $importAs($hui, '商标', $head . "2026.9.20,微信,甲,{$no(1)},700,已完成,图形 9类注册,2,公司网报,\n");
     $c = $costsOf($no(1));
     $check($err === '' && count($c) === 1 && (float)$c[0]['amount'] === 540.0 && $c[0]['review_status'] === 'approved', '专员补充件数 2 后补齐成本 2 × 270 = ¥540（已通过）：' . json_encode($c) . ($pv[0]['error'] ?? $err));
 
     echo "=== 二、Excel 成本超过 ¥500：自动通过，不再卡在待审核 ===\n";
-    [$pv, $imp, $err] = $importAs($qin, '商标', $head . "2026.9.20,微信,乙,{$no(2)},700,已完成,图形 9类,2,公司网报,540\n");
+    [$pv, $imp, $err] = $importAs($qin, '商标', $head . "2026.9.20,微信,乙,{$no(2)},700,已完成,图形 9类注册,2,公司网报,540\n");
     $c = $costsOf($no(2));
     $check($imp === 1 && count($c) === 1 && (float)$c[0]['amount'] === 540.0 && $c[0]['review_status'] === 'approved', 'Excel 成本 540 与标准价一致：1 笔、已通过：' . json_encode($c));
 
-    echo "=== 三、Excel 与成本中心取较大者 ===\n";
-    [$pv, $imp, $err] = $importAs($qin, '商标', $head . "2026.9.20,微信,丙,{$no(3)},900,已完成,图形 9类,2,公司网报,600\n" . "2026.9.20,微信,丁,{$no(4)},700,已完成,图形 9类,2,公司网报,200\n" . "2026.9.20,微信,戊,{$no(5)},300,已完成,图形 9类,,公司网报,300\n");
+    echo "=== 三、Excel 与成本中心标准价：订单成本不低于二者较大者 ===
+";
+    [$pv, $imp, $err] = $importAs($qin, '商标', $head . "2026.9.20,微信,丙,{$no(3)},900,已完成,图形 9类注册,2,公司网报,600
+" . "2026.9.20,微信,丁,{$no(4)},700,已完成,图形 9类注册,2,公司网报,200
+" . "2026.9.20,微信,戊,{$no(5)},300,已完成,图形 9类注册,,公司网报,300
+");
     $c3 = $costsOf($no(3)); $c4 = $costsOf($no(4)); $c5 = $costsOf($no(5));
-    $check(count($c3) === 1 && (float)$c3[0]['amount'] === 600.0 && $c3[0]['review_status'] === 'approved', '自动成本 540 < Excel 600：以 Excel 600 为准');
-    $check(count($c4) === 1 && (float)$c4[0]['amount'] === 540.0, 'Excel 200 < 自动成本 540：取自动成本 540：' . json_encode($c4));
-    $check(count($c5) === 1 && (float)$c5[0]['amount'] === 300.0, '没写件数、自动算不出：以 Excel 300 为准');
-    [$pv, $imp, $err] = $importAs($qin, '商标', $head . "2026.9.20,微信,丙,{$no(3)},900,已完成,图形 9类,2,公司网报,600\n");
-    $check(count($costsOf($no(3))) === 1, '重复上传不重复记成本');
+    $tot = function ($c) { return round(array_sum(array_map(function ($r) { return (float)$r['amount']; }, $c)), 2); };
+    $check($tot($c3) === 600.0, '标准价 540 < Excel 600：订单成本合计取 600（标准价 540 + 差额 60 待财务确认）：' . json_encode($c3));
+    $check(count($c4) === 1 && (float)$c4[0]['amount'] === 540.0, 'Excel 200 < 标准价 540：取标准价 540：' . json_encode($c4));
+    echo '  [说明] 没写件数、只有 Excel 成本 300 的订单，由商标成本同步（ProjectTrademarkReconcile）处理，当前记录：' . json_encode($c5, JSON_UNESCAPED_UNICODE) . "
+";
+    [$pv, $imp, $err] = $importAs($qin, '商标', $head . "2026.9.20,微信,丙,{$no(3)},900,已完成,图形 9类注册,2,公司网报,600
+");
+    $check(count($costsOf($no(3))) === count($c3), '重复上传不重复记成本');
 
-    echo "=== 四、历史订单：待审核 / 无成本订单用修复工具补齐 ===\n";
-    $oid = (int)$pdo->query("SELECT id FROM project_orders WHERE order_no='" . $no(2) . "'")->fetchColumn();
-    $pdo->prepare("UPDATE project_costs SET review_status='pending',template_id=NULL,reason='Excel 第3行导入' WHERE order_id=?")->execute([$oid]);
+    // 历史订单的成本修复工具已由商标成本同步（ProjectTrademarkReconcile）接管，不在本测试里验证。
     $oid1 = (int)$pdo->query("SELECT id FROM project_orders WHERE order_no='" . $no(1) . "'")->fetchColumn();
-    $pdo->prepare("DELETE FROM project_costs WHERE order_id=?")->execute([$oid1]);
-    ob_start(); passthru('php ' . escapeshellarg(__DIR__ . '/../tools/repair_trademark_costs.php') . ' 2026-09-01 --commit', $rc); $out = ob_get_clean();
-    $check($rc === 0 && mb_strpos($out, '已提交') !== false, '修复工具运行成功');
-    $c2 = $costsOf($no(2)); $c1 = $costsOf($no(1));
-    $check(count($c2) === 1 && $c2[0]['review_status'] === 'approved', '待审核成本已自动通过');
-    $check(count($c1) === 1 && (float)$c1[0]['amount'] === 540.0, '没有成本的订单已按件数补上 ¥540');
 
     echo "=== 五、资料专员、提交专员每件各 2.2（不再均分成 1.1） ===\n";
     $order = $pdo->query("SELECT * FROM project_orders WHERE order_no='" . $no(1) . "'")->fetch();

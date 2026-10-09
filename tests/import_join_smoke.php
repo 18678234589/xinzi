@@ -125,9 +125,9 @@ try {
     $flow->execute([$pA, 300]); $flow->execute([$pB, 400]);
     $head7 = "日期,店铺,付款昵称,订单编号,售价,状态,商标名称,商标个数\n";
     [$pv, $imp, $err] = $importAs($qin, '商标', $head7
-        . "2026.9.9,美呀美,nickG,$pA,300,已完成,图 9类,1\n"
-        . "2026.9.9,美呀美,nickG,$pB,450,已完成,图 9类,1\n"
-        . "2026.9.9,美呀美,nickG,$pC,350,已完成,图 9类,1\n");
+        . "2026.9.9,美呀美,nickG,$pA,300,已完成,图 9类注册,1\n"
+        . "2026.9.9,美呀美,nickG,$pB,450,已完成,图 9类注册,1\n"
+        . "2026.9.9,美呀美,nickG,$pC,350,已完成,图 9类注册,1\n");
     $by = []; foreach ($pv as $r) $by[$r['order_no']] = $r;
     $check(!empty($by[$pA]['base_valid']) && ($by[$pA]['price_verdict'] ?? '') === 'adopt_sheet', '流水价 300 = 表格价：系统原价 100 将更正为 300');
     $check(!empty($by[$pB]['base_valid']) && ($by[$pB]['price_verdict'] ?? '') === 'keep_system', '流水价 400 = 系统价：沿用系统价，表格价 450 只提示');

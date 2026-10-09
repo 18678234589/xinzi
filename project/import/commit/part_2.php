@@ -70,6 +70,8 @@
     ], 'payment_nickname' => $row['payment_nickname'], 'payment_reference' => $row['payment_reference'] ?? ''], $actor, true, true);
                             if ($changed) ps_audit('order', $orderId, 'import_customer_intake', $actor, ['line' => $row['line'], 'fields' => $changed]);
                         }
+                        // 重新上传覆盖：表格里写了且与系统不同的店铺 / 订单日期 / 付款昵称，以本次表格为准更新（未审核订单；售价、成本、件数另有规则）
+                        poj_overwrite_basics($orderId, $row, $actor);
                         if ($row['details']) {
                             $q = $pdo->prepare('SELECT details_json FROM project_order_details WHERE order_id=? FOR UPDATE');
                             $q->execute([$orderId]);
@@ -77,8 +79,16 @@
                             $pricingDetailsBefore = $details;
                             if ($selectedBusiness === '商标') ptc_merge_import_details($orderId, $details, $row['details'], $actor);
                             $detailsChanged = $pricingDetailsBefore !== $details;
-                            foreach ($row['details'] as $key => $value) if ($value !== '' && trim((string)($details[$key] ?? '')) === '') { $details[$key] = $value; $detailsChanged
-    = true; }
+                            // 空的补上；已有且与表格不同的描述性字段（商标名称、办理事项 / 网报类型、小程序名称等）以本次表格为准覆盖；件数和计价字段另有规则
+                            $overwritten = [];
+                            foreach ($row['details'] as $key => $value) {
+                                $value = trim((string)$value);
+                                if ($value === '') continue;
+                                $current = trim((string)($details[$key] ?? ''));
+                                if ($current === '') { $details[$key] = $value; $detailsChanged = true; }
+                                elseif ($current !== $value && !in_array($key, ['trademark_count', 'trademark_service', 'trademark_extra_count'], true)) { $details[$key] = $value; $detailsChanged = true; $overwritten[$key] = [$current, $value]; }
+                            }
+                            if ($overwritten) ps_audit('order', $orderId, 'import_overwrite_details', $actor, ['line' => $row['line'], 'changes' => $overwritten]);
                             // 商标资料 / 提交专员按件计：以专员表的“商标个数”为准（客服表“数量”可能不同）
                             $tmCount = (string)($row['details']['trademark_count'] ?? '');
                             if ($selectedBusiness === '商标' && $actor['role'] === 'technical' && is_numeric($tmCount) && (string)($details['trademark_count'] ?? '') !== $tmCount

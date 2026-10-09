@@ -69,7 +69,7 @@ try {
     echo "=== 四、售价写成算式 640+260 ===\n";
     $n4 = "33170$tag" . '44444';
     $head4 = "日期,店铺,订单编号,售价,状态,商标名称,商标个数\n";
-    [$pv, $imp, $err] = $importAs($wang, '商标', $head4 . "2026.9.8,微信,$n4,640+260,已完成,图形 9类,1\n");
+    [$pv, $imp, $err] = $importAs($wang, '商标', $head4 . "2026.9.8,微信,$n4,640+260,已完成,图形 9类注册,1\n");
     $check($err === '' && $imp === 1 && ($pv[0]['contract_amount'] ?? '') === '900.00', '“640+260”按 ¥900 导入并提示：' . ($pv[0]['error'] ?? ($pv[0]['contract_amount'] ?? '')));
 
     echo "=== 五、店铺 / 付款昵称写法不同但售价一致：关联已有订单，不再拦截；售价不一致仍拦截 ===\n";
@@ -82,8 +82,8 @@ try {
     }
     $head5 = "日期,店铺,付款昵称,订单编号,售价,状态,商标名称,商标个数\n";
     [$pv, $imp, $err] = $importAs($qin, '商标', $head5
-        . "2026.9.9,美呀美,wujunrong885  老客户Angel,$n5,300,已完成,图 9类,1\n"
-        . "2026.9.9,美呀美,wujunrong885,$n6,450,已完成,图 9类,1\n");
+        . "2026.9.9,美呀美,wujunrong885  老客户Angel,$n5,300,已完成,图 9类注册,1\n"
+        . "2026.9.9,美呀美,wujunrong885,$n6,450,已完成,图 9类注册,1\n");
     $byNo = []; foreach ($pv as $r) $byNo[$r['order_no']] = $r;
     $check(!empty($byNo[$n5]['base_valid']) && mb_strpos((string)($byNo[$n5]['warning'] ?? ''), '写法不同') !== false, '店铺不同 + 昵称包含、售价一致：可关联，给出提示');
     $check(empty($byNo[$n6]['base_valid']) && mb_strpos((string)$byNo[$n6]['error'], '售价') !== false, '售价 450 对 400：仍拦截');

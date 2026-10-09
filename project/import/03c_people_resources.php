@@ -43,6 +43,14 @@
                             $selfGroup = $actor['role'] === 'technical' ? 'technical' : 'customer_service';
                             // 没有填写本组人员时可由上传人接单；若表格明确写了别人，不能擅自把订单据为己有。
                             $groupHasNamedPerson = $selfGroup === 'technical' ? (bool)($front || $back) : (bool)$cs;
+                            // 商标：资料专员、提交专员各管一个岗位。表里只写了另一个岗位的人（如只写了资料专员），本岗位没人时上传人按自己的岗位加入，不再被当成“别人的订单”
+                            $selfRoleKey = '';
+                            if ($groupHasNamedPerson && $selectedBusiness === '商标' && $selfGroup === 'technical') {
+                                $selfTrademarkRole = ps_employee_default_role($selfId, '商标', 'technical');
+                                if ($selfTrademarkRole === $peopleLabels['backend'] && !$back) $selfRoleKey = 'backend';
+                                elseif ($selfTrademarkRole === $peopleLabels['frontend'] && !$front) $selfRoleKey = 'frontend';
+                                if ($selfRoleKey !== '') { $groupHasNamedPerson = false; $record['warning'] .= ($record['warning'] ? '；' : '') . '表格只写了另一岗位的专员，本人按“' . $selfTrademarkRole . '”加入此订单'; }
+                            }
                             if (!$groupHasNamedPerson) {
                                 $record['people'][$selfGroup][$selfId] = ['id' => $selfId, 'role' => ps_employee_default_role($selfId, $selectedBusiness, $selfGroup) ?? ($selfGroup
     === 'technical' ? $peopleLabels['frontend'] : '客服'), 'name' => $actorName ?? '本人'];

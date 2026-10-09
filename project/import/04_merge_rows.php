@@ -45,7 +45,7 @@
                         $softConflicts = array_values(array_diff($softConflicts, ['售价']));
                     }
                 }
-                if (!$conflicts && $softConflicts) $mergedRow['warning'] = trim(($mergedRow['warning'] ?? '') . '；与原单的' . implode('、', $softConflicts) . '写法不同（售价一致，按同一笔订单关联，沿用原单的值）：' . ps_customer_intake_conflict_detail($mergedRow['existing_snapshot'], $mergedRow, $softConflicts), '；');
+                if (!$conflicts && $softConflicts) $mergedRow['warning'] = trim(($mergedRow['warning'] ?? '') . '；与原单的' . implode('、', $softConflicts) . '写法不同（售价一致，按同一笔订单关联，导入后以本次表格为准更新）：' . ps_customer_intake_conflict_detail($mergedRow['existing_snapshot'], $mergedRow, $softConflicts), '；');
                 if ($conflicts) { $mergedRow['base_valid'] = false; $mergedRow['status'] = '需处理'; $mergedRow['error'] = '原单与上传表的' . implode('、', $conflicts) .
     '不一致，请由财务核对'; $mergedRow['conflict_detail'] = ps_customer_intake_conflict_detail($mergedRow['existing_snapshot'], $mergedRow, $conflicts) . ($sameAsPrev &&
     (in_array('店铺', $conflicts, true) || in_array('付款昵称', $conflicts, true)) ? '。这一行的店铺、付款昵称与上一行完全相同，可能是整列下拉填充时带下来的，请对照备注列核对'
