@@ -69,9 +69,9 @@
     <td class="small"><?php echo e($order['people'] ?: '—'); ?></td>
     <td class="text-right"><?php echo $order['price_source'] === 'missing' ? '<span class="text-muted">待补</span>' : '¥' . money($order['contract_amount']); ?></td>
     <td class="text-right">¥<?php echo money((float)$order['receipt_amount'] - (float)$order['refund_amount']); ?></td>
-    <td class="text-right">¥<?php echo money($order['approved_costs']); ?></td>
+    <td class="text-right"><?php $costDisplay = $costDisplayStates[(int)$order['id']] ?? ['show_amount'=>true,'label'=>'','message'=>'','block_estimate'=>false]; if ($costDisplay['show_amount']): ?>¥<?php echo money($order['approved_costs']); ?><?php endif; ?><?php if ($costDisplay['label'] !== ''): ?><div class="small text-muted" title="<?php echo e($costDisplay['message']); ?>"><?php echo e($costDisplay['label']); ?></div><?php endif; ?></td>
     <td class="text-right small text-nowrap"><?php foreach ($commissionCells[(int)$order['id']] ?? [] as $cell): ?><div><span class="text-muted"><?php echo e($cell['name']); ?></span> <?php
-    if ($cell['amount'] === null): ?><span class="text-muted">待配置</span><?php else: ?><a href="#" class="calc-open" title="点击查看计算过程" data-order="<?php echo (int)
+    if ($costDisplay['block_estimate']): ?><span class="text-muted" title="<?php echo e($costDisplay['message']); ?>">待核对</span><?php elseif ($cell['amount'] === null): ?><span class="text-muted">待配置</span><?php else: ?><a href="#" class="calc-open" title="点击查看计算过程" data-order="<?php echo (int)
     $order['id']; ?>" data-employee="<?php echo (int)$cell['employee_id']; ?>" data-group="<?php echo e($cell['group']); ?>"><?php echo $cell['estimated'] ? '预计 ' : ''; ?>¥<?php
     echo money($cell['amount']); ?></a><?php endif; ?></div><?php endforeach; ?><?php if (empty($commissionCells[(int)$order['id']])): ?><span class="text-muted">—</span><?php endif
     ; ?></td>

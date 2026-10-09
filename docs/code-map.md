@@ -263,6 +263,11 @@
 - 加载：`require_once __DIR__ . '/ProjectSettlement.php';`
 - 加载：`require_once __DIR__ . '/ProjectMiniappTemplate.php';`
 
+## includes/ProjectCostDisplay.php (32 行, 1.3 KB)
+
+- `ps_cost_display_state` L5–31
+- 加载：`require_once __DIR__ . '/ProjectTrademarkCost.php';`
+
 ## includes/ProjectCostRequests.php (228 行, 13.2 KB)
 
 - `pcr_ensure` L14–48
@@ -559,8 +564,9 @@
 - 加载：`require_once __DIR__ . '/ProjectBusiness.php';`
 - 加载：`require_once __DIR__ . '/ProjectOrderSource.php';`
 
-## includes/ProjectOrderList.php (139 行, 10.7 KB)
+## includes/ProjectOrderList.php (144 行, 11.1 KB)
 
+- 加载：`require_once __DIR__ . '/ProjectCostDisplay.php';`
 
 ## includes/ProjectOrderNo.php (51 行, 2.9 KB)
 
@@ -2274,7 +2280,7 @@
 - 加载：`include (dirname((dirname(__DIR__, 1)), 1)) . '/../includes/rule_algo_card.php';`
 - 加载：`include (dirname((dirname(__DIR__, 1)), 1)) . '/index/view/js_1.php';`
 
-## project/index/view/section_3.php (120 行, 15.3 KB)
+## project/index/view/section_3.php (120 行, 15.9 KB)
 
 - 加载：`include (dirname((dirname(__DIR__, 1)), 1)) . '/index/view/js_2.php';`
 - 加载：`include (dirname((dirname(__DIR__, 1)), 1)) . '/../assets/js/project_index_3.js';`
@@ -3236,10 +3242,11 @@
 - 加载：`require __DIR__.'/../migrations/apply_management_accounts.php';`
 - 加载：`include __DIR__.'/../project/import.php';`
 
-## tests/trademark_pricing_smoke.php (105 行, 10.9 KB)
+## tests/trademark_pricing_smoke.php (122 行, 12.9 KB)
 
 - 加载：`require_once __DIR__ . '/../includes/ProjectTrademarkCost.php';`
 - 加载：`require_once __DIR__ . '/../includes/ProjectOrderSource.php';`
+- 加载：`require_once __DIR__ . '/../includes/ProjectCostDisplay.php';`
 - 加载：`require_once __DIR__ . '/require_isolated_database.php';`
 - 加载：`include __DIR__.'/../project/order/actions/cost/review_cost.php';`
 - 加载：`include __DIR__.'/../project/order/actions/cost/review_cost.php';`

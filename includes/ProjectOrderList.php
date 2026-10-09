@@ -107,18 +107,23 @@ if ($approvedIds) {
     foreach ($snapQuery->fetchAll() as $snap) $snapshotMap[$snap['order_id'] . ':' . $snap['commission_group'] . ':' . $snap['employee_id']] = round((float)$snap['commission_amount'
     ] + (float)$snap['subsidy_amount'], 2);
 }
+require_once __DIR__ . '/ProjectCostDisplay.php';
+$costDisplayStates = [];
 foreach ($pageOrders as $row) {
     $cells = [];
     try {
         $rowPeople = ps_participants((int)$row['id']);
         $isApproved = in_array($row['settlement_status'], ['approved', 'locked'], true);
-        $rowSum = $isApproved ? null : ps_summary($row, ps_costs((int)$row['id']), $rowPeople);
+        $rowCosts = $isApproved ? [] : ps_costs((int)$row['id']);
+        $costDisplayStates[(int)$row['id']] = ps_cost_display_state($row, $rowCosts);
+        $rowSum = $isApproved ? null : ps_summary($row, $rowCosts, $rowPeople);
         foreach ($rowPeople as $rp) {
             if ($actor['role'] !== 'finance' && !ps_is_management($actor) && (int)$rp['employee_id'] !== (int)$actor['employee_id']) continue;
             $amount = null;
             if ($isApproved) $amount = $snapshotMap[$row['id'] . ':' . $rp['commission_group'] . ':' . $rp['employee_id']] ?? null;
             else foreach ($rowSum['groups'][$rp['commission_group']]['people'] ?? [] as $sp) if ((int)$sp['employee_id'] === (int)$rp['employee_id'] && $sp['estimated_calc']) $amount
     = round($sp['estimated_calc']['share'] + $sp['estimated_calc']['subsidy'], 2);
+            if ($costDisplayStates[(int)$row['id']]['block_estimate']) $amount = null;
             $cells[] = ['name' => $rp['name'], 'group' => $rp['commission_group'], 'employee_id' => (int)$rp['employee_id'], 'amount' => $amount, 'estimated' => !$isApproved];
         }
     } catch (Throwable $e) { $cells = []; }

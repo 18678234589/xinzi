@@ -2,6 +2,7 @@
 if (PHP_SAPI !== 'cli') { http_response_code(403); exit; }
 require_once __DIR__ . '/../includes/ProjectTrademarkCost.php';
 require_once __DIR__ . '/../includes/ProjectOrderSource.php';
+require_once __DIR__ . '/../includes/ProjectCostDisplay.php';
 require_once __DIR__ . '/require_isolated_database.php';
 $pdo = db(); require_isolated_test_database($pdo);
 if (DB_HOST !== '127.0.0.1' || (string)DB_PORT !== '13399') throw new RuntimeException('只允许本地隔离库');
@@ -65,12 +66,28 @@ try {
         $costs=array_values(array_filter(ps_costs($id),function($c){return $c['review_status']!=='rejected';}));
         $check(count($costs)===1 && (float)$costs[0]['amount']==$amount && (float)$costs[0]['unit_price']==$price && (float)$costs[0]['quantity']==$count && (int)$costs[0]['template_id']===(int)ptc_find_service($templates,$name)['id'], "$name 金额、单价、数量与成本模板一致");
         ptc_approval_guard($id,$costs);
+        $display=ps_cost_display_state(['id'=>$id,'project_type'=>'商标','settlement_status'=>'draft'],$costs);
+        $check($display['show_amount']&&!$display['block_estimate']&&$display['label']==='',"$name 已核实成本正常显示，零成本不误报缺失");
         $check(ptc_sync_order_cost($id,$actor,'重复上传')==='ok', "$name 重复同步不重复或回退成本");
         $pdo->prepare("UPDATE project_orders SET settlement_status='approved' WHERE id=?")->execute([$id]);
         $check(ptc_sync_order_cost($id,$actor,'成本修复')==='skip', "$name 已审核结算不改写");
     }
     $id=$makeOrder('网报',2);
     $check(ptc_sync_order_cost($id,$actor,'成本修复')==='unresolved','历史事项不明的错误成本不会继续默认注册');
+    $display=ps_cost_display_state(['id'=>$id,'project_type'=>'商标','settlement_status'=>'draft'],ps_costs($id));
+    $check($display['block_estimate']&&$display['label']==='待核对','事项不明的成本不再显示可信预计分成');
+    $id=$makeOrder('注册',1);
+    $pdo->prepare('UPDATE project_order_details SET details_json=? WHERE order_id=?')->execute([json_encode(['trademark_service'=>'注册','trademark_count'=>'']),$id]);
+    $pdo->prepare('DELETE FROM project_costs WHERE order_id=?')->execute([$id]);
+    $display=ps_cost_display_state(['id'=>$id,'project_type'=>'商标','settlement_status'=>'draft'],[]);
+    $check(!$display['show_amount']&&$display['block_estimate']&&$display['label']==='待核对'&&strpos($display['message'],'件数')!==false,'缺件数的订单显示成本待核对，不把缺失当零成本');
+    $display=ps_cost_display_state(['id'=>$id,'project_type'=>'小程序开发','settlement_status'=>'draft'],[]);
+    $check(!$display['show_amount']&&$display['label']==='未录入'&&!$display['block_estimate'],'小程序无成本记录显示未录入，不虚构成本或修改计价规则');
+    $display=ps_cost_display_state(['id'=>$id,'project_type'=>'商标','settlement_status'=>'locked'],[]);
+    $check($display['show_amount']&&!$display['block_estimate'],'已锁定结算保留原已审核展示');
+    $id=$makeOrder('注册',2);
+    $display=ps_cost_display_state(['id'=>$id,'project_type'=>'商标','settlement_status'=>'draft','contract_amount'=>320],ps_costs($id));
+    $check($display['show_amount']&&!$display['block_estimate']&&(float)ps_costs($id)[0]['amount']===540.0,'售价320的两件注册保留真实成本540，不擅自压低成本');
     $id=$makeOrder('续展',2);
     $pdo->prepare("UPDATE project_costs SET reason='财务人工录入' WHERE order_id=?")->execute([$id]);
     $check(ptc_sync_order_cost($id,$actor,'成本修复')==='manual','人工成本保留，由财务核对');
