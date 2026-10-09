@@ -877,16 +877,16 @@
 - 加载：`require_once __DIR__ . '/ProjectTrademarkPricing.php';`
 - 加载：`require_once __DIR__ . '/ProjectTrademarkReconcile.php';`
 
-## includes/ProjectTrademarkPricing.php (192 行, 15.9 KB)
+## includes/ProjectTrademarkPricing.php (195 行, 16.3 KB)
 
 - `ptc_service_names` L3–30
 - `ptc_find_service` L32–39
 - `ptc_mixed_plan` L42–71
-- `ptc_cost_plan` L74–122
-- `ptc_order_pricing_data` L125–131
-- `ptc_import_check` L133–158
-- `ptc_merge_import_details` L160–167
-- `ptc_approval_guard` L170–191
+- `ptc_cost_plan` L74–125
+- `ptc_order_pricing_data` L128–134
+- `ptc_import_check` L136–161
+- `ptc_merge_import_details` L163–170
+- `ptc_approval_guard` L173–194
 
 ## includes/ProjectTrademarkReconcile.php (89 行, 6.7 KB)
 
@@ -3236,7 +3236,7 @@
 - 加载：`require __DIR__.'/../migrations/apply_management_accounts.php';`
 - 加载：`include __DIR__.'/../project/import.php';`
 
-## tests/trademark_pricing_smoke.php (84 行, 8.3 KB)
+## tests/trademark_pricing_smoke.php (85 行, 8.5 KB)
 
 - 加载：`require_once __DIR__ . '/../includes/ProjectTrademarkCost.php';`
 - 加载：`require_once __DIR__ . '/../includes/ProjectOrderSource.php';`

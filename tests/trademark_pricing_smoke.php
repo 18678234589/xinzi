@@ -33,6 +33,7 @@ try {
         $check($p['status']==='ready'&&$p['total']===(float)$expected[1],'混合事项逐项计价 '.$mix.' = '.$expected[1]);
     }
     $check(ptc_cost_plan($templates,['trademark_service'=>'注册2变更6','trademark_count'=>'2'])['status']==='unresolved','混合事项数量不一致不能落账');
+    $check(ptc_cost_plan($templates,['service_type'=>'注册2超期续展3','trademark_count'=>'5'],'公司注册、续展')['total']===2565.0,'明确的超期续展不受备注泛称续展影响，混合成本2565');
     $check(ptc_cost_plan($templates,['trademark_service'=>'注册1.5转让2.5','trademark_count'=>'3'])['status']==='unresolved','混合事项不截断小数件数');
     $check(ptc_cost_plan($templates,['trademark_service'=>'续展','trademark_count'=>'2'],'已过期续展')['total']===1350.0,'续展事项另有过期备注时不能漏收宽展费');
     $check(ptc_cost_plan($templates,['trademark_service'=>'注册','trademark_count'=>'1'],'许可备案')['status']==='unresolved','事项与备注矛盾不静默按低价注册');

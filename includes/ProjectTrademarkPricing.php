@@ -74,17 +74,20 @@ function ptc_mixed_plan(array $templates, array $details, $text, array $names, $
 function ptc_cost_plan(array $templates, array $details, $context = '', $excelCost = null)
 {
     $explicit = trim((string)($details['trademark_service'] ?? ''));
+    $primary = $explicit !== '' ? $explicit : (ptc_service_names($details['service_type']??'') ? (string)$details['service_type'] : '');
     $contextNames = ptc_service_names(($details['service_type'] ?? '') . ' ' . $context);
-    $names = ptc_service_names($explicit !== '' ? $explicit : implode(' ', [
+    $names = ptc_service_names($primary !== '' ? $primary : implode(' ', [
         $details['service_type'] ?? '', $context, $details['trademark_name'] ?? ''
     ]));
     $fail = function ($message) { return ['status' => 'unresolved', 'lines' => [], 'message' => $message]; };
-    if ($explicit !== '' && $contextNames && array_diff($contextNames, $names)) {
+    // 泛称“续展”的备注涵盖超期续展；只有明确另外列出普通续展数量时才算另一项。
+    if (in_array('超期续展',$names,true) && !in_array('续展',$names,true) && !preg_match('/(?<!超期)(?<!逾期)(?<!过期)(?<!宽展)续展\s*\d/u',($details['service_type']??'').' '.$context)) $contextNames=array_values(array_diff($contextNames,['续展']));
+    if ($primary !== '' && $contextNames && array_diff($contextNames, $names)) {
         if (count($names) === 1 && count($contextNames) === 1 && !array_diff(array_merge($names, $contextNames), ['续展', '超期续展'])) $names = ['超期续展'];
         else return $fail('办理事项与网报类型/备注中的事项不一致，请核对后选择真实事项，不能套用较低成本');
     }
     if (count($names) > 1) {
-        $breakdown = $explicit !== '' ? $explicit : (count(ptc_service_names($details['service_type']??''))===count($names)?($details['service_type']??''):$context);
+        $breakdown = $primary !== '' ? $primary : $context;
         return ptc_mixed_plan($templates,$details,$breakdown,$names,$excelCost);
     }
     if (!$names) return $fail('无法识别商标办理事项，请选择注册、转让、续展、超期续展等事项；网报方式不能用于确定官费');
