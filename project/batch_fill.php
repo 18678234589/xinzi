@@ -54,7 +54,7 @@ try{$orders=pbf_missing_orders($actor,$month,$keyword,$orderId);}catch(Throwable
 $page_title='批量补全订单资料';include __DIR__.'/../includes/header.php';
 $download=BASE_URL.'/project/batch_fill.php?'.http_build_query(['download'=>'json','month'=>$month,'q'=>$keyword,'order_id'=>$orderId?:null]);
 ?>
-<link rel="stylesheet" href="<?php echo BASE_URL; ?>/assets/css/batch_fill.css?v=20261008.1">
+<link rel="stylesheet" href="<?php echo BASE_URL; ?>/assets/css/batch_fill.css?v=20261008.2">
 <main class="pbf-page">
  <section class="pbf-hero"><div><span class="pbf-eyebrow">TOGETHER / 把资料接力好</span><h1>一次补齐，轻松交接</h1><p>客服先录单，技术接着补。共同参与的订单直接更新，同事打开同一单就能看到，不必重复录入。</p><div class="pbf-tags"><span>只补空白</span><span>重复上传自动跳过</span><span>金额与分成不改动</span></div></div><div class="pbf-hero-links"><a class="pbf-button pbf-secondary" href="<?php echo BASE_URL; ?>/project/index.php">项目订单</a><a class="pbf-button pbf-secondary" href="<?php echo BASE_URL; ?>/project/renewal_gaps.php">在线逐单补全</a></div></section>
  <?php if($error): ?><div class="alert alert-warning" role="alert"><?php echo e($error); ?></div><?php endif; ?>

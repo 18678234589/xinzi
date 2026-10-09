@@ -60,6 +60,10 @@ check('estimate fill plan',array_column($plan['changes'],'key'),['domain_expiry'
 $sheets=['订单资料补全'=>[['订单号','海外客户微信号'],['123','wx_test'],['示例123','ignore']],'填写说明'=>[['填写说明'],['不应导入']]];
 check('notes and examples ignored',count(pbf_parse_sheets($sheets)),1);
 reject('no header does not invent order',function(){pbf_parse_sheets(['x'=>[['说明'],['123','wx']]]);});
+$message='';try{pbf_parse_sheets(['订单资料补全'=>[['订单ID','订单号','海外客户微信号'],['1','123','']]]);}catch(RuntimeException $e){$message=$e->getMessage();}
+check('blank template feedback explains no changes',strpos($message,'资料列还是空白')!==false && strpos($message,'没有被改动')!==false,true);
+$message='';try{pbf_parse_sheets(['未知表'=>[['说明'],['123','wx']]]);}catch(RuntimeException $e){$message=$e->getMessage();}
+check('unknown template feedback offers correct template',strpos($message,'未识别到')!==false && strpos($message,'下载本页补全模板')!==false,true);
 $onlyWx=['status'=>'active','sms_enabled'=>1,'phone_hash'=>'','wechat_hash'=>'wx','resource_name'=>'example.com','expires_on'=>'2026-10-18'];
 check('wechat never SMS',pr_reminder_day($onlyWx,'2026-10-08'),null);
 echo "PASS $n batch/contact pure checks\n";

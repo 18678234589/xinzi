@@ -61,14 +61,14 @@ function pbf_parse_row(array $row,array $map)
 }
 function pbf_parse_sheets(array $sheets)
 {
-    $out=[];
+    $out=[];$hasHeader=false;
     foreach($sheets as $name=>$rows) {
         $map=null;
         foreach($rows as $line=>$row) {
             if(!is_array($row) || !array_filter($row,function($v){return trim((string)$v)!=='';})) continue;
             if($map===null) {
                 $candidate=pbf_map($row);
-                if(isset($candidate['order_no']) || isset($candidate['id'])) $map=$candidate;
+                if(isset($candidate['order_no']) || isset($candidate['id'])) {$map=$candidate;$hasHeader=true;}
                 continue;
             }
             if(ps_import_row_is_example($row)) continue;
@@ -78,7 +78,9 @@ function pbf_parse_sheets(array $sheets)
             if(count($out)>PBF_MAX_ROWS) throw new RuntimeException('每次最多补全 500 行，请拆分后再上传');
         }
     }
-    if(!$out) throw new RuntimeException('没有找到可补全的信息。请保留“订单ID”或“订单号”列，并填写至少一个资料字段');
+    if(!$out) throw new RuntimeException($hasHeader
+        ? '模板已识别，但资料列还是空白。请填写需要补全的手机号、微信号、域名或到期日后再上传；原有订单没有被改动。'
+        : '未识别到“订单ID”或“订单号”列。请下载本页补全模板，保留订单标识并填写待补资料后再上传。');
     return $out;
 }
 function pbf_scope($actor,&$params)
