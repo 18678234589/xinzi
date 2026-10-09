@@ -73,6 +73,15 @@ try {
     $check(!empty($pv[0]['base_valid']) && $imp === 1, '提交专员的表可导入已有订单：' . ($pv[0]['error'] ?? $err));
     $p->execute([$n4]); $roles = $p->fetchAll(PDO::FETCH_KEY_PAIR);
     $check(($roles['王庆美'] ?? '') === '资料专员' && ($roles['王慧资'] ?? '') === '提交专员', '已有订单上两个专员各占一个岗位：' . json_encode($roles, JSON_UNESCAPED_UNICODE));
+    echo "=== 五、客服本人更正自己写错的售价（草稿、无收款）→ 覆盖；有收款的不能改 ===\n";
+    $n5 = "OW$tag-5"; $n6 = "OW$tag-6"; $priceOf = function ($no) use ($pdo) { $q = $pdo->prepare('SELECT contract_amount FROM project_orders WHERE order_no=?'); $q->execute([$no]); return (float)$q->fetchColumn(); };
+    $importAs($qin, '商标', $csvOf('商标', [$row($n5), $row($n6)]));
+    [$pv, $imp, $err] = $importAs($qin, '商标', $csvOf('商标', [array_merge($row($n5), ['售价' => '560'])]));
+    $check(!empty($pv[0]['base_valid']) && $priceOf($n5) === 560.0, '售价 660 → 560：客服本人更正成功：' . ($pv[0]['error'] ?? $err));
+    $check(mb_strpos((string)$pv[0]['warning'], '售价将按本次表格更正') !== false, '预览里提示“售价将按本次表格更正”');
+    $pdo->prepare("UPDATE project_orders SET receipt_amount=100 WHERE order_no=?")->execute([$n6]);
+    [$pv, $imp, $err] = $importAs($qin, '商标', $csvOf('商标', [array_merge($row($n6), ['售价' => '560'])]));
+    $check(empty($pv[0]['base_valid']) && $priceOf($n6) === 660.0, '已有收款的订单：仍须财务核对，售价不变');
     echo "\n=== 重新上传覆盖测试全部通过 ===\n";
 } catch (Throwable $e) { fwrite(STDERR, $e->getMessage() . "\n"); exit(1); }
 finally { foreach ($stored as $s) @unlink(ps_private_dir('imports') . '/' . basename($s) . '.php'); }

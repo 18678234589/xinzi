@@ -107,16 +107,39 @@ function poj_technician_choices($business)
  *   unknown      没有流水或流水不支持任何一边：仍交财务核对。
  * 原单有分单 / 是分单子单时金额本就只是一部分，不裁决。
  */
-function poj_price_verdict($snapshot, $sheetPrice, $orderNo = '')
+/**
+ * 上传人本人更正自己写错的售价：客服（或财务）重传表格，订单还是草稿 / 待审、没有任何收款 / 退款 / 登记、售价来源是手工填写，
+ * 且上传人本人就是这张订单的客服时，表格里的新售价直接覆盖旧售价（技术表不能改客服的售价；已审核 / 已锁定的订单不动）。
+ */
+function poj_owner_can_correct_price($orderId, $actor)
+{
+    if (!$actor || !in_array($actor['role'] ?? '', ['customer_service', 'finance'], true)) return false;
+    $pdo = db();
+    $q = $pdo->prepare('SELECT o.settlement_status,o.receipt_amount,o.refund_amount,COALESCE(s.price_source,"manual") price_source FROM project_orders o LEFT JOIN project_order_sources s ON s.order_id=o.id WHERE o.id=?');
+    $q->execute([(int)$orderId]);
+    $o = $q->fetch();
+    if (!$o || in_array($o['settlement_status'], ['approved', 'locked'], true) || (float)$o['receipt_amount'] != 0.0 || (float)$o['refund_amount'] != 0.0 || !in_array($o['price_source'], ['manual', 'missing'], true)) return false;
+    $c = $pdo->prepare('SELECT COUNT(*) FROM project_cash_movements WHERE order_id=?');
+    $c->execute([(int)$orderId]);
+    if ((int)$c->fetchColumn() > 0) return false;
+    if (($actor['role'] ?? '') === 'finance') return true;
+    $p = $pdo->prepare("SELECT 1 FROM project_participants WHERE order_id=? AND employee_id=? AND commission_group='customer_service' LIMIT 1");
+    $p->execute([(int)$orderId, (int)($actor['employee_id'] ?? 0)]);
+    return (bool)$p->fetchColumn();
+}
+
+function poj_price_verdict($snapshot, $sheetPrice, $orderNo = '', $actor = null)
 {
     $sheet = poj_amount_value($sheetPrice);
     $system = round((float)($snapshot['contract_amount'] ?? 0), 2);
     if ($sheet === null || abs($sheet - $system) < 0.01) return ['verdict' => 'same', 'flow' => null];
     $orderId = (int)($snapshot['id'] ?? 0);
-    if ($orderId && (pos_parent_of($orderId) || pos_children_of($orderId))) return ['verdict' => 'unknown', 'flow' => null];
+    $ownerOk = $orderId && $actor && poj_owner_can_correct_price($orderId, $actor);
+    if ($orderId && (pos_parent_of($orderId) || pos_children_of($orderId))) return $ownerOk ? ['verdict' => 'owner_correct', 'flow' => null] : ['verdict' => 'unknown', 'flow' => null];
     $prices = [];
     foreach (ps_shop_order_lookup($orderNo !== '' ? (string)$orderNo : (string)($snapshot['order_no'] ?? '')) as $flow) if ($flow['price'] !== null && empty($flow['refund'])) $prices[] = round((float)$flow['price'], 2);
     $prices = array_values(array_unique($prices));
+    if (count($prices) === 0 && $ownerOk) return ['verdict' => 'owner_correct', 'flow' => null]; // 没有流水可核对：本人更正自己写错的售价
     if (count($prices) !== 1) return ['verdict' => 'unknown', 'flow' => null];
     $flowPrice = $prices[0];
     if (abs($flowPrice - $sheet) < 0.01 && (($snapshot['price_source'] ?? 'manual') !== 'shop')) return ['verdict' => 'adopt_sheet', 'flow' => $flowPrice];
@@ -133,7 +156,7 @@ function poj_apply_price($orderId, $newPrice, $flowPrice, $actor, $context = [])
     $order = $q->fetch();
     if (!$order || in_array($order['settlement_status'], ['approved', 'locked'], true)) return false;
     $pdo->prepare('UPDATE project_orders SET contract_amount=?,row_version=row_version+1 WHERE id=?')->execute([round((float)$newPrice, 2), (int)$orderId]);
-    ps_audit('order', (int)$orderId, 'import_price_arbitrated', $actor, ['from' => (float)$order['contract_amount'], 'to' => round((float)$newPrice, 2), 'shop_flow_price' => $flowPrice, 'basis' => '店铺流水价与表格价一致'] + $context);
+    ps_audit('order', (int)$orderId, 'import_price_arbitrated', $actor, array_merge(['from' => (float)$order['contract_amount'], 'to' => round((float)$newPrice, 2), 'shop_flow_price' => $flowPrice, 'basis' => '店铺流水价与表格价一致'], $context));
     return true;
 }
 

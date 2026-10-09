@@ -37,8 +37,14 @@
                 $conflicts = ps_customer_intake_blocking($conflicts);
                 // 售价不一致时用店铺流水价当裁判：流水价等于表格价则更正系统价，等于系统价则沿用系统价，都不必财务核对
                 if (in_array('售价', $conflicts, true)) {
-                    $priceVerdict = poj_price_verdict($mergedRow['existing_snapshot'], $mergedRow['contract_amount'] ?? '', (string)$mergedRow['order_no']);
-                    if (in_array($priceVerdict['verdict'], ['adopt_sheet', 'keep_system'], true)) {
+                    $priceVerdict = poj_price_verdict($mergedRow['existing_snapshot'], $mergedRow['contract_amount'] ?? '', (string)$mergedRow['order_no'], $actor);
+                    if ($priceVerdict['verdict'] === 'owner_correct') {
+                        // 本人更正自己写错的售价：草稿、没有收款、没有流水可反驳 → 以本次表格为准
+                        $mergedRow['price_verdict'] = 'owner_correct';
+                        $mergedRow['warning'] = trim(($mergedRow['warning'] ?? '') . '；售价将按本次表格更正：原 ¥' . number_format((float)$mergedRow['existing_snapshot']['contract_amount'], 2, '.', '') . ' → ¥' . $mergedRow['contract_amount'] . '（订单还是草稿、没有收款，由你本人更正）', '；');
+                        $conflicts = ps_customer_intake_blocking(array_values(array_diff($conflicts, ['售价'])));
+                        $softConflicts = array_values(array_diff($softConflicts, ['售价']));
+                    } elseif (in_array($priceVerdict['verdict'], ['adopt_sheet', 'keep_system'], true)) {
                         $mergedRow['price_verdict'] = $priceVerdict['verdict'];
                         $mergedRow['warning'] = trim(($mergedRow['warning'] ?? '') . '；售价以店铺流水价 ¥' . number_format((float)$priceVerdict['flow'], 2, '.', '') . ' 为准：' . ($priceVerdict['verdict'] === 'adopt_sheet' ? '系统原价 ¥' . number_format((float)$mergedRow['existing_snapshot']['contract_amount'], 2, '.', '') . ' 将更正为表格价' : '表格价 ¥' . $mergedRow['contract_amount'] . ' 与流水不符，沿用系统原价'), '；');
                         $conflicts = ps_customer_intake_blocking(array_values(array_diff($conflicts, ['售价'])));

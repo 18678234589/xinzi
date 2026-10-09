@@ -22,14 +22,14 @@
                         $commitConflicts = ps_customer_intake_blocking(ps_customer_intake_conflicts($existing, $row));
                         $priceVerdict = null;
                         if (in_array('售价', $commitConflicts, true)) { // 与预览同一套店铺流水裁决（防止预览后数据变化）
-                            $priceVerdict = poj_price_verdict(['id' => (int)$existing['id'], 'order_no' => $row['order_no'], 'contract_amount' => $existing['contract_amount'], 'price_source' => $existing['price_source']], $row['contract_amount'], $row['order_no']);
-                            if (in_array($priceVerdict['verdict'], ['adopt_sheet', 'keep_system'], true)) $commitConflicts = ps_customer_intake_blocking(array_values(array_diff($commitConflicts, ['售价'])));
+                            $priceVerdict = poj_price_verdict(['id' => (int)$existing['id'], 'order_no' => $row['order_no'], 'contract_amount' => $existing['contract_amount'], 'price_source' => $existing['price_source']], $row['contract_amount'], $row['order_no'], $actor);
+                            if (in_array($priceVerdict['verdict'], ['adopt_sheet', 'keep_system', 'owner_correct'], true)) $commitConflicts = ps_customer_intake_blocking(array_values(array_diff($commitConflicts, ['售价'])));
                             else $priceVerdict = null;
                         }
                         if (array_intersect($commitConflicts, $selectedBusiness === '商标' && $actor['role'] === 'technical' ? ['售价'] : ['店铺'
     , '售价', '付款昵称', '支付流水号'])) throw new RuntimeException('第 ' . $row['line'] . ' 行买家资料与原单不一致，请重新核对');
                         $orderId = (int)$existing['id'];
-                        if ($priceVerdict && $priceVerdict['verdict'] === 'adopt_sheet' && poj_apply_price($orderId, $row['contract_amount'], $priceVerdict['flow'], $actor, ['line' => $row['line']])) $existing['contract_amount'] = $row['contract_amount'];
+                        if ($priceVerdict && in_array($priceVerdict['verdict'], ['adopt_sheet', 'owner_correct'], true) && poj_apply_price($orderId, $row['contract_amount'], $priceVerdict['flow'], $actor, ['line' => $row['line']] + ($priceVerdict['verdict'] === 'owner_correct' ? ['basis' => '上传人本人更正自己写错的售价（草稿、无收款、无流水）'] : []))) $existing['contract_amount'] = $row['contract_amount'];
                         // 同号二次上传只补缺失的分成组；已有技术或客服不改人、不改权重。
                         $missing = [];
                         foreach (['technical', 'customer_service'] as $groupKey) if ($row['people'][$groupKey] && !ps_import_group_taken($orderId, $groupKey)) $missing[$groupKey] =
