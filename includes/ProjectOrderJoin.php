@@ -196,3 +196,40 @@ function poj_overwrite_basics($orderId, array $row, $actor)
     ps_audit('order', (int)$orderId, 'import_overwrite_basics', $actor, ['line' => $row['line'] ?? null, 'changes' => $changes]);
     return $changes;
 }
+
+/**
+ * 财务重传表格更正参与人：表格里某个分成组写了人、且与订单上现有的人不同，就把该组换成表格里的人（等权，保留岗位名）。
+ * 只对财务开放；已审核 / 锁定、或已生成分成快照的订单不动；表格里该组留空则不改。返回被替换的组 [组 => [旧姓名, 新姓名]]。
+ */
+function poj_replace_groups_from_sheet($orderId, array $people, $actor, $business, $line = null)
+{
+    if (($actor['role'] ?? '') !== 'finance') return [];
+    $pdo = db();
+    $q = $pdo->prepare('SELECT settlement_status FROM project_orders WHERE id=? FOR UPDATE');
+    $q->execute([(int)$orderId]);
+    $status = $q->fetchColumn();
+    if (!$status || in_array($status, ['approved', 'locked'], true)) return [];
+    $snap = $pdo->prepare('SELECT COUNT(*) FROM project_commission_snapshots WHERE order_id=?');
+    $snap->execute([(int)$orderId]);
+    if ((int)$snap->fetchColumn() > 0) return [];
+    $done = [];
+    foreach (['technical', 'customer_service'] as $group) {
+        $incoming = array_values($people[$group] ?? []);
+        if (!$incoming) continue;
+        $cur = $pdo->prepare('SELECT p.employee_id,e.name FROM project_participants p JOIN employees e ON e.id=p.employee_id WHERE p.order_id=? AND p.commission_group=? ORDER BY p.id');
+        $cur->execute([(int)$orderId, $group]);
+        $current = $cur->fetchAll();
+        if (!$current) continue; // 原来没人的组由“补缺失分成组”处理
+        $curIds = array_map('intval', array_column($current, 'employee_id')); sort($curIds);
+        $newIds = array_map(function ($p) { return (int)$p['id']; }, $incoming); sort($newIds);
+        if ($curIds === $newIds) continue;
+        $pdo->prepare('DELETE FROM project_participants WHERE order_id=? AND commission_group=?')->execute([(int)$orderId, $group]);
+        ps_intake_participants((int)$orderId, [$group => $incoming], $business);
+        $done[$group] = [implode('、', array_column($current, 'name')), implode('、', array_column($incoming, 'name'))];
+    }
+    if ($done) {
+        $pdo->prepare('UPDATE project_orders SET row_version=row_version+1 WHERE id=?')->execute([(int)$orderId]);
+        ps_audit('order', (int)$orderId, 'import_replace_participants', $actor, ['line' => $line, 'changes' => $done]);
+    }
+    return $done;
+}

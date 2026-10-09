@@ -36,6 +36,8 @@
     array_values($row['people'][$groupKey]);
                         if ($missing) { ps_intake_participants($orderId, $missing, $row['project_type'] ?? $selectedBusiness); ps_audit('order', $orderId, 'import_add_participants'
     , $actor, ['line' => $row['line'], 'groups' => array_keys($missing)]); }
+                        // 财务重传表格更正参与人：表格里某组写了人且与现有不同，该组换成表格里的人（已审核 / 有分成快照的订单不动，记审计）
+                        if ($actor['role'] === 'finance' && !$departmentMode) poj_replace_groups_from_sheet($orderId, $row['people'], $actor, $row['project_type'] ?? $selectedBusiness, $row['line']);
                         // 商标：技术组已有资料专员时，提交专员（或反之）上传同一单按岗位加入
                         if ($selectedBusiness === '商标' && !isset($missing['technical']) && $actor['role'] === 'technical' && isset($row['people']['technical'][(int)$actor['employee_id'
     ]])) {

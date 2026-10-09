@@ -82,6 +82,28 @@ try {
     $pdo->prepare("UPDATE project_orders SET receipt_amount=100 WHERE order_no=?")->execute([$n6]);
     [$pv, $imp, $err] = $importAs($qin, '商标', $csvOf('商标', [array_merge($row($n6), ['售价' => '560'])]));
     $check(empty($pv[0]['base_valid']) && $priceOf($n6) === 660.0, '已有收款的订单：仍须财务核对，售价不变');
+    echo "=== 六、财务重传表格：更正客服 / 商标件数；其他人上传不能改人 ===\n";
+    $n7 = "OW$tag-7"; $yu = $actorOf('于娜');
+    $importAs($qin, '商标', $csvOf('商标', [$row($n7)]));
+    $adminId = (int)$pdo->query('SELECT MIN(id) FROM admins')->fetchColumn();
+    $asFinance = function ($csv) use ($upload, $run, $pdo, $adminId) {
+        $fin = ['id' => 0, 'employee_id' => 0, 'role' => 'finance'];
+        $fileId = $upload($fin, '商标', $csv);
+        $_SESSION = ['admin_id' => $adminId, 'project_csrf' => 'test-csrf']; $_SERVER['SCRIPT_NAME'] = '/project/import.php'; $_SERVER['REQUEST_METHOD'] = 'POST'; $_GET = [];
+        $_POST = ['csrf' => 'test-csrf', 'action' => 'repreview', 'business' => '商标', 'file_id' => $fileId, 'all_sheets' => 1, 'auto_import' => 1]; $_FILES = [];
+        ob_start(); include __DIR__ . '/../project/import.php'; ob_end_clean();
+        return [$_SESSION['project_import_preview'] ?? [], $GLOBALS['imported'] ?? 0, $GLOBALS['error'] ?? ''];
+    };
+    $csName = function ($no) use ($pdo) { $q = $pdo->prepare("SELECT e.name FROM project_participants p JOIN project_orders o ON o.id=p.order_id JOIN employees e ON e.id=p.employee_id WHERE o.order_no=? AND p.commission_group='customer_service'"); $q->execute([$no]); return $q->fetchAll(PDO::FETCH_COLUMN); };
+    $check($csName($n7) === ['秦婷婷'], '原单客服：秦婷婷');
+    [$pv, $imp, $err] = $asFinance($csvOf('商标', [array_merge($row($n7), ['客服' => '于娜', '商标个数' => '3'])]));
+    $check($csName($n7) === ['于娜'], '财务重传（客服=于娜）：客服更正为于娜：' . json_encode($csName($n7), JSON_UNESCAPED_UNICODE) . ($pv[0]['error'] ?? $err));
+    $o7 = $orderOf($n7); $check($o7['d']['trademark_count'] === '3', '财务重传的商标件数 3 覆盖原来的 2');
+    $a7 = $pdo->prepare("SELECT COUNT(*) FROM project_audit_logs WHERE action='import_replace_participants' AND entity_id=?"); $a7->execute([$o7['id']]);
+    $check((int)$a7->fetchColumn() === 1, '更换参与人记入审计');
+    unset($_SESSION['admin_id']); // 回到客服身份
+    $importAs($qin, '商标', $csvOf('商标', [array_merge($row($n7), ['客服' => '秦婷婷'])]));
+    $check($csName($n7) === ['于娜'], '客服自己重传不能改回参与人（仍是于娜）');
     echo "\n=== 重新上传覆盖测试全部通过 ===\n";
 } catch (Throwable $e) { fwrite(STDERR, $e->getMessage() . "\n"); exit(1); }
 finally { foreach ($stored as $s) @unlink(ps_private_dir('imports') . '/' . basename($s) . '.php'); }
