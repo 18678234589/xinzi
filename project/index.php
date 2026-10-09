@@ -88,7 +88,9 @@ if ($actor['role'] !== 'finance' && !empty($actor['employee_id'])) {
     $isAfterSalesDept = $deptQuery->fetchColumn() === '网站售后部';
 }
 $deleteAllowEmployeeIds = [55 => '栾鑫']; // 个人放行：运营经理部，同样只能删本人参与/代录的未审核单
-$canDeleteOrders = $actor['role'] === 'finance' || $isAfterSalesDept || (isset($deleteAllowEmployeeIds[(int)($actor['employee_id'] ?? 0)]));
+require_once __DIR__ . '/../includes/ProjectOrderDelete.php';
+$canDeleteOrders = $actor['role'] === 'finance' || $isAfterSalesDept || (isset($deleteAllowEmployeeIds[(int)($actor['employee_id'] ?? 0)])) || in_array($actor['role'], ['customer_service', 'technical'], true); // 客服 / 技术可删本人参与、未审核的订单（规则见 pod_blocker）
+$canSelectOrders = $canDeleteOrders || in_array($actor['role'], ['customer_service', 'technical', 'finance'], true);
 
 // 单个删除传错的订单：仅未审核（草稿 / 审核中）可删，连同实收流水、成本、参与人、分成快照一并清理。
 /* split: project/index/actions/delete.php */ include __DIR__ . '/index/actions/delete.php';

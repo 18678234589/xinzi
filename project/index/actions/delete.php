@@ -6,21 +6,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['delete_order_id'])) {
     $orderNo = '#' . $deleteId;
     try {
         db()->beginTransaction();
-        $q = db()->prepare('SELECT order_no, settlement_status FROM project_orders WHERE id=? FOR UPDATE');
+        $q = db()->prepare('SELECT id, order_no, project_type, order_date, settlement_status FROM project_orders WHERE id=? FOR UPDATE');
         $q->execute([$deleteId]);
         $row = $q->fetch();
         if (!$row) throw new RuntimeException('订单不存在');
         $orderNo = $row['order_no'];
-        if (in_array($row['settlement_status'], ['approved', 'locked'], true)) throw new RuntimeException('订单已审核生成分成，不可删除');
-        // 售后部员工只能删本人可见的订单（参与人或部门代录上传人）
-        if ($actor['role'] !== 'finance') {
-            $partQuery = db()->prepare('SELECT 1 FROM project_participants WHERE order_id=? AND employee_id=? UNION SELECT 1 FROM project_department_uploaders WHERE order_id=? AND employee_id=? LIMIT 1'
-    );
-            $partQuery->execute([$deleteId, (int)$actor['employee_id'], $deleteId, (int)$actor['employee_id']]);
-            if (!$partQuery->fetchColumn()) throw new RuntimeException('只能删除本人参与的订单');
-        }
+        // 删除规则统一见 includes/ProjectOrderDelete.php（已审核订单：财务 / 售后部的售后业务可删，删前完整备份）
+        if (($why = pod_blocker($row, $actor)) !== '') throw new RuntimeException($why);
+        $backupFile = pod_backup($deleteId, $orderNo);
         $deleteOrderRows($deleteId);
-        ps_audit('order', $deleteId, 'delete_order', $actor, ['order_no' => $orderNo]);
+        ps_audit('order', $deleteId, 'delete_order', $actor, ['order_no' => $orderNo, 'was_status' => $row['settlement_status'], 'backup' => basename($backupFile)]);
         db()->commit();
         $_SESSION['project_delete_result'] = ['ok' => true, 'order_no' => $orderNo];
     } catch (Throwable $e) {

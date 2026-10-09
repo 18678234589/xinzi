@@ -52,11 +52,15 @@
     if ($totalPages > 1): ?>，第 <?php echo (int)$page; ?>/<?php echo (int)$totalPages; ?> 页<?php endif; ?>）</span><?php if ($canDeleteOrders && $orders): ?><div class="project-bulk-bar"><span class="small text-muted" id="bulkCount">已选 0 单</span><?php
     if ($isFinance): ?><button class="btn btn-sm btn-outline-success" name="bulk_action" value="receipt" onclick="return confirm('根据收退款证据和规则核对所选订单？只有资料齐全的未结算订单会自动处理，不会按售价登记实收。')">系统核对</button><button class="btn btn-sm btn-outline-success" name="bulk_action" value="finish">标记交付完成</button><input type="month" name="bulk_month" class="form-control form-control-sm" style="width:150px" value="<?php
     echo e($month); ?>" aria-label="分成归属月份"><button class="btn btn-sm btn-success" name="bulk_action" value="approve" onclick="return confirm('审核所选订单并生成项目分成？不满足条件的订单会跳过并列出原因。')">批量审核</button><?php
-    endif; ?><button class="btn btn-sm btn-outline-danger" name="bulk_action" value="delete" onclick="return confirm('删除所选订单？将连同实收流水、成本、参与人和分成快照一并删除，不可恢复；已审核的订单会跳过并列出原因。')">批量删除</button></div><?php
+    endif; ?><?php if ($canDeleteOrders): ?><button class="btn btn-sm btn-outline-danger" name="bulk_action" value="delete" onclick="return confirm('删除所选订单？将连同实收流水、成本、参与人和分成快照一并删除，不可恢复。已审核的订单只有财务（或售后部删售后业务订单）能删，删除前会自动备份；其余会跳过并列出原因。')">批量删除</button><?php endif; ?></div><?php
     endif; ?></div><div class="table-responsive"><table class="table table-hover mb-0 project-order-table">
-  <thead><tr><?php if ($canDeleteOrders): ?><th style="width:34px"><input type="checkbox" id="bulkAll" aria-label="全选"></th><?php endif; ?><th>订单号 / 付款昵称</th><th>业务</th><th>日期</th><th>参与人</th><th class="text-right">售价</th><th class="text-right">净实收</th><th class="text-right">直接成本</th><th class="text-right">预计分成</th><th>系统核对／待补事项</th><th>结算状态</th><th></th></tr></thead><tbody>
-  <?php foreach ($pageOrders as $order): ?><tr>
-    <?php if ($canDeleteOrders): ?><td><?php if (!in_array($order['settlement_status'], ['approved','locked'], true)): ?><input type="checkbox" name="ids[]" value="<?php echo (int)
+  <thead><tr><?php if ($canSelectOrders): ?><th style="width:34px"><input type="checkbox" id="bulkAll" aria-label="全选"></th><?php endif; ?><th>订单号 / 付款昵称</th><th>业务</th><th>日期</th><th>参与人</th><th class="text-right">售价</th><th class="text-right">净实收</th><th class="text-right">直接成本</th><th class="text-right">预计分成</th><th>系统核对／待补事项</th><th>结算状态</th><th></th></tr></thead><tbody>
+  <?php foreach ($pageOrders as $order): 
+    $extra = $pageOrderExtras[(int)$order['id']] ?? ['server_expiry' => '', 'domain_expiry' => '', 'phone' => '', 'wechat' => '', 'cost_amount' => 0.0, 'cost_reason' => ''];
+    $isLocked = in_array($order['settlement_status'], ['approved','locked'], true);
+    $canEditOrder = !$isLocked && in_array($actor['role'], ['customer_service', 'technical', 'finance'], true);
+  ?><tr>
+    <?php if ($canSelectOrders): ?><td><?php if (!$isLocked || ($canDeleteOrders && $order['settlement_status'] === 'approved')): ?><input type="checkbox" name="ids[]" value="<?php echo (int)
     $order['id']; ?>" class="bulk-item" aria-label="选择 <?php echo e($order['order_no']); ?>"><?php endif; ?></td><?php endif; ?>
     <td><strong><?php echo e($order['order_no']); ?></strong><?php if (!empty($order['is_department_order'])): ?> <span class="badge badge-success">部门订单</span><?php endif;
     ?><?php if (!empty($order['split_parent_id']) || !empty($order['split_children'])): ?> <span class="badge badge-info" title="同一订单号由不同业务分别录入，各自按本人金额结算；收款需财务按订单号合并核对">分单</span><?php
@@ -88,8 +92,8 @@
     <td class="text-nowrap"><a class="btn btn-outline-primary btn-sm text-nowrap" href="<?php echo BASE_URL; ?>/project/order.php?id=<?php echo (int)$order['id']; ?>">打开结算单</a><?php
     if (empty($order['backend_tech_count']) && ps_is_website_order($order['project_type']) && !in_array($order['settlement_status'], ['approved','locked'], true)): ?><a class="btn btn-outline-info btn-sm text-nowrap ml-1" href="<?php
     echo BASE_URL; ?>/project/order.php?id=<?php echo (int)$order['id']; ?>" title="本单未分配后端技术"><i class="fas fa-server mr-1"></i>指定后端</a><?php endif; ?><?php
-    if ($canDeleteOrders && !in_array($order['settlement_status'], ['approved','locked'], true)): ?><button type="submit" name="delete_order_id" value="<?php echo (int)$order['id']
-    ; ?>" class="btn btn-outline-danger btn-sm text-nowrap ml-1" onclick="return confirm('删除订单 <?php echo e($order['order_no']); ?>？将连同实收流水、成本、参与人和分成快照一并删除，不可恢复。')">删除</button><?php
+    if ($canDeleteOrders && $order['settlement_status'] !== 'locked'): ?><button type="submit" name="delete_order_id" value="<?php echo (int)$order['id']
+    ; ?>" class="btn btn-outline-danger btn-sm text-nowrap ml-1" onclick="return confirm('删除订单 <?php echo e($order['order_no']); ?>？<?php echo $order['settlement_status'] === 'approved' ? '这是已审核订单，会连同分成快照一并删除（删除前自动备份）。' : ''; ?>将连同实收流水、成本、参与人和分成快照一并删除，不可恢复。')">删除</button><?php
     endif; ?></td>
   </tr><?php endforeach; ?>
   <?php if (!$orders): ?><tr><td colspan="12" class="text-center text-muted py-4"><?php echo $keyword !== '' ? '没有匹配的订单' : '本月暂无可查看的项目订单'; ?></td></tr><?php

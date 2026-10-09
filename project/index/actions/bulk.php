@@ -27,7 +27,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['bulk_action'])) {
             $row = $q->fetch();
             if (!$row) throw new RuntimeException('订单不存在');
             $orderNo = $row['order_no'];
-            if (in_array($row['settlement_status'], ['approved', 'locked'], true)) throw new RuntimeException('已审核');
+            if ($bulkAction !== 'delete' && in_array($row['settlement_status'], ['approved', 'locked'], true)) throw new RuntimeException('已审核');
             if ($bulkAction === 'receipt') {
                 $review = pa_check_order($orderId, true, true);
                 if (!$review['applied']) throw new RuntimeException(implode('；', array_column($review['reasons'], 'text')) ?: '尚未满足自动结算条件');
@@ -60,6 +60,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['bulk_action'])) {
                     if (!$partQuery->fetchColumn()) throw new RuntimeException('只能删除本人参与的订单');
                 }
                 $deleteOrderRows($orderId);
+                $validKind = ps_order_kind_valid(ps_business_normalize($row['project_type']), $targetKind);
+                db()->prepare("UPDATE project_orders SET order_kind=?, row_version=row_version+1 WHERE id=?")->execute([$validKind, $orderId]);
+                ps_audit('order', $orderId, 'bulk_set_order_kind', $actor, ['order_kind' => $validKind]);
+            } elseif ($bulkAction === 'delete') {
+                // 批量删除传错的订单；规则统一见 includes/ProjectOrderDelete.php（已审核订单：财务 / 售后部的售后业务可删，删前完整备份）
+                if (($why = pod_blocker($row, $actor)) !== '') throw new RuntimeException($why);
+                $backupFile = pod_backup($orderId, $orderNo);
                 ps_audit('order', $orderId, 'bulk_delete', $actor, ['order_no' => $orderNo]);
             } else throw new RuntimeException('操作无效');
             db()->commit();
