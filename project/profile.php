@@ -46,6 +46,7 @@ $csrf = e(ps_csrf_token());
 ?>
 <div class="project-intake-page" style="max-width:760px">
 <div class="project-hero mb-3"><div><div class="project-eyebrow">项目合作结算中心 · 我的账号</div><h2><?php echo $needPhone ? '欢迎，' . e($me['name']) : '我的账号'; ?></h2><p><?php echo $needPhone ? '第一次登录，请先绑定手机号。绑定后可以用手机号或登录名 ' . e($me['username']) . ' 登录。' : '登录名 ' . e($me['username']) . ' · 手机号 ' . e(substr($me['phone'], 0, 3) . '****' . substr($me['phone'], -4)) . '，两者都可以登录。'; ?></p></div></div>
+<?php if (ps_is_management($actor)): ?><div class="alert alert-info">管理职务：<?php echo e($actor['management_title'] ?: '管理'); ?> · 管理范围：<?php echo e(ps_management_company($actor) ? '全公司所有业务' : implode('、', ps_actor_businesses($actor))); ?></div><?php endif; ?>
 <?php if ($error): ?><div class="alert alert-danger"><?php echo e($error); ?></div><?php endif; ?>
 <?php if ($success): ?><div class="alert alert-success"><?php echo e($success); ?></div><?php endif; ?>
 <?php if (isset($_GET['bound'])): ?><div class="alert alert-success">手机号绑定成功。<?php if ($me['role'] === 'governance'): ?>请先修改初始密码，再进入管理层工作台。<?php else: ?><a href="<?php echo BASE_URL; ?>/project/index.php">进入我的项目订单 →</a><?php endif; ?></div><?php endif; ?>

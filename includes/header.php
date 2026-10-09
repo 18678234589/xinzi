@@ -49,6 +49,7 @@ if ($current_admin || $project_staff) {
 }
 $display_name = $current_admin['username'] ?? ($project_staff['name'] ?? ($project_staff['username'] ?? ''));
 $display_role = $current_admin ? '财务 / 管理员' : (($project_staff['role'] ?? '') === 'governance' ? '管理层' : (($project_staff['role'] ?? '') === 'vault' ? '管理' : (($project_staff['role'] ?? '') === 'technical' ? '技术' : '客服')));
+if (!$current_admin && ($project_staff['role'] ?? '') === 'management') $display_role = ps_management_profile($project_staff['id'])['title'] ?: '管理';
 
 // 计算当前脚本相对站点根的路径，用于侧边栏高亮判断
 $_script = $_SERVER['SCRIPT_NAME'] ?? '';

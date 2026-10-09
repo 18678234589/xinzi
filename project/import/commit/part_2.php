@@ -60,7 +60,7 @@
                         } elseif (!empty($row['join_group']) && $row['join_group'] === 'customer_service') {
                             poj_join_group($orderId, (int)$actor['employee_id'], 'customer_service', (string)($row['join_role'] ?? '客服'), $actor, ['line' => $row['line'], 'reason' => '同一订单多位客服分摊']);
                         }
-                        if ($actor['role'] !== 'finance' && !$departmentMode) {
+                        if ($actor['role'] !== 'finance' && !$departmentMode && !ps_management_can_business($actor, $selectedBusiness)) {
                             $access = $pdo->prepare('SELECT 1 FROM project_participants WHERE order_id=? AND employee_id=?');
                             $access->execute([$orderId, (int)$actor['employee_id']]);
                             if (!$access->fetchColumn()) throw new RuntimeException('第 ' . $row['line'] . ' 行本人尚未关联此订单');

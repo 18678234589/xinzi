@@ -37,7 +37,7 @@
                             if ($departmentDefaultSelf) $record['warning'] .= ($record['warning'] ? '；' : '') . '表格没写售后参与人，已默认记为上传人本人';
                         }
                     }
-                    if ($actor['role'] !== 'finance' && !$departmentMode) {
+                    if ($actor['role'] !== 'finance' && !$departmentMode && !ps_management_can_business($actor, $selectedBusiness)) {
                         $selfId = (int)$actor['employee_id'];
                         if (!isset($record['people']['technical'][$selfId]) && !isset($record['people']['customer_service'][$selfId])) {
                             $selfGroup = $actor['role'] === 'technical' ? 'technical' : 'customer_service';
@@ -52,7 +52,7 @@
                     }
                     if (!$record['people']['customer_service'] && !$record['people']['technical']) throw new RuntimeException($departmentMode ? '此行没有售后参与人，请在上传前选择默认参与人，或在表格填写姓名'
     : '至少需要匹配一名客服或技术参与人');
-                    if ($actor['role'] !== 'finance' && !$departmentMode) {
+                    if ($actor['role'] !== 'finance' && !$departmentMode && !ps_management_can_business($actor, $selectedBusiness)) {
                         $group = $actor['role'] === 'technical' ? 'technical' : 'customer_service';
                         // 代写类：编辑员（客服账号）在代写订单上是“对接编辑”，本人在任一组即可
                         if (!empty($businessDefinition['import_cost']) && !isset($record['people'][$group][(int)$actor['employee_id']]) && isset($record['people']['technical'][(int)

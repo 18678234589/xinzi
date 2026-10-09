@@ -21,7 +21,7 @@ function ps_partner_orders_url(int $employeeId, string $month, string $business 
 /** 财务可选择参与人，合作人员传入任何人员编号都只能筛选本人。 */
 function ps_partner_list_employee_id(array $actor, $requested): int
 {
-    return $actor['role'] === 'finance' ? max(0, (int)$requested) : (int)$actor['employee_id'];
+    return $actor['role'] === 'finance' || ps_is_management($actor) ? max(0, (int)$requested) : (int)$actor['employee_id'];
 }
 
 /** 只按订单归属月统计；分单权重用于归属金额，同一人跨岗位参与同单最多计 100%。 */

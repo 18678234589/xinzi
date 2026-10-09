@@ -36,6 +36,9 @@ if ($filterState === 'pending_backend') $where[] = "o.project_type IN ('AI网站
     ;
 if ($actor['role'] === 'finance') {
     if ($filterEmployeeId > 0) { $where[] = 'EXISTS (SELECT 1 FROM project_participants mp WHERE mp.order_id=o.id AND mp.employee_id=?)'; $params[] = $filterEmployeeId; }
+} elseif (ps_is_management($actor)) {
+    $where[] = ps_management_order_condition($actor);
+    if ($filterEmployeeId > 0) { $where[] = 'EXISTS (SELECT 1 FROM project_participants mp WHERE mp.order_id=o.id AND mp.employee_id=?)'; $params[] = $filterEmployeeId; }
 } elseif ($filterState === 'pending_backend' && $actor['role'] === 'technical') {
     // 技术人员筛选“待指定后端”时，允许查看所有未指定后端的网站类订单以便认领
 } else {
@@ -111,7 +114,7 @@ foreach ($pageOrders as $row) {
         $isApproved = in_array($row['settlement_status'], ['approved', 'locked'], true);
         $rowSum = $isApproved ? null : ps_summary($row, ps_costs((int)$row['id']), $rowPeople);
         foreach ($rowPeople as $rp) {
-            if ($actor['role'] !== 'finance' && (int)$rp['employee_id'] !== (int)$actor['employee_id']) continue;
+            if ($actor['role'] !== 'finance' && !ps_is_management($actor) && (int)$rp['employee_id'] !== (int)$actor['employee_id']) continue;
             $amount = null;
             if ($isApproved) $amount = $snapshotMap[$row['id'] . ':' . $rp['commission_group'] . ':' . $rp['employee_id']] ?? null;
             else foreach ($rowSum['groups'][$rp['commission_group']]['people'] ?? [] as $sp) if ((int)$sp['employee_id'] === (int)$rp['employee_id'] && $sp['estimated_calc']) $amount
@@ -132,4 +135,4 @@ $bulkResult = $_SESSION['project_bulk_result'] ?? null;
 unset($_SESSION['project_bulk_result']);
 $deleteResult = $_SESSION['project_delete_result'] ?? null;
 unset($_SESSION['project_delete_result']);
-$page_title = $actor['role'] === 'finance' ? '项目订单结算' : '我的项目订单';
+$page_title = $actor['role'] === 'finance' ? '项目订单结算' : (ps_is_management($actor) ? '业务订单管理' : '我的项目订单');

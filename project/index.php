@@ -37,6 +37,7 @@ if (!isset($_GET['month']) && $_SERVER['REQUEST_METHOD'] !== 'POST') {
     try {
         $monthScope = $actor['role'] === 'finance' ? '' : ' AND (EXISTS (SELECT 1 FROM project_participants mp WHERE mp.order_id=o.id AND mp.employee_id=' . (int)$actor['employee_id'
     ] . ') OR EXISTS (SELECT 1 FROM project_department_uploaders du WHERE du.order_id=o.id AND du.employee_id=' . (int)$actor['employee_id'] . '))';
+        if (ps_is_management($actor)) $monthScope = ' AND (' . ps_management_order_condition($actor) . ')';
         $hasMonth = (int)db()->query("SELECT COUNT(*) FROM project_orders o WHERE o." . $dateBasis . ">='" . $month . "-01' AND o." . $dateBasis . "<'" . date('Y-m-d', strtotime($month
     . '-01 +1 month')) . "'" . $monthScope)->fetchColumn();
         if (!$hasMonth) {
@@ -56,7 +57,7 @@ $activeTechnicalIds = array_map('intval', db()->query("SELECT employee_id FROM p
 // 微信代写编辑员（客服账号）在代写订单上担任“对接编辑”，可在技术 / 对接栏选到
 $activeTechnicalIds = array_values(array_unique(array_merge($activeTechnicalIds, array_map('intval', db()->query("SELECT u.employee_id FROM project_users u JOIN project_user_businesses b ON b.user_id=u.id AND b.business_name='微信代写' WHERE u.is_active=1"
     )->fetchAll(PDO::FETCH_COLUMN)))));
-$activeCustomerServiceIds = array_map('intval', db()->query("SELECT employee_id FROM project_users WHERE role='customer_service' AND is_active=1")->fetchAll(PDO::FETCH_COLUMN));
+$activeCustomerServiceIds = array_map('intval', db()->query("SELECT employee_id FROM project_users WHERE role IN ('customer_service','management') AND is_active=1")->fetchAll(PDO::FETCH_COLUMN));
 // 合作人员可在两栏都选到自己（身兼客服与技术的人员，如环境配置）。
 $selfEmployeeId = (int)($actor['employee_id'] ?? 0);
 $technicalChoices = $actor['role'] === 'finance' ? $employees : array_values(array_filter($employees, function ($emp) use ($activeTechnicalIds, $selfEmployeeId) { return in_array((int)

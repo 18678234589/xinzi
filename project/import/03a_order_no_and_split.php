@@ -111,7 +111,7 @@
                     $record['existing_order_id'] = $existing ? (int)$existing['id'] : 0;
                     $record['resource_locked'] = false;
                     // 同一订单号客户一次付款、由多位商标客服分别录入：后录入的客服另记自己那份（同业务分单）
-                    $coCustomerService = $existing && $selectedBusiness === '商标' && $actor['role'] === 'customer_service' && !$departmentMode
+                    $coCustomerService = $existing && $selectedBusiness === '商标' && $actor['role'] === 'customer_service' && !$departmentMode && !ps_is_management($actor)
                         && ps_business_normalize($existing['project_type']) === $record['project_type']
                         && !ps_import_order_visible((int)$existing['id'], $actor) && ps_import_group_taken((int)$existing['id'], 'customer_service');
                     if ($existing && (ps_business_normalize($existing['project_type']) !== $record['project_type'] || $coCustomerService)) {
@@ -120,7 +120,7 @@
                         if (pos_parent_of((int)$existing['id']) || strpos($record['order_no'], 'WX-') === 0) throw new RuntimeException('该订单号已属于其他业务，请联系财务核对'
     );
                         // 同一笔销售只记一次：另一业务已按相同金额录过（如软文代写与微信代写同一笔），本人加入原订单，不再另建一张重复分单
-                        $joinSameSale = !$coCustomerService && !$departmentMode && $actor['role'] !== 'finance'
+                        $joinSameSale = !$coCustomerService && !$departmentMode && $actor['role'] !== 'finance' && !ps_is_management($actor)
                             && poj_same_sale_allowed($existing['project_type'], $record['project_type'], poj_amount_value($lookup($row, 'contract_amount')), $record['order_no'], $existing['contract_amount']);
                         if ($joinSameSale) { // 本人此前已按旧规则建过这笔订单的分单子单：继续沿用，不再同时加入原单造成重复
                             $exists->execute([pos_child_order_no($record['order_no'], $record['project_type'], 0)]);
@@ -153,7 +153,7 @@
     ); }
                             throw new RuntimeException('同号订单不是网站售后部门订单，请由财务核对');
                         }
-                        if ($actor['role'] !== 'finance' && !$departmentMode) {
+                        if ($actor['role'] !== 'finance' && !$departmentMode && !ps_management_can_business($actor, $selectedBusiness)) {
                             $existingAccess->execute([(int)$existing['id'], (int)$actor['employee_id']]);
                             if (!$existingAccess->fetchColumn()) {
                                 $record['attach_check'] = true; // 仅本人所在分成组还无人时，允许与同号订单关联。

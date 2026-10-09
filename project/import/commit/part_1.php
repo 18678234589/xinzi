@@ -15,7 +15,7 @@
                 $pickedKind = trim((string)($kindChoices[$line] ?? ''));
                 if ($pickedKind !== '' && in_array($pickedKind, $commitKinds, true)) $row['order_kind'] = $pickedKind;
                 if (($row['order_kind'] ?? '') === '' && !empty($businessDefinition['kind_required'])) { $skipped++; $kindMissingLines[] = $line % 10000; continue; }
-                if ($actor['role'] !== 'finance' && !$departmentMode) {
+                if ($actor['role'] !== 'finance' && !$departmentMode && !ps_management_can_business($actor, $selectedBusiness)) {
                     $group = $actor['role'] === 'technical' ? 'technical' : 'customer_service';
                     if (!empty($businessDefinition['import_cost']) && !isset($row['people'][$group][(int)$actor['employee_id']]) && isset($row['people']['technical'][(int)$actor['employee_id'
     ]])) $group = 'technical';

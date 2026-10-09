@@ -56,7 +56,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $existing->execute([$no]);
         $existingId = (int)$existing->fetchColumn();
         if ($existingId) {
-            if ($actor['role'] !== 'finance') {
+            if ($actor['role'] !== 'finance' && !ps_management_can_business($actor, $projectType)) {
                 $access = db()->prepare('SELECT 1 FROM project_participants WHERE order_id=? AND employee_id=?');
                 $access->execute([$existingId, $actor['employee_id']]);
                 if (!$access->fetchColumn()) throw new RuntimeException('该订单编号已由同事建档，请让对方在结算单中关联你，或联系财务核对归属');
@@ -103,7 +103,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if (isset($groups[$group][$personId])) $groups[$group][$personId]['role'] .= '/' . $target[1];
             else $groups[$group][$personId] = ['id' => $personId, 'role' => $target[1]];
         }
-        if ($actor['role'] !== 'finance') {
+        if ($actor['role'] !== 'finance' && !ps_is_management($actor)) {
             // 本人已在任一栏（如纪鹏程作为客服录入别人做的环境配置单）时不再自动追加，避免多算一份分成。
             $selfGroup = $actor['role'] === 'technical' ? 'technical' : 'customer_service';
             $selfId = (int)$actor['employee_id'];

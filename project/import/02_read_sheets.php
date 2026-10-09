@@ -71,7 +71,7 @@
             $existingAccess = db()->prepare('SELECT 1 FROM project_participants WHERE order_id=? AND employee_id=? LIMIT 1');
             $existingResource = db()->prepare('SELECT domain_mode FROM project_order_resources WHERE order_id=?');
             // 一个工作簿多张分表（如“图片 / PPT / 小额”、每位客服一张）：表头能对上当前业务的分表都读取，可在预览里取消勾选。
-            $requirePeople = $actor['role'] === 'finance' && !$departmentMode;
+            $requirePeople = ($actor['role'] === 'finance' || ps_is_management($actor)) && !$departmentMode;
             $importColumns = ps_business_import_columns($selectedBusiness);
             $parsedSheets = [];
             foreach (pse_import_sheets($fileRow, $actor) as $sheetName => $raw) {

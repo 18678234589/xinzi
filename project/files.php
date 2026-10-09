@@ -6,6 +6,7 @@ require_once __DIR__ . '/../includes/ProjectImportResult.php';
 require_once __DIR__ . '/../includes/ProjectSheetEdit.php';
 $actor = ps_require_actor();
 $isFinance = $actor['role'] === 'finance';
+$isManagement = ps_is_management($actor);
 
 if (isset($_GET['download'])) {
     try { $file = ps_import_file_get((int)$_GET['download'], $actor); } catch (RuntimeException $e) { http_response_code(404); exit($e->getMessage()); }
@@ -41,14 +42,21 @@ if (isset($_GET['view'])) {
 
 // 列表筛选：业务、上传人（财务）、月份、文件名 / 上传人关键字、状态
 $business = (string)($_GET['business'] ?? '');
-$employeeId = $isFinance ? (int)($_GET['employee_id'] ?? 0) : (int)$actor['employee_id'];
+$employeeId = ($isFinance || $isManagement) ? (int)($_GET['employee_id'] ?? 0) : (int)$actor['employee_id'];
 $month = (string)($_GET['month'] ?? '');
 if ($month !== '' && !preg_match('/^\d{4}-(0[1-9]|1[0-2])$/', $month)) $month = '';
 $keyword = trim((string)($_GET['q'] ?? ''));
 $status = (string)($_GET['status'] ?? '');
 $where = ['1=1'];
 $params = [];
-if (!$isFinance) { $where[] = "f.employee_id=? AND f.uploaded_by_type='employee'"; $params[] = (int)$actor['employee_id']; }
+if ($isManagement) {
+    if (!ps_management_company($actor)) {
+        $allowed = ps_actor_businesses($actor);
+        $where[] = $allowed ? 'f.business_name IN (' . implode(',', array_fill(0,count($allowed),'?')) . ')' : '1=0';
+        array_push($params, ...$allowed);
+    }
+    if ($employeeId > 0) { $where[] = 'f.employee_id=?'; $params[] = $employeeId; }
+} elseif (!$isFinance) { $where[] = "f.employee_id=? AND f.uploaded_by_type='employee'"; $params[] = (int)$actor['employee_id']; }
 elseif ($employeeId > 0) { $where[] = 'f.employee_id=?'; $params[] = $employeeId; }
 if ($business !== '') { $where[] = 'f.business_name=?'; $params[] = $business; }
 if ($month !== '') { $where[] = "DATE_FORMAT(f.created_at,'%Y-%m')=?"; $params[] = $month; }
@@ -63,14 +71,14 @@ if ($reportIds) foreach (db()->query("SELECT entity_id,details_json FROM project
     if (!isset($resultReports[(int)$r['entity_id']])) $resultReports[(int)$r['entity_id']] = json_decode($r['details_json'], true) ?: [];
 }
 $pendingFiles = count(array_filter($files, function ($f) use ($resultReports) { return $f['status'] === 'preview' || !empty($resultReports[(int)$f['id']]['pending']) || (empty($resultReports[(int)$f['id']]) && (int)$f['skipped_count'] > 0); }));
-$uploaders = $isFinance ? db()->query('SELECT DISTINCT e.id,e.name,e.department FROM project_import_files f JOIN employees e ON e.id=f.employee_id ORDER BY e.department,e.name')->fetchAll() : [];
+$uploaders = ($isFinance || $isManagement) ? db()->query('SELECT DISTINCT e.id,e.name,e.department FROM project_import_files f JOIN employees e ON e.id=f.employee_id ORDER BY e.department,e.name')->fetchAll() : [];
 $businesses = array_keys(array_filter(ps_business_catalog(), function ($d) { return empty($d['legacy']); }));
 $admins = [];
 foreach (db()->query('SELECT id,username FROM admins')->fetchAll() as $a) $admins[(int)$a['id']] = $a['username'];
 $sizeText = function ($bytes) { return $bytes >= 1048576 ? round($bytes / 1048576, 1) . ' MB' : max(1, round($bytes / 1024)) . ' KB'; };
 $uploaderText = function ($f) use ($admins) { return $f['uploaded_by_type'] === 'admin' ? '财务 ' . ($admins[(int)$f['uploaded_by_id']] ?? '') : ($f['employee_name'] ?? '—'); };
 
-$page_title = $isFinance ? '原始表格' : '我上传的表格';
+$page_title = $isFinance ? '原始表格' : ($isManagement ? '业务表格管理' : '我上传的表格');
 include __DIR__ . '/../includes/header.php';
 ?>
 <div class="project-intake-page">
@@ -132,7 +140,7 @@ include __DIR__ . '/../includes/header.php';
 <div class="card mb-3"><div class="card-body"><form method="get" class="form-row align-items-end">
   <div class="form-group col-6 col-md-2"><label>月份</label><input type="month" name="month" class="form-control" value="<?php echo e($month); ?>"></div>
   <div class="form-group col-6 col-md-2"><label>业务</label><select name="business" class="form-control"><option value="">全部业务</option><?php foreach ($businesses as $name): ?><option value="<?php echo e($name); ?>" <?php echo $business === $name ? 'selected' : ''; ?>><?php echo e($name); ?></option><?php endforeach; ?></select></div>
-  <?php if ($isFinance): ?><div class="form-group col-6 col-md-2"><label>上传人</label><select name="employee_id" class="form-control"><option value="0">全部</option><?php foreach ($uploaders as $u): ?><option value="<?php echo (int)$u['id']; ?>" <?php echo $employeeId === (int)$u['id'] ? 'selected' : ''; ?>><?php echo e($u['name'] . ' · ' . $u['department']); ?></option><?php endforeach; ?></select></div><?php endif; ?>
+  <?php if ($isFinance || $isManagement): ?><div class="form-group col-6 col-md-2"><label>上传人</label><select name="employee_id" class="form-control"><option value="0">全部</option><?php foreach ($uploaders as $u): ?><option value="<?php echo (int)$u['id']; ?>" <?php echo $employeeId === (int)$u['id'] ? 'selected' : ''; ?>><?php echo e($u['name'] . ' · ' . $u['department']); ?></option><?php endforeach; ?></select></div><?php endif; ?>
   <div class="form-group col-6 col-md-2"><label>状态</label><select name="status" class="form-control"><option value="">全部</option><option value="imported" <?php echo $status === 'imported' ? 'selected' : ''; ?>>已导入</option><option value="preview" <?php echo $status === 'preview' ? 'selected' : ''; ?>>仅预览</option></select></div>
   <div class="form-group col-12 col-md-3"><label>关键字</label><input name="q" class="form-control" value="<?php echo e($keyword); ?>" placeholder="文件名 / 姓名 / 拼音登录名"></div>
   <div class="form-group col-12 col-md-1"><button class="btn btn-primary btn-block">筛选</button></div>

@@ -141,7 +141,7 @@
 <?php if ($importFileId): ?><input type="hidden" name="import_file" value="<?php echo $importFileId; ?>"><?php endif; ?>
 <?php if ($participationOnly): ?><input type="hidden" name="participating" value="1"><?php if ($actor['role'] !== 'finance'): ?><input type="hidden" name="employee_id" value="<?php
     echo $filterEmployeeId; ?>"><?php endif; ?><?php endif; ?>
-<?php if ($actor['role'] === 'finance'): ?><div class="col-md-2 mb-2"><label class="small text-muted mb-1" for="filterEmployee">合作人员</label><select class="form-control" name="employee_id" id="filterEmployee"><option value="0">全部合作人员</option><?php
+<?php if ($actor['role'] === 'finance' || ps_is_management($actor)): ?><div class="col-md-2 mb-2"><label class="small text-muted mb-1" for="filterEmployee">合作人员</label><select class="form-control" name="employee_id" id="filterEmployee"><option value="0">全部合作人员</option><?php
     foreach ($employees as $filterPerson): ?><option value="<?php echo (int)$filterPerson['id']; ?>" <?php echo $filterEmployeeId === (int)$filterPerson['id'] ? 'selected' : ''; ?>><?php
     echo e($filterPerson['name'] . ' · ' . $filterPerson['department']); ?></option><?php endforeach; ?></select></div><?php endif; ?>
   <div class="col-md-3 mb-2">

@@ -55,6 +55,7 @@ function ps_summary($order, $costs, $participants)
         }
     }
     $groups = [];
+    $fixedPayIds = ps_management_fixed_pay_ids();
     foreach (['technical', 'customer_service'] as $group) {
         $people = array_values(array_filter($participants, function ($p) use ($group) { return $p['commission_group'] === $group; }));
         $defaultRule = ps_rule_for($group, $order['project_type'], $order['order_date'], '', $orderKind);
@@ -62,6 +63,9 @@ function ps_summary($order, $costs, $participants)
         $pool = 0.0; $estimatedPool = 0.0; $subsidy = 0.0; $missing = false; $subsidyRule = false;
         foreach ($people as $i => $person) {
             $rules = ps_rules_for_person($group, $order['project_type'], $order['order_date'], $person['role_name'] ?? '', $orderKind);
+            if (in_array((int)($person['employee_id'] ?? 0), $fixedPayIds, true)) {
+                $rules = [['id'=>0,'commission_group'=>$group,'project_type'=>$order['project_type'],'role_name'=>$person['role_name'] ?? '管理','order_kind'=>'*','calc_mode'=>'individual','rate'=>0,'per_order_subsidy'=>0,'note'=>'管理账户仅固定薪酬，不参与逐单分成']];
+            }
             $rule = $rules ? $rules[0] : null;
             $people[$i]['rule'] = $rule;
             $people[$i]['rules'] = $rules;

@@ -136,7 +136,7 @@ function pse_editable_kind($kind) { return in_array($kind, ['phone', 'wechat', '
 /** 全部原表列可修改；文件权限仍由 ps_import_file_get 校验。 */
 function pse_can_edit($file, $actor)
 {
-    return ($actor['role'] ?? '') === 'finance' || ($file['uploaded_by_type'] === ($actor['type'] ?? '') && (int)$file['employee_id'] === (int)($actor['employee_id'] ?? 0));
+    return ($actor['role'] ?? '') === 'finance' || ps_management_can_business($actor, $file['business_name']) || ($file['uploaded_by_type'] === ($actor['type'] ?? '') && (int)$file['employee_id'] === (int)($actor['employee_id'] ?? 0));
 }
 
 /** 导入时读取编辑后的数据，包括补充列；原始文件和源表行号不变。 */

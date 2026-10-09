@@ -48,6 +48,7 @@ function ps_business_catalog()
 /** 旧“客服类”账户业务映射到其可建单的产品：客服与制作人员按产品共用同一订单。 */
 function ps_business_account_products($name, $role)
 {
+    $role = ps_account_order_role($role);
     if ($role !== 'customer_service') return null;
     if ($name === '网站客服') return ['网站模板', 'AI网站定制'];
     if ($name === '小程序客服') return ['小程序开发', '小额引流'];
@@ -99,7 +100,7 @@ function ps_order_kind_from_role($business, $roleName)
 function ps_actor_businesses($actor)
 {
     $catalog = ps_business_catalog();
-    if ($actor['role'] === 'finance') return array_values(array_filter(array_keys($catalog), function ($name) use ($catalog) { return empty($catalog[$name]['legacy']); }));
+    if ($actor['role'] === 'finance' || ps_management_company($actor)) return array_values(array_filter(array_keys($catalog), function ($name) use ($catalog) { return empty($catalog[$name]['legacy']); }));
     $q = db()->prepare('SELECT business_name FROM project_user_businesses WHERE user_id=? ORDER BY is_default DESC,business_name');
     $q->execute([(int)$actor['id']]);
     $names = $q->fetchAll(PDO::FETCH_COLUMN);
@@ -137,9 +138,14 @@ function ps_require_business($actor, $business)
 function ps_active_employee_for_business($employeeId, $role, $business)
 {
     // 管理层账号（如栾鑫）被分配了业务后，也可以作为该业务的接单技术
-    $q = db()->prepare("SELECT id,employee_id,role FROM project_users WHERE employee_id=? AND (role=? OR (role='governance' AND ?='technical')) AND is_active=1 LIMIT 1");
-    $q->execute([(int)$employeeId, $role, $role]);
+    $q = db()->prepare("SELECT id,employee_id,role FROM project_users WHERE employee_id=? AND (role=? OR (role='governance' AND ?='technical') OR (role='management' AND ?='customer_service')) AND is_active=1 LIMIT 1");
+    $q->execute([(int)$employeeId, $role, $role, $role]);
     $user = $q->fetch();
+    if ($user && $user['role'] === 'management') {
+        $user['account_role'] = 'management';
+        $user['management_scope'] = ps_management_profile($user['id'])['scope'];
+        $user['role'] = ps_account_order_role($user['role']);
+    }
     return $user && in_array(ps_business_normalize($business), ps_actor_businesses($user), true);
 }
 

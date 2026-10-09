@@ -12,16 +12,21 @@ function ps_intake_participants($orderId, $groups, $business = null)
 {
     $insert = db()->prepare('INSERT INTO project_participants (order_id,employee_id,commission_group,role_name,group_weight) VALUES (?,?,?,?,?)');
     $check = db()->prepare('SELECT 1 FROM employees WHERE id=?');
+    $fixedIds = ps_management_fixed_pay_ids();
     foreach ($groups as $group => $people) {
         if (!$people) continue;
         $people = array_values($people);
-        $count = count($people);
+        $count = count(array_filter($people, function ($p) use ($fixedIds) { return !in_array((int)$p['id'], $fixedIds, true); }));
+        $eligibleIndex = 0;
+        $count = max($count, 1);
         $baseWeight = intdiv(1000000, $count);
         foreach ($people as $index => $person) {
             $employeeId = (int)$person['id'];
             $check->execute([$employeeId]);
             if (!$check->fetchColumn()) throw new RuntimeException('参与人不存在，请重新选择');
-            $weight = ($index === $count - 1 ? 1000000 - $baseWeight * ($count - 1) : $baseWeight) / 1000000;
+            $fixed = in_array($employeeId, $fixedIds, true);
+            $weight = $fixed ? 0.0 : ($eligibleIndex === $count - 1 ? 1000000 - $baseWeight * ($count - 1) : $baseWeight) / 1000000;
+            if (!$fixed) $eligibleIndex++;
             $rawRole = trim((string)($person['role'] ?? ''));
             $isGeneric = ($rawRole === '' || $rawRole === '技术' || $rawRole === '客服');
             $defaultRole = $business !== null ? ps_employee_default_role($employeeId, $business, $group) : null;

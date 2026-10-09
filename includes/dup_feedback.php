@@ -71,7 +71,7 @@ function pd_department_heads($employeeId)
     pd_ensure();
     $q = db()->prepare('SELECT h.employee_id FROM project_dept_heads h JOIN employees e ON e.department=h.department WHERE e.id=? AND h.employee_id<>?');
     $q->execute([(int)$employeeId, (int)$employeeId]);
-    return array_map('intval', $q->fetchAll(PDO::FETCH_COLUMN));
+    return array_values(array_unique(array_merge(array_map('intval', $q->fetchAll(PDO::FETCH_COLUMN)), array_values(array_filter(ps_management_company_employee_ids(), function ($id) use ($employeeId) { return $id !== (int)$employeeId; })))));
 }
 
 /** 导入合并了同号多行时调用：登记并通知上传人写明原因。 */

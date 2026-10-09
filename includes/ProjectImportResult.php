@@ -21,6 +21,10 @@ function ps_import_result_get($fileId)
 
 function ps_import_order_visible($orderId, $actor)
 {
+    if (ps_is_management($actor)) {
+        $q = db()->prepare('SELECT project_type FROM project_orders WHERE id=?'); $q->execute([(int)$orderId]);
+        if (ps_management_can_business($actor, $q->fetchColumn())) return true;
+    }
     if ($actor['role'] === 'finance') return true;
     $q = db()->prepare('SELECT EXISTS(SELECT 1 FROM project_participants WHERE order_id=? AND employee_id=?) OR EXISTS(SELECT 1 FROM project_department_uploaders WHERE order_id=? AND employee_id=?)');
     $q->execute([(int)$orderId, (int)$actor['employee_id'], (int)$orderId, (int)$actor['employee_id']]);

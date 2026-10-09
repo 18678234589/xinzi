@@ -31,7 +31,7 @@ function ps_import_file_get($id, $actor)
     $q->execute([(int)$id]);
     $row = $q->fetch();
     if (!$row) throw new RuntimeException('原始表格不存在');
-    if ($actor['role'] !== 'finance' && ((int)$row['employee_id'] !== (int)($actor['employee_id'] ?? 0) || $row['uploaded_by_type'] !== $actor['type'])) throw new RuntimeException(
+    if ($actor['role'] !== 'finance' && !ps_management_can_business($actor, $row['business_name']) && ((int)$row['employee_id'] !== (int)($actor['employee_id'] ?? 0) || $row['uploaded_by_type'] !== $actor['type'])) throw new RuntimeException(
     '只能查看本人上传的表格');
     $row['content'] = ps_private_read('imports', $row['stored_name']);
     if ($row['content'] === null) throw new RuntimeException('原始文件已不存在');

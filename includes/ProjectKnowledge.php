@@ -20,10 +20,14 @@ function pk_is_super(array $actor)
 
 function pk_departments(array $actor)
 {
+    if (ps_management_company($actor)) return ['*'];
     if (pk_is_super($actor)) return ['*'];
     $id = (int)($actor['employee_id'] ?? 0);
     if (!$id) return [];
     $out = [];
+    if (ps_is_management($actor)) foreach (ps_actor_businesses($actor) as $business) {
+        $out = array_merge($out, ps_business_catalog()[$business]['departments'] ?? []);
+    }
     foreach (['project_dept_heads','project_welfare_managers'] as $table) {
         try {
             $q = db()->prepare('SELECT department FROM ' . $table . ' WHERE employee_id=?');
