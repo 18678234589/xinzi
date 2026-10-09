@@ -54,6 +54,11 @@ try {
     $sub = $pdo->prepare("SELECT o.order_kind FROM project_orders o WHERE o.order_no=?");
     $sub->execute(["33190$tag" . '00002']); $check($sub->fetchColumn() === '技术服务', '落库：其他订单 = 技术服务（无补助档）');
     $sub->execute(["33190$tag" . '00001']); $check($sub->fetchColumn() === '新订单', '落库：新订单（每单 ¥20 补助档）');
+    // 没写订单类型：看“制作要求 / 业务”描述——小程序商城新搭建才是新订单，注册公众号等是其他订单，拿不准默认其他订单（不给补助）
+    $g = function ($i, $biz) use ($tag, $sk) { return ['日期' => '2026.9.6', '店铺' => '美呀美', '业务' => $biz, '付款昵称' => "gk$tag$i", '订单编号' => "33191$tag" . "0000$i", '售价' => '300', $sk => '已完成', '客服' => '朱俊英', '制作技术' => '石凯新']; };
+    [$pv2, $imp2, $err2] = $importAs($tech, '小程序开发', $csvOf('小程序开发', [$g(1, '小程序商城'), $g(2, '注册公众号'), $g(3, '重新注册'), $g(4, '外卖小程序'), $g(5, '张三的东西')]));
+    $kinds2 = array_column($pv2, 'order_kind');
+    $check($kinds2 === ['新订单', '技术服务', '技术服务', '新订单', '技术服务'], '按描述识别：商城/外卖=新订单，公众号/重新注册/不明=其他订单：' . implode(',', $kinds2) . ' ' . $err2);
     echo "\n=== 小程序订单类型测试全部通过 ===\n";
 } catch (Throwable $e) {
     fwrite(STDERR, $e->getMessage() . "\n");

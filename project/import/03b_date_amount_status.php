@@ -86,7 +86,8 @@
                     // 小程序结算表的“备注”常写 新订单 / 续费 / 定制：识别为订单类型。
                     $kindText = $lookup($row, 'order_kind');
                     if ($kindText === '' && in_array($record['contact_note'], $orderKinds, true)) { $kindText = $record['contact_note']; $record['contact_note'] = ''; }
-                    // 小程序技术：新订单有每单 ¥20 补助，其他订单没有。“其他订单 / 其它订单”记为技术服务（5%，无补助）；“业务”列或备注里写了“新订单 / 其他订单”也识别；定制、续费仍须明确写出
+                    // 小程序技术：“新订单”特指在小程序商城新注册搭建的订单（每单 ¥20 补助）；其他订单（续费、注册公众号、重新注册等）没有补助。
+                    // “其他订单 / 其它订单”记为技术服务（5%，无补助）；“业务”列或备注里写了“新订单 / 其他订单”也识别；定制、续费仍须明确写出
                     if ($selectedBusiness === '小程序开发') {
                         if (in_array($kindText, ['其他订单', '其它订单', '其他', '其它'], true)) $kindText = '技术服务';
                         elseif (in_array($kindText, ['新单', '新建', '新建站'], true)) $kindText = '新订单';
@@ -187,14 +188,18 @@
                     }
                     if ($kindText === '' && !empty($businessDefinition['kind_required'])) {
                         // 显式类型优先；之后按描述、本人确认过的同布局默认、AI 建议、业务默认依次托底。
-                        $hint = ($record['business_text'] ?? '') . ' ' . $record['contact_note'] . ' ' . $lookup($row, 'detail:make_requirement');
-                        foreach (['续费' => '续费', '定制' => '定制', '技术服务' => '技术服务', '维护' => '技术服务'] as $word => $guess) if (in_array($guess,
+                        $hint = ($record['business_text'] ?? '') . ' ' . $record['contact_note'] . ' ' . $lookup($row, 'detail:make_requirement') . ($selectedBusiness === '小程序开发' ? ' ' . $sheetBusiness : '');
+                        $kindWords = ['续费' => '续费', '定制' => '定制', '技术服务' => '技术服务', '维护' => '技术服务'];
+                        // 小程序商城新搭建才是新订单；注册公众号 / 重新注册 / 认证等杂项是其他订单。公众号等词排在商城词前面，避免“公众号”被商城误吞
+                        if ($selectedBusiness === '小程序开发') $kindWords += ['公众号' => '技术服务', '重新注册' => '技术服务', '认证' => '技术服务', '商城' => '新订单', '外卖' => '新订单', '新注册' => '新订单', '新搭建' => '新订单'];
+                        foreach ($kindWords as $word => $guess) if (in_array($guess,
     $orderKinds, true) && mb_strpos($hint, $word) !== false) { $record['kind_guess'] = $guess; break; }
                         $aiHint = $kindHint($row);
-                        if (empty($record['kind_guess']) && $preferredKind) { $record['kind_guess'] = $preferredKind; $record['kind_from_preference'] = true; }
+                        if (empty($record['kind_guess']) && $preferredKind && $selectedBusiness !== '小程序开发') { // 小程序：新订单有补助，不沿用历史偏好，描述不清按其他订单
+                            $record['kind_guess'] = $preferredKind; $record['kind_from_preference'] = true; }
                         if (empty($record['kind_guess']) && isset($aiKind[$aiHint])) { $record['kind_guess'] = $aiKind[$aiHint]; $record['kind_from_ai'] = true; }
                         if (empty($record['kind_guess'])) { $record['kind_guess'] = in_array($businessDefinition['default_kind'] ?? '', $orderKinds, true) ? $businessDefinition['default_kind'
-    ] : ($orderKinds[0] ?? ''); $record['kind_default_review'] = true; }
+    ] : ($orderKinds[0] ?? ''); $record['kind_default_review'] = true; if ($selectedBusiness === '小程序开发') $record['kind_guess'] = '技术服务'; /* 没写清是小程序商城新搭建，不默认给新订单补助 */ }
                         $kindText = $record['kind_guess'];
                         $kindSource = !empty($record['kind_from_ai']) ? 'AI 建议' : (!empty($record['kind_from_preference']) ? '本人历史确认分类' : (!empty($record['kind_default_review'
     ]) ? '业务默认' : '业务描述'));

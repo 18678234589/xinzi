@@ -79,7 +79,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     , $actor) : [];
                 $aiKindNew = [];
                 $aiKind = $unguessedHints ? ps_ai_resolve_values('import_kind', $selectedBusiness, $unguessedHints, $orderKinds, '这些是“' . $selectedBusiness . '”订单的业务描述，请为每条选择最合适的订单类型（决定提成比例）。'
-    . ($selectedBusiness === '小程序开发' ? '新订单 = 用现成模板新建小程序（如 v4 模板、外卖、点餐）；定制 = 按客户需求开发功能 / 系统 / 平台；续费 = 续年费；技术服务 = 小修改、维护、上架代办。'
+    . ($selectedBusiness === '小程序开发' ? '新订单 = 仅指在小程序商城（现成模板，如商城、外卖、点餐）新注册搭建的订单；定制 = 按客户需求开发功能 / 系统 / 平台；续费 = 续年费；技术服务 = 其他一切（注册公众号、重新注册、认证、小修改、维护、上架代办等），拿不准时选技术服务。'
     : ''), $actor, $aiKindNew) : [];
             $prevFullRow = null; $prevFullLine = 0;
             foreach ($raw as $index => $row) {
