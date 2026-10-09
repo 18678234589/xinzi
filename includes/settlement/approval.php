@@ -19,6 +19,10 @@ function ps_approve_order($orderId, $actor, $payrollMonth)
         $periodQuery->execute([$payrollMonth]);
         if ($periodQuery->fetchColumn() === 'locked') throw new RuntimeException('该项目分成月份已锁定，请选择未锁月份');
         $costs = ps_costs($orderId);
+        if ($order['project_type'] === '商标') {
+            require_once (dirname(__DIR__, 1)) . '/ProjectTrademarkCost.php';
+            ptc_approval_guard($orderId, $costs);
+        }
         $participants = ps_participants($orderId);
         $sum = ps_summary($order, $costs, $participants);
         $resourceQuery = $pdo->prepare('SELECT domain_mode,ssl_expected_amount FROM project_order_resources WHERE order_id=?');

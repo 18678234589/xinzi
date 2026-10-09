@@ -1,12 +1,13 @@
 <?php
 /**
  * 商标订单成本：原表没有成本列，成本从成本中心带入。成本中心里“适用业务 = 商标”的启用模板按单位分三类：
- *   单位“件”  服务项目（注册 / 转让 / 续展 …）：按订单的“商标个数”× 单价；导入时按表格文字里的服务名自动识别，识别不到按“商标注册”；
+ *   单位“件”  服务项目（注册 / 转让 / 续展 …）：按明确的办理事项与商标件数计费，无法识别时要求核对；
  *   单位“个”  附加项（如注册多选项目加收）：客服在订单页填个数追加；
  *   单位“元”  按实际金额（成品商标 / 国际商标 / 法务外包）：单价 ¥1，数量即实际金额，一律进财务审核。
  * 订单已有成本（如专员表自带的成本列）时不再自动带入，避免重复。
  */
 require_once __DIR__ . '/ProjectIntake.php';
+require_once __DIR__ . '/ProjectTrademarkPricing.php';
 
 function ptc_templates()
 {
@@ -24,18 +25,13 @@ function ptc_keyword($template)
     return trim(preg_replace('/^商标/u', '', (string)$template['name']));
 }
 
-/** 按表格文字识别服务项目：取文字里出现的最长服务名；没有出现任何服务名时按“注册”。 */
+/** 只识别唯一的明确事项；宽展 / 超期续展优先于普通续展，不能默认注册。 */
 function ptc_detect_service(array $templates, $text)
 {
-    $services = array_values(array_filter($templates, function ($t) { return ptc_kind($t) === 'service'; }));
-    $best = null; $bestLength = 0; $default = null;
-    foreach ($services as $service) {
-        $keyword = ptc_keyword($service);
-        if ($keyword === '') continue;
-        if ($keyword === '注册') $default = $service;
-        if (mb_strpos((string)$text, $keyword) !== false && mb_strlen($keyword) > $bestLength) { $best = $service; $bestLength = mb_strlen($keyword); }
-    }
-    return $best ?? $default;
+    $names = ptc_service_names($text);
+    if (count($names) !== 1) return null;
+    $service = ptc_find_service($templates, $names[0]);
+    return $service && ptc_kind($service) === 'service' ? $service : null;
 }
 
 function ptc_order_has_costs($orderId)
@@ -53,11 +49,12 @@ function ptc_count_label($count)
 /** 给一张商标订单自动带入服务成本，返回新增条数（0 或 1）。调用方负责事务。 */
 function ptc_apply($orderId, $count, $actor, $origin, $text = '', ?array $templates = null)
 {
-    if (!is_numeric($count) || (float)$count <= 0 || ptc_order_has_costs($orderId)) return 0;
-    $service = ptc_detect_service($templates ?? ptc_templates(), $text);
-    if (!$service) return 0;
-    // 成本中心的标准价：不受 ¥500 阈值限制，模板设为“不自动审”时才进财务审核
-    ps_intake_add_template_cost($orderId, $service, $actor, $origin . '：' . ptc_keyword($service) . ' × ' . ptc_count_label($count) . ' 件', (float)$count, (int)$service['auto_approve'] === 1 ? 'approved' : 'pending');
+    if (ptc_order_has_costs($orderId)) return 0;
+    [$details, $storedText] = ptc_order_pricing_data($orderId);
+    $details['trademark_count'] = $count;
+    $plan = ptc_cost_plan($templates ?? ptc_templates(), $details, $storedText . ' ' . $text);
+    if ($plan['status'] !== 'ready') return 0;
+    foreach ($plan['lines'] as $line) ps_intake_add_template_cost($orderId, $line['template'], $actor, '商标自动：' . $origin . '；' . $plan['message'], $line['quantity'], $line['status']);
     return 1;
 }
 
@@ -70,10 +67,15 @@ function ptc_user_add($orderId, $templateId, $quantity, $actor)
     if (!$template) throw new RuntimeException('成本项目不可用，请刷新页面');
     $kind = ptc_kind($template);
     if ($kind === 'other') throw new RuntimeException('此成本项目请由财务录入');
+    if ($kind === 'variable' && (float)$template['price'] !== 1.0) throw new RuntimeException('实际金额成本模板单价必须为1元，请财务核对成本中心');
     $quantity = trim((string)$quantity);
-    if (!is_numeric($quantity) || (float)$quantity <= 0 || (float)$quantity > ($kind === 'variable' ? 9999999 : 1000)) throw new RuntimeException($kind === 'variable' ? '请填写实际成本金额（大于 0）' : '数量须大于 0');
+    if (!is_numeric($quantity) || (float)$quantity <= 0 || (float)$quantity > ($kind === 'variable' ? 9999999 : 1000) || ($kind !== 'variable' && floor((float)$quantity) != (float)$quantity)) throw new RuntimeException($kind === 'variable' ? '请填写实际成本金额（大于 0）' : '数量须为 1–1000 的整数');
     $quantity = round((float)$quantity, 2);
     if ($kind === 'service') {
+        [$details] = ptc_order_pricing_data($orderId);
+        $details['trademark_service'] = ptc_keyword($template);
+        $details['trademark_count'] = ptc_count_label($quantity);
+        db()->prepare("INSERT INTO project_order_details (order_id,business_name,details_json) VALUES (?,'商标',?) ON DUPLICATE KEY UPDATE details_json=VALUES(details_json)")->execute([(int)$orderId, json_encode($details, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR)]);
         $old = db()->prepare("SELECT c.id FROM project_costs c JOIN project_cost_templates t ON t.id=c.template_id WHERE c.order_id=? AND t.business_scope='商标' AND t.unit='件' AND c.review_status IN ('approved','pending')");
         $old->execute([(int)$orderId]);
         foreach ($old->fetchAll(PDO::FETCH_COLUMN) as $costId) {
@@ -90,7 +92,7 @@ function ptc_user_add($orderId, $templateId, $quantity, $actor)
 function ptc_backfill($actor)
 {
     $templates = ptc_templates();
-    if (!ptc_detect_service($templates, '')) throw new RuntimeException('成本中心还没有“适用业务=商标、单位=件”的启用模板（如“商标注册”），请先添加');
+    if (!$templates) throw new RuntimeException('成本中心还没有启用的商标成本模板，请先添加');
     $pdo = db();
     $pdo->beginTransaction();
     try {
@@ -111,72 +113,9 @@ function ptc_backfill($actor)
     return ['orders' => $orders, 'costs' => $costs];
 }
 
-/**
- * 商标订单成本的统一落账（新建、补充上传、修复工具共用）：
- *   自动成本 = 商标个数 × 成本中心服务项目单价（按文字识别服务名，识别不到按“注册”）；
- *   Excel 成本 = 本次表格“成本”列，或订单上此前从 Excel 导入的成本；
- *   订单成本取两者较大者——自动算不出来时以 Excel 为准，自动成本比 Excel 低时也以 Excel 为准；Excel 没写时用自动成本。
- * 商标成本都是标准官费，不再因超过 ¥500 卡在待审核（待审核的成本不进“直接成本”，订单会显示成本 ¥0）。
- * 订单上有人工填写的其他成本（非模板、非 Excel 导入）时不改动。返回做了什么：none / added / raised / approved / ok / manual / skip。
- */
+/** 商标自动成本统一落账：按已确认事项纠正项目、件数和单价；人工成本及冻结结算不变。 */
 function ptc_sync_order_cost($orderId, $actor, $origin, $excelCost = null, $text = null)
 {
-    $pdo = db();
-    $order = $pdo->prepare('SELECT project_type,note,settlement_status FROM project_orders WHERE id=?');
-    $order->execute([(int)$orderId]);
-    $order = $order->fetch();
-    if (!$order || $order['project_type'] !== '商标' || in_array($order['settlement_status'], ['approved', 'locked'], true)) return 'skip';
-    $detail = $pdo->prepare('SELECT details_json FROM project_order_details WHERE order_id=?');
-    $detail->execute([(int)$orderId]);
-    $details = json_decode((string)$detail->fetchColumn(), true) ?: [];
-    $count = $details['trademark_count'] ?? '';
-    $text = $text ?? implode(' ', [$details['service_type'] ?? '', $details['trademark_name'] ?? '', $order['note'] ?? '']);
-    $service = is_numeric($count) && (float)$count > 0 ? ptc_detect_service(ptc_templates(), $text) : null;
-    $auto = null;
-    if ($service) { [, $autoAmount] = ps_template_cost_amount($service, 0, (float)$count); $auto = round((float)$autoAmount, 2); }
-    $excel = ($excelCost !== null && $excelCost !== '' && is_numeric($excelCost)) ? round((float)$excelCost, 2) : 0.0;
-
-    $rows = $pdo->prepare("SELECT id,template_id,amount,quantity,review_status,reason FROM project_costs WHERE order_id=? AND review_status<>'rejected' ORDER BY id FOR UPDATE");
-    $rows->execute([(int)$orderId]);
-    $rows = $rows->fetchAll();
-    $excelRows = []; $autoRows = []; $otherRows = [];
-    foreach ($rows as $r) {
-        if ($r['template_id'] !== null && (int)$r['template_id'] > 0) $autoRows[] = $r;
-        elseif (strpos((string)$r['reason'], 'Excel') === 0) $excelRows[] = $r;
-        else $otherRows[] = $r;
-    }
-    if ($otherRows) return 'manual';
-    $excel = max($excel, round(array_sum(array_map(function ($r) { return (float)$r['amount']; }, $excelRows)), 2));
-    $target = max($auto ?? 0.0, $excel);
-    $insertExcel = function ($amount, $why) use ($pdo, $orderId, $actor) {
-        $pdo->prepare("INSERT INTO project_costs (order_id,category,item_name,quantity,unit,unit_price,amount,cost_kind,is_custom,reason,review_status,submitted_by_employee) VALUES (?,'outsourcing','商标官费',1,'项',?,?,'one_time',1,?,'approved',?)")
-            ->execute([(int)$orderId, $amount, $amount, $why, $actor['employee_id'] ?? null]);
-        return (int)$pdo->lastInsertId();
-    };
-    if (!$rows) {
-        if ($auto !== null && $auto >= $excel) { ps_intake_add_template_cost($orderId, $service, $actor, $origin . '：' . ptc_keyword($service) . ' × ' . ptc_count_label($count) . ' 件', (float)$count, (int)$service['auto_approve'] === 1 ? 'approved' : 'pending'); return 'added'; }
-        if ($excel > 0) { $id = $insertExcel($excel, (strpos($origin, 'Excel') === 0 ? '' : 'Excel ') . $origin . '导入'); ps_audit('cost', $id, 'create_from_intake', $actor, ['order_id' => (int)$orderId, 'amount' => $excel, 'origin' => $origin]); return 'added'; }
-        return 'none';
-    }
-    $done = 'ok';
-    // 待审核的 Excel 成本：商标官费直接通过
-    foreach ($excelRows as $r) if ($r['review_status'] === 'pending') {
-        $pdo->prepare("UPDATE project_costs SET review_status='approved',review_note=CONCAT_WS('；',NULLIF(review_note,''),'商标成本按标准官费自动通过') WHERE id=?")->execute([(int)$r['id']]);
-        ps_audit('cost', (int)$r['id'], 'auto_approve_trademark', $actor, ['order_id' => (int)$orderId, 'amount' => (float)$r['amount'], 'origin' => $origin]);
-        $done = 'approved';
-    }
-    $current = round(array_sum(array_map(function ($r) { return (float)$r['amount']; }, $rows)), 2);
-    if ($current + 0.004 < $target) {
-        $why = '；' . $origin . '：成本取成本中心标准价与 Excel 中较大者 ¥' . number_format($target, 2, '.', '');
-        if (count($rows) === 1) {
-            $r = $rows[0]; $quantity = max((float)$r['quantity'], 1);
-            $pdo->prepare("UPDATE project_costs SET amount=?,unit_price=ROUND(?/?,2),review_status='approved',reason=LEFT(CONCAT(reason,?),500) WHERE id=?")->execute([$target, $target, $quantity, $why, (int)$r['id']]);
-            ps_audit('cost', (int)$r['id'], 'raise_trademark_cost', $actor, ['order_id' => (int)$orderId, 'from' => (float)$r['amount'], 'to' => $target, 'origin' => $origin]);
-        } else {
-            $id = $insertExcel(round($target - $current, 2), $origin . '：补差至成本中心标准价与 Excel 中较大者 ¥' . number_format($target, 2, '.', ''));
-            ps_audit('cost', $id, 'raise_trademark_cost', $actor, ['order_id' => (int)$orderId, 'from' => $current, 'to' => $target, 'origin' => $origin]);
-        }
-        $done = 'raised';
-    }
-    return $done;
+    require_once __DIR__ . '/ProjectTrademarkReconcile.php';
+    return ptc_reconcile_order_cost($orderId, $actor, $origin, $excelCost, $text);
 }

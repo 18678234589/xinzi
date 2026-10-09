@@ -152,6 +152,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $id = (int)db()->lastInsertId();
         ps_source_record($id, $contract === '' ? 'missing' : 'manual', $paymentNickname, $tradeStatus, $paymentReference);
         ps_save_business_details($id, $projectType, $details);
+        if ($projectType === '商标') {
+            require_once (dirname(__DIR__, 2)) . '/../includes/ProjectTrademarkCost.php';
+            ptc_sync_order_cost($id, $actor, '新建订单');
+        }
         if ($actor['role'] === 'finance' && (float)$receipt > 0) {
             db()->prepare("INSERT INTO project_cash_movements (order_id,movement_type,amount,note,review_status,submitted_by_type,submitted_by_id,reviewed_by_admin,reviewed_at) VALUES (?,'receipt',?,'新建订单初始实收','approved','admin',?,?,NOW())"
     )

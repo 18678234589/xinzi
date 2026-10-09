@@ -25,7 +25,7 @@ try {
     $pdo->prepare('INSERT INTO project_user_businesses (user_id,business_name,is_default) VALUES (?,?,1)')->execute([$uid,'商标']);
     ps_account_management_save($uid,'management',['management_scope'=>'assigned','management_title'=>'商标主管']);
     $_SESSION['project_user_id']=$uid; $_SESSION['project_csrf']='management-test'; unset($_SESSION['admin_id']);
-    $csv="日期,店铺,订单编号,售价,成本,客服,订单类型,商标个数\n".date('Y-m-d').",管理测试店,$no,330,270,客服测试$tag,普通订单,2\n";
+    $csv="日期,店铺,订单编号,售价,成本,客服,订单类型,商标个数,办理事项\n".date('Y-m-d').",管理测试店,$no,330,270,客服测试$tag,普通订单,2,注册\n";
     $tmp=tempnam(sys_get_temp_dir(),'manager-import-');file_put_contents($tmp,$csv);
     $stored=ps_private_store('imports',$tmp,'manager_import_'.$tag.'.csv');unlink($tmp);
     $pdo->prepare("INSERT INTO project_import_files (business_name,original_name,stored_name,file_size,uploaded_by_type,uploaded_by_id,employee_id) VALUES (?,'管理代录测试.csv',?,?,'employee',?,?)")->execute(['商标',$stored,strlen($csv),$uid,$employeeIds[0]]);

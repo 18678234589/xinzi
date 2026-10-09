@@ -74,7 +74,9 @@
                             $q = $pdo->prepare('SELECT details_json FROM project_order_details WHERE order_id=? FOR UPDATE');
                             $q->execute([$orderId]);
                             $details = json_decode((string)($q->fetchColumn() ?: '{}'), true) ?: [];
-                            $detailsChanged = false;
+                            $pricingDetailsBefore = $details;
+                            if ($selectedBusiness === '商标') ptc_merge_import_details($orderId, $details, $row['details'], $actor);
+                            $detailsChanged = $pricingDetailsBefore !== $details;
                             foreach ($row['details'] as $key => $value) if ($value !== '' && trim((string)($details[$key] ?? '')) === '') { $details[$key] = $value; $detailsChanged
     = true; }
                             // 商标资料 / 提交专员按件计：以专员表的“商标个数”为准（客服表“数量”可能不同）
@@ -185,7 +187,7 @@
                     if ($domainTemplate) ps_intake_add_template_cost($orderId, $domainTemplate, $actor, 'Excel 第' . $row['line'] . '行：域名');
                     if ($serverTemplate) ps_intake_add_template_cost($orderId, $serverTemplate, $actor, 'Excel 第' . $row['line'] . '行：服务器');
                     poi_save($orderId, $row['items'] ?? [], (int)$_SESSION['project_import_file'], $actor);
-                    // 商标成本：成本中心标准价（件数 × 单价）与 Excel 成本取较大者，都自动通过；算不出标准价就以 Excel 为准（见 ptc_sync_order_cost）
+                    // 商标成本按明确办理事项同步；实际成本差额、成品/国际/法务成本须财务审核。
                     if ($writeBusiness === '商标') ptc_sync_order_cost($orderId, $actor, 'Excel 第' . $row['line'] . '行', $row['direct_cost'] ?? '', implode(' ', [$row['details']['trademark_name'] ?? '', $row['details']['service_type'] ?? '', $row['contact_note'] ?? '', $row
     ['business_text'] ?? '', $row['resource_note'] ?? '']));
                     elseif (($row['direct_cost'] ?? '') !== '' && (float)$row['direct_cost'] != 0) {

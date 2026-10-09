@@ -110,7 +110,11 @@ $previewFileId = $preview ? (int)($_SESSION['project_import_file'] ?? 0) : 0;
     'name')) ?: '—'); ?></small><?php if (!empty($row['need_technical'])): ?><div class="small text-danger mt-1">缺接单技术：请在上方“需要处理的订单”里选择</div><?php endif; ?><?php foreach ($row['items'] ?? [] as $oi): ?><div class="small text-muted mt-1"><?php echo e($oi['item_name']); ?><?php echo $oi['sale_amount']===
     null ? ' · 整单计价' : ' · ¥' . money($oi['sale_amount']); ?><?php echo $oi['category']==='certificate' ? ' · 证书独立保留' : ''; ?></div><?php endforeach; ?></td>
 <?php if ($businessDefinition['fields']): ?><td><small><?php foreach ($businessDefinition['fields'] as $key => $label): ?><?php echo e($label . '：' . ps_contact_for($actor, ($row
-    ['details'][$key] ?? '') ?: '—', $key === 'customer_wechat')); ?><br><?php endforeach; ?></small></td><?php endif; ?>
+    ['details'][$key] ?? '') ?: '—', $key === 'customer_wechat')); ?><br><?php endforeach; ?></small>
+<?php if ($selectedBusiness === '商标'): ?>
+<?php if (!empty($row['need_trademark_service'])): ?><select class="form-control form-control-sm mt-1" name="fix_tm_service[<?php echo (int)$row['line']; ?>]" aria-label="第<?php echo (int)$row['line']; ?>行商标办理事项"><option value="">请选择实际办理事项…</option><?php foreach (ptc_templates() as $tmOption): if (!in_array(ptc_kind($tmOption), ['service','variable'], true)) continue; ?><option value="<?php echo e(ptc_keyword($tmOption)); ?>"><?php echo e($tmOption['name'] . (ptc_kind($tmOption) === 'service' ? ' · ¥' . money($tmOption['price']) . '/件' : ' · 需填实际成本')); ?></option><?php endforeach; ?></select><small class="text-danger">选好后点“应用补填并重新核对”；多选项目数、实际成本可在上方在线编辑表格。</small>
+<?php elseif (!empty($row['details']['trademark_service'])): ?><input type="hidden" name="fix_tm_service[<?php echo (int)$row['line']; ?>]" value="<?php echo e($row['details']['trademark_service']); ?>"><?php endif; ?>
+<?php endif; ?></td><?php endif; ?>
 <?php if ($resourceSelection && $usesProgram): ?><td><?php if (!empty($row['resource_locked'])): ?><span class="text-muted">原单已确认</span><?php elseif (!empty($row['base_valid'
     ])): ?><select class="form-control form-control-sm" name="program_choice[<?php echo (int)$row['line']; ?>]" aria-label="第<?php echo (int)$row['line']; ?>行程序套餐"><option value="0">不使用程序套餐</option><?php
     foreach ($programTemplates as $t): ?><option value="<?php echo (int)$t['id']; ?>" <?php echo (int)($row['program_template_id'] ?? 0) === (int)$t['id'] ? 'selected' : ''; ?>><?php

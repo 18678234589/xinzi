@@ -120,6 +120,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 /* split: project/import/03a_order_no_and_split.php */ include (dirname(__DIR__, 1)) . '/import/03a_order_no_and_split.php';
 /* split: project/import/03b_date_amount_status.php */ include (dirname(__DIR__, 1)) . '/import/03b_date_amount_status.php';
 /* split: project/import/03c_people_resources.php */ include (dirname(__DIR__, 1)) . '/import/03c_people_resources.php';
+                    if ($selectedBusiness === '商标') ptc_import_check($record, $existing, trim((string)($_POST['fix_tm_service'][$record['line']] ?? '')), $actor);
                 } catch (RuntimeException $e) { $record['base_valid'] = false; $record['status'] = $record['skip_status'] ?? '需处理'; $record['error'] = $e->getMessage(); }
                 $itemTemplates = $itemTemplates ?? ps_intake_templates(null, $selectedBusiness);
                 $record['items'] = !empty($businessDefinition['program']) ? poi_from_row($record['program_name'], empty($record['amount_from_shop']) ? $record['contract_amount'] :

@@ -37,7 +37,7 @@ function ps_business_catalog()
         // 微信代写：编辑员自接单（店铺订单每单补助 3 元），部门利润池按月分配（规则中心“部门利润池分配”）。
         '微信代写' => ['departments' => ['微信代写客服', '微信代写售后', '微信营销部经理'], 'resources' => false, 'requires_technical' => false, 'service_fee_rate' => 0, 'order_kinds' => ['店铺订单', '微信付款'], 'kind_required' => true, 'default_kind' => '店铺订单', 'cost_label' => '写手稿费', 'import_cost' => true, 'free_shop' => true, 'fields' => ['writer_code' => '写手编号', 'writing_volume' => '字数']],
         // 商标部：普通订单 (售价 − 成本 − 1%服务费) × 12% + 3元/单；新客户订单 + 6元/单；同一客服同一客户当月第二单起记“同客户”（照常提成、不计单量）；小额返款订单 3元/单；资料专员与提交专员每件 2.2 元。
-        '商标' => ['departments' => ['商标', '商标部'], 'resources' => false, 'requires_technical' => false, 'service_fee_rate' => 0.01, 'order_kinds' => ['普通订单', '新客户', '同客户', '小额返款'], 'kind_required' => true, 'default_kind' => '普通订单', 'cost_label' => '成本', 'import_cost' => true, 'free_shop' => true, 'fields' => ['trademark_name' => '商标名称', 'trademark_count' => '商标个数', 'service_type' => '网报类型']],
+        '商标' => ['departments' => ['商标', '商标部'], 'resources' => false, 'requires_technical' => false, 'service_fee_rate' => 0.01, 'order_kinds' => ['普通订单', '新客户', '同客户', '小额返款'], 'kind_required' => true, 'default_kind' => '普通订单', 'cost_label' => '成本', 'import_cost' => true, 'free_shop' => true, 'fields' => ['trademark_service' => '办理事项', 'trademark_name' => '商标名称', 'trademark_count' => '商标个数', 'trademark_extra_count' => '多选项目总数', 'service_type' => '网报类型']],
         // 标书（曹双双、王宁兼标书客服）：(售价 − 成本 − 售价 × 3% 服务费) × 10%；成本 = 设计师佣金合计，随表导入。
         '标书' => ['departments' => ['标书'], 'resources' => false, 'requires_technical' => false, 'service_fee_rate' => 0.03, 'order_kinds' => [], 'cost_label' => '设计师佣金', 'import_cost' => true, 'free_shop' => true, 'fields' => ['designer' => '设计师 / 技术昵称']],
         // 平面设计（阎泸琪）：逐单不计提成，按月营业额阶梯结算（规则中心“营业额阶梯薪酬”）；原表“老客户”列有内容记为老客户找回（+10%）。
@@ -219,6 +219,8 @@ function ps_business_import_columns($business)
         $columns['ppt_marker'] = ['设计师佣金'];
     }
     if ($business === '商标') {
+        $columns['detail:trademark_service'] = ['办理事项', '商标办理事项', '商标业务', '商标业务类型', '服务项目', '成本项目'];
+        $columns['detail:trademark_extra_count'] = ['多选项目总数', '多选项目数', '附加项目数'];
         $columns['detail:trademark_name'] = ['商标名称', '商标'];
         $columns['detail:trademark_count'] = ['商标个数', '数量', '件数'];
         $columns['detail:service_type'] = ['网报类型', '网报加急', '业务类型'];
