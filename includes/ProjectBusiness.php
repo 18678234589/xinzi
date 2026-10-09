@@ -166,7 +166,7 @@ function ps_business_details($business, $source)
 
 function ps_save_business_details($orderId, $business, $details)
 {
-    db()->prepare('INSERT INTO project_order_details (order_id,business_name,details_json) VALUES (?,?,?)')
+    db()->prepare('INSERT INTO project_order_details (order_id,business_name,details_json) VALUES (?,?,?) ON DUPLICATE KEY UPDATE business_name=VALUES(business_name), details_json=VALUES(details_json)')
         ->execute([(int)$orderId, $business, json_encode($details, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR)]);
 }
 

@@ -1,6 +1,7 @@
 <?php
 // 列表筛选：月份 + 业务 + 待办 + 关键字（订单号/客户/付款昵称/项目账号的类型·说明·地址·账号·备注）。
 $filterBusiness = (string)($_GET['filter_business'] ?? '');
+$filterFinance = ps_finance_filter($actor, $_GET['filter_finance'] ?? null);
 $filterState = (string)($_GET['state'] ?? '');
 $keyword = trim((string)($_GET['q'] ?? ''));
 $credentialHits = [];
@@ -8,6 +9,7 @@ $importFileId = (int)($_GET['import_file'] ?? 0);
 $importFileReport = [];
 $where = [];
 $params = [];
+if ($actor['role'] === 'finance' && $filterFinance !== 'all') $where[] = ps_finance_business_condition($filterFinance);
 if ($importFileId > 0) {
     try { ps_import_file_get($importFileId, $actor); }
     catch (RuntimeException $e) { http_response_code(403); exit(e($e->getMessage())); }
@@ -97,6 +99,54 @@ $totalPages = max(1, (int)ceil($totalOrders / $perPage));
 $page = min(max(1, (int)($_GET['page'] ?? 1)), $totalPages);
 $pageOrders = array_slice($orders, ($page - 1) * $perPage, $perPage);
 $pageQuery = function ($p) { return '?' . http_build_query(array_merge($_GET, ['page' => $p])); };
+
+$pageOrderIds = array_map(function ($r) { return (int)$r['id']; }, $pageOrders);
+$pageOrderExtras = [];
+if ($pageOrderIds) {
+    $inSql = implode(',', $pageOrderIds);
+    try {
+        $itemStmt = db()->query("SELECT order_id, resource_type, expires_on, phone_cipher, wechat_cipher FROM project_renewal_items WHERE order_id IN ($inSql) AND status<>'closed' ORDER BY id");
+        while ($r = $itemStmt->fetch()) {
+            $oid = (int)$r['order_id'];
+            if (!isset($pageOrderExtras[$oid])) $pageOrderExtras[$oid] = ['server_expiry' => '', 'domain_expiry' => '', 'phone' => '', 'wechat' => '', 'cost_amount' => 0.0, 'cost_reason' => ''];
+            if ($r['resource_type'] === 'server' && !empty($r['expires_on']) && empty($pageOrderExtras[$oid]['server_expiry'])) {
+                $pageOrderExtras[$oid]['server_expiry'] = $r['expires_on'];
+            }
+            if ($r['resource_type'] === 'domain' && !empty($r['expires_on']) && empty($pageOrderExtras[$oid]['domain_expiry'])) {
+                $pageOrderExtras[$oid]['domain_expiry'] = $r['expires_on'];
+            }
+            if (!empty($r['phone_cipher']) && empty($pageOrderExtras[$oid]['phone'])) {
+                try { $pageOrderExtras[$oid]['phone'] = (string)pv_decrypt($r['phone_cipher']); } catch (Throwable $e) {}
+            }
+            if (!empty($r['wechat_cipher']) && empty($pageOrderExtras[$oid]['wechat'])) {
+                try { $pageOrderExtras[$oid]['wechat'] = (string)pv_decrypt($r['wechat_cipher']); } catch (Throwable $e) {}
+            }
+        }
+    } catch (Throwable $e) {}
+    try {
+        $detStmt = db()->query("SELECT order_id, details_json FROM project_order_details WHERE order_id IN ($inSql)");
+        while ($dr = $detStmt->fetch()) {
+            $oid = (int)$dr['order_id'];
+            $d = json_decode((string)$dr['details_json'], true) ?: [];
+            if (!isset($pageOrderExtras[$oid])) $pageOrderExtras[$oid] = ['server_expiry' => '', 'domain_expiry' => '', 'phone' => '', 'wechat' => '', 'cost_amount' => 0.0, 'cost_reason' => ''];
+            if (empty($pageOrderExtras[$oid]['phone']) && !empty($d['customer_phone'])) $pageOrderExtras[$oid]['phone'] = $d['customer_phone'];
+            if (empty($pageOrderExtras[$oid]['wechat']) && !empty($d['customer_wechat'])) $pageOrderExtras[$oid]['wechat'] = $d['customer_wechat'];
+            if (empty($pageOrderExtras[$oid]['server_expiry']) && !empty($d['server_expiry'])) $pageOrderExtras[$oid]['server_expiry'] = $d['server_expiry'];
+        }
+    } catch (Throwable $e) {}
+    try {
+        $costStmt = db()->query("SELECT order_id, amount, reason, item_name FROM project_costs WHERE order_id IN ($inSql) ORDER BY id DESC");
+        while ($cr = $costStmt->fetch()) {
+            $oid = (int)$cr['order_id'];
+            if (!isset($pageOrderExtras[$oid])) $pageOrderExtras[$oid] = ['server_expiry' => '', 'domain_expiry' => '', 'phone' => '', 'wechat' => '', 'cost_amount' => 0.0, 'cost_reason' => ''];
+            if (empty($pageOrderExtras[$oid]['cost_amount'])) {
+                $pageOrderExtras[$oid]['cost_amount'] = (float)$cr['amount'];
+                $pageOrderExtras[$oid]['cost_reason'] = $cr['reason'] ?: $cr['item_name'];
+            }
+        }
+    } catch (Throwable $e) {}
+}
+
 $commissionCells = [];
 $snapshotMap = [];
 $approvedIds = array_map(function ($r) { return (int)$r['id']; }, array_filter($pageOrders, function ($r) { return in_array($r['settlement_status'], ['approved', 'locked'], true);

@@ -38,6 +38,7 @@ if (!isset($_GET['month']) && $_SERVER['REQUEST_METHOD'] !== 'POST') {
         $monthScope = $actor['role'] === 'finance' ? '' : ' AND (EXISTS (SELECT 1 FROM project_participants mp WHERE mp.order_id=o.id AND mp.employee_id=' . (int)$actor['employee_id'
     ] . ') OR EXISTS (SELECT 1 FROM project_department_uploaders du WHERE du.order_id=o.id AND du.employee_id=' . (int)$actor['employee_id'] . '))';
         if (ps_is_management($actor)) $monthScope = ' AND (' . ps_management_order_condition($actor) . ')';
+        if ($actor['role'] === 'finance') $monthScope = ' AND (' . ps_finance_business_condition(ps_finance_filter($actor, $_GET['filter_finance'] ?? null)) . ')';
         $hasMonth = (int)db()->query("SELECT COUNT(*) FROM project_orders o WHERE o." . $dateBasis . ">='" . $month . "-01' AND o." . $dateBasis . "<'" . date('Y-m-d', strtotime($month
     . '-01 +1 month')) . "'" . $monthScope)->fetchColumn();
         if (!$hasMonth) {
@@ -92,6 +93,8 @@ require_once __DIR__ . '/../includes/ProjectOrderDelete.php';
 $canDeleteOrders = $actor['role'] === 'finance' || $isAfterSalesDept || (isset($deleteAllowEmployeeIds[(int)($actor['employee_id'] ?? 0)])) || in_array($actor['role'], ['customer_service', 'technical'], true); // 客服 / 技术可删本人参与、未审核的订单（规则见 pod_blocker）
 $canSelectOrders = $canDeleteOrders || in_array($actor['role'], ['customer_service', 'technical', 'finance'], true);
 
+// 单个快捷修改：改类型、改成本、改到期时间、加客户联系方式
+/* split: project/index/actions/quick_update.php */ include __DIR__ . '/index/actions/quick_update.php';
 // 单个删除传错的订单：仅未审核（草稿 / 审核中）可删，连同实收流水、成本、参与人、分成快照一并清理。
 /* split: project/index/actions/delete.php */ include __DIR__ . '/index/actions/delete.php';
 /* split: project/index/actions/bulk.php */ include __DIR__ . '/index/actions/bulk.php';

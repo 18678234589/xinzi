@@ -2,8 +2,9 @@
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['bulk_action'])) {
     ps_check_csrf();
     $bulkAction = (string)$_POST['bulk_action'];
-    // 批量删除下放给网站售后部；其余批量操作仍仅财务
+    // 批量删除下放给网站售后部；批量修改类型允许客服、技术和财务；其余批量操作仍仅财务
     if ($bulkAction === 'delete') { if (!$canDeleteOrders) { http_response_code(403); exit('无权限'); } }
+    elseif ($bulkAction === 'set_kind') { if (!in_array($actor['role'], ['customer_service', 'technical', 'finance'], true)) { http_response_code(403); exit('无权限'); } }
     elseif ($actor['role'] !== 'finance') { http_response_code(403); exit('无权限'); }
     $ids = array_values(array_unique(array_filter(array_map('intval', (array)($_POST['ids'] ?? [])))));
     $payrollMonth = (string)($_POST['bulk_month'] ?? '');
@@ -51,15 +52,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['bulk_action'])) {
                 } catch (Throwable $approveEx) {
                     // 若前置条件（如域名待确认、SSL待补录）未满足，仅标记已交付完成，暂不锁定审核
                 }
-            } elseif ($bulkAction === 'delete') {
-                // 批量删除传错的订单（已审核的上面已拦下并列出原因）；售后部员工只能删本人参与/代录的
+            } elseif ($bulkAction === 'set_kind') {
+                $targetKind = trim((string)($_POST['bulk_order_kind'] ?? ''));
+                if ($targetKind === '') throw new RuntimeException('请选择订单类型');
                 if ($actor['role'] !== 'finance') {
-                    $partQuery = db()->prepare('SELECT 1 FROM project_participants WHERE order_id=? AND employee_id=? UNION SELECT 1 FROM project_department_uploaders WHERE order_id=? AND employee_id=? LIMIT 1'
-    );
+                    $partQuery = db()->prepare('SELECT 1 FROM project_participants WHERE order_id=? AND employee_id=? UNION SELECT 1 FROM project_department_uploaders WHERE order_id=? AND employee_id=? LIMIT 1');
                     $partQuery->execute([$orderId, (int)$actor['employee_id'], $orderId, (int)$actor['employee_id']]);
-                    if (!$partQuery->fetchColumn()) throw new RuntimeException('只能删除本人参与的订单');
+                    if (!$partQuery->fetchColumn()) throw new RuntimeException('只能修改本人参与的订单');
                 }
-                $deleteOrderRows($orderId);
                 $validKind = ps_order_kind_valid(ps_business_normalize($row['project_type']), $targetKind);
                 db()->prepare("UPDATE project_orders SET order_kind=?, row_version=row_version+1 WHERE id=?")->execute([$validKind, $orderId]);
                 ps_audit('order', $orderId, 'bulk_set_order_kind', $actor, ['order_kind' => $validKind]);
@@ -67,7 +67,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['bulk_action'])) {
                 // 批量删除传错的订单；规则统一见 includes/ProjectOrderDelete.php（已审核订单：财务 / 售后部的售后业务可删，删前完整备份）
                 if (($why = pod_blocker($row, $actor)) !== '') throw new RuntimeException($why);
                 $backupFile = pod_backup($orderId, $orderNo);
-                ps_audit('order', $orderId, 'bulk_delete', $actor, ['order_no' => $orderNo]);
+                $deleteOrderRows($orderId);
+                ps_audit('order', $orderId, 'bulk_delete', $actor, ['order_no' => $orderNo, 'was_status' => $row['settlement_status'], 'backup' => basename($backupFile)]);
             } else throw new RuntimeException('操作无效');
             db()->commit();
             $done++;
@@ -76,8 +77,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['bulk_action'])) {
             $failed[] = $orderNo . '：' . ($e instanceof PDOException ? '保存失败' : $e->getMessage());
         }
     }
-    $_SESSION['project_bulk_result'] = ['action' => ['receipt' => '确认实收', 'finish' => '标记交付完成', 'approve' => '审核并生成分成', 'delete' => '删除'][$bulkAction
+    if ($bulkAction === 'set_kind' && $ids) {
+        try { require_once (dirname(__DIR__, 3)) . '/includes/ProjectAutoReview.php'; pa_after_save($ids); } catch (Throwable $e) {}
+    }
+    $_SESSION['project_bulk_result'] = ['action' => ['receipt' => '确认实收', 'finish' => '标记交付完成', 'approve' => '审核并生成分成', 'delete' => '删除', 'set_kind' => '修改订单类型'][$bulkAction
     ] ?? $bulkAction, 'done' => $done, 'failed' => $failed];
-    header('Location: ' . BASE_URL . '/project/index.php?' . (string)($_POST['return_query'] ?? '')); exit;
+    header('Location: ' . BASE_URL . '/project/index.php?' . (string)($_POST['return_query'] ?? ''));
+    if (PHP_SAPI !== 'cli') exit;
 }
 

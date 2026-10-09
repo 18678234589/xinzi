@@ -46,10 +46,10 @@
 <?php $isFinance = $actor['role'] === 'finance'; ?>
 <?php if ($isFinance && ($corrPendingCount = ps_corr_pending_count()) > 0): ?><div class="alert alert-warning"><i class="fas fa-flag mr-1"></i>有 <?php echo (int)$corrPendingCount
     ; ?> 条分成更正申请待处理，<a class="alert-link" href="<?php echo BASE_URL; ?>/project/corrections.php">点此查看</a>。</div><?php endif; ?>
-<?php if ($canDeleteOrders): ?><form method="post" id="bulkForm"><input type="hidden" name="csrf" value="<?php echo e(ps_csrf_token()); ?>"><input type="hidden" name="return_query" value="<?php
-    echo e(http_build_query(array_intersect_key($_GET, array_flip(['month','date_basis','filter_business','state','q','page','employee_id','participating'])))); ?>"><?php endif; ?>
+<?php if ($canSelectOrders): ?><form method="post" id="bulkForm"><input type="hidden" name="csrf" value="<?php echo e(ps_csrf_token()); ?>"><input type="hidden" name="return_query" value="<?php
+    echo e(http_build_query(array_intersect_key($_GET, array_flip(['month','date_basis','filter_business','filter_finance','state','q','page','employee_id','participating'])))); ?>"><?php endif; ?>
 <div class="card"><div class="card-header d-flex justify-content-between align-items-center flex-wrap" style="gap:8px"><span>订单列表（共 <?php echo (int)$totalOrders; ?> 单<?php
-    if ($totalPages > 1): ?>，第 <?php echo (int)$page; ?>/<?php echo (int)$totalPages; ?> 页<?php endif; ?>）</span><?php if ($canDeleteOrders && $orders): ?><div class="project-bulk-bar"><span class="small text-muted" id="bulkCount">已选 0 单</span><?php
+    if ($totalPages > 1): ?>，第 <?php echo (int)$page; ?>/<?php echo (int)$totalPages; ?> 页<?php endif; ?>）</span><?php if ($canSelectOrders && $orders): ?><div class="project-bulk-bar d-flex align-items-center flex-wrap" style="gap:6px"><span class="small text-muted" id="bulkCount">已选 0 单</span><select name="bulk_order_kind" id="bulkOrderKind" class="form-control form-control-sm mr-1" style="width:auto;display:inline-block"><option value="">批量改订单类型...</option><option value="开发定制">开发定制</option><option value="定制">定制</option><option value="新订单">新订单</option><option value="续费">续费</option><option value="技术服务">技术服务</option><option value="加购/纯利润">加购/纯利润</option></select><button class="btn btn-sm btn-outline-primary mr-1" name="bulk_action" value="set_kind" onclick="return confirm('确认把所选订单批量修改为所选订单类型？')"><i class="fas fa-tags mr-1"></i>批量改类型</button><?php
     if ($isFinance): ?><button class="btn btn-sm btn-outline-success" name="bulk_action" value="receipt" onclick="return confirm('根据收退款证据和规则核对所选订单？只有资料齐全的未结算订单会自动处理，不会按售价登记实收。')">系统核对</button><button class="btn btn-sm btn-outline-success" name="bulk_action" value="finish">标记交付完成</button><input type="month" name="bulk_month" class="form-control form-control-sm" style="width:150px" value="<?php
     echo e($month); ?>" aria-label="分成归属月份"><button class="btn btn-sm btn-success" name="bulk_action" value="approve" onclick="return confirm('审核所选订单并生成项目分成？不满足条件的订单会跳过并列出原因。')">批量审核</button><?php
     endif; ?><?php if ($canDeleteOrders): ?><button class="btn btn-sm btn-outline-danger" name="bulk_action" value="delete" onclick="return confirm('删除所选订单？将连同实收流水、成本、参与人和分成快照一并删除，不可恢复。已审核的订单只有财务（或售后部删售后业务订单）能删，删除前会自动备份；其余会跳过并列出原因。')">批量删除</button><?php endif; ?></div><?php
@@ -64,22 +64,22 @@
     $order['id']; ?>" class="bulk-item" aria-label="选择 <?php echo e($order['order_no']); ?>"><?php endif; ?></td><?php endif; ?>
     <td><strong><?php echo e($order['order_no']); ?></strong><?php if (!empty($order['is_department_order'])): ?> <span class="badge badge-success">部门订单</span><?php endif;
     ?><?php if (!empty($order['split_parent_id']) || !empty($order['split_children'])): ?> <span class="badge badge-info" title="同一订单号由不同业务分别录入，各自按本人金额结算；收款需财务按订单号合并核对">分单</span><?php
-    endif; ?><div class="small text-muted"><?php echo e($order['payment_nickname'] ?: ($order['customer_name'] ?: '—')); ?></div><?php if (isset($credentialHits[(int)$order['id']
+    endif; ?><div class="small text-muted"><?php echo e($order['payment_nickname'] ?: ($order['customer_name'] ?: '—')); ?></div><?php if ($extra['phone'] !== '' || $extra['wechat'] !== ''): ?><div class="small text-success mt-1" title="客户联系方式"><i class="fas fa-phone-alt fa-xs mr-1"></i><?php echo e($extra['phone'] ?: $extra['wechat']); ?><?php if ($canEditOrder): ?> <a href="javascript:void(0)" class="js-quick-trigger text-primary" data-id="<?php echo (int)$order['id']; ?>" data-tab="contact" title="修改联系方式"><i class="fas fa-pen fa-xs"></i></a><?php endif; ?></div><?php elseif ($canEditOrder): ?><div class="small mt-1"><a href="javascript:void(0)" class="text-primary js-quick-trigger" data-id="<?php echo (int)$order['id']; ?>" data-tab="contact" title="添加客户联系方式"><i class="fas fa-plus-circle fa-xs mr-1"></i>加联系方式</a></div><?php endif; ?><?php if (isset($credentialHits[(int)$order['id']
     ])): ?><div class="small"><span class="badge badge-info">项目账号命中</span> <?php echo e($credentialHits[(int)$order['id']]); ?></div><?php endif; ?></td>
-    <td><?php echo e($order['project_type']); ?><?php if ($order['order_kind'] !== ''): ?><div class="small text-muted"><?php echo e($order['order_kind']); ?></div><?php endif; ?><?php
+    <td><div><?php echo e($order['project_type']); ?></div><div class="mt-1"><?php if ($order['order_kind'] !== ''): ?><span class="badge badge-info px-2 py-1 <?php echo $canEditOrder ? 'js-quick-trigger' : ''; ?>" <?php echo $canEditOrder ? 'style="cursor:pointer" title="点击直接修改订单类型" data-id="' . (int)$order['id'] . '" data-tab="kind"' : ''; ?>><?php echo e($order['order_kind']); ?><?php if ($canEditOrder): ?> <i class="fas fa-pen fa-xs ml-1"></i><?php endif; ?></span><?php elseif ($canEditOrder): ?><a href="javascript:void(0)" class="badge badge-light border text-primary px-2 py-1 js-quick-trigger" data-id="<?php echo (int)$order['id']; ?>" data-tab="kind" title="点击设置订单类型"><i class="fas fa-plus-circle fa-xs mr-1"></i>设类型</a><?php endif; ?></div><?php
     foreach (poi_items((int)$order['id']) as $oi): ?><div class="small text-muted"><?php echo e($oi['item_name']); ?><?php echo $oi['sale_amount'] === null ? '' : ' · ¥' . money(
     $oi['sale_amount']); ?></div><?php endforeach; ?></td>
-    <td class="text-nowrap"><?php echo e($order['order_date']); ?></td>
+    <td class="text-nowrap"><?php echo e($order['order_date']); ?><div class="small text-muted">核算财务：<?php echo e(ps_finance_name(ps_business_reviewer($order['project_type']))); ?></div></td>
     <td class="small"><?php echo e($order['people'] ?: '—'); ?></td>
     <td class="text-right"><?php echo $order['price_source'] === 'missing' ? '<span class="text-muted">待补</span>' : '¥' . money($order['contract_amount']); ?></td>
     <td class="text-right">¥<?php echo money((float)$order['receipt_amount'] - (float)$order['refund_amount']); ?></td>
-    <td class="text-right"><?php $costDisplay = $costDisplayStates[(int)$order['id']] ?? ['show_amount'=>true,'label'=>'','message'=>'','block_estimate'=>false]; if ($costDisplay['show_amount']): ?>¥<?php echo money($order['approved_costs']); ?><?php endif; ?><?php if ($costDisplay['label'] !== ''): ?><div class="small text-muted" title="<?php echo e($costDisplay['message']); ?>"><?php echo e($costDisplay['label']); ?></div><?php endif; ?></td>
+    <td class="text-right"><?php $costDisplay = $costDisplayStates[(int)$order['id']] ?? ['show_amount'=>true,'label'=>'','message'=>'','block_estimate'=>false]; if ($costDisplay['show_amount']): ?>¥<?php echo money($order['approved_costs']); ?><?php endif; ?><?php if ($costDisplay['label'] !== ''): ?><div class="small text-muted" title="<?php echo e($costDisplay['message']); ?>"><?php echo e($costDisplay['label']); ?></div><?php endif; ?><?php if ((int)$order['pending_costs'] > 0): ?><div class="small text-warning">待审 ¥<?php echo money($order['pending_costs']); ?></div><?php endif; ?><?php if ($canEditOrder): ?><div class="small mt-1"><a href="javascript:void(0)" class="text-primary js-quick-trigger" data-id="<?php echo (int)$order['id']; ?>" data-tab="cost" title="点击快捷录入/修改成本"><i class="fas fa-pen fa-xs mr-1"></i>改成本</a></div><?php endif; ?></td>
     <td class="text-right small text-nowrap"><?php foreach ($commissionCells[(int)$order['id']] ?? [] as $cell): ?><div><span class="text-muted"><?php echo e($cell['name']); ?></span> <?php
     if ($costDisplay['block_estimate']): ?><span class="text-muted" title="<?php echo e($costDisplay['message']); ?>">待核对</span><?php elseif ($cell['amount'] === null): ?><span class="text-muted">待配置</span><?php else: ?><a href="#" class="calc-open" title="点击查看计算过程" data-order="<?php echo (int)
     $order['id']; ?>" data-employee="<?php echo (int)$cell['employee_id']; ?>" data-group="<?php echo e($cell['group']); ?>"><?php echo $cell['estimated'] ? '预计 ' : ''; ?>¥<?php
     echo money($cell['amount']); ?></a><?php endif; ?></div><?php endforeach; ?><?php if (empty($commissionCells[(int)$order['id']])): ?><span class="text-muted">—</span><?php endif
     ; ?></td>
-    <td style="min-width:190px;max-width:280px"><?php if($order['monthly_allowance_verified']): ?><span class="badge badge-success mb-1">月度单量补助已核验</span><div class="small text-muted">只按月计入一次；利润分成另核实收</div><?php
+    <td style="min-width:190px;max-width:280px"><?php if ($extra['server_expiry'] !== ''): ?><div class="small font-weight-bold text-dark mb-1"><i class="fas fa-calendar-alt text-info mr-1"></i>到期：<?php echo e($extra['server_expiry']); ?><?php if ($canEditOrder): ?> <a href="javascript:void(0)" class="js-quick-trigger text-primary" data-id="<?php echo (int)$order['id']; ?>" data-tab="expiry" title="修改到期日"><i class="fas fa-pen fa-xs"></i></a><?php endif; ?></div><?php elseif ($canEditOrder && in_array(ps_business_normalize($order['project_type']), ['小程序开发', '网站模板', 'AI网站定制', '网站续费', '网站修改', '森动备案'], true)): ?><div class="small mb-1"><a href="javascript:void(0)" class="text-secondary js-quick-trigger" data-id="<?php echo (int)$order['id']; ?>" data-tab="expiry"><i class="fas fa-clock fa-xs mr-1"></i>+到期日</a></div><?php endif; ?><?php if($order['monthly_allowance_verified']): ?><span class="badge badge-success mb-1">月度单量补助已核验</span><div class="small text-muted">只按月计入一次；利润分成另核实收</div><?php
     endif; ?><span class="badge badge-<?php echo e($order['auto_review']['tone']); ?> mb-1"><?php echo e($order['auto_review']['label']); ?></span><?php if($order['auto_review']['guidance'
     ]): ?><div class="small mb-1" style="color:#326d78;white-space:normal"><?php echo e($order['auto_review']['guidance']); ?></div><?php endif; ?><?php foreach (array_slice($order
     ['todos'],0,2) as [$text, $level]): ?><div class="small text-muted" style="white-space:normal"><?php echo e($text); ?></div><?php endforeach; ?><?php if (count($order['todos'])
@@ -90,7 +90,8 @@
     ; ?></div>
     </td>
     <td class="text-nowrap"><a class="btn btn-outline-primary btn-sm text-nowrap" href="<?php echo BASE_URL; ?>/project/order.php?id=<?php echo (int)$order['id']; ?>">打开结算单</a><?php
-    if (empty($order['backend_tech_count']) && ps_is_website_order($order['project_type']) && !in_array($order['settlement_status'], ['approved','locked'], true)): ?><a class="btn btn-outline-info btn-sm text-nowrap ml-1" href="<?php
+    if ($canEditOrder): ?><button type="button" class="btn btn-outline-info btn-sm text-nowrap ml-1 js-quick-trigger" data-id="<?php echo (int)$order['id']; ?>" data-tab="all" title="快捷修改类型、成本、到期日、联系方式"><i class="fas fa-edit mr-1"></i>快捷修改</button><?php endif; ?><?php
+    if (empty($order['backend_tech_count']) && ps_is_website_order($order['project_type']) && !$isLocked): ?><a class="btn btn-outline-info btn-sm text-nowrap ml-1" href="<?php
     echo BASE_URL; ?>/project/order.php?id=<?php echo (int)$order['id']; ?>" title="本单未分配后端技术"><i class="fas fa-server mr-1"></i>指定后端</a><?php endif; ?><?php
     if ($canDeleteOrders && $order['settlement_status'] !== 'locked'): ?><button type="submit" name="delete_order_id" value="<?php echo (int)$order['id']
     ; ?>" class="btn btn-outline-danger btn-sm text-nowrap ml-1" onclick="return confirm('删除订单 <?php echo e($order['order_no']); ?>？<?php echo $order['settlement_status'] === 'approved' ? '这是已审核订单，会连同分成快照一并删除（删除前自动备份）。' : ''; ?>将连同实收流水、成本、参与人和分成快照一并删除，不可恢复。')">删除</button><?php
@@ -111,7 +112,31 @@
   <li class="page-item<?php echo $page >= $totalPages ? ' disabled' : ''; ?>"><a class="page-link" href="<?php echo e($pageQuery(min($totalPages, $page + 1))); ?>">下一页</a></li>
 </ul></nav>
 <?php endif; ?>
-<?php if ($canDeleteOrders): ?></form><?php endif; ?>
+<?php if ($canSelectOrders): ?></form><?php endif; ?>
+<script>
+window.quickOrdersMap = <?php
+  $qMap = [];
+  foreach ($pageOrders as $o) {
+    $oid = (int)$o['id'];
+    $ex = $pageOrderExtras[$oid] ?? ['server_expiry' => '', 'phone' => '', 'wechat' => '', 'cost_amount' => 0.0, 'cost_reason' => ''];
+    $qMap[$oid] = [
+      'id' => $oid,
+      'order_no' => $o['order_no'],
+      'business' => $o['project_type'],
+      'order_kind' => $o['order_kind'],
+      'kinds' => ps_business_order_kinds($o['project_type']),
+      'customer' => $o['customer_name'] ?: ($o['payment_nickname'] ?: ''),
+      'server_expiry' => $ex['server_expiry'],
+      'phone' => $ex['phone'],
+      'wechat' => $ex['wechat'],
+      'cost_amount' => $ex['cost_amount'] > 0 ? $ex['cost_amount'] : ((float)$o['approved_costs'] > 0 ? (float)$o['approved_costs'] : ''),
+      'cost_reason' => $ex['cost_reason'],
+    ];
+  }
+  echo json_encode($qMap, JSON_UNESCAPED_UNICODE);
+?>;
+</script>
+<?php include __DIR__ . '/quick_edit_modal.php'; ?>
 <div class="modal fade" id="calcAjaxModal" tabindex="-1" role="dialog" aria-hidden="true"><div class="modal-dialog modal-lg modal-dialog-scrollable" role="document"><div class="modal-content"></div></div></div>
 <script><?php /* split: project/index/view/js_2.php */ include (dirname((dirname(__DIR__, 1)), 1)) . '/index/view/js_2.php'; ?></script>
 </div>
