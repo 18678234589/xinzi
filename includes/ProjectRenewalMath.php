@@ -4,6 +4,8 @@ function pr_date($value)
 {
     $value = trim((string)$value);
     if ($value === '') return null;
+    // 很多程序是永久的：到期日写“永久”一律记为 2099-01-01（系统约定的永久日期，永远不会触发到期提醒）
+    if (preg_match('/^(永久|永久有效|终身|无期限|长期|买断)$/u', preg_replace('/\s+/u', '', $value))) return '2099-01-01';
     $date = DateTimeImmutable::createFromFormat('!Y-m-d', $value, new DateTimeZone('Asia/Shanghai'));
     if (!$date || $date->format('Y-m-d') !== $value || $value < '2000-01-01' || $value > '2100-12-31') throw new RuntimeException('请填写有效的到期日期');
     return $value;
@@ -71,6 +73,7 @@ function pr_default_type($projectType) { return $projectType === '小程序开�
 /** 表头里的到期日列 → 资源类型。域名和服务器合写、或写的是长段说明的列不当作权威到期日。 */
 function pr_import_label_type($label)
 {
+    if (preg_match('/^(到期日期|到期日|服务到期日?)$/u', $label)) return 'server'; // 小程序新模板的“到期日期”：服务器 / 服务到期
     if (!preg_match('/到期|有效期/u', $label)) return null;
     $domain = preg_match('/域名/u', $label); $server = preg_match('/服务器|空间|主机/u', $label);
     if ($domain && $server) return null;

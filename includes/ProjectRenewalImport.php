@@ -3,7 +3,7 @@ require_once __DIR__.'/ProjectRenewals.php';
 /** Optional renewal fields must never block an otherwise valid order import. */
 function pr_import_fields($head,$row)
 {
-    $out=['phone'=>'','wechat'=>'','resources'=>[]];
+    $out=['phone'=>'','wechat'=>'','resources'=>[]]; $permanent=false;
     foreach ($head as $i=>$label) {
         $label=preg_replace('/[\s（）()：:]/u','',trim((string)$label)); $value=trim((string)($row[$i]??''));
         if ($value==='' || mb_strlen($label)>40) continue;
@@ -21,6 +21,13 @@ function pr_import_fields($head,$row)
             if (preg_match('/^(客户自有|客户自备|客户|自有|自备)/u',$value)) { $out['resources']['domain']['owner']='customer'; $note=trim(preg_replace('/^(客户自有|客户自备|客户|自有|自备)[:：\s-]*/u','',$value)); $out['resources']['domain']['owner_note']=$note!==''?$note:'上传表格标注为客户自有，需核对'; }
             elseif (preg_match('/^(我们|代管|公司|我方)/u',$value)) $out['resources']['domain']['owner']='ours';
         }
+        // 小程序新模板：业务种类写“永久”→ 服务器到期日记为永久（2099-01-01）；“续费联系方式”可写手机号或微信号
+        if (preg_match('/^业务种类/u',$label) && preg_match('/永久|终身|买断|一次性/u',$value)) $permanent=true;
+        if (preg_match('/^续费联系方式$/u',$label)) {
+            $compact=preg_replace('/[\s\-()]+/u','',$value);
+            if (preg_match('/^(\+?86)?1[3-9][0-9]{9}$/D',$compact) || preg_match('/^\+?[0-9]{7,15}$/D',$compact)) { try { $out['phone']=pr_phone($value); } catch (RuntimeException $e) { /* 无效联系方式不阻断订单导入 */ } }
+            else { try { $wx=pr_wechat($value); } catch (RuntimeException $e) { $wx=''; } if ($wx!=='') $out['wechat']=$wx; }
+        }
         if (in_array($label,['小程序名称','小程序名'],true)) $out['resources']['miniapp_certification']['resource_name']=mb_substr($value,0,180);
         if (preg_match('/客户.*(手机|电话)|联系电话|客户联系方式|^手机号$|备注.*客户电话/u',$label) && !preg_match('/客服.*(手机|电话)/u',$label)) {
             if (preg_match('/^(客户)?(手机号?码?|电话|联系电话)$/u',$label)) {
@@ -31,6 +38,7 @@ function pr_import_fields($head,$row)
             $phones=array_values(array_unique($m[0])); if (count($phones)===1) $out['phone']=$phones[0];
         }
     }
+    if ($permanent) $out['resources']['server']['expires_on']='2099-01-01';
     return $out;
 }
 function pr_import_apply($orderId,$fields,$actor)

@@ -5,4 +5,4 @@
     echo $departmentMode ? 'department' : 'personal'; ?>&download=1">下载此业务模板（含示例行）</a><?php $tplExtras = ps_import_role_extras($selectedBusiness, $actor,
     ps_business_import_headers_base($selectedBusiness)); if ($tplExtras): ?><span class="small text-muted ml-2">已按你的岗位加入“<?php echo e(implode('、', $tplExtras));
     ?>”列</span><?php endif; ?></form>
-<?php if ($selectedBusiness === '小程序开发'): ?><div class="alert alert-warning small"><strong>模板已更新（2026-10-09），请先点上面的“下载此业务模板”获取新版。</strong> 新增“订单类型”列，写明可选值：<b>新订单</b>＝在小程序商城新注册搭建的订单（每单 20 元补助）；<b>其他订单</b>＝注册公众号、重新注册、认证、小修改等（没有补助）；<b>定制</b>、<b>续费</b>单独填写。旧表仍可上传，但没写类型的行只按“业务 / 制作要求”文字猜，拿不准一律按“其他订单”。</div><?php endif; ?>
+<?php if ($selectedBusiness === '小程序开发'): ?><div class="alert alert-warning small"><strong>小程序模板已升级为 Excel（xlsx）新版，请先点上面的“下载此业务模板”重新下载。</strong> 订单类型、业务种类、状态都是<b>下拉选择</b>，不用手输：<b>订单类型</b>＝新订单（在小程序商城新注册搭建，每单 20 元补助）/ 其他订单（注册公众号、重新注册、认证等，无补助）/ 定制 / 续费；<b>业务种类</b>＝永久（买断，不续费）/ 年费（须填<b>到期日期</b>和<b>续费联系方式</b>，到期前系统短信提醒客户）。“永久”的程序，到期日期可直接写“永久”。旧表仍可上传，但没写类型的行只按“业务 / 制作要求”文字猜，拿不准一律按“其他订单”。</div><?php endif; ?>

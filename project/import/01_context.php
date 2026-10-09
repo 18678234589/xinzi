@@ -51,33 +51,28 @@ if (!preg_match('/^\d{4}-(0[1-9]|1[0-2])$/', $ruleMonth)) $ruleMonth = date('Y-m
 $renewalRates = $departmentMode ? ps_department_renewal_rates($ruleMonth) : [];
 $businessDefinition = $selectedBusiness ? ps_business_catalog()[$selectedBusiness] : null;
 if (isset($_GET['download']) && $selectedBusiness && $_SERVER['REQUEST_METHOD'] === 'GET') {
+    // 小程序开发：默认下载 xlsx 模板（订单类型 / 业务种类 / 状态为下拉选择，日期和长数字列带格式，附填写说明）；?format=csv 可下载纯文本版
+    if ($selectedBusiness === '小程序开发' && ($_GET['format'] ?? '') !== 'csv') {
+        require_once (dirname(__DIR__, 1)) . '/../includes/ProjectMiniappTemplate.php';
+        header('Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+        header('Content-Disposition: attachment; filename="miniapp-order-template.xlsx"; filename*=UTF-8' . chr(39) . chr(39) . rawurlencode($selectedBusiness . '-订单模板.xlsx'));
+        echo pmt_xlsx();
+        exit;
+    }
     header('Content-Type: text/csv; charset=UTF-8');
     header('Content-Disposition: attachment; filename="project-order-template.csv"; filename*=UTF-8' . chr(39) . chr(39) . rawurlencode($selectedBusiness . '-订单模板.csv'));
-    echo "\xEF\xBB\xBF";
+    echo "ï»¿";
     $output = fopen('php://output', 'wb');
     $templateHeaders = ps_business_import_headers($selectedBusiness, $actor);
     fputcsv($output, $templateHeaders);
-    // 附一行示例（订单号以“示例”开头，上传时自动跳过），照着填即可
-    $exampleRow = ps_business_import_example_row($selectedBusiness, $templateHeaders);
     if ($selectedBusiness === '小程序开发') {
-        // 小程序：用 4 行示例把“新订单 / 其他订单 / 定制 / 续费”各演示一遍（均以“示例”开头，上传时自动跳过）
-        $miniExamples = [
-            ['新订单', '小程序商城搭建', '在小程序商城新注册搭建的订单才填“新订单”，每单有 20 元补助'],
-            ['其他订单', '注册公众号', '注册公众号、重新注册、认证、小修改等都填“其他订单”（续费单独填“续费”），没有补助'],
-            ['定制', '定制开发某某功能', '按客户需求定制开发的订单填“定制”'],
-            ['续费', '小程序续费1年', '续年费的订单填“续费”'],
-        ];
-        foreach ($miniExamples as [$exKind, $exBusiness, $exNote]) {
-            $line = $exampleRow;
-            foreach ($templateHeaders as $exIndex => $exHead) {
-                if (strpos($exHead, '订单类型') === 0) $line[$exIndex] = $exKind;
-                elseif ($exHead === '业务') $line[$exIndex] = $exBusiness;
-                elseif ($exHead === '订单编号') $line[$exIndex] = '示例-' . $exKind . '（本行可删，上传时自动跳过）';
-                elseif (mb_strpos($exHead, '备注') === 0) $line[$exIndex] = $exNote;
-            }
-            fputcsv($output, $line);
-        }
-    } else fputcsv($output, $exampleRow);
+        // 小程序 csv 版：示例行与 xlsx 模板一致（均以“示例”开头，上传时自动跳过）
+        require_once (dirname(__DIR__, 1)) . '/../includes/ProjectMiniappTemplate.php';
+        foreach (pmt_example_rows() as $exampleData) fputcsv($output, array_map(function ($head) use ($exampleData) { return $exampleData[$head] ?? ''; }, $templateHeaders));
+    } else {
+        // 附一行示例（订单号以“示例”开头，上传时自动跳过），照着填即可
+        fputcsv($output, ps_business_import_example_row($selectedBusiness, $templateHeaders));
+    }
     fclose($output);
     exit;
 }

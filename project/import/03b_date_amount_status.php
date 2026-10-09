@@ -256,6 +256,20 @@
                     $record['lines'] = [$record['line']];
                     $rawDetails = [];
                     foreach ($businessDefinition['fields'] as $key => $label) $rawDetails[$key] = $lookup($row, 'detail:' . $key);
+                    if ($selectedBusiness === '小程序开发') {
+                        // 业务种类：永久（一次买断，不续费）/ 年费（按年续费，须有到期日期和续费联系方式）。“永久”也可直接写在到期日期里
+                        require_once (dirname(__DIR__, 1)) . '/../includes/ProjectMiniappTemplate.php';
+                        $termRaw = trim((string)($rawDetails['service_term'] ?? ''));
+                        $expiryRaw = trim($lookup($row, 'expiry_date')); $renewContact = trim($lookup($row, 'renew_contact'));
+                        $term = pmt_normalize_term($termRaw);
+                        if ($term === null) { $record['warning'] .= ($record['warning'] ? '；' : '') . '业务种类“' . mb_substr($termRaw, 0, 20) . '”不是“永久 / 年费”，已忽略'; $term = ''; }
+                        if ($term === '' && pmt_is_permanent_text($expiryRaw)) $term = '永久';
+                        $rawDetails['service_term'] = $term;
+                        if ($term === '年费') {
+                            if ($expiryRaw === '') $record['warning'] .= ($record['warning'] ? '；' : '') . '年费业务没填到期日期：续费提醒按订单日期 +1 年估算，请补填';
+                            if ($renewContact === '' && !preg_match('/1[3-9][0-9]{9}/', $record['contact_note'])) $record['warning'] .= ($record['warning'] ? '；' : '') . '年费业务没填续费联系方式（手机号或微信号），无法短信提醒续费';
+                        }
+                    }
                     $record['details'] = ps_business_details($selectedBusiness, $rawDetails);
                     if ($record['ssl_used'] !== '' && !in_array($record['ssl_used'], ['无','否'], true) && (!preg_match('/^\d+(?:\.\d{1,2})?$/', $record['ssl_used']) || (float)$record
     ['ssl_used'] > 999999999999.99)) throw new RuntimeException('SSL 真实成本无效，请填写金额、0 或无');

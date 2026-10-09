@@ -67,6 +67,24 @@ try {
     $notes = implode(' ', array_column($_SESSION['project_import_sheets'] ?? [], 'ai'));
     $check(mb_strpos($notes, '旧版模板') !== false && mb_strpos($notes, '下载此业务模板') !== false, '旧版表上传时提醒下载新版');
     $check(($_SESSION['project_import_preview'][0]['order_kind'] ?? '') === '新订单', '旧表里“小程序商城”仍识别为新订单');
+    // 新模板：业务种类（永久 / 年费）、到期日期、续费联系方式
+    $tk = '业务种类(永久/年费)';
+    $term = function ($i, $t, $expiry = '', $contact = '') use ($tag, $sk, $kk, $tk) { return ['日期' => '2026.9.8', '店铺' => '美呀美', '付款昵称' => "tm$tag$i", '订单编号' => "33193$tag" . "0000$i", '售价' => '300', $kk => '新订单', $tk => $t, '到期日期' => $expiry, '续费联系方式' => $contact, '业务' => '小程序商城', $sk => '已完成', '客服' => '朱俊英', '制作技术' => '石凯新']; };
+    [$pv3, $imp3, $err3] = $importAs($tech, '小程序开发', $csvOf('小程序开发', [$term(1, '永久'), $term(2, '年费', '2027-09-08', '13800138000'), $term(3, '年费'), $term(4, '', '永久'), $term(5, '永久版', '', 'wx_example')]));
+    $check($err3 === '' && $imp3 === 5, '5 行含业务种类全部导入：' . $imp3 . ' ' . implode('；', array_map(function ($r) { return $r['error'] ?? ''; }, $pv3)));
+    $terms = array_map(function ($r) { return $r['details']['service_term'] ?? '?'; }, $pv3);
+    $check($terms === ['永久', '年费', '年费', '永久', '永久'] || $terms === ['永久', '年费', '', '永久', '永久'], '业务种类识别：' . implode(',', $terms));
+    $check(mb_strpos((string)$pv3[2]['warning'], '年费业务没填到期日期') !== false, '年费没填到期日期：提示');
+    $srv = $pdo->prepare("SELECT r.expires_on,r.phone_hash<>'' has_phone,COALESCE(r.wechat_hash,'')<>'' has_wx FROM project_renewal_items r JOIN project_orders o ON o.id=r.order_id WHERE o.order_no=? AND r.resource_type='server'");
+    $srv->execute(["33193$tag" . '00001']); $r1 = $srv->fetch();
+    $srv->execute(["33193$tag" . '00002']); $r2 = $srv->fetch();
+    $srv->execute(["33193$tag" . '00004']); $r4 = $srv->fetch();
+    $srv->execute(["33193$tag" . '00005']); $r5 = $srv->fetch();
+    $check($r1 && $r1['expires_on'] === '2099-01-01', '业务种类=永久：服务器到期日记为 2099-01-01');
+    $check($r2 && $r2['expires_on'] === '2027-09-08' && $r2['has_phone'], '年费：到期日 2027-09-08 与续费手机号已写入');
+    $check($r4 && $r4['expires_on'] === '2099-01-01', '到期日期直接写“永久”：记为 2099-01-01');
+    $check($r5 && $r5['has_wx'], '续费联系方式写微信号：记为微信号');
+    $check(pr_date('永久') === '2099-01-01' && pr_date('永久有效') === '2099-01-01', '续费模块的日期输入接受“永久”');
     echo "\n=== 小程序订单类型测试全部通过 ===\n";
 } catch (Throwable $e) {
     fwrite(STDERR, $e->getMessage() . "\n");

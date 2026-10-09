@@ -13,7 +13,7 @@ function ps_business_catalog()
         '环境配置' => ['departments' => ['环境配置','服务器配置'], 'resources' => false, 'requires_technical' => true, 'service_fee_rate' => 0.03, 'order_kinds' => [], 'fields' => ['service_item' => '服务内容', 'server_info' => '服务器 / 环境说明']],
         // 旧分类只用于展示历史订单；新订单按产品类型建单，客服作为参与人加入同一订单号。
         '网站客服' => ['departments' => ['网站客服'], 'resources' => false, 'fields' => ['website_url' => '网站地址', 'service_item' => '服务事项'], 'legacy' => true],
-        '小程序开发' => ['departments' => ['小程序技术','小程序','标书小程序'], 'resources' => false, 'requires_technical' => true, 'service_fee_rate' => 0.03, 'order_kinds' => ['新订单','定制','续费','技术服务'], 'kind_required' => true, 'fields' => ['miniapp_name' => '小程序名称', 'make_requirement' => '制作要求', 'customer_wechat' => '客户微信']],
+        '小程序开发' => ['departments' => ['小程序技术','小程序','标书小程序'], 'resources' => false, 'requires_technical' => true, 'service_fee_rate' => 0.03, 'order_kinds' => ['新订单','定制','续费','技术服务'], 'kind_required' => true, 'fields' => ['miniapp_name' => '小程序名称', 'make_requirement' => '制作要求', 'customer_wechat' => '客户微信', 'service_term' => '业务种类']],
         '小额引流' => ['departments' => [], 'resources' => false, 'requires_technical' => false, 'service_fee_rate' => 0, 'order_kinds' => [], 'fields' => ['refund_diff' => '客户退差价金额', 'service_item' => '业务说明']],
         '小程序客服' => ['departments' => ['小程序客服'], 'resources' => false, 'fields' => ['miniapp_name' => '小程序名称', 'service_item' => '服务事项'], 'legacy' => true],
         // 设计客服：PPT (售价 − 5.5% − 设计师 40%) × 5%；图片 (售价 − 3.1%) × 5% + 0.5 元/单（同一客户当月只计一单，其余记“图片同客户”）。
@@ -274,6 +274,12 @@ function ps_business_import_columns($business)
         $columns['detail:website_url'] = ['网站地址', '域名空间'];
         $columns['contact_note'] = array_merge($columns['contact_note'], ['特殊情况备注']);
     }
+    // 小程序新模板：业务种类（永久 / 年费）、到期日期、续费联系方式；到期日期与续费联系方式由续费模块读取（ProjectRenewalImport）
+    if ($business === '小程序开发') {
+        $columns['detail:service_term'] = ['业务种类(永久/年费)', '业务种类', '服务期限'];
+        $columns['expiry_date'] = ['到期日期', '服务器到期日'];
+        $columns['renew_contact'] = ['续费联系方式'];
+    }
     foreach ($definition['fields'] as $key => $label) {
         if (!isset($columns['detail:' . $key])) {
             $columns['detail:' . $key] = [$label];
@@ -287,7 +293,7 @@ function ps_business_import_columns($business)
 function ps_import_role_extras($business, $actor, array $headers = [])
 {
     if ($actor && $business === '小程序开发' && ($actor['role'] ?? '') !== 'finance') {
-        foreach ($headers as $h) if (preg_match('/服务器.*(到期|有效期)|(到期|有效期).*服务器/u', (string)$h)) return [];
+        foreach ($headers as $h) if (preg_match('/服务器.*(到期|有效期)|(到期|有效期).*服务器|^到期日期$/u', (string)$h)) return [];
         return ['服务器到期日']; // 小程序订单需提供服务器到期日，用于续费提醒和续费分成
     }
     if (!$actor || !in_array($business, ['AI网站定制', '网站模板', '网站续费', '网站修改', '备案-提成'], true)) return [];
@@ -317,6 +323,7 @@ function ps_business_import_headers($business, $actor = null)
 
 function ps_business_import_headers_base($business)
 {
+    if ($business === '小程序开发') { require_once __DIR__ . '/ProjectMiniappTemplate.php'; return pmt_headers(); }
     // 网站售后部续费表按原表列序输出，中间保留一列空表头与原表一致。
     if ($business === '网站续费') return ['接单客服', '拍建站', '续费年数', '程序名称', '版本', '店铺', '付费旺旺', '日期', '订单编号', '售价', '总成本', '空间成本', '域名成本', '域名真实成本', '', '空间域名', '备注1', '备注2'];
     // 网站售后部备案两表按原表列序输出（原表无状态列，模板补「状态」列由上传时按实际填写）。
