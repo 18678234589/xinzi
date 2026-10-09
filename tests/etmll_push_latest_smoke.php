@@ -1,0 +1,40 @@
+<?php
+if(PHP_SAPI!=='cli') exit;
+require_once __DIR__.'/../includes/etmll_push.php';
+function latest_check($ok,$message) { if(!$ok) throw new RuntimeException($message); }
+$pdo=db();$epdo=etmll_connect();
+// Both connections shadow actual tables; no fixture touches real business records.
+$pdo->exec("CREATE TEMPORARY TABLE orders (id INT AUTO_INCREMENT PRIMARY KEY,employee_id INT,order_scope VARCHAR(20),is_deleted INT DEFAULT 0,shop VARCHAR(100),order_no VARCHAR(64),order_amount DECIMAL(14,2),order_date DATE,raw_data TEXT,created_at DATETIME)");
+$epdo->exec("CREATE TEMPORARY TABLE `order` (id INT AUTO_INCREMENT PRIMARY KEY,order_no VARCHAR(64) UNIQUE,merchant_id INT,shop_name VARCHAR(100),status INT DEFAULT 0,total_amount DECIMAL(14,4),commission DECIMAL(14,4),proxy_amount DECIMAL(14,4),raw_status VARCHAR(50),created_at DATETIME,product_title VARCHAR(500),refund_amount DECIMAL(14,4),confirmed_amount DECIMAL(14,4),buyer_paid_amount DECIMAL(14,4),order_create_time DATETIME,order_pay_time DATETIME,shop_id VARCHAR(64),remark_tag VARCHAR(200),shipping_time DATETIME,alipay_no VARCHAR(64))");
+$target=$epdo->prepare("INSERT INTO `order` (order_no,merchant_id,shop_name,status,total_amount,commission,proxy_amount,raw_status,created_at,confirmed_amount) VALUES (?,9,'测试店',?,100,17,83,?,'2026-09-01',66)");
+foreach(['EXISTING'=>[1,'买家已付款,等待卖家发货'],'NEWER'=>[0,'交易成功'],'REFUND'=>[0,'交易成功'],'TRASH'=>[2,'买家已付款,等待卖家发货']] as $no=>$row) $target->execute([$no,$row[0],$row[1]]);
+$target->execute(['CACHE',0,'买家已付款,等待卖家发货']);
+$source=$pdo->prepare("INSERT INTO orders (employee_id,order_scope,shop,order_no,order_amount,order_date,raw_data,created_at,is_deleted) VALUES (0,'department',?,?,?,?,?,?,?)");
+$raw=['__financial_source__'=>'shop_statement','__statement_uploaded_at__'=>'2026-10-09 12:00:00','__order_status__'=>'交易成功','商品标题'=>'最新商品','发货时间'=>'2026-10-08 10:20:30'];
+$source->execute(['测试店','EXISTING',200,'2026-09-01',json_encode($raw),'2026-09-01',0]);
+$source->execute(['测试店','NEWER',100,'2026-09-01',json_encode(['__order_status__'=>'买家已付款,等待卖家发货']),'2026-10-09',0]);
+$source->execute(['测试店','REFUND',-100,'2026-09-01',json_encode(['__order_status__'=>'交易关闭','__is_refund__'=>1]),'2026-09-01',0]);
+$source->execute(['测试店','TRASH',100,'2026-09-01',json_encode($raw),'2026-10-09',0]);
+$source->execute(['测试店','CACHE',100,'2026-09-01',json_encode(['__etmll_id__'=>3,'数据来源'=>'ETMLL自动同步','__order_status__'=>'交易成功']),'2026-10-09',0]);
+$source->execute(['测试店','NEW',100,'2026-10-09',json_encode(['__order_status__'=>'交易成功','付款时间'=>'2026-10-09 10:00:00']),'2026-10-09',0]);
+$source->execute(['测试店','OLD-UNSEEN',100,'2026-09-01',json_encode($raw),'2026-09-01',0]);
+$source->execute(['其他店','OTHER',100,'2026-10-09',json_encode($raw),'2026-10-09',0]);
+$source->execute(['测试店','DELETED-SOURCE',100,'2026-10-09',json_encode($raw),'2026-10-09',1]);
+$args=[false,false,100,'测试店','2026-10-07','2025-10-09'];
+$preview=etmll_push_orders($pdo,$epdo,true,false,100,'测试店','2026-10-07','2025-10-09');
+latest_check($preview['would_push']===1 && $preview['would_update']===2,'Preview must include existing old-created upload, refund status, and one new order');
+latest_check((int)$epdo->query('SELECT COUNT(*) FROM `order`')->fetchColumn()===5,'Preview cannot write');
+$result=etmll_push_orders($pdo,$epdo,...$args);
+latest_check($result['pushed']===1 && $result['updated']===2,'Execute must match preview');
+$existing=$epdo->query("SELECT * FROM `order` WHERE order_no='EXISTING'")->fetch();
+latest_check($existing['raw_status']==='交易成功' && $existing['shipping_time']==='2026-10-08 10:20:30','Existing trade and shipping must update');
+latest_check((float)$existing['total_amount']===100.0 && (float)$existing['commission']===17.0 && (float)$existing['confirmed_amount']===66.0 && (int)$existing['status']===1,'Settlement money and verified status must remain unchanged');
+latest_check($epdo->query("SELECT raw_status FROM `order` WHERE order_no='REFUND'")->fetchColumn()==='交易关闭','Negative refund rows must still update known order state');
+latest_check($epdo->query("SELECT raw_status FROM `order` WHERE order_no='NEWER'")->fetchColumn()==='交易成功','Old uploads cannot downgrade newer target states');
+latest_check($epdo->query("SELECT raw_status FROM `order` WHERE order_no='TRASH'")->fetchColumn()==='买家已付款,等待卖家发货','Trash must stay untouched');
+latest_check($epdo->query("SELECT raw_status FROM `order` WHERE order_no='CACHE'")->fetchColumn()==='买家已付款,等待卖家发货','Source cache must not echo changes back');
+latest_check($epdo->query("SELECT buyer_paid_amount FROM `order` WHERE order_no='NEW'")->fetchColumn()===null,'Sale price cannot fabricate actual payment');
+latest_check((int)$epdo->query("SELECT COUNT(*) FROM `order` WHERE order_no IN ('OTHER','OLD-UNSEEN','DELETED-SOURCE')")->fetchColumn()===0,'Scope, history and deletion protections');
+$repeat=etmll_push_orders($pdo,$epdo,...$args);
+latest_check($repeat['pushed']===0 && $repeat['updated']===0,'Repeat must be idempotent');
+echo "Latest push smoke OK: existing status, refund closure, old-date reupload, new order, preview, no downgrades, settlement/cache/deletion/scope/history protections, real payment evidence, idempotency; temporary tables only\n";
