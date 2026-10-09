@@ -28,6 +28,12 @@ try {
     $check(ptc_keyword(ptc_detect_service($templates,'注册号17112551 许可备案'))==='许可备案','注册号不被识别成注册业务');
     $check(ptc_detect_service($templates,'网报 图形9类')===null,'缺少办理事项不默认注册');
     $check(ptc_detect_service($templates,'续展和转让')===null,'混合办理事项不挑最长名称计整单');
+    foreach (['续展1转让2'=>[3,1350],'变更5续展1'=>[6,450],'注册2变更6'=>[8,540],'注册1变更21'=>[22,270],'注册2转让7'=>[9,3690],'注册2超期续展3'=>[5,2565],'续展1超期续展2'=>[3,1800]] as $mix=>$expected) {
+        $p=ptc_cost_plan($templates,['trademark_service'=>$mix,'trademark_count'=>(string)$expected[0]]);
+        $check($p['status']==='ready'&&$p['total']===(float)$expected[1],'混合事项逐项计价 '.$mix.' = '.$expected[1]);
+    }
+    $check(ptc_cost_plan($templates,['trademark_service'=>'注册2变更6','trademark_count'=>'2'])['status']==='unresolved','混合事项数量不一致不能落账');
+    $check(ptc_cost_plan($templates,['trademark_service'=>'注册1.5转让2.5','trademark_count'=>'3'])['status']==='unresolved','混合事项不截断小数件数');
     $check(ptc_cost_plan($templates,['trademark_service'=>'续展','trademark_count'=>'2'],'已过期续展')['total']===1350.0,'续展事项另有过期备注时不能漏收宽展费');
     $check(ptc_cost_plan($templates,['trademark_service'=>'注册','trademark_count'=>'1'],'许可备案')['status']==='unresolved','事项与备注矛盾不静默按低价注册');
     $check(ptc_cost_plan($templates,['trademark_service'=>'注册','trademark_count'=>'1.5'])['status']==='unresolved','拒绝小数件数');

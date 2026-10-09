@@ -15,15 +15,16 @@ function ptc_service_names($text)
         '国际商标成本' => '/国际商标|马德里|海外商标|国外商标/u',
         '法务外包成本' => '/法务|诉讼|异议|无效宣告|撤三|驳回复审/u',
     ];
-    $found = [];
+    $found = []; $directLate = false;
     foreach ($patterns as $name => $pattern) if (preg_match($pattern, $text)) {
         $found[] = $name;
+        if ($name === '超期续展') $directLate = true;
         $text = preg_replace($pattern, '', $text);
     }
     foreach (['注册', '转让', '续展', '变更', '注销', '撤回', '更正'] as $name) {
         if (mb_strpos($text, $name) !== false) $found[] = $name;
     }
-    if ($lateRenewal) { $found = array_values(array_diff($found, ['续展'])); $found[] = '超期续展'; }
+    if ($lateRenewal && !$directLate) { $found = array_values(array_diff($found, ['续展'])); $found[] = '超期续展'; }
     if (in_array('国际商标成本', $found, true)) $found = array_values(array_diff($found, ['注册']));
     return array_values(array_unique($found));
 }
@@ -35,6 +36,38 @@ function ptc_find_service(array $templates, $name)
     }));
     // 同名的启用模板不应靠数据库顺序挑一个价格。
     return count($matches) === 1 ? $matches[0] : null;
+}
+
+/** 混合订单只有逐项件数明确且合计一致才自动计算；不能取最长项目套到全部件数。 */
+function ptc_mixed_plan(array $templates, array $details, $text, array $names, $excelCost)
+{
+    $fail = function ($message) { return ['status'=>'unresolved','lines'=>[],'message'=>$message]; };
+    $text = preg_replace('/\s+/u', '', (string)$text);
+    $text = str_replace(['逾期续展','过期续展','宽展期续展','宽展续展','补发注册证','许可合同备案','许可使用备案'], ['超期续展','超期续展','超期续展','超期续展','补证','许可备案','许可备案'], $text);
+    $pattern = '(超期续展|许可备案|补证|注册|转让|续展|变更|注销|撤回|更正)';
+    preg_match_all('/'.$pattern.'(\d+)(?![\d.])(?:件|个|类)?/u', $text, $matches, PREG_SET_ORDER);
+    preg_match_all('/(?<![\d.])(\d+)(?![\d.])(?:件|个|类)'.$pattern.'/u', $text, $before, PREG_SET_ORDER);
+    foreach ($before as $m) $matches[] = [$m[0],$m[2],$m[1]];
+    $counts = [];
+    foreach ($matches as $m) $counts[$m[1]][(int)$m[2]] = true;
+    foreach ($names as $name) if (empty($counts[$name]) || count($counts[$name]) !== 1) return $fail('混合商标事项须逐项写清整数件数（如注册2、超期续展3），无法明确时请拆行或由财务逐项录入');
+    $sum = 0; $lines = []; $labels = [];
+    foreach ($names as $name) {
+        $quantity = (int)array_keys($counts[$name])[0];
+        if ($quantity < 1 || $quantity > 1000) return $fail('混合商标事项的每项件数须为1–1000的整数');
+        $sub = ptc_cost_plan($templates, ['trademark_service'=>$name,'trademark_count'=>(string)$quantity,'trademark_extra_count'=>$name==='注册'?($details['trademark_extra_count']??''):'']);
+        if ($sub['status'] !== 'ready') return $sub;
+        $sum += $quantity; $lines = array_merge($lines,$sub['lines']); $labels[]=$name.$quantity;
+    }
+    $count = trim((string)($details['trademark_count']??''));
+    if ($sum > 1000) return $fail('混合商标事项总件数不能超过1000');
+    if ($count !== '' && (!is_numeric($count) || (float)$count !== (float)$sum)) return $fail('混合事项逐项件数合计'.$sum.'与商标总件数不一致，请核对');
+    if (preg_match('/多选|附加项目/u',$text) && empty($details['trademark_extra_count'])) return $fail('混合订单含注册多选项目，请填写整单多选项目总数');
+    $total = round(array_sum(array_column($lines,'amount')),2);
+    if ($excelCost !== null && $excelCost !== '' && (!is_numeric($excelCost)||(float)$excelCost<0)) return $fail('商标实际成本金额无效');
+    $excel = round((float)$excelCost,2);
+    if ($excel > $total) $lines[]=['template'=>null,'quantity'=>1,'amount'=>round($excel-$total,2),'status'=>'pending'];
+    return ['status'=>'ready','service'=>implode('+',$labels),'count'=>$sum,'lines'=>$lines,'total'=>max($total,$excel),'message'=>implode(' + ',$labels).'，逐项标准成本 ¥'.money_plain($total).($excel>$total?'，实际成本差额待财务审核':'')];
 }
 
 /** 返回明确的报价或需核对原因；额外项目数是整单总数，不再乘商标件数。 */
@@ -50,7 +83,10 @@ function ptc_cost_plan(array $templates, array $details, $context = '', $excelCo
         if (count($names) === 1 && count($contextNames) === 1 && !array_diff(array_merge($names, $contextNames), ['续展', '超期续展'])) $names = ['超期续展'];
         else return $fail('办理事项与网报类型/备注中的事项不一致，请核对后选择真实事项，不能套用较低成本');
     }
-    if (count($names) > 1) return $fail('一行包含多个商标办理事项，请拆成分别注明事项、件数和成本的订单行，或交财务逐项核对');
+    if (count($names) > 1) {
+        $breakdown = $explicit !== '' ? $explicit : (count(ptc_service_names($details['service_type']??''))===count($names)?($details['service_type']??''):$context);
+        return ptc_mixed_plan($templates,$details,$breakdown,$names,$excelCost);
+    }
     if (!$names) return $fail('无法识别商标办理事项，请选择注册、转让、续展、超期续展等事项；网报方式不能用于确定官费');
     $name = $names[0];
     $template = ptc_find_service($templates, $name);
@@ -100,6 +136,10 @@ function ptc_import_check(&$record, $existing, $choice = '', $actor = [])
     $context = implode(' ', [$record['payment_reference'] ?? '', $record['contact_note'] ?? '', $record['business_text'] ?? '', $record['resource_note'] ?? '']);
     $incomingNames = ptc_service_names(($details['service_type'] ?? '') . ' ' . $context);
     if (trim((string)($details['trademark_service'] ?? '')) === '' && count($incomingNames) === 1) $details['trademark_service'] = $incomingNames[0];
+    if (trim((string)($details['trademark_service'] ?? '')) === '' && count($incomingNames) > 1) {
+        $incomingPlan = ptc_cost_plan(ptc_templates(),$details,$context,$record['direct_cost']??null);
+        if ($incomingPlan['status']==='ready') { $details['trademark_service']=$incomingPlan['service']; if (trim((string)($details['trademark_count']??''))==='') $details['trademark_count']=(string)$incomingPlan['count']; }
+    }
     if ($existing) {
         [$stored, $storedText] = ptc_order_pricing_data((int)$existing['id']);
         if (!empty($stored['trademark_count']) && !empty($details['trademark_count']) && (float)$stored['trademark_count'] != (float)$details['trademark_count'] && ($actor['role'] ?? '') !== 'technical' && ($actor['role'] ?? '') !== 'finance' && !ps_is_management($actor)) throw new RuntimeException('商标件数与原单不一致，请资料/提交专员或财务核对更正，避免错误计价');
@@ -114,6 +154,7 @@ function ptc_import_check(&$record, $existing, $choice = '', $actor = [])
         throw new RuntimeException($plan['message']);
     }
     $record['details']['trademark_service'] = $plan['service'];
+    if (trim((string)($record['details']['trademark_count']??''))==='' && isset($plan['count'])) $record['details']['trademark_count']=(string)$plan['count'];
 }
 
 function ptc_merge_import_details($orderId, &$details, $incoming, $actor)

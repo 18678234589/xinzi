@@ -26,19 +26,19 @@ try{
     ps_save_business_details($legacy,'商标',['trademark_count'=>'1','service_type'=>'网报']);ps_source_record($legacy,'manual','客户','','许可备案');
     ps_intake_participants($legacy,['technical'=>[],'customer_service'=>[$employeeIds[1]=>['id'=>$employeeIds[1],'role'=>'客服']]],'商标');
     ps_intake_add_template_cost($legacy,ptc_find_service(ptc_templates(),'注册'),['type'=>'system','id'=>0,'role'=>'finance'],'成本修复：注册 × 1 件',1,'approved');
-    $head="日期,店铺,付款昵称,付款流水号,订单编号,售价,成本,客服,商标名称,商标个数,网报类型,办理事项,多选项目总数\n";
-    $data=[['超期续展',1600,'',2,'',''],['许可备案',235,'',1,'',''],['变更',300,'',1,'',''],['',1000,'',2,'注册',3],['',1500,888,1,'成品商标成本',''],['',700,'',2,'',''],['续展和转让',1000,'',2,'',''],['续展',1000,'','1.5','',''],['注册号17112551 许可使用',235,'',1,'','']];
+    $head="日期,店铺,付款昵称,付款流水号,订单编号,售价,成本,客服,商标名称,个数,类型（网报，加急）,办理事项,多选项目总数\n";
+    $data=[['超期续展',1600,'',2,'',''],['许可备案',235,'',1,'',''],['变更',300,'',1,'',''],['',1000,'',2,'注册',3],['',1500,888,1,'成品商标成本',''],['',700,'',2,'',''],['续展和转让',1000,'',2,'',''],['续展',1000,'','1.5','',''],['注册号17112551 许可使用',235,'',1,'',''],['',1600,'',3,'','']];
     $csv=$head;
-    foreach($data as$i=>$row){[$ref,$sale,$cost,$count,$service,$extra]=$row;$csv.=date('Y-m-d').",测试微信,客户,$ref,".$prefix.($i+1).",$sale,$cost,客服回归$tag,图形9类,$count,网报,$service,$extra\n";}
+    foreach($data as$i=>$row){[$ref,$sale,$cost,$count,$service,$extra]=$row;$webType=$i===8?'商标许可备案':($i===9?'商标续展1商标转让2':'网报');if($i===8)$ref='注册号17112551';$csv.=date('Y-m-d').",测试微信,客户,$ref,".$prefix.($i+1).",$sale,$cost,客服回归$tag,图形9类,$count,$webType,$service,$extra\n";}
     $tmp=tempnam(sys_get_temp_dir(),'tm-pricing-');file_put_contents($tmp,$csv);$stored=ps_private_store('imports',$tmp,'tm_pricing_'.$tag.'.csv');unlink($tmp);
     $pdo->prepare("INSERT INTO project_import_files(business_name,original_name,stored_name,file_size,uploaded_by_type,uploaded_by_id,employee_id)VALUES('商标','商标成本回归.csv',?,?,'employee',?,?)")->execute([$stored,strlen($csv),$uid,$employeeIds[0]]);$fileId=(int)$pdo->lastInsertId();
     [$count,$error]=$run(['action'=>'repreview','business'=>'商标','file_id'=>$fileId,'all_sheets'=>1]);$preview=$_SESSION['project_import_preview']??[];
-    $check($error===''&&count($preview)===9,'真实控制器完成九行预览');
-    foreach([0,1,2,3,4,8]as$i)$check(!empty($preview[$i]['base_valid']),'明确事项可导入第'.($i+2).'行 '.($preview[$i]['error']??''));
+    $check($error===''&&count($preview)===10,'真实控制器完成十行预览');
+    foreach([0,1,2,3,4,8,9]as$i)$check(!empty($preview[$i]['base_valid']),'明确事项可导入第'.($i+2).'行 '.($preview[$i]['error']??''));
     foreach([5,6,7]as$i)$check(empty($preview[$i]['base_valid']),'事项不明、混合事项、小数件数不按默认注册导入第'.($i+2).'行');
     [$count,$error]=$run(['action'=>'commit','business'=>'商标','auto_import'=>1]);$check($error==='','真实控制器提交成功 '.$error);
     $costs=function($i)use($pdo,$prefix){$q=$pdo->prepare("SELECT c.* FROM project_costs c JOIN project_orders o ON o.id=c.order_id WHERE o.order_no=? AND c.review_status<>'rejected' ORDER BY c.id");$q->execute([$prefix.$i]);return$q->fetchAll();};
-    foreach([1=>1350,2=>135,3=>0,4=>621,5=>888,9=>135]as$i=>$amount){$rows=$costs($i);$total=array_sum(array_map(function($r){return(float)$r['amount'];},$rows));$check($rows&&$total==(float)$amount,'实际落账第'.$i.'单成本'.$amount);}
+    foreach([1=>1350,2=>135,3=>0,4=>621,5=>888,9=>135,10=>1350]as$i=>$amount){$rows=$costs($i);$total=array_sum(array_map(function($r){return(float)$r['amount'];},$rows));$check($rows&&$total==(float)$amount,'实际落账第'.$i.'单成本'.$amount);}
     $late=$costs(1)[0];$check((float)$late['unit_price']===675.0&&(float)$late['quantity']===2.0,'超期续展每件675且两件1350');
     $lic=$costs(2)[0];$check(strpos($lic['item_name'],'许可备案')!==false&&(float)$lic['unit_price']===135.0,'已有许可订单补充上传纠正项目、单价和金额');
     $check($costs(5)[0]['review_status']==='pending','成品实际成本进入财务审核');

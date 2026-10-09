@@ -222,8 +222,8 @@ function ps_business_import_columns($business)
         $columns['detail:trademark_service'] = ['办理事项', '商标办理事项', '商标业务', '商标业务类型', '服务项目', '成本项目'];
         $columns['detail:trademark_extra_count'] = ['多选项目总数', '多选项目数', '附加项目数'];
         $columns['detail:trademark_name'] = ['商标名称', '商标'];
-        $columns['detail:trademark_count'] = ['商标个数', '数量', '件数'];
-        $columns['detail:service_type'] = ['网报类型', '网报加急', '业务类型'];
+        $columns['detail:trademark_count'] = ['商标个数', '商标数量', '个数', '数量', '件数'];
+        $columns['detail:service_type'] = ['网报类型', '网报方式', '网报加急', '业务类型', '类型（网报，加急）', '类型(网报,加急)', '类型'];
         // 客服原表“设计”列：网报加急空一格时件数会落在这里，导入时由 ps_trademark_fix_row 归位
         $columns['trademark_extra'] = ['设计'];
     }
