@@ -238,6 +238,13 @@
 - 财务退款回收站：`project/refunds.php` 顶部入口及待对号/最近退款行的“移入回收站”；`project/refund_trash.php` 查看、分页及恢复。只允许财务处理未入账的待审/驳回记录；已审核入账或结案的退款须走财务更正，不直接删除账目。
 - 回收站保留退款原金额、来源表格、原状态与审计记录，不永久删除、不扣减或冲正现金账。被移入的退款不再自动匹配/审核，不再阻挡项目自动核对；重复上传同一指纹/流水会提示财务恢复，不能偷偷重新登记。恢复回到原审核流程，重复操作幂等。
 - 部署回收站先运行 `php migrations/apply_refund_trash.php`；测试 `php tests/project_refund_trash_storage.php --rollback-fixtures` 仅使用事务内模拟数据，全量回滚。
+
+### 自媒体工作台接入
+
+- 从新服务器同步 `workbench-entry.php`、`workbench-sso.php`、`includes/workbench-nav.php`，并在 `includes/header.php` 顶部导航加载工作台按钮。管理员和项目账号登录后可见，链接为 `https://media.laibangwo.com/?sso=me`。
+- `workbench-entry.php` 校验登录态后跳转到配置的工作台起始地址。`workbench-sso.php` 提供授权和交换接口，沿用现有管理员或有效项目账号身份，使用 PKCE、签名校验和一次性授权码。
+- 接入配置位于 Web 目录之外的 `/etc/laibangwo-workbench/sso.php`，包含 `workbench_start`、`callbacks`、`codes_dir`、`secret_file`。共享密钥由 `secret_file` 指向的文件读取；生产配置、密钥及授权码文件没有同步到源码仓库。本地独立联调需提供等价的外置配置和授权码目录。
+- 同步时四个源码文件与远程内容一致，仅统一比较 CRLF/LF。PHP 7.4/8.5 语法检查通过；两版各通过 21 项临时沙箱 HTTP 检查，包括匿名/登录导航、登录跳转、无配置响应、回调白名单、PKCE、签名与时间戳、授权码一次性使用及有效账号身份。检查使用模拟数据库和临时授权码，不访问生产数据库。
 - 回归：`php tests/project_auto_review_unit.php`；存储幂等和失败回滚验证 `php tests/project_auto_review_storage.php --rollback-fixtures`，只创建事务内测试订单，最后全部回滚，不更改现有订单。
 # 2026-10-08 核验策略与最新店铺状态
 

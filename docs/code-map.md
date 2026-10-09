@@ -1086,9 +1086,10 @@
 - `pg_store_evidence` L10–19
 - `pg_save_evidence_file` L22–45
 
-## includes/header.php (226 行, 23.8 KB)
+## includes/header.php (227 行, 23.8 KB)
 
 - 加载：`require_once __DIR__ . '/ProjectVault.php';`
+- 加载：`require __DIR__ . '/workbench-nav.php';`
 - 加载：`require_once __DIR__ . '/commission_explain.php';`
 - 加载：`require_once __DIR__ . '/dup_feedback.php';`
 - 加载：`require_once __DIR__ . '/ProjectCostRequests.php';`
@@ -1589,6 +1590,9 @@
 - `ps_group_subsidy_cents` L254–271
 - `ps_settlement_preview` L273–280
 - `ps_technical_reconciliation_summary` L282–292
+
+## includes/workbench-nav.php (4 行, 0.3 KB)
+
 
 ## index.php (164 行, 11.4 KB)
 
@@ -3833,4 +3837,16 @@
 ## tools/verify_split.php (60 行, 3 KB)
 
 - 加载：`require_once __DIR__ . '/code_structure.php';`
+
+## workbench-entry.php (9 行, 0.4 KB)
+
+- 加载：`require_once __DIR__ . '/includes/auth.php';`
+- 加载：`require $file;`
+
+## workbench-sso.php (57 行, 4 KB)
+
+- `wb_fail` L6–6
+- `wb_identity` L11–22
+- 加载：`require $cfgFile;`
+- 加载：`require_once __DIR__ . '/includes/auth.php';`
 
