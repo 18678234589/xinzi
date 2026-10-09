@@ -36,7 +36,7 @@ echo prf_assets();
     <div class="rf-head">
       <button type="button" class="rf-x" id="ripClose" aria-label="关闭">&times;</button>
       <h5 id="ripTitle">有 <em data-rf-left><?php echo (int)count($rip['rows']); ?></em> 张订单待补续费资料<?php if ($rip['total'] > count($rip['rows'])): ?><small class="text-muted" style="font-weight:400;font-size:.8rem">（本页显示前 <?php echo (int)count($rip['rows']); ?> 张，共 <?php echo (int)$rip['total']; ?> 张）</small><?php endif; ?></h5>
-      <p>直接在下面填写、点“保存”即可：网站订单补<b>域名</b>和<b>客户手机号或海外微信号</b>；小程序订单补<b>服务器到期日</b>（永久的勾“永久”）。未补资料将没有该订单的续费分成。</p>
+      <p>直接在下面填写即可，<b>填完离开输入框就会自动保存</b>（也可点“保存”）：网站订单补<b>域名</b>和<b>客户手机号或海外微信号</b>；小程序订单补<b>服务器到期日</b>（永久的勾“永久”）。未补资料将没有该订单的续费分成。</p>
     </div>
     <div class="rf-body">
       <?php foreach ($rip['rows'] as $r) echo prf_card($r); ?>

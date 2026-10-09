@@ -111,7 +111,7 @@ function prf_card(array $r, $compact = false)
   </div>
   <div class="rf-actions">
     <?php if (!empty($r['need_domain'])): ?><label class="rf-own"><input type="checkbox" data-k="own"> 客户自备域名（不续费）</label><?php endif; ?>
-    <span class="rf-msg" role="status"></span>
+    <span class="rf-msg" role="status">填完离开输入框会自动保存</span>
     <a class="rf-link" href="<?php echo BASE_URL; ?>/project/order.php?id=<?php echo (int)$r['id']; ?>">订单详情</a>
     <button type="button" class="rf-save">保存</button>
   </div>
@@ -126,5 +126,5 @@ function prf_assets()
     static $done = false;
     if ($done) return '';
     $done = true;
-    return '<link rel="stylesheet" href="' . BASE_URL . '/assets/css/renewal_fill.css?v=20261009.1"><script src="' . BASE_URL . '/assets/js/renewal_fill.js?v=20261009.1" defer></script>';
+    return '<link rel="stylesheet" href="' . BASE_URL . '/assets/css/renewal_fill.css?v=20261009.2"><script src="' . BASE_URL . '/assets/js/renewal_fill.js?v=20261009.2" defer></script>';
 }

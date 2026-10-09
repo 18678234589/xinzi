@@ -21,7 +21,7 @@ echo prf_assets();
 <div class="rf-page" data-rf-endpoint="<?php echo BASE_URL; ?>/project/renewal_fill.php" data-rf-csrf="<?php echo e(ps_csrf_token()); ?>">
   <div class="rf-hero">
     <h2>待补资料</h2>
-    <p>网站类订单补<b>域名</b>和<b>客户手机号或海外客户微信号</b>；微信小程序订单补<b>服务器到期日</b>（永久的勾“永久”）。每张卡片填好后点“保存”，补齐的订单会自动收起。未补资料将没有该订单的续费分成；微信号仅用于人工联系，不发送短信。</p>
+    <p>网站类订单补<b>域名</b>和<b>客户手机号或海外客户微信号</b>；微信小程序订单补<b>服务器到期日</b>（永久的勾“永久”）。每张卡片<b>填完离开输入框就会自动保存</b>（也可点“保存”），补齐的订单会自动收起。未补资料将没有该订单的续费分成；微信号仅用于人工联系，不发送短信。</p>
   </div>
   <div class="rf-bar">
     <?php foreach (['' => ['全部缺项', count($all)], 'domain' => ['缺域名', $count['domain']], 'phone' => ['缺联系方式', $count['phone']], 'server' => ['缺服务器到期日', $count['server']]] as $key => [$label, $n]): ?>
