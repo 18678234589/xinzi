@@ -29,7 +29,9 @@ function ptc_reconcile_order_cost($orderId, $actor, $origin, $excelCost = null, 
     $excel = max($excel, round($excelRows, 2));
     if ($excelCost !== null && $excelCost !== '') {
         if (!is_numeric($excelCost) || (float)$excelCost < 0) throw new RuntimeException('商标实际成本金额无效');
-        $excel = max($excel, round((float)$excelCost, 2));
+        // 本次明确填写的成本覆盖旧报价；没有成本列/留空的补充表才沿用历史实际成本。
+        $excel = round((float)$excelCost, 2);
+        $details['trademark_excel_cost'] = $excel;
     }
     $q=$pdo->prepare("SELECT * FROM project_costs WHERE order_id=? AND review_status='rejected' AND reviewed_by_admin IS NOT NULL ORDER BY id FOR UPDATE");
     $q->execute([(int)$orderId]);$rejected=$q->fetchAll();

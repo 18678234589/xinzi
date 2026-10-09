@@ -80,16 +80,25 @@ try {
     foreach($costs as $c)if($c['review_status']!=='rejected'){$sum+=(float)$c['amount'];if($c['review_status']==='pending')$pending+=(float)$c['amount'];}
     $check($sum===700.0 && $pending===160.0,'标准540加实际差额160待审，不损坏标准单价');
     $check(ptc_sync_order_cost($id,$actor,'补充上传')==='ok','补充上传保留实际成本差额，且不重复加收');
+    $check(ptc_sync_order_cost($id,$actor,'报价更正',600)==='corrected','明确的新报价600覆盖历史700，不粘住旧差额');
+    $costs=ps_costs($id);$active=array_values(array_filter($costs,function($c){return$c['review_status']!=='rejected';}));
+    $check(array_sum(array_column($active,'amount'))==600,'更正报价后标准540加差额60');
     $finance=true;$financeId=(int)$pdo->query('SELECT id FROM admins ORDER BY id LIMIT 1')->fetchColumn();
     $systemActor=$actor;$actor=['type'=>'admin','id'=>$financeId,'role'=>'finance'];
     foreach($costs as$c)if($c['review_status']==='pending'){$costId=(int)$c['id'];$_POST=['cost_id'=>$costId,'decision'=>'rejected','review_note'=>'原表成本有误，按标准540'];include __DIR__.'/../project/order/actions/cost/review_cost.php';}
-    $check(ptc_sync_order_cost($id,$systemActor,'重复上传',700)==='ok','财务驳回的同一Excel差额不会因重复上传加回');
+    $check(ptc_sync_order_cost($id,$systemActor,'重复上传',600)==='ok','财务驳回的同一Excel差额不会因重复上传加回');
     $active=array_values(array_filter(ps_costs($id),function($c){return$c['review_status']!=='rejected';}));
     $check(count($active)===1&&(float)$active[0]['amount']===540.0,'驳回错误差额后只保留正确标准成本');
+    ptc_sync_order_cost($id,$systemActor,'新的报价',650);
+    $check(ptc_sync_order_cost($id,$systemActor,'明确撤销错误实际成本',0)==='corrected','明确填0撤销错误差额并恢复标准价');
+    $check(ptc_sync_order_cost($id,$systemActor,'不带成本的补充上传')==='ok','撤销的历史报价不会在下次不带成本的上传中复活');
     $id=$makeOrder('成品商标成本',1);
     $pdo->prepare('DELETE FROM project_costs WHERE order_id=?')->execute([$id]);
     ptc_sync_order_cost($id,$systemActor,'Excel 导入',888);$costId=(int)ps_costs($id)[0]['id'];
     $_POST=['cost_id'=>$costId,'decision'=>'rejected','review_note'=>'询价未核实'];include __DIR__.'/../project/order/actions/cost/review_cost.php';
     $check(ptc_sync_order_cost($id,$systemActor,'重复上传',888)==='rejected','财务驳回的变量成本不自动重建或通过');
+    $check(ptc_sync_order_cost($id,$systemActor,'重新询价',666)==='added','新询价666在旧报价驳回后建立新的待审成本');
+    $active=array_values(array_filter(ps_costs($id),function($c){return$c['review_status']!=='rejected';}));
+    $check(count($active)===1&&(float)$active[0]['amount']===666.0&&$active[0]['review_status']==='pending','新变量报价待重新审核');
     echo "PASS trademark pricing and reconciliation regression\n";
 } finally { if($pdo->inTransaction())$pdo->rollBack(); }
