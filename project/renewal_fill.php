@@ -11,7 +11,7 @@ try {
     if (pr_scope($actor) === 'none') throw new RuntimeException('当前账户没有续费资料权限');
     $orderId = (int)($_POST['order_id'] ?? 0);
     $message = prf_save_order($actor, $orderId, [
-        'domain' => $_POST['domain'] ?? '', 'contact' => $_POST['contact'] ?? '', 'server' => $_POST['server'] ?? '',
+        'domain' => $_POST['domain'] ?? '', 'domain_expiry' => $_POST['domain_expiry'] ?? '', 'contact' => $_POST['contact'] ?? '', 'server' => $_POST['server'] ?? '',
         'owner' => $_POST['owner'] ?? '', 'owner_note' => $_POST['owner_note'] ?? '',
     ]);
     if ($message === false) { echo json_encode(['ok' => false, 'message' => '还没有填写内容'], JSON_UNESCAPED_UNICODE); exit; }

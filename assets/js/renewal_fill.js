@@ -19,6 +19,8 @@
     if (d && d.value.trim()) fd.append('domain', d.value.trim());
     if (c && c.value.trim()) fd.append('contact', c.value.trim());
     if (perm && perm.checked) fd.append('server', '永久'); else if (s && s.value) fd.append('server', s.value);
+    var de = field(card, 'domain_expiry'), dperm = field(card, 'dperm');
+    if (dperm && dperm.checked) fd.append('domain_expiry', '永久'); else if (de && de.value) fd.append('domain_expiry', de.value);
     if (own && own.checked) { fd.append('owner', 'customer'); fd.append('owner_note', '客户自备域名'); }
     btn.disabled = true; var old = btn.textContent; btn.textContent = '保存中…'; setMsg(card, '', '');
     fetch(root.getAttribute('data-rf-endpoint'), { method: 'POST', body: fd, credentials: 'same-origin' })
@@ -42,7 +44,7 @@
   });
   document.addEventListener('change', function (ev) {
     var t = ev.target;
-    if (!t.matches || !t.matches('[data-k="perm"]')) return;
-    var s = t.closest('.rf-date').querySelector('[data-k="server"]'); if (s) s.disabled = t.checked;
+    if (!t.matches || !t.matches('[data-k="perm"],[data-k="dperm"]')) return;
+    var s = t.closest('.rf-date').querySelector('[data-k="server"],[data-k="domain_expiry"]'); if (s) s.disabled = t.checked;
   });
 })();

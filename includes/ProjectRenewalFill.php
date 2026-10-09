@@ -30,6 +30,24 @@ function prf_missing($actor, $limit = 150, $days = 120, $filter = '', $keyword =
     return $q->fetchAll();
 }
 
+/** 域名到期日：写到该订单第一个未结束的域名条目上（须先有域名）；可写“永久”（记 2099-01-01）。 */
+function prf_set_domain_expiry($orderId, $value, $actor)
+{
+    $date = null;
+    if (function_exists('ps_import_date')) { try { $date = ps_import_date($value); } catch (Throwable $e) { $date = null; } }
+    $date = pr_date($date ?: $value);
+    pr_order($orderId, $actor);
+    $pdo = db();
+    $q = $pdo->prepare("SELECT id,expires_on FROM project_renewal_items WHERE order_id=? AND resource_type='domain' AND status<>'closed' AND resource_name<>'' ORDER BY id LIMIT 1");
+    $q->execute([(int)$orderId]); $item = $q->fetch();
+    if (!$item) throw new RuntimeException('请先填写域名，再填域名到期日');
+    if ($item['expires_on'] === $date) return;
+    $pdo->prepare("UPDATE project_renewal_items SET expires_on=?,expiry_source='confirmed',revision=revision+1,updated_at=NOW() WHERE id=?")->execute([$date, (int)$item['id']]);
+    try { $pdo->prepare("UPDATE project_renewal_sms SET state='cancelled',provider_code='RESOURCE_UPDATED',updated_at=NOW() WHERE item_id=? AND state IN ('pending','failed') AND expires_on<>?")->execute([(int)$item['id'], $date]); } catch (Throwable $e) { /* 提醒表可能尚未建立 */ }
+    try { $pdo->prepare('INSERT INTO project_renewal_history (item_id,action,actor_type,actor_id,old_expiry,new_expiry,details_json) VALUES (?,?,?,?,?,?,?)')->execute([(int)$item['id'], 'quick_fill_domain_expiry', $actor['type'], (int)$actor['id'], $item['expires_on'], $date, json_encode(['order_id' => (int)$orderId], JSON_UNESCAPED_UNICODE)]); } catch (Throwable $e) { /* 历史表可能尚未建立 */ }
+    ps_audit('renewal', (int)$item['id'], 'quick_fill_domain_expiry', $actor, ['order_id' => (int)$orderId, 'old_expiry' => $item['expires_on'], 'new_expiry' => $date]);
+}
+
 /** “联系方式”一个框：像手机号的当手机号，其余当微信号。返回 [phone, wechat]。 */
 function prf_contact_split($value)
 {
@@ -44,12 +62,12 @@ function prf_contact_split($value)
 function prf_save_order($actor, $orderId, array $f)
 {
     $orderId = (int)$orderId;
-    $domain = trim((string)($f['domain'] ?? '')); $server = trim((string)($f['server'] ?? ''));
+    $domain = trim((string)($f['domain'] ?? '')); $server = trim((string)($f['server'] ?? '')); $domainExpiry = trim((string)($f['domain_expiry'] ?? ''));
     $contact = trim((string)($f['contact'] ?? ''));
     $phone = trim((string)($f['phone'] ?? '')); $wechat = trim((string)($f['wechat'] ?? ''));
     $owner = (string)($f['owner'] ?? ''); $ownerNote = trim((string)($f['owner_note'] ?? ''));
     if ($contact !== '') { [$p, $w] = prf_contact_split($contact); if ($p !== '') $phone = $p; if ($w !== '') $wechat = $w; }
-    if ($phone === '' && $wechat === '' && $domain === '' && $server === '' && $owner === '') return false;
+    if ($phone === '' && $wechat === '' && $domain === '' && $server === '' && $owner === '' && $domainExpiry === '') return false;
     if ($owner === 'customer' && $ownerNote === '') $ownerNote = '客户自备域名';
     // 全部先校验再写入，避免写了一半才发现格式错
     $phone = pr_phone($phone); $wechat = pr_wechat($wechat);
@@ -57,6 +75,7 @@ function prf_save_order($actor, $orderId, array $f)
     if ($phone !== '') { pse_set_phone($orderId, $phone, $actor); $done[] = '手机号'; }
     if ($wechat !== '') { pse_set_wechat($orderId, $wechat, $actor); $done[] = '微信号'; }
     if ($domain !== '') { pse_set_domain($orderId, $domain, $actor); $done[] = '域名'; }
+    if ($domainExpiry !== '') { pr_date($domainExpiry === '永久' ? '永久' : (function_exists('ps_import_date') ? (ps_import_date($domainExpiry) ?: $domainExpiry) : $domainExpiry)); prf_set_domain_expiry($orderId, $domainExpiry, $actor); $done[] = '域名到期日'; }
     if ($owner !== '') { pse_set_domain_owner($orderId, $owner, $ownerNote, $actor); $done[] = $owner === 'customer' ? '客户自有域名' : '域名归属'; }
     if ($server !== '') { pse_set_server_expiry($orderId, $server, $actor); $done[] = '服务器到期日'; }
     return '已保存：' . implode('、', $done);
@@ -79,6 +98,9 @@ function prf_card(array $r, $compact = false)
   <div class="rf-fields">
     <?php if (!empty($r['need_domain'])): ?>
       <label class="rf-f"><span>网站域名</span><input data-k="domain" maxlength="120" placeholder="example.com" autocomplete="off"></label>
+    <?php endif; ?>
+    <?php if (!$isMini): ?>
+      <label class="rf-f"><span>域名到期日（选填）</span><span class="rf-date"><input data-k="domain_expiry" type="date" min="2000-01-01" max="2100-12-31"><label class="rf-perm"><input type="checkbox" data-k="dperm"> 永久</label></span></label>
     <?php endif; ?>
     <?php if (!empty($r['need_phone']) || $isMini): ?>
       <label class="rf-f"><span>续费联系方式<?php echo $isMini ? '（选填）' : ''; ?></span><input data-k="contact" maxlength="60" placeholder="客户手机号，或海外客户微信号" autocomplete="off"></label>

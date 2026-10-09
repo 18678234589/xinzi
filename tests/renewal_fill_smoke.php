@@ -51,6 +51,15 @@ try {
     $mini2 = $mk('小程序开发', 'M2'); prf_save_order($actor, $mini2, ['server' => '2027-09-30', 'contact' => '13900139000']);
     $e->execute([$mini2]); $check($e->fetchColumn() === '2027-09-30', '填具体日期：按日期保存');
 
+    echo "=== 四点五、域名到期日（选填，可写永久）===\n";
+    $web5 = $mk('网站模板', 'W5');
+    $bad = false; try { prf_save_order($actor, $web5, ['domain_expiry' => '2027-05-01']); } catch (RuntimeException $x) { $bad = true; }
+    $check($bad, '还没有域名就填域名到期日：提示先填域名');
+    prf_save_order($actor, $web5, ['domain' => "e$tag.com", 'domain_expiry' => '2027-05-01', 'contact' => '13700137000']);
+    $d = $pdo->prepare("SELECT expires_on,expiry_source FROM project_renewal_items WHERE order_id=? AND resource_type='domain' AND resource_name<>'' LIMIT 1"); $d->execute([$web5]); $dr = $d->fetch();
+    $check($dr && $dr['expires_on'] === '2027-05-01' && $dr['expiry_source'] === 'confirmed', '域名和到期日一起填：到期日按实际日期保存（已核实）');
+    prf_save_order($actor, $web5, ['domain_expiry' => '永久']);
+    $d->execute([$web5]); $check($d->fetch()['expires_on'] === '2099-01-01', '到期日写“永久”：记为 2099-01-01');
     echo "=== 五、校验与空提交 ===\n";
     $check(prf_save_order($actor, $web, []) === false, '什么都没填：返回 false，不报错');
     $bad = false; try { prf_save_order($actor, $mk('AI网站定制', 'W4'), ['contact' => '!!!']); } catch (RuntimeException $x) { $bad = true; }
