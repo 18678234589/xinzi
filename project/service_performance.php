@@ -1,6 +1,7 @@
 <?php
 // 客服绩效（设计客服）：上传店铺每月导出的“咨询接待分析”表 → 按评分规则算每人每店得分 → 部门内排名，前三名 850 / 800 / 750。
 // 财务、管理层账号、部门主管、设计客服部门的员工可看可上传；绑定昵称、改评分规则、删整份上传限财务 / 管理层 / 主管。
+require_once __DIR__ . '/../includes/ProjectSettlement.php';
 require_once __DIR__ . '/../includes/lib/cs_perf_reception.php';
 $actor = ps_require_actor();
 if (!csr_can_view($actor)) { http_response_code(403); exit('此页面仅财务、设计客服和部门主管可访问'); }
