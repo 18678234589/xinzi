@@ -31,7 +31,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if (strtolower(pathinfo($f['name'], PATHINFO_EXTENSION)) !== 'xlsx') throw new RuntimeException('请上传店铺导出的 .xlsx 表格');
             if ($f['size'] > 5 * 1024 * 1024) throw new RuntimeException('文件过大（最大 5MB）');
             $store = trim((string)($_POST['store'] ?? ''));
-            if ($store === '') throw new RuntimeException('请填写这份表是哪家店铺的（两家店都要各传一份）');
+            if ($store === '') throw new RuntimeException('请填写这份表是哪家店铺的（有接待的店各传一份，只有一家店有订单就只传这一家）');
             $r = csr_import($f['tmp_name'], $f['name'], $year, $month, $store, $actor, $actorName);
             ps_audit('service_performance', $year . '-' . sprintf('%02d', $month), 'upload', $actor, ['store' => $store, 'file' => $f['name'], 'rows' => $r['saved'], 'unmatched' => $r['unmatched']]);
             $success = sprintf('已导入 %s 的 %d 位客服数据（%d 位对上了员工）', $store, $r['saved'], $r['matched']);
@@ -93,7 +93,7 @@ include __DIR__ . '/../includes/header.php';
 <div class="container-fluid" style="max-width:1280px">
   <div class="sp-hero">
     <h2><i class="fas fa-headset mr-2"></i>客服绩效</h2>
-    <p>每月初把店铺导出的“咨询接待分析”表传上来（两家店各传一份，传错了重传同月同店会直接覆盖），系统按下方评分规则给每个人打分，<b>多店取平均后在部门内排名：第 1 名 850、第 2 名 800、第 3 名 750</b>，结果直接用于当月报酬结算。设计客服主管：张光萍，核算财务：刘群。</p>
+    <p>每月初把店铺导出的“咨询接待分析”表传上来（有接待的店各传一份，只有一家店就传一份，传错了重传同月同店会直接覆盖），系统按下方评分规则给每个人打分，<b>多店取平均后在部门内排名：第 1 名 850、第 2 名 800、第 3 名 750</b>，结果直接用于当月报酬结算。设计客服主管：张光萍，核算财务：刘群。</p>
   </div>
   <?php if ($success): ?><div class="alert alert-success"><?php echo e($success); ?></div><?php endif; ?>
   <?php foreach ($notes as $n): ?><div class="alert alert-warning"><?php echo e($n); ?></div><?php endforeach; ?>
@@ -125,7 +125,7 @@ include __DIR__ . '/../includes/header.php';
       <form method="post" enctype="multipart/form-data" class="form-row align-items-end">
         <input type="hidden" name="csrf" value="<?php echo e(ps_csrf_token()); ?>"><input type="hidden" name="do" value="upload">
         <input type="hidden" name="year" value="<?php echo $year; ?>"><input type="hidden" name="month" value="<?php echo $month; ?>">
-        <div class="col-md-4 mb-2"><label class="small text-muted mb-1">店铺名称（两家店各传一份）</label><input name="store" class="form-control" list="sp-stores" placeholder="例如：清风易软件专营店" required></div>
+        <div class="col-md-4 mb-2"><label class="small text-muted mb-1">店铺名称（只有一家店有接待，就只传这家）</label><input name="store" class="form-control" list="sp-stores" placeholder="例如：清风易软件专营店" required></div>
         <datalist id="sp-stores"><?php foreach ($stores as $s): ?><option value="<?php echo e($s); ?>"><?php endforeach; ?></datalist>
         <div class="col-md-5 mb-2"><label class="small text-muted mb-1">店铺导出的 .xlsx（咨询接待分析）</label><input type="file" name="sheet" accept=".xlsx" class="form-control-file" required></div>
         <div class="col-md-3 mb-2"><button class="btn btn-success btn-block"><i class="fas fa-upload mr-1"></i>上传并计算</button></div>
@@ -169,7 +169,7 @@ include __DIR__ . '/../includes/header.php';
 
   <div class="card mb-5"><div class="card-header"><i class="fas fa-sliders-h mr-2"></i>评分规则<?php echo $canManage ? '（可调整）' : ''; ?></div>
     <div class="card-body">
-      <p class="small text-muted">每项在“0 分对应值 → 100 分对应值”之间按比例打分，超出两端取 0 或 100；综合得分 = 各项得分按权重加权平均；两家店分别算，取平均；万一同分，按系统里的员工编号先后排。表里没有的指标自动跳过。</p>
+      <p class="small text-muted">每项在“0 分对应值 → 100 分对应值”之间按比例打分，超出两端取 0 或 100；综合得分 = 各项得分按权重加权平均；多家店分别算后取平均，只传一家店就用这一家；万一同分，按系统里的员工编号先后排。表里没有的指标自动跳过。</p>
       <form method="post"><input type="hidden" name="csrf" value="<?php echo e(ps_csrf_token()); ?>"><input type="hidden" name="do" value="params"><input type="hidden" name="year" value="<?php echo $year; ?>"><input type="hidden" name="month" value="<?php echo $month; ?>">
       <table class="table table-sm sp-weights mb-3"><thead><tr><th>指标</th><th>说明</th><th>权重</th><th>0 分对应值</th><th>100 分对应值</th></tr></thead><tbody>
         <?php foreach ($defs as $k => $d): $p = $params[$k]; ?><tr><td><?php echo e($d[0]); ?></td><td class="small text-muted"><?php echo e($d[5]); ?></td>
