@@ -1,0 +1,17 @@
+.project-announcement .modal-dialog{max-width:570px;margin:1.75rem auto;padding:0 12px}
+.project-announcement .modal-content{border:1px solid rgba(255,255,255,.8);border-radius:22px;background:linear-gradient(145deg,#f5fff9,#fffaf0);box-shadow:0 24px 80px rgba(23,61,47,.22);overflow:hidden;color:#24453b}
+.project-announcement .modal-header{align-items:flex-start;border:0;padding:27px 26px 14px;background:radial-gradient(ellipse at 100% 0,rgba(120,204,166,.25),transparent 65%)}
+.project-announcement .announcement-kicker{display:block;font-size:12px;letter-spacing:2px;color:#43836a;margin-bottom:10px}
+.project-announcement .modal-title{font-weight:700;font-size:21px;line-height:1.5}
+.project-announcement .modal-header .close{opacity:1;color:#59736a;padding:16px;margin:-14px -12px 0 0}
+.project-announcement .modal-body{padding:10px 26px 20px}
+.project-announcement .announcement-body{font-size:16px;line-height:1.9;overflow-wrap:anywhere}
+.project-announcement .announcement-note{color:#677c73;font-size:13px;margin:20px 0 0}
+.project-announcement .announcement-error{color:#845c23;background:#fff1d7;padding:10px;border-radius:10px;font-size:13px;margin-top:12px}
+.project-announcement .modal-footer{border-color:rgba(61,117,90,.1);padding:16px 22px;gap:6px;flex-wrap:wrap}
+.project-announcement .modal-footer .btn{border-radius:12px;font-size:14px}
+.project-announcement .btn-success{background:#2f765b;border-color:#2f765b;color:#fff!important}
+.project-announcement .btn-outline-secondary{background:transparent;color:#526b61!important;border-color:#c4d4cb}
+.project-announcement .announcement-inbox{margin-right:auto;color:#326e55;text-decoration:underline;font-size:13px}
+@media(max-width:575px){.project-announcement .modal-title{font-size:19px}.project-announcement .modal-header{padding:22px 20px 12px}.project-announcement .modal-body{padding:8px 20px 18px}.project-announcement .announcement-body{font-size:15px}.project-announcement .modal-footer{padding:14px 16px}}
+@media(prefers-reduced-motion:reduce){.project-announcement.fade,.project-announcement.fade .modal-dialog{transition:none}}

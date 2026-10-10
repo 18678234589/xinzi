@@ -14,7 +14,7 @@ function ps_monthly_presets()
     => '*', 'employee' => null, 'metric' => 'profit', 'params' => ['threshold' => 20000, 'rate' => 0.008], 'note' => '毛利超过 2 万的部分 × 0.8%（合接订单按整单毛利计入）'
     ],
         ['name' => '定制客服月度第一名奖', 'rule_type' => 'ranking', 'scope_business' => 'AI网站定制', 'scope_group' => 'customer_service', 'scope_role' => '*', 'employee'
-    => null, 'metric' => 'profit', 'params' => ['awards' => [500]], 'note' => 'AI网站定制客服按当月毛利排名，第一名奖励 500 元（自 2026-10）', 'from' => '2026-10'
+    => null, 'metric' => 'manual', 'params' => ['awards' => [500]], 'note' => 'AI网站定制客服综合单量、收入、利润考评，第一名奖励 500 元；权重未规定，由财务/主管确认名次（自 2026-10）', 'from' => '2026-10'
     ],
         ['name' => '网站客服排名奖', 'rule_type' => 'ranking', 'scope_business' => '网站模板,AI网站定制', 'scope_group' => 'customer_service', 'scope_role' => '*', 'employee'
     => null, 'metric' => 'manual', 'params' => ['awards' => [500, 300, 200]], 'note' => '第一 500、第二 300、第三 200；名次按客服考核每月在规则中心填写'],

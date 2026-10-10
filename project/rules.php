@@ -129,6 +129,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $to = trim((string)($_POST['effective_to'] ?? ''));
             if (!preg_match('/^\d{4}-(0[1-9]|1[0-2])$/', $from) || ($to !== '' && (!preg_match('/^\d{4}-(0[1-9]|1[0-2])$/', $to) || $to < $from))) throw new RuntimeException('生效月份无效');
             $params = ps_monthly_params_from_input($type, $_POST);
+            // 编辑奖金额不应悄悄丢失已发布的综合考评范围和“同月第一名只发一次”保护。
+            if ($ruleId > 0 && $type === 'ranking') {
+                $existingParams = db()->prepare('SELECT params_json FROM project_monthly_rules WHERE id=?');
+                $existingParams->execute([$ruleId]);
+                $oldParams = json_decode((string)$existingParams->fetchColumn(), true) ?: [];
+                foreach (['unique_positions', 'eligible_employee_ids', 'eligible_department', 'assessment_dimensions'] as $key) if (array_key_exists($key, $oldParams)) $params[$key] = $oldParams[$key];
+            }
             $note = trim((string)($_POST['note'] ?? ''));
             if (mb_strlen($note) > 300 || mb_strlen($scopeRole) > 80) throw new RuntimeException('说明或岗位过长');
             $values = [$name, $type, $scopeBusiness, $scopeGroup, $scopeRole, $employeeId, $metric, json_encode($params, JSON_UNESCAPED_UNICODE), $from, $to === '' ? null : $to, $note, $actor['id']];

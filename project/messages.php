@@ -1,6 +1,6 @@
 <?php
 require_once __DIR__ . '/../includes/ProjectGovernance.php';
-// 我的站内信：管理层督促（脑洞截止、缺报扣减、监督意见、待评审）。打开即标记已读。
+// 我的站内信：平台公告与规则提醒。打开即标记已读。
 $actor = ps_require_actor();
 if (($actor['type'] ?? '') !== 'employee') { header('Location: ' . BASE_URL . '/project/holidays.php'); exit; }
 $employeeId = (int)$actor['employee_id'];
@@ -13,7 +13,7 @@ $page_title = '我的站内信';
 include __DIR__ . '/../includes/header.php';
 ?>
 <div class="governance-page">
-  <section class="governance-hero"><div><span class="governance-kicker">INBOX</span><h1>我的站内信</h1><p>系统按规则发送的督促和通知。法定节假日当天不发督促。</p></div></section>
+  <section class="governance-hero"><div><span class="governance-kicker">INBOX</span><h1>我的站内信</h1><p>平台公告与规则提醒都在这里，重要消息可以随时回看。法定节假日当天不发督促。</p></div></section>
   <section class="governance-card">
     <?php if (!$messages): ?><div class="governance-empty">暂无站内信。</div><?php endif; ?>
     <?php foreach ($messages as $m): ?>
@@ -21,7 +21,7 @@ include __DIR__ . '/../includes/header.php';
         <div class="governance-record-top"><?php if (!$m['read_at']): ?><span class="governance-status rejected">新</span><?php endif; ?><small><?php echo e(substr($m['created_at'], 0, 16)); ?></small></div>
         <h3><?php echo e($m['title']); ?></h3>
         <p class="governance-description"><?php echo nl2br(e($m['body'])); ?></p>
-        <?php if ($m['link']): ?><a class="btn btn-sm btn-success" href="<?php echo e(BASE_URL . $m['link']); ?>">去处理</a><?php endif; ?>
+        <?php if ($m['link']): ?><a class="btn btn-sm btn-success" href="<?php echo e(BASE_URL . $m['link']); ?>"><?php echo $m['category'] === 'announcement' ? '查看规则' : '去处理'; ?></a><?php endif; ?>
       </article>
     <?php endforeach; ?>
   </section>
