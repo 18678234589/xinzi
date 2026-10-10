@@ -19,7 +19,7 @@
 .rl-person{border:1px solid #dfe7e2;border-radius:12px;padding:12px 14px;margin-bottom:12px}
 .rl-person h6{margin:0 0 4px;font-weight:700;color:#1f3a2c}.rl-why{font-size:.82rem;color:#b26a00;margin-bottom:8px}
 .rl-rule{display:flex;align-items:center;gap:10px;border-top:1px dashed #e4ebe7;padding:8px 0}.rl-rule .rl-main{flex:1;min-width:0}
-.rl-rule .rl-t{font-size:.85rem;color:#33443a}.rl-rule .rl-s{font-size:.78rem;color:#7a8a80}.rl-off{opacity:.8}
+.rl-rule .rl-t{font-size:.85rem;color:#33443a;margin-bottom:3px}.rl-chip{display:inline-block;margin:0 6px 3px 0;padding:1px 9px;border-radius:10px;background:#eef3f0;color:#3d5a4b;font-size:.76rem;font-weight:600}.rl-chip.on{background:#dff1e5;color:#1f6b3b}.rl-chip.off{background:#f1e9e4;color:#8a5a3a}.rl-rule .btn{white-space:normal;max-width:230px;text-align:center}@media (max-width:576px){.rl-rule{flex-direction:column;align-items:stretch}.rl-rule .btn{max-width:none}}.rl-rule .rl-s{font-size:.78rem;color:#7a8a80}.rl-off{opacity:.8}
 </style>
 <script>
 document.addEventListener('DOMContentLoaded', function () {
@@ -50,7 +50,11 @@ document.addEventListener('DOMContentLoaded', function () {
       box.appendChild(el('div', 'rl-why', '没对上的原因：' + p.reason));
       p.rules.forEach(function (r) {
         var row = el('div', 'rl-rule' + (r.active ? '' : ' rl-off')), main = el('div', 'rl-main');
-        main.appendChild(el('div', 'rl-t', '订单类型：' + r.kind_label + ' · 岗位：' + (r.role === '*' ? '全部' : r.role) + (r.active ? '' : '（已停用）')));
+        var head = el('div', 'rl-t');
+        head.appendChild(el('span', 'rl-chip', '订单类型：' + r.kind_label));
+        head.appendChild(el('span', 'rl-chip', '岗位：' + (r.role === '*' ? '全部' : r.role)));
+        head.appendChild(el('span', 'rl-chip ' + (r.active ? 'on' : 'off'), r.active ? '启用中' : '已停用'));
+        main.appendChild(head);
         main.appendChild(el('div', 'rl-s', r.text));
         row.appendChild(main);
         if (d.can_edit && r.action) {

@@ -62,6 +62,12 @@ $ranking = $hasData ? cs_perf_rank_list($year, $month) : [];
 $tiers = CS_PERF_RANK_TIERS;
 $ampSum = 0; $ampN = 0;
 foreach ($ranking as $i => $it) if ($i < count($tiers)) { $ampSum += $tiers[$i]; $ampN++; }
+$rankOf = [];
+foreach ($ranking as $i => $it) $rankOf[(int)$it['id']] = $i + 1;
+usort($rows, function ($x, $y) use ($rankOf) { // 明细按名次排，没排上名的在后
+    $rx = $rankOf[(int)$x['employee_id']] ?? 999; $ry = $rankOf[(int)$y['employee_id']] ?? 999;
+    return $rx <=> $ry ?: strcmp((string)$x['store'], (string)$y['store']);
+});
 $unmatched = [];
 foreach ($rows as $r) if ((int)$r['employee_id'] === 0) $unmatched[$r['nick']] = $r;
 $uploads = [];
@@ -81,68 +87,100 @@ $page_title = '客服绩效';
 include __DIR__ . '/../includes/header.php';
 ?>
 <style>
-.sp-hero{background:linear-gradient(135deg,#f3f6f4,#fff);border:1px solid #dfe7e2;border-radius:18px;padding:20px 26px;margin:14px 0}
-.sp-hero h2{margin:0 0 6px;font-size:1.35rem;font-weight:700;color:#1f3a2c}.sp-hero p{margin:0;color:#5d6f64;font-size:.9rem;line-height:1.7}
-.sp-rank{display:flex;flex-wrap:wrap;gap:14px;margin-bottom:18px}
-.sp-card{flex:1 1 200px;border:1px solid #dfe7e2;border-radius:16px;background:#fff;padding:16px 20px;position:relative}
-.sp-card .no{font-size:.8rem;color:#7a8a80}.sp-card .nm{font-size:1.15rem;font-weight:700;color:#1f3a2c;margin:2px 0}
-.sp-card .amt{font-size:1.5rem;font-weight:700;color:#2e7d4f}.sp-card .sc{font-size:.8rem;color:#7a8a80}.sp-card.zero .amt{color:#9aa7a0}
+.sp-hero{background:linear-gradient(135deg,#eef4f0,#fff 70%);border:1px solid #dfe7e2;border-radius:18px;padding:20px 26px;margin:14px 0}
+.sp-hero h2{margin:0 0 4px;font-size:1.35rem;font-weight:700;color:#1f3a2c}.sp-hero .sub{margin:0 0 12px;color:#5d6f64;font-size:.9rem}
+.sp-steps{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:0;padding:0;list-style:none;counter-reset:s}
+.sp-steps li{counter-increment:s;position:relative;background:rgba(255,255,255,.75);border:1px solid #e3ebe6;border-radius:12px;padding:10px 12px 10px 42px;font-size:.84rem;line-height:1.55;color:#40524a}
+.sp-steps li:before{content:counter(s);position:absolute;left:12px;top:10px;width:22px;height:22px;border-radius:50%;background:#2e7d4f;color:#fff;font-size:.78rem;font-weight:700;text-align:center;line-height:22px}
+.sp-who{margin:10px 0 0;font-size:.8rem;color:#7a8a80}.sp-who b{color:#3d5a4b}
+.sp-rank{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:14px;margin-bottom:18px}
+.sp-card{border:1px solid #dfe7e2;border-radius:16px;background:#fff;padding:14px 18px 14px 22px;position:relative;overflow:hidden}
+.sp-card:before{content:"";position:absolute;left:0;top:0;bottom:0;width:6px;background:#cfd9d3}
+.sp-card.r1:before{background:#d9a21b}.sp-card.r2:before{background:#97a3ae}.sp-card.r3:before{background:#b87333}
+.sp-card .no{font-size:.78rem;color:#7a8a80;letter-spacing:.04em}.sp-card .nm{font-size:1.15rem;font-weight:700;color:#1f3a2c;margin:2px 0}
+.sp-card .amt{font-size:1.55rem;font-weight:700;color:#2e7d4f;line-height:1.2}.sp-card .sc{font-size:.78rem;color:#7a8a80;margin-top:2px}.sp-card.zero .amt{color:#9aa7a0}
+.sp-card.avg{background:#f6faf7}.sp-card.avg:before{background:#2e7d4f}
+.sp-up{display:grid;grid-template-columns:minmax(0,4fr) minmax(0,5fr) minmax(0,3fr);gap:12px;align-items:end}
+.sp-up label.l{display:block;font-size:.78rem;color:#6b7c72;margin:0 0 4px}
+.sp-up .form-control,.sp-file{height:42px}
+.sp-file{display:flex;align-items:center;margin:0;border:1px dashed #b9c9bf;border-radius:8px;background:#f8fbf9;cursor:pointer;overflow:hidden}
+.sp-file:hover{border-color:#2e7d4f;background:#f1f8f3}.sp-file input{position:absolute;opacity:0;width:0;height:0}
+.sp-file .b{flex:none;padding:0 14px;height:100%;display:flex;align-items:center;background:#e4efe8;color:#2e5a40;font-size:.85rem;font-weight:600}
+.sp-file .n{flex:1;min-width:0;padding:0 12px;color:#7a8a80;font-size:.85rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sp-file.has .n{color:#1f3a2c}
 .sp-pts{display:block;font-size:.72rem;color:#8a9a90}.sp-table td,.sp-table th{vertical-align:middle;white-space:nowrap}
-.sp-weights input{width:70px;display:inline-block}
+.sp-rk{display:inline-block;min-width:20px;height:20px;border-radius:10px;background:#e8eeea;color:#5d6f64;font-size:.72rem;font-weight:700;text-align:center;line-height:20px;margin-right:6px}
+.sp-rk.r1{background:#f6e3ae;color:#7a5600}.sp-rk.r2{background:#e0e5ea;color:#4a5560}.sp-rk.r3{background:#efd2b8;color:#6e4220}
+.sp-hint{display:none;font-size:.75rem;color:#8a9a90;padding:6px 14px 0}
+.sp-rules{display:grid;gap:8px;margin-bottom:14px}
+.sp-rule{display:grid;grid-template-columns:minmax(180px,3fr) repeat(3,minmax(90px,1fr));gap:10px 14px;align-items:center;border:1px solid #e6ede9;border-radius:12px;padding:10px 14px;background:#fbfdfc}
+.sp-rule .t{font-weight:600;color:#1f3a2c}.sp-rule .d{font-size:.78rem;color:#7a8a80}
+.sp-rule .f label{display:block;font-size:.72rem;color:#8a9a90;margin:0 0 2px}.sp-rule .f .u{font-size:.8rem;color:#7a8a80;margin-left:4px}
+.sp-rule .f .v{font-weight:600;color:#33443a}.sp-rule .form-control{height:34px}
+.sp-in{display:flex;align-items:center}
+@media (max-width:900px){.sp-steps{grid-template-columns:1fr}.sp-up{grid-template-columns:1fr}.sp-rule{grid-template-columns:repeat(3,1fr)}.sp-rule .m{grid-column:1/-1}.sp-hint{display:block}.sp-hero{padding:16px}}
+@media (max-width:420px){.sp-rank{grid-template-columns:1fr 1fr;gap:10px}.sp-card{padding:12px 12px 12px 16px}.sp-card .amt{font-size:1.3rem}}
 </style>
 <div class="container-fluid" style="max-width:1280px">
   <div class="sp-hero">
     <h2><i class="fas fa-headset mr-2"></i>客服绩效</h2>
-    <p>每月初把店铺导出的“咨询接待分析”表传上来（有接待的店各传一份，只有一家店就传一份，传错了重传同月同店会直接覆盖），系统按下方评分规则给每个人打分，<b>多店取平均后在部门内排名：第 1 名 850、第 2 名 800、第 3 名 750</b>，结果直接用于当月报酬结算。设计客服主管：张光萍，核算财务：刘群。</p>
+    <p class="sub">每月初上传店铺导出的“咨询接待分析”表，系统自动打分、排名。</p>
+    <ol class="sp-steps">
+      <li><b>上传表格</b>：选月份，填店铺名，传 .xlsx。有接待的店各传一份；传错了，重传同月同店会直接覆盖。</li>
+      <li><b>自动打分</b>：按下方评分规则给每个人逐项打分，多家店取平均。</li>
+      <li><b>排名发放</b>：部门内第 1 名 850、第 2 名 800、第 3 名 750，用于当月报酬结算。</li>
+    </ol>
+    <p class="sp-who">设计客服主管：<b>张光萍</b> · 核算财务：<b>刘群</b></p>
   </div>
   <?php if ($success): ?><div class="alert alert-success"><?php echo e($success); ?></div><?php endif; ?>
   <?php foreach ($notes as $n): ?><div class="alert alert-warning"><?php echo e($n); ?></div><?php endforeach; ?>
   <?php if ($error): ?><div class="alert alert-danger"><?php echo e($error); ?></div><?php endif; ?>
 
   <form method="get" class="form-inline mb-3">
-    <label class="mr-2">统计月份</label>
-    <select name="year" class="form-control mr-2"><?php for ($y = (int)date('Y') + 1; $y >= 2025; $y--): ?><option value="<?php echo $y; ?>"<?php echo $y === $year ? ' selected' : ''; ?>><?php echo $y; ?> 年</option><?php endfor; ?></select>
-    <select name="month" class="form-control mr-2"><?php for ($m = 1; $m <= 12; $m++): ?><option value="<?php echo $m; ?>"<?php echo $m === $month ? ' selected' : ''; ?>><?php echo $m; ?> 月</option><?php endfor; ?></select>
-    <button class="btn btn-outline-secondary">查看</button>
+    <label class="mr-2 font-weight-bold text-muted">统计月份</label>
+    <select name="year" class="form-control mr-2 mb-1"><?php for ($y = (int)date('Y') + 1; $y >= 2025; $y--): ?><option value="<?php echo $y; ?>"<?php echo $y === $year ? ' selected' : ''; ?>><?php echo $y; ?> 年</option><?php endfor; ?></select>
+    <select name="month" class="form-control mr-2 mb-1"><?php for ($m = 1; $m <= 12; $m++): ?><option value="<?php echo $m; ?>"<?php echo $m === $month ? ' selected' : ''; ?>><?php echo $m; ?> 月</option><?php endfor; ?></select>
+    <button class="btn btn-outline-secondary mb-1">查看</button>
   </form>
 
   <?php if ($hasData): ?>
   <div class="sp-rank">
     <?php foreach ($ranking as $i => $it): $amt = $i < count($tiers) ? (float)$tiers[$i] : 0.0; ?>
-      <div class="sp-card<?php echo $amt > 0 ? '' : ' zero'; ?>">
+      <div class="sp-card<?php echo $amt > 0 ? ' r' . ($i + 1) : ' zero'; ?>">
         <div class="no">第 <?php echo $i + 1; ?> 名</div><div class="nm"><?php echo e($it['name']); ?></div>
         <div class="amt">¥<?php echo number_format($amt, 0); ?></div>
-        <div class="sc">综合得分 <?php echo number_format($it['score'] * 100, 1); ?> 分<?php echo count($it['rates']) > 1 ? '（' . count($it['rates']) . ' 家店平均）' : ''; ?></div>
+        <div class="sc">得分 <?php echo number_format($it['score'] * 100, 1); ?> 分<?php echo count($it['rates']) > 1 ? ' · ' . count($it['rates']) . ' 家店平均' : ''; ?></div>
       </div>
     <?php endforeach; ?>
-    <?php if ($ampN): ?><div class="sp-card" style="background:#f7faf8"><div class="no">前 <?php echo $ampN; ?> 名平均</div><div class="amt" style="color:#1f3a2c">¥<?php echo number_format($ampSum / $ampN, 0); ?></div><div class="sc">金额按当月排名发放，再按服务时长确认折算</div></div><?php endif; ?>
+    <?php if ($ampN): ?><div class="sp-card avg"><div class="no">前 <?php echo $ampN; ?> 名平均</div><div class="amt" style="color:#1f3a2c">¥<?php echo number_format($ampSum / $ampN, 0); ?></div><div class="sc">按当月排名发放，再按服务时长确认折算</div></div><?php endif; ?>
   </div>
   <?php endif; ?>
 
   <div class="card mb-4">
     <div class="card-header"><i class="fas fa-file-upload mr-2"></i>上传 <?php echo $year; ?> 年 <?php echo $month; ?> 月的表格</div>
     <div class="card-body">
-      <form method="post" enctype="multipart/form-data" class="form-row align-items-end">
+      <form method="post" enctype="multipart/form-data" class="sp-up">
         <input type="hidden" name="csrf" value="<?php echo e(ps_csrf_token()); ?>"><input type="hidden" name="do" value="upload">
         <input type="hidden" name="year" value="<?php echo $year; ?>"><input type="hidden" name="month" value="<?php echo $month; ?>">
-        <div class="col-md-4 mb-2"><label class="small text-muted mb-1">店铺名称（只有一家店有接待，就只传这家）</label><input name="store" class="form-control" list="sp-stores" placeholder="例如：清风易软件专营店" required></div>
+        <div><label class="l">店铺名称（只有一家店有接待，就只传这家）</label><input name="store" class="form-control" list="sp-stores" placeholder="例如：清风易软件专营店" required></div>
         <datalist id="sp-stores"><?php foreach ($stores as $s): ?><option value="<?php echo e($s); ?>"><?php endforeach; ?></datalist>
-        <div class="col-md-5 mb-2"><label class="small text-muted mb-1">店铺导出的 .xlsx（咨询接待分析）</label><input type="file" name="sheet" accept=".xlsx" class="form-control-file" required></div>
-        <div class="col-md-3 mb-2"><button class="btn btn-success btn-block"><i class="fas fa-upload mr-1"></i>上传并计算</button></div>
+        <div><label class="l">店铺导出的 .xlsx（咨询接待分析）</label><label class="sp-file" id="spFile"><input type="file" name="sheet" accept=".xlsx" required><span class="b"><i class="fas fa-folder-open mr-2"></i>选择文件</span><span class="n" id="spFileName">未选择文件</span></label></div>
+        <div><button class="btn btn-success btn-block" style="height:42px"><i class="fas fa-upload mr-1"></i>上传并计算</button></div>
       </form>
+      <script>document.querySelector('#spFile input').addEventListener('change',function(){var f=this.files&&this.files[0];document.getElementById('spFileName').textContent=f?f.name:'未选择文件';document.getElementById('spFile').classList.toggle('has',!!f);});</script>
       <?php if ($uploads): ?>
-      <table class="table table-sm mt-3 mb-0"><thead><tr><th>已上传店铺</th><th>文件</th><th>人数</th><th>上传人 / 时间</th><th></th></tr></thead><tbody>
+      <div class="table-responsive mt-3"><table class="table table-sm mb-0"><thead><tr><th>已上传店铺</th><th>文件</th><th>人数</th><th>上传人 / 时间</th><th></th></tr></thead><tbody>
         <?php foreach ($uploads as $u): ?><tr>
-          <td><?php echo e($u['store'] !== '' ? $u['store'] : '（未填店铺）'); ?></td><td class="small"><?php echo e($u['file']); ?></td><td><?php echo (int)$u['n']; ?></td>
-          <td class="small"><?php echo e($u['by']); ?> <span class="text-muted"><?php echo e($u['at']); ?></span></td>
+          <td class="text-nowrap"><?php echo e($u['store'] !== '' ? $u['store'] : '（未填店铺）'); ?></td><td class="small"><?php echo e($u['file']); ?></td><td><?php echo (int)$u['n']; ?></td>
+          <td class="small text-nowrap"><?php echo e($u['by']); ?> <span class="text-muted"><?php echo e($u['at']); ?></span></td>
           <td class="text-right"><?php if ($canManage): ?><form method="post" class="d-inline" onsubmit="return confirm('删除这份上传？删除后排名按剩余数据重算')"><input type="hidden" name="csrf" value="<?php echo e(ps_csrf_token()); ?>"><input type="hidden" name="do" value="delete"><input type="hidden" name="year" value="<?php echo $year; ?>"><input type="hidden" name="month" value="<?php echo $month; ?>"><input type="hidden" name="store" value="<?php echo e($u['store']); ?>"><button class="btn btn-sm btn-outline-danger">删除</button></form><?php endif; ?></td>
-        </tr><?php endforeach; ?></tbody></table>
+        </tr><?php endforeach; ?></tbody></table></div>
       <?php endif; ?>
     </div>
   </div>
 
   <?php if ($unmatched): ?>
-  <div class="card mb-4 border-warning"><div class="card-header bg-warning-light">待对应的昵称（表里有，但系统里没找到对应员工）</div>
+  <div class="card mb-4 border-warning"><div class="card-header" style="background:#fff8e6">待对应的昵称 <span class="small text-muted ml-2">表里有，但系统里没找到对应员工；对应一次，以后每月自动对上</span></div>
     <div class="table-responsive"><table class="table table-sm mb-0"><thead><tr><th>旺旺昵称</th><th>店铺</th><th>接待人数</th><th>对应员工</th></tr></thead><tbody>
       <?php foreach ($unmatched as $u): ?><tr><td><strong><?php echo e($u['nick']); ?></strong></td><td><?php echo e($u['store']); ?></td><td><?php echo (int)$u['incoming_cnt']; ?></td>
         <td><?php if ($canManage): ?><form method="post" class="form-inline"><input type="hidden" name="csrf" value="<?php echo e(ps_csrf_token()); ?>"><input type="hidden" name="do" value="bind"><input type="hidden" name="year" value="<?php echo $year; ?>"><input type="hidden" name="month" value="<?php echo $month; ?>"><input type="hidden" name="nick" value="<?php echo e($u['nick']); ?>">
@@ -151,34 +189,40 @@ include __DIR__ . '/../includes/header.php';
     </tbody></table></div></div>
   <?php endif; ?>
 
-  <div class="card mb-4"><div class="card-header"><i class="fas fa-table mr-2"></i><?php echo $year; ?> 年 <?php echo $month; ?> 月明细（每项后面小字是该项得分，满分 100）</div>
+  <div class="card mb-4"><div class="card-header"><i class="fas fa-table mr-2"></i><?php echo $year; ?> 年 <?php echo $month; ?> 月明细 <span class="small text-muted ml-2">每项下面的小字是该项得分，满分 100</span></div>
+    <div class="sp-hint"><i class="fas fa-arrows-alt-h mr-1"></i>表格较宽，可左右滑动查看</div>
     <div class="table-responsive"><table class="table table-hover mb-0 sp-table">
       <thead class="thead-light"><tr><th>客服</th><th>店铺</th><th class="text-right">接待人数</th>
         <?php foreach ($defs as $k => $d): if ($params[$k]['weight'] <= 0) continue; ?><th class="text-right"><?php echo e($d[0]); ?></th><?php endforeach; ?><th class="text-right">综合得分</th></tr></thead>
       <tbody>
-      <?php foreach ($rows as $r): $sc = $r['scored']; ?>
-        <tr><td><strong><?php echo e($r['emp_name'] ?: $r['nick']); ?></strong><?php echo $r['emp_name'] && $r['emp_name'] !== $r['nick'] ? ' <span class="small text-muted">' . e($r['nick']) . '</span>' : ''; ?><?php echo (int)$r['employee_id'] === 0 ? ' <span class="badge badge-warning">未对应</span>' : ''; ?></td>
+      <?php foreach ($rows as $r): $sc = $r['scored']; $rk = $rankOf[(int)$r['employee_id']] ?? 0; ?>
+        <tr><td><?php if ($rk): ?><span class="sp-rk<?php echo $rk <= 3 ? ' r' . $rk : ''; ?>"><?php echo $rk; ?></span><?php endif; ?><strong><?php echo e($r['emp_name'] ?: $r['nick']); ?></strong><?php echo $r['emp_name'] && $r['emp_name'] !== $r['nick'] ? ' <span class="small text-muted">' . e($r['nick']) . '</span>' : ''; ?><?php echo (int)$r['employee_id'] === 0 ? ' <span class="badge badge-warning">未对应</span>' : ''; ?></td>
           <td class="small"><?php echo e($r['store']); ?></td><td class="text-right"><?php echo $r['incoming_cnt'] === null ? '—' : (int)$r['incoming_cnt']; ?></td>
           <?php foreach ($defs as $k => $d): if ($params[$k]['weight'] <= 0) continue; $p = $sc['parts'][$k] ?? null; ?>
             <td class="text-right"><?php echo $p ? csr_fmt($p['value'], $d[1] === '秒' ? 1 : 2) . e($d[1] === '%' ? '%' : ' 秒') . '<span class="sp-pts">' . csr_fmt($p['points'], 0) . ' 分</span>' : '—'; ?></td>
           <?php endforeach; ?>
           <td class="text-right"><strong><?php echo $sc['score'] === null ? '—' : csr_fmt($sc['score'], 1); ?></strong></td></tr>
       <?php endforeach; ?>
-      <?php if (!$rows): ?><tr><td colspan="<?php echo 4 + count($defs); ?>" class="text-center text-muted py-5">这个月还没有上传数据</td></tr><?php endif; ?>
+      <?php if (!$rows): ?><tr><td colspan="<?php echo 4 + count($defs); ?>" class="text-center text-muted py-5"><i class="far fa-folder-open fa-2x d-block mb-2" style="opacity:.4"></i>这个月还没有上传数据，在上面选好店铺和文件即可</td></tr><?php endif; ?>
       </tbody></table></div></div>
 
   <div class="card mb-5"><div class="card-header"><i class="fas fa-sliders-h mr-2"></i>评分规则<?php echo $canManage ? '（可调整）' : ''; ?></div>
     <div class="card-body">
       <p class="small text-muted">每项在“0 分对应值 → 100 分对应值”之间按比例打分，超出两端取 0 或 100；综合得分 = 各项得分按权重加权平均；多家店分别算后取平均，只传一家店就用这一家；万一同分，按系统里的员工编号先后排。表里没有的指标自动跳过。</p>
       <form method="post"><input type="hidden" name="csrf" value="<?php echo e(ps_csrf_token()); ?>"><input type="hidden" name="do" value="params"><input type="hidden" name="year" value="<?php echo $year; ?>"><input type="hidden" name="month" value="<?php echo $month; ?>">
-      <table class="table table-sm sp-weights mb-3"><thead><tr><th>指标</th><th>说明</th><th>权重</th><th>0 分对应值</th><th>100 分对应值</th></tr></thead><tbody>
-        <?php foreach ($defs as $k => $d): $p = $params[$k]; ?><tr><td><?php echo e($d[0]); ?></td><td class="small text-muted"><?php echo e($d[5]); ?></td>
-          <?php if ($canManage): ?><td><input class="form-control form-control-sm" name="p[<?php echo $k; ?>][weight]" value="<?php echo e(rtrim(rtrim(number_format($p['weight'], 2, '.', ''), '0'), '.')); ?>"></td>
-          <td><input class="form-control form-control-sm" name="p[<?php echo $k; ?>][bad]" value="<?php echo e(rtrim(rtrim(number_format($p['bad'], 2, '.', ''), '0'), '.')); ?>"> <?php echo e($d[1]); ?></td>
-          <td><input class="form-control form-control-sm" name="p[<?php echo $k; ?>][good]" value="<?php echo e(rtrim(rtrim(number_format($p['good'], 2, '.', ''), '0'), '.')); ?>"> <?php echo e($d[1]); ?></td>
-          <?php else: ?><td><?php echo e(rtrim(rtrim(number_format($p['weight'], 2, '.', ''), '0'), '.')); ?></td><td><?php echo e(rtrim(rtrim(number_format($p['bad'], 2, '.', ''), '0'), '.') . ' ' . $d[1]); ?></td><td><?php echo e(rtrim(rtrim(number_format($p['good'], 2, '.', ''), '0'), '.') . ' ' . $d[1]); ?></td><?php endif; ?></tr><?php endforeach; ?>
-      </tbody></table>
-      <?php if ($canManage): ?><button class="btn btn-success">保存规则</button><?php endif; ?>
+      <div class="sp-rules">
+        <?php $fv = function ($x) { return rtrim(rtrim(number_format($x, 2, '.', ''), '0'), '.'); }; foreach ($defs as $k => $d): $p = $params[$k]; ?>
+        <div class="sp-rule">
+          <div class="m"><div class="t"><?php echo e($d[0]); ?></div><div class="d"><?php echo e($d[5]); ?></div></div>
+          <?php foreach ([['weight', '权重', ''], ['bad', '0 分对应值', $d[1]], ['good', '100 分对应值', $d[1]]] as $fld): ?>
+          <div class="f"><label><?php echo e($fld[1]); ?></label>
+            <?php if ($canManage): ?><div class="sp-in"><input class="form-control form-control-sm" inputmode="decimal" name="p[<?php echo $k; ?>][<?php echo $fld[0]; ?>]" value="<?php echo e($fv($p[$fld[0]])); ?>"><span class="u"><?php echo e($fld[2]); ?></span></div>
+            <?php else: ?><span class="v"><?php echo e($fv($p[$fld[0]])); ?></span><span class="u"><?php echo e($fld[2]); ?></span><?php endif; ?></div>
+          <?php endforeach; ?>
+        </div>
+        <?php endforeach; ?>
+      </div>
+      <?php if ($canManage): ?><button class="btn btn-success px-4">保存规则</button><?php endif; ?>
       </form>
     </div></div>
 </div>
