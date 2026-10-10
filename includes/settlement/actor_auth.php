@@ -32,7 +32,7 @@ function ps_require_actor()
     if (!$actor) { header('Location: ' . BASE_URL . '/login.php'); exit; }
     if ($actor['type'] === 'employee' && $actor['role'] === 'governance') {
         $script = basename($_SERVER['SCRIPT_NAME'] ?? '');
-        $allowed = ['profile.php', 'governance.php', 'governance_ideas.php', 'governance_election.php', 'governance_rules.php', 'governance_evidence.php', 'payroll.php', 'welfare.php'
+        $allowed = ['profile.php', 'governance.php', 'governance_ideas.php', 'governance_election.php', 'governance_rules.php', 'governance_evidence.php', 'payroll.php', 'welfare.php', 'service_performance.php'
     , 'contributions.php', 'messages.php', 'holidays.php', 'vault.php', 'knowledge.php', 'knowledge_article.php', 'knowledge_links.php', 'knowledge_categories.php', 'knowledge_rules.php'
     , 'knowledge_keywords.php', 'knowledge_integrations.php', 'knowledge_skills.php', 'knowledge_skill.php', 'knowledge_skill_import.php', 'knowledge_skills_export.php', 'knowledge_costs.php'
     ];

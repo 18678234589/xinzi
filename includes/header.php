@@ -76,7 +76,7 @@ $is_insurance   = (strpos($_rel, 'insurance/') === 0);
 $is_project     = (strpos($_rel, 'project/') === 0);
 $is_project_orders = $is_project && !in_array($_rel, ['project/dashboard.php', 'project/payroll.php', 'project/settings.php', 'project/system.php', 'project/rules.php', 'project/profile.php', 'project/files.php', 'project/refunds.php', 'project/governance.php', 'project/governance_ideas.php', 'project/governance_election.php', 'project/governance_evidence.php', 'project/welfare.php', 'project/contributions.php', 'project/messages.php', 'project/holidays.php', 'project/vault.php', 'project/corrections.php', 'project/dup_feedback.php', 'project/rule_requests.php', 'project/preview_as.php', 'project/order_fixes.php'], true);
 if (strpos($_rel, 'project/knowledge') === 0) $is_project_orders = false;
-if (in_array($_rel, ['project/renewals.php','project/renewal_sms.php'], true)) $is_project_orders = false;
+if (in_array($_rel, ['project/renewals.php','project/renewal_sms.php','project/service_performance.php'], true)) $is_project_orders = false;
 // 合并栏目：同类页面在侧栏只占一个入口，进入后顶部页签切换。
 $nav_groups = [
     'shop' => [['/shops/index.php', 'fa-store', '店铺管理', $is_shops], ['/shops/etmll_sync.php', 'fa-sync-alt', 'ETMLL 订单同步', $is_etmll], ['/orders/index.php', 'fa-file-upload', '平台订单导入', $is_orders], ['/abnormal/index.php', 'fa-exclamation-triangle', '异常订单', $is_abnormal]],
@@ -188,6 +188,7 @@ $nav = function ($href, $icon, $label, $active) {
     <?php if ($vault_nav): echo $nav('/project/vault.php', 'fa-key', '平台与服务器信息', $_rel === 'project/vault.php'); endif; ?>
     <?php endif; ?>
     <?php include __DIR__ . '/renewal_nav.php'; ?>
+    <?php include __DIR__ . '/service_perf_nav.php'; ?>
     <div class="sidebar-project-label">知识与成长</div>
     <?php echo $nav('/project/knowledge.php', 'fa-book-open', '共创知识库', in_array($_rel, ['project/knowledge.php','project/knowledge_article.php','project/knowledge_categories.php','project/knowledge_integrations.php','project/knowledge_skills.php','project/knowledge_skill.php','project/knowledge_skill_import.php','project/knowledge_skills_export.php','project/knowledge_costs.php'], true)); ?>
     <div class="sidebar-kb-subnav">

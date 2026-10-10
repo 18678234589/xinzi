@@ -1,5 +1,7 @@
 <?php
 
+require_once __DIR__ . '/cs_perf_reception.php'; // 店铺“咨询接待分析”表的评分（本月有这类数据时，排名改用它）
+
 /**
  * [内部] 设计客服（排名部门）的完整算法明细，供 cs_perf_calc_detail 调用。
  * 最终金额/名次与 cs_perf_rank_result 完全一致（直接复用其结果与提示文案）。
@@ -140,9 +142,11 @@ function cs_perf_rank_list($year, $month)
             }
         }
     } catch (\Throwable $e) {}
-    if (!$scheme) { cs_perf_cache_set($key, []); return []; }
+    // 本月上传过店铺“咨询接待分析”表：全员改用 csr_* 的分数（不与四指标档位混排）
+    $useReception = csr_has_data($year, $month);
+    if (!$scheme && !$useReception) { cs_perf_cache_set($key, []); return []; }
 
-    $params = cs_perf_scheme_params($scheme);
+    $params = $scheme ? cs_perf_scheme_params($scheme) : [];
 
     // 同部门参与员工（排除者不参与）
     $members = [];
@@ -160,12 +164,14 @@ function cs_perf_rank_list($year, $month)
     foreach ($members as $m) {
         $id = (int)$m['id'];
         $rates = [];
-        $storeRows = get_cs_performance_stores($id, (int)$year, (int)$month);
+        $storeRows = $useReception ? [] : get_cs_performance_stores($id, (int)$year, (int)$month);
         $manualRow = null;
         foreach ($storeRows as $row) {
             if ((string)$row['store'] === '') { $manualRow = $row; break; }
         }
-        if ($manualRow !== null) {
+        if ($useReception) {
+            $rates = csr_store_scores($id, (int)$year, (int)$month);
+        } elseif ($manualRow !== null) {
             $compo = cs_perf_composite_from($params, $manualRow);
             if ($compo['ok']) $rates[''] = $compo['composite'];
         } else {

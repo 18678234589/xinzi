@@ -162,6 +162,32 @@
 - 加载：`include __DIR__ . '/../includes/header.php';`
 - 加载：`include __DIR__ . '/../includes/footer.php';`
 
+## forgot_password.php (51 行, 5.2 KB)
+
+- 加载：`require_once __DIR__.'/includes/RecoveryWeb.php';`
+
+## includes/AuthPassword.php (29 行, 1.6 KB)
+
+- `auth_password_verify` L3–8
+- `auth_password_validate` L9–14
+- `auth_session_validate` L15–28
+
+## includes/PasswordRecovery.php (115 行, 10.6 KB)
+
+- `PasswordRecovery` L4–114
+- `PasswordRecovery::__construct` L7–10
+- `PasswordRecovery::now` L11–11
+- `PasswordRecovery::hash` L12–12
+- `PasswordRecovery::lock` L13–13
+- `PasswordRecovery::row` L14–14
+- `PasswordRecovery::run` L15–15
+- `PasswordRecovery::table` L16–16
+- `PasswordRecovery::account` L17–19
+- `PasswordRecovery::boundPhone` L20–23
+- `PasswordRecovery::send` L24–73
+- `PasswordRecovery::finish` L74–113
+- 加载：`require_once __DIR__.'/AuthPassword.php';`
+
 ## includes/ProjectAccountRoles.php (100 行, 4.3 KB)
 
 - `ps_account_roles` L4–7
@@ -254,7 +280,7 @@
 - 加载：`require_once __DIR__.'/ProjectIntake.php';`
 - 加载：`require_once __DIR__.'/ProjectRenewals.php';`
 
-## includes/ProjectBusiness.php (407 行, 33.5 KB)
+## includes/ProjectBusiness.php (408 行, 33.7 KB)
 
 - `ps_business_catalog` L8–46
 - `ps_business_account_products` L49–56
@@ -263,23 +289,24 @@
 - `ps_is_website_order` L72–75
 - `ps_business_requires_technical` L78–81
 - `ps_business_service_fee_rate` L83–86
-- `ps_business_order_kinds` L88–91
-- `ps_order_kind_from_role` L94–98
-- `ps_actor_businesses` L100–120
-- `ps_business_choice` L122–128
-- `ps_require_business` L130–136
-- `ps_active_employee_for_business` L138–150
-- `ps_business_details` L152–165
-- `ps_save_business_details` L167–171
-- `ps_order_kind_valid` L173–183
-- `ps_business_import_columns` L189–295
-- `ps_import_role_extras` L299–321
-- `ps_business_import_headers` L324–329
-- `ps_business_import_headers_base` L331–359
-- `ps_business_import_map` L362–375
-- `ps_import_delivery_status` L380–392
-- `ps_business_people_labels` L394–406
+- `ps_business_order_kinds` L89–92
+- `ps_order_kind_from_role` L95–99
+- `ps_actor_businesses` L101–121
+- `ps_business_choice` L123–129
+- `ps_require_business` L131–137
+- `ps_active_employee_for_business` L139–151
+- `ps_business_details` L153–166
+- `ps_save_business_details` L168–172
+- `ps_order_kind_valid` L174–184
+- `ps_business_import_columns` L190–296
+- `ps_import_role_extras` L300–322
+- `ps_business_import_headers` L325–330
+- `ps_business_import_headers_base` L332–360
+- `ps_business_import_map` L363–376
+- `ps_import_delivery_status` L381–393
+- `ps_business_people_labels` L395–407
 - 加载：`require_once __DIR__ . '/ProjectSettlement.php';`
+- 加载：`require_once __DIR__ . '/ProjectKindLabels.php';`
 - 加载：`require_once __DIR__ . '/ProjectMiniappTemplate.php';`
 
 ## includes/ProjectCostDisplay.php (32 行, 1.3 KB)
@@ -420,6 +447,14 @@
 
 - `ps_joint_customer_ids` L3–14
 
+## includes/ProjectKindLabels.php (59 行, 2.3 KB)
+
+- `pkl_map` L6–22
+- `pkl_label` L25–29
+- `pkl_kind_from_text` L32–38
+- `pkl_choices` L41–50
+- `pkl_js_map` L53–58
+
 ## includes/ProjectKnowledge.php (349 行, 21.5 KB)
 
 - `pk_ready` L5–11
@@ -517,7 +552,7 @@
 - 加载：`require_once __DIR__ . '/ProjectKnowledge.php';`
 - 加载：`require_once __DIR__ . '/ProjectBusiness.php';`
 
-## includes/ProjectMiniappTemplate.php (262 行, 22.2 KB)
+## includes/ProjectMiniappTemplate.php (262 行, 22.6 KB)
 
 - `pmt_businesses` L9–12
 - `pmt_columns` L15–35
@@ -572,6 +607,12 @@
 - 加载：`include __DIR__ . '/monthly/types/sales_package_1.php';`
 - 加载：`include __DIR__ . '/monthly/types/sales_package_2.php';`
 - 加载：`include __DIR__ . '/monthly/types/per_unit.php';`
+
+## includes/ProjectOrderDelete.php (58 行, 4 KB)
+
+- `pod_blocker` L12–50
+- `pod_backup` L53–57
+- 加载：`require_once __DIR__ . '/ProjectOrderTrash.php';`
 
 ## includes/ProjectOrderFix.php (168 行, 10.4 KB)
 
@@ -656,6 +697,15 @@
 - `pos_evidence_order_no` L61–65
 - `pos_summary_text` L68–80
 - 加载：`require_once __DIR__ . '/ProjectSettlement.php';`
+
+## includes/ProjectOrderTrash.php (127 行, 7.8 KB)
+
+- `pot_ensure` L10–38
+- `pot_actor_name` L40–48
+- `pot_trash` L51–72
+- `pot_purge_expired` L75–81
+- `pot_list` L84–93
+- `pot_restore` L96–126
 
 ## includes/ProjectOvertime.php (122 行, 6.8 KB)
 
@@ -1028,6 +1078,25 @@
 - `pw_award_year` L197–252
 - 加载：`require_once __DIR__ . '/ProjectGovernance.php';`
 
+## includes/RecoverySms.php (36 行, 2.5 KB)
+
+- `recovery_sms_request` L3–17
+- `recovery_sms_response` L18–24
+- `recovery_sms_send` L25–35
+
+## includes/RecoveryWeb.php (39 行, 2.4 KB)
+
+- `recovery_csrf` L6–10
+- `recovery_check_csrf` L11–14
+- `recovery_service` L15–24
+- `recovery_head` L25–32
+- `recovery_messages` L33–37
+- `recovery_end` L38–38
+- 加载：`require_once __DIR__.'/auth.php';`
+- 加载：`require_once __DIR__.'/ProjectVault.php';`
+- 加载：`require_once __DIR__.'/PasswordRecovery.php';`
+- 加载：`require_once __DIR__.'/RecoverySms.php';`
+
 ## includes/SalaryCalculator.php (387 行, 16.9 KB)
 
 - `SalaryCalculator` L28–386
@@ -1063,13 +1132,14 @@
 - 加载：`require_once __DIR__ . '/salary/ModulesTypesTrait.php';`
 - 加载：`include $legacyFile;`
 
-## includes/auth.php (55 行, 1.4 KB)
+## includes/auth.php (57 行, 1.5 KB)
 
-- `is_logged_in` L27–30
-- `require_login` L35–42
-- `current_admin` L47–54
+- `is_logged_in` L29–32
+- `require_login` L37–44
+- `current_admin` L49–56
 - 加载：`require_once __DIR__ . '/../config/database.php';`
 - 加载：`require_once __DIR__ . '/functions.php';`
+- 加载：`require_once __DIR__ . '/AuthPassword.php';`
 
 ## includes/auto_review_card.php (25 行, 4.1 KB)
 
@@ -1227,7 +1297,7 @@
 - `pg_store_evidence` L10–19
 - `pg_save_evidence_file` L22–45
 
-## includes/header.php (230 行, 24.1 KB)
+## includes/header.php (231 行, 24.2 KB)
 
 - 加载：`require_once __DIR__ . '/ProjectTerms.php';`
 - 加载：`require_once __DIR__ . '/ProjectVault.php';`
@@ -1241,6 +1311,7 @@
 - 加载：`require_once __DIR__ . '/correction_tabs.php';`
 - 加载：`require_once __DIR__ . '/dup_feedback.php';`
 - 加载：`include __DIR__ . '/renewal_nav.php';`
+- 加载：`include __DIR__ . '/service_perf_nav.php';`
 - 加载：`include __DIR__ . '/import_followup_modal.php';`
 
 ## includes/import_followup_modal.php (59 行, 7.3 KB)
@@ -1346,13 +1417,39 @@
 - `get_employee_deal_count` L227–230
 - `get_employee_order_total` L236–239
 
-## includes/lib/cs_perf_rank.php (295 行, 15.1 KB)
+## includes/lib/cs_perf_rank.php (301 行, 15.6 KB)
 
-- `cs_perf_rank_detail` L7–63
-- `cs_perf_rank_result` L75–118
-- `cs_perf_rank_list` L124–187
-- `get_cs_perf_target_suggestions` L196–245
-- `detect_cs_perf_columns` L252–294
+- `cs_perf_rank_detail` L9–65
+- `cs_perf_rank_result` L77–120
+- `cs_perf_rank_list` L126–193
+- `get_cs_perf_target_suggestions` L202–251
+- `detect_cs_perf_columns` L258–300
+- 加载：`require_once __DIR__ . '/cs_perf_reception.php';`
+
+## includes/lib/cs_perf_reception.php (334 行, 17.8 KB)
+
+- `csr_metric_defs` L13–23
+- `csr_ensure` L25–47
+- `csr_params` L50–62
+- `csr_params_save` L65–81
+- `csr_metric_values` L84–96
+- `csr_score_row` L99–114
+- `csr_has_data` L116–123
+- `csr_store_scores` L126–139
+- `csr_header_norm` L141–144
+- `csr_fraction` L147–156
+- `csr_number` L158–164
+- `csr_parse` L167–214
+- `csr_employee_index` L217–229
+- `csr_import` L232–254
+- `csr_bind` L257–272
+- `csr_delete_upload` L275–282
+- `csr_month_rows` L285–295
+- `csr_can_view` L298–304
+- `csr_can_manage` L307–313
+- `csr_employee_dept` L315–323
+- `csr_is_dept_head` L325–333
+- 加载：`require_once dirname(__DIR__, 2) . '/classes/SimpleXLSX.php';`
 
 ## includes/lib/cs_perf_schema.php (257 行, 14.7 KB)
 
@@ -1654,7 +1751,11 @@
 - `ModulesTypesTrait` L2–219
 - `ModulesTypesTrait::getAvailableTypes` L4–217
 
-## includes/settlement/actor_auth.php (118 行, 7.5 KB)
+## includes/service_perf_nav.php (8 行, 0.4 KB)
+
+- 加载：`require_once __DIR__ . '/lib/cs_perf_reception.php';`
+
+## includes/settlement/actor_auth.php (118 行, 7.6 KB)
 
 - `ps_actor` L4–14
 - `ps_governance_has_business` L17–27
@@ -1788,7 +1889,7 @@
 
 - 加载：`require_once __DIR__ . '/../includes/ProjectRenewalSms.php';`
 
-## login.php (140 行, 8.3 KB)
+## login.php (143 行, 8.7 KB)
 
 - 加载：`require_once __DIR__ . '/includes/auth.php';`
 
@@ -1832,6 +1933,10 @@
 
 - 加载：`require_once __DIR__ . '/../config/database.php';`
 - 加载：`require_once __DIR__ . '/../includes/auth.php';`
+
+## migrations/apply_password_recovery.php (20 行, 1.2 KB)
+
+- 加载：`require_once __DIR__.'/../config/database.php';`
 
 ## migrations/apply_project.php (54 行, 2.7 KB)
 
@@ -1880,6 +1985,10 @@
 ## migrations/repair_trademark_pricing.php (43 行, 3.9 KB)
 
 - 加载：`require_once __DIR__.'/../includes/ProjectTrademarkCost.php';`
+
+## migrations/set_recovery_phone.php (28 行, 2.7 KB)
+
+- 加载：`require_once __DIR__.'/../includes/ProjectVault.php';`
 
 ## orders/edit.php (219 行, 9.6 KB)
 
@@ -2267,7 +2376,7 @@
 ## project/import/03a_order_no_and_split.php (167 行, 17.3 KB)
 
 
-## project/import/03b_date_amount_status.php (293 行, 31.3 KB)
+## project/import/03b_date_amount_status.php (295 行, 31.6 KB)
 
 - 加载：`require_once (dirname(__DIR__, 1)) . '/../includes/ProjectMiniappTemplate.php';`
 
@@ -2323,13 +2432,13 @@
 - 加载：`include __DIR__ . '/view/view/js_5.php';`
 - 加载：`include (dirname(__DIR__, 1)) . '/../includes/footer.php';`
 
-## project/import/view/render_15.php (9 行, 3 KB)
+## project/import/view/render_15.php (9 行, 3.1 KB)
 
 
 ## project/import/view/render_62.php (7 行, 1.3 KB)
 
 
-## project/import/view/render_63.php (8 行, 1.3 KB)
+## project/import/view/render_63.php (7 行, 1.4 KB)
 
 
 ## project/import/view/render_fix_panel.php (47 行, 4.2 KB)
@@ -2342,7 +2451,7 @@
 
 - 加载：`require_once __DIR__ . '/../includes/ProjectImportUndo.php';`
 
-## project/index.php (104 行, 8.2 KB)
+## project/index.php (108 行, 8.6 KB)
 
 - 加载：`require_once __DIR__ . '/../includes/ProjectIntake.php';`
 - 加载：`require_once __DIR__ . '/../includes/ProjectOrderSplit.php';`
@@ -2354,6 +2463,8 @@
 - 加载：`require_once __DIR__ . '/../includes/commission_explain.php';`
 - 加载：`require_once __DIR__ . '/../includes/ProjectPartnerDashboard.php';`
 - 加载：`require_once __DIR__ . '/../includes/ProjectAutoReview.php';`
+- 加载：`require_once __DIR__ . '/../includes/ProjectOrderDelete.php';`
+- 加载：`require_once __DIR__ . '/../includes/ProjectOrderTrash.php';`
 - 加载：`include __DIR__ . '/index/actions/quick_update.php';`
 - 加载：`include __DIR__ . '/index/actions/delete.php';`
 - 加载：`include __DIR__ . '/index/actions/bulk.php';`
@@ -2361,9 +2472,9 @@
 - 加载：`include __DIR__ . '/../includes/ProjectOrderList.php';`
 - 加载：`include __DIR__ . '/index/view.php';`
 
-## project/index/actions/bulk.php (92 行, 6.3 KB)
+## project/index/actions/bulk.php (89 行, 6.1 KB)
 
-- 加载：`require_once (dirname(__DIR__, 2)) . '/includes/ProjectAutoReview.php';`
+- 加载：`require_once (dirname(__DIR__, 3)) . '/includes/ProjectAutoReview.php';`
 
 ## project/index/actions/create.php (202 行, 18.4 KB)
 
@@ -2372,10 +2483,10 @@
 - 加载：`require_once (dirname(__DIR__, 2)) . '/../includes/ProjectTrademarkCost.php';`
 - 加载：`require_once (dirname(__DIR__, 2)) . '/../includes/ProjectSheetEdit.php';`
 
-## project/index/actions/delete.php (35 行, 2 KB)
+## project/index/actions/delete.php (30 行, 1.7 KB)
 
 
-## project/index/actions/quick_update.php (168 行, 8.5 KB)
+## project/index/actions/quick_update.php (171 行, 8.6 KB)
 
 - 加载：`require_once (dirname(__DIR__, 3)) . '/includes/ProjectSheetEdit.php';`
 - 加载：`require_once (dirname(__DIR__, 3)) . '/includes/ProjectSheetEdit.php';`
@@ -2394,7 +2505,7 @@
 ## project/index/view/js_2.php (25 行, 1.6 KB)
 
 
-## project/index/view/js_4.php (137 行, 10.9 KB)
+## project/index/view/js_4.php (138 行, 11.1 KB)
 
 
 ## project/index/view/js_5.php (42 行, 3.2 KB)
@@ -2416,7 +2527,7 @@
 - 加载：`include (dirname((dirname(__DIR__, 1)), 1)) . '/../includes/rule_algo_card.php';`
 - 加载：`include (dirname((dirname(__DIR__, 1)), 1)) . '/index/view/js_1.php';`
 
-## project/index/view/section_3.php (149 行, 20.8 KB)
+## project/index/view/section_3.php (149 行, 21.4 KB)
 
 - 加载：`include __DIR__ . '/quick_edit_modal.php';`
 - 加载：`include (dirname((dirname(__DIR__, 1)), 1)) . '/index/view/js_2.php';`
@@ -2635,7 +2746,7 @@
 - 加载：`include __DIR__ . '/view/section_3.php';`
 - 加载：`include __DIR__ . '/view/section_4.php';`
 
-## project/order/view/section_1.php (199 行, 22.1 KB)
+## project/order/view/section_1.php (199 行, 22.3 KB)
 
 - 加载：`include (dirname((dirname(__DIR__, 1)), 1)) . '/../includes/auto_review_card.php';`
 
@@ -2683,7 +2794,7 @@
 - 加载：`include __DIR__ . '/../includes/kb_chat_examples_card.php';`
 - 加载：`include __DIR__ . '/../includes/footer.php';`
 
-## project/profile.php (74 行, 7.6 KB)
+## project/profile.php (86 行, 8.5 KB)
 
 - 加载：`require_once __DIR__ . '/../includes/ProjectSettlement.php';`
 - 加载：`include __DIR__ . '/../includes/header.php';`
@@ -2749,7 +2860,7 @@
 - 加载：`require_once __DIR__ . '/../includes/correction_tabs.php';`
 - 加载：`include __DIR__ . '/../includes/footer.php';`
 
-## project/rules.php (422 行, 68.4 KB)
+## project/rules.php (423 行, 68.6 KB)
 
 - 加载：`require_once __DIR__ . '/../includes/ProjectBusiness.php';`
 - 加载：`require_once __DIR__ . '/../includes/ProjectPresets.php';`
@@ -2762,7 +2873,14 @@
 - 加载：`include __DIR__ . '/../includes/review_policy_editor.php';`
 - 加载：`include __DIR__ . '/../includes/footer.php';`
 
-## project/settings.php (302 行, 48.1 KB)
+## project/service_performance.php (185 行, 16.4 KB)
+
+- `csr_fmt` L77–77
+- 加载：`require_once __DIR__ . '/../includes/lib/cs_perf_reception.php';`
+- 加载：`include __DIR__ . '/../includes/header.php';`
+- 加载：`include __DIR__ . '/../includes/footer.php';`
+
+## project/settings.php (303 行, 48.6 KB)
 
 - 加载：`require_once __DIR__ . '/../includes/ProjectBusiness.php';`
 - 加载：`require_once __DIR__ . '/../includes/ProjectPresets.php';`
@@ -2778,10 +2896,16 @@
 - 加载：`include __DIR__ . '/../includes/header.php';`
 - 加载：`include __DIR__ . '/../includes/footer.php';`
 
-## project/system.php (193 行, 21.1 KB)
+## project/system.php (196 行, 21.4 KB)
 
 - 加载：`require_once __DIR__ . '/../includes/ProjectBusiness.php';`
 - 加载：`require_once __DIR__ . '/../includes/ProjectAiFallback.php';`
+- 加载：`include __DIR__ . '/../includes/header.php';`
+- 加载：`include __DIR__ . '/../includes/footer.php';`
+
+## project/trash.php (44 行, 3.5 KB)
+
+- 加载：`require_once __DIR__ . '/../includes/ProjectOrderTrash.php';`
 - 加载：`include __DIR__ . '/../includes/header.php';`
 - 加载：`include __DIR__ . '/../includes/footer.php';`
 
@@ -2802,6 +2926,14 @@
 - 加载：`require_once __DIR__ . '/../includes/ProjectWelfare.php';`
 - 加载：`include __DIR__ . '/../includes/header.php';`
 - 加载：`include __DIR__ . '/../includes/footer.php';`
+
+## recovery_phone.php (40 行, 3.9 KB)
+
+- 加载：`require_once __DIR__.'/includes/RecoveryWeb.php';`
+
+## recovery_sms.php (45 行, 4.8 KB)
+
+- 加载：`require_once __DIR__.'/includes/RecoveryWeb.php';`
 
 ## salaries/query.php (228 行, 9.8 KB)
 
@@ -3065,7 +3197,7 @@
 - 加载：`include __DIR__ . '/../project/import.php';`
 - 加载：`include __DIR__ . '/../project/import.php';`
 
-## tests/import_miniapp_kind_smoke.php (95 行, 9.7 KB)
+## tests/import_miniapp_kind_smoke.php (102 行, 10.9 KB)
 
 - 加载：`require_once __DIR__ . '/../includes/ProjectIntake.php';`
 - 加载：`include __DIR__ . '/../project/import.php';`
@@ -3081,7 +3213,7 @@
 - 加载：`require_once __DIR__ . '/../includes/ProjectIntake.php';`
 - 加载：`include __DIR__ . '/../project/import.php';`
 
-## tests/import_status_forward_smoke.php (50 行, 5.3 KB)
+## tests/import_status_forward_smoke.php (50 行, 5.2 KB)
 
 - 加载：`require_once __DIR__ . '/../includes/ProjectIntake.php';`
 - 加载：`include __DIR__ . '/../project/import.php';`
@@ -3097,6 +3229,12 @@
 - `kbc_check` L5–5
 - `kbc_reject` L6–6
 - 加载：`require_once __DIR__ . '/../includes/ProjectKnowledge.php';`
+
+## tests/order_delete_smoke.php (69 行, 7.5 KB)
+
+- 加载：`require_once __DIR__ . '/../includes/ProjectIntake.php';`
+- 加载：`require_once __DIR__ . '/../includes/ProjectOrderDelete.php';`
+- 加载：`require_once __DIR__ . '/../includes/ProjectOrderTrash.php';`
 
 ## tests/order_no_canonical_smoke.php (26 行, 1.4 KB)
 
@@ -3382,11 +3520,13 @@
 - 加载：`include __DIR__ . '/../project/governance_election.php';`
 - 加载：`include __DIR__ . '/../project/welfare.php';`
 
-## tests/quick_update_smoke.php (96 行, 3.8 KB)
+## tests/quick_update_smoke.php (109 行, 4.4 KB)
 
 - 加载：`require_once __DIR__ . '/../includes/ProjectIntake.php';`
+- 加载：`require_once __DIR__ . '/../includes/ProjectSheetEdit.php';`
 - 加载：`include __DIR__ . '/../project/index/actions/quick_update.php';`
-- 加载：`require_once __DIR__ . '/../includes/ProjectExpiry.php';`
+- 加载：`include __DIR__ . '/../project/index/actions/bulk.php';`
+- 加载：`include __DIR__ . '/../project/index/actions/bulk.php';`
 
 ## tests/renewal_fill_smoke.php (74 行, 6 KB)
 
@@ -3402,6 +3542,12 @@
 - `get_attendance` L4–8
 - 加载：`require_once __DIR__ . '/../includes/SalaryCalculator.php';`
 
+## tests/service_performance_smoke.php (104 行, 9 KB)
+
+- 加载：`require_once __DIR__ . '/../includes/ProjectIntake.php';`
+- 加载：`require_once __DIR__ . '/../includes/lib/cs_perf_reception.php';`
+- 加载：`require_once __DIR__ . '/../includes/ProjectMiniappTemplate.php';`
+
 ## tests/sheet_editor_smoke.php (51 行, 3.8 KB)
 
 - 加载：`require_once __DIR__ . '/../includes/ProjectSheetEdit.php';`
@@ -3416,6 +3562,18 @@
 
 - 加载：`require_once __DIR__ . '/../includes/ProjectIntake.php';`
 - 加载：`require_once __DIR__ . '/../includes/ProjectBusiness.php';`
+
+## tests/test_password_recovery.php (164 行, 15.4 KB)
+
+- `db` L5–5
+- `pv_encrypt` L6–10
+- `pv_decrypt` L11–14
+- `check` L16–16
+- `rejects` L17–20
+- `fixture` L21–40
+- `bindAdmin` L41–45
+- 加载：`require_once __DIR__.'/../includes/PasswordRecovery.php';`
+- 加载：`require_once __DIR__.'/../includes/RecoverySms.php';`
 
 ## tests/test_trademark_integration.php (134 行, 7.9 KB)
 
