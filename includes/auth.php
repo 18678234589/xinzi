@@ -6,6 +6,8 @@ session_start();
 
 require_once __DIR__ . '/../config/database.php';
 require_once __DIR__ . '/functions.php';
+require_once __DIR__ . '/AuthPassword.php';
+auth_session_validate();
 
 /**
  * 计算项目根目录对应的 URL 路径（支持部署在子目录或根目录）

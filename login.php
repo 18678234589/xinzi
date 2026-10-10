@@ -5,7 +5,7 @@ $error = '';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $username = trim($_POST['username'] ?? '');
-    $password = trim($_POST['password'] ?? '');
+    $password = (string)($_POST['password'] ?? '');
     $captcha  = trim($_POST['captcha'] ?? '');
 
     // 双重验证：第一重 用户名+密码，第二重 图形验证码
@@ -18,11 +18,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $stmt->execute([$username]);
         $admin = $stmt->fetch();
 
-        if ($admin && $admin['password'] === md5($password)) {
+        if ($admin && auth_password_verify($password, $admin['password'])) {
             unset($_SESSION['captcha']); // 验证通过后清除验证码
             unset($_SESSION['project_user_id']);
             $_SESSION['admin_id']       = $admin['id'];
             $_SESSION['admin_username'] = $admin['username'];
+            $_SESSION['auth_version'] = (int)($admin['auth_version'] ?? 0);
             session_regenerate_id(true);
             header('Location: ' . BASE_URL . '/index.php');
             exit;
@@ -30,13 +31,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             // 项目结算合作人员账户与旧管理员账户隔离；合作人员只能进入项目模块。
             try {
                 // 合作人员可用登录名（姓名拼音）或已绑定的手机号登录。
-                $staffQuery = db()->prepare('SELECT id,password_hash,phone,role,password_changed_at FROM project_users WHERE (username=? OR phone=?) AND is_active=1 LIMIT 1');
+                $staffQuery = db()->prepare('SELECT * FROM project_users WHERE (username=? OR phone=?) AND is_active=1 LIMIT 1');
                 $staffQuery->execute([$username, $username]);
                 $staff = $staffQuery->fetch();
                 if ($staff && password_verify($password, $staff['password_hash'])) {
                     unset($_SESSION['captcha']);
                     unset($_SESSION['admin_id'], $_SESSION['admin_username']);
                     $_SESSION['project_user_id'] = (int)$staff['id'];
+                    $_SESSION['auth_version'] = (int)($staff['auth_version'] ?? 0);
                     unset($_SESSION['rip_shown']); // 每次登录都重新提醒补录续费资料
                     session_regenerate_id(true);
                     $destination = !$staff['phone'] ? '/project/profile.php?first=1' : (($staff['role'] === 'governance') ? (empty($staff['password_changed_at']) ? '/project/profile.php?password=1' : '/project/governance_ideas.php') : '/project/index.php');
@@ -112,6 +114,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 </div>
                 <button type="submit" class="btn btn-primary btn-block btn-lg"><i class="fas fa-sign-in-alt"></i> 登 录</button>
             </form>
+            <div class="text-center mt-3"><a href="<?php echo BASE_URL; ?>/forgot_password.php">忘记密码？短信找回</a></div>
             <div class="text-center mt-3 text-muted small">
                 管理员或项目合作人员均可使用分配的账户登录；验证码点击可刷新
             </div>

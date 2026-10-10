@@ -18,16 +18,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             ps_audit('setting', $solutionId, 'ai_solution_' . ($op === 'delete' ? 'delete' : 'toggle'), $actor, []);
             $success = $op === 'delete' ? 'AI 托底记录已删除' : 'AI 托底记录状态已切换';
         } elseif ($action === 'my_password') {
-            // 财务 / 管理员修改自己的登录密码（原系统 admins 表沿用 MD5 校验）
-            $me = db()->prepare('SELECT username,password FROM admins WHERE id=?');
+            // 兼容旧密码，修改后使用现代密码哈希，并使其他旧会话失效。
+            $me = db()->prepare('SELECT username,password,auth_version FROM admins WHERE id=?');
             $me->execute([$actor['id']]);
             $admin = $me->fetch();
             $new = (string)($_POST['new_password'] ?? '');
-            if (!$admin || $admin['password'] !== md5((string)($_POST['current_password'] ?? ''))) throw new RuntimeException('当前密码不正确');
-            if (strlen($new) < 8 || in_array($new, ['123456', '12345678', '123456789', '88888888', '11111111'], true)) throw new RuntimeException('新密码至少 8 位，且不能是 123456 这类简单密码');
-            if (strtolower($new) === strtolower((string)$admin['username'])) throw new RuntimeException('新密码不能与登录名（默认密码）相同');
-            if ($new !== (string)($_POST['confirm_password'] ?? '')) throw new RuntimeException('两次输入的新密码不一致');
-            db()->prepare('UPDATE admins SET password=? WHERE id=?')->execute([md5($new), $actor['id']]);
+            if (!$admin || !auth_password_verify((string)($_POST['current_password'] ?? ''), $admin['password'])) throw new RuntimeException('当前密码不正确');
+            auth_password_validate($new, (string)($_POST['confirm_password'] ?? ''), $admin['username']);
+            $change = db()->prepare('UPDATE admins SET password=?,auth_version=auth_version+1 WHERE id=? AND auth_version=? AND password=?');
+            $change->execute([password_hash($new, PASSWORD_DEFAULT), $actor['id'], (int)$admin['auth_version'], $admin['password']]);
+            if ($change->rowCount() !== 1) throw new RuntimeException('账号信息已变更，请重新登录后操作');
+            $_SESSION['auth_version'] = (int)$admin['auth_version'] + 1;
+            session_regenerate_id(true);
             ps_audit('admin', $actor['id'], 'change_password', $actor, []);
             $success = '登录密码已修改，请记住新密码';
         } elseif ($action === 'contact') {
@@ -182,6 +184,7 @@ $aiLabels = ps_ai_labels() + ['import_columns_error' => '表头识别失败', 'i
 <?php if (!$aiLogs): ?><tr><td colspan="8" class="text-center text-muted py-3">还没有 AI 托底记录。上传的表格系统识别不了时，会由 AI 给出方案并记在这里。</td></tr><?php endif; ?>
 </tbody></table></div></div></div>
 <div id="my-password" class="card mb-3"><div class="card-header">我的登录密码</div><div class="card-body">
+<p><a class="btn btn-outline-success" href="<?php echo BASE_URL; ?>/recovery_phone.php">验证 / 绑定短信找回手机号</a></p>
 <p class="small text-muted">财务 / 管理员账号能看到所有人的订单与报酬，默认密码是登录名（姓名拼音），请尽快改成只有自己知道的密码。</p>
 <form method="post" class="form-row align-items-end"><input type="hidden" name="csrf" value="<?php echo e(ps_csrf_token()); ?>"><input type="hidden" name="action" value="my_password">
 <div class="form-group col-md-3"><label for="myCurrent">当前密码</label><input class="form-control" id="myCurrent" type="password" name="current_password" required autocomplete="current-password"></div>

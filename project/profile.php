@@ -20,17 +20,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $taken = db()->prepare('SELECT (SELECT COUNT(*) FROM project_users WHERE (phone=? OR username=?) AND id<>?) + (SELECT COUNT(*) FROM admins WHERE username=?)');
             $taken->execute([$phone, $phone, $actor['id'], $phone]);
             if ((int)$taken->fetchColumn() > 0) throw new RuntimeException('该手机号已被其他账号使用，请联系财务核对');
-            db()->prepare('UPDATE project_users SET phone=? WHERE id=?')->execute([$phone, $actor['id']]);
+            db()->beginTransaction();
+            try {
+                $change = db()->prepare('UPDATE project_users SET phone=?,auth_version=auth_version+1 WHERE id=? AND auth_version=? AND password_hash=?');
+                $change->execute([$phone, $actor['id'], (int)$user['auth_version'], $user['password_hash']]);
+                if ($change->rowCount() !== 1) throw new RuntimeException('账号信息已变更，请重新登录后操作');
+                db()->prepare("DELETE FROM account_recovery_contacts WHERE account_type='employee' AND account_id=?")->execute([$actor['id']]);
+                db()->commit();
+            } catch (Throwable $e) { db()->rollBack(); throw $e; }
+            $_SESSION['auth_version'] = (int)$user['auth_version'] + 1;
+            session_regenerate_id(true);
             ps_audit('account', $actor['id'], 'bind_phone', $actor, ['phone' => substr($phone, 0, 3) . '****' . substr($phone, -4)]);
             if (isset($_GET['first'])) { header('Location: ' . BASE_URL . '/project/profile.php?bound=1'); exit; }
             $success = '手机号已保存，下次可以用手机号登录';
         } elseif ($action === 'password') {
             $new = (string)($_POST['new_password'] ?? '');
             if (!password_verify((string)($_POST['current_password'] ?? ''), $user['password_hash'])) throw new RuntimeException('当前密码不正确');
-            if (strlen($new) < 8 || in_array($new, ['123456', '12345678', '123456789', '88888888', '11111111'], true)) throw new RuntimeException('新密码至少 8 位，且不能是 123456 这类简单密码');
-            if (strtolower($new) === strtolower((string)$user['username'])) throw new RuntimeException('新密码不能与登录名（默认密码）相同');
-            if ($new !== (string)($_POST['confirm_password'] ?? '')) throw new RuntimeException('两次输入的新密码不一致');
-            db()->prepare('UPDATE project_users SET password_hash=?,password_changed_at=NOW() WHERE id=?')->execute([password_hash($new, PASSWORD_DEFAULT), $actor['id']]);
+            auth_password_validate($new, (string)($_POST['confirm_password'] ?? ''), $user['username']);
+            $change = db()->prepare('UPDATE project_users SET password_hash=?,password_changed_at=NOW(),auth_version=auth_version+1 WHERE id=? AND auth_version=? AND password_hash=?');
+            $change->execute([password_hash($new, PASSWORD_DEFAULT), $actor['id'], (int)$user['auth_version'], $user['password_hash']]);
+            if ($change->rowCount() !== 1) throw new RuntimeException('账号信息已变更，请重新登录后操作');
+            $_SESSION['auth_version'] = (int)$user['auth_version'] + 1;
+            session_regenerate_id(true);
             ps_audit('account', $actor['id'], 'change_password', $actor, []);
             $success = '密码已修改，请记住新密码';
         } else throw new RuntimeException('操作无效');
@@ -53,6 +64,7 @@ $csrf = e(ps_csrf_token());
 <?php if (!$needPhone && empty($me['password_changed_at'])): ?><div class="alert alert-warning"><?php echo $me['role'] === 'governance' ? '首次使用管理层工作台，请先把初始密码改为仅自己知道的新密码。' : '你还在使用默认密码，建议现在修改。'; ?></div><?php endif; ?>
 <?php if ($me['role'] === 'governance' && !empty($me['password_changed_at'])): ?><a class="btn btn-success mb-3" href="<?php echo BASE_URL; ?>/project/governance_ideas.php">进入管理层工作台 →</a><?php endif; ?>
 
+<p><a class="btn btn-outline-success" href="<?php echo BASE_URL; ?>/recovery_phone.php">验证 / 绑定短信找回手机号</a></p>
 <div class="card mb-3"><div class="card-header"><?php echo $needPhone ? '① 绑定手机号（必填）' : '修改手机号'; ?></div><div class="card-body">
 <form method="post" class="form-row align-items-end"><input type="hidden" name="csrf" value="<?php echo $csrf; ?>"><input type="hidden" name="action" value="phone">
 <div class="form-group col-md-5"><label for="phone">手机号</label><input class="form-control" id="phone" name="phone" inputmode="numeric" maxlength="11" pattern="1[3-9][0-9]{9}" required value="<?php echo e($_POST['phone'] ?? ($me['phone'] ?? '')); ?>" placeholder="11 位手机号"></div>

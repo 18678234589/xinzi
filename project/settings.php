@@ -189,7 +189,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $username = (string)$q->fetchColumn();
             if ($username === '') throw new RuntimeException('账户不存在');
             $active = isset($_POST['is_active']) ? 1 : 0;
-            if (isset($_POST['reset_default'])) db()->prepare('UPDATE project_users SET is_active=?,password_hash=?,password_changed_at=NULL WHERE id=?')->execute([$active, password_hash($username, PASSWORD_DEFAULT), $userId]);
+            if (isset($_POST['reset_default'])) db()->prepare('UPDATE project_users SET is_active=?,password_hash=?,password_changed_at=NULL,auth_version=auth_version+1 WHERE id=?')->execute([$active, password_hash($username, PASSWORD_DEFAULT), $userId]);
             else db()->prepare('UPDATE project_users SET is_active=? WHERE id=?')->execute([$active, $userId]);
             ps_audit('account', $userId, 'reset', $actor, ['is_active' => $active, 'password_reset' => isset($_POST['reset_default'])]);
             $success = isset($_POST['reset_default']) ? '已重置：初始密码 = 登录名 ' . $username . '，本人首次登录绑定手机号并改密码' : '账户已更新';
@@ -219,7 +219,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $q = db()->prepare('UPDATE project_users SET role=?,is_active=? WHERE id=?');
                 $q->execute([$role, $active, $userId]);
             } else {
-                $q = db()->prepare('UPDATE project_users SET role=?,is_active=?,password_hash=?,password_changed_at=NULL WHERE id=?');
+                $q = db()->prepare('UPDATE project_users SET role=?,is_active=?,password_hash=?,password_changed_at=NULL,auth_version=auth_version+1 WHERE id=?');
                 $q->execute([$role, $active, password_hash($password, PASSWORD_DEFAULT), $userId]);
             }
             db()->prepare('DELETE FROM project_user_businesses WHERE user_id=?')->execute([$userId]);
