@@ -120,7 +120,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 /* split: project/import/03a_order_no_and_split.php */ include (dirname(__DIR__, 1)) . '/import/03a_order_no_and_split.php';
 /* split: project/import/03b_date_amount_status.php */ include (dirname(__DIR__, 1)) . '/import/03b_date_amount_status.php';
 /* split: project/import/03c_people_resources.php */ include (dirname(__DIR__, 1)) . '/import/03c_people_resources.php';
-                    if ($selectedBusiness === '商标') ptc_import_check($record, $existing, trim((string)($_POST['fix_tm_service'][$record['line']] ?? '')), $actor);
+                    if ($selectedBusiness === '商标') {
+                        require_once (dirname(__DIR__, 1)) . '/../includes/ProjectTrademarkTemplate.php';
+                        $tmChoice = trim((string)($_POST['fix_tm_service'][$record['line']] ?? ''));
+                        $professionalTrademark = ptt_is_professional_header($head);
+                        $record['trademark_professional'] = $professionalTrademark;
+                        if ($professionalTrademark) ptt_prepare_record($record, $tmChoice, $lookup($row, 'direct_cost'));
+                        ptc_import_check($record, $existing, $professionalTrademark ? '' : $tmChoice, $actor);
+                        if ($professionalTrademark) ptt_validate_price($record);
+                        if (isset($seen[$record['order_no']]) && ($professionalTrademark || !empty($preview[$seen[$record['order_no']]]['trademark_professional']))) throw new RuntimeException('新版商标模板一单一行，同号重复行不能累加收入或成本；混合事项请放在同一行的计价明细中');
+                    }
                 } catch (RuntimeException $e) { $record['base_valid'] = false; $record['status'] = $record['skip_status'] ?? '需处理'; $record['error'] = $e->getMessage(); }
                 $itemTemplates = $itemTemplates ?? ps_intake_templates(null, $selectedBusiness);
                 $record['items'] = !empty($businessDefinition['program']) ? poi_from_row($record['program_name'], empty($record['amount_from_shop']) ? $record['contract_amount'] :

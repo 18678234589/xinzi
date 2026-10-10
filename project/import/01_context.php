@@ -51,7 +51,7 @@ if (!preg_match('/^\d{4}-(0[1-9]|1[0-2])$/', $ruleMonth)) $ruleMonth = date('Y-m
 $renewalRates = $departmentMode ? ps_department_renewal_rates($ruleMonth) : [];
 $businessDefinition = $selectedBusiness ? ps_business_catalog()[$selectedBusiness] : null;
 if (isset($_GET['download']) && $selectedBusiness && $_SERVER['REQUEST_METHOD'] === 'GET') {
-    // 小程序开发 / 网站模板 / AI网站定制：默认下载 xlsx 模板（订单类型 / 业务种类 / 状态为下拉选择，日期和长数字列带格式，附填写说明）；?format=csv 可下载纯文本版
+    // 启用 Excel 模板的业务默认下载 xlsx（下拉、日期/文本格式、数量校验和填写说明）；?format=csv 可下载纯文本版
     require_once (dirname(__DIR__, 1)) . '/../includes/ProjectMiniappTemplate.php';
     if (in_array($selectedBusiness, pmt_businesses(), true) && ($_GET['format'] ?? '') !== 'csv') {
         header('Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');

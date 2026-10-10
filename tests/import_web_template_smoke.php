@@ -41,7 +41,7 @@ $items = function ($no) use ($pdo) {
 };
 try {
     require_once __DIR__ . '/../includes/ProjectMiniappTemplate.php';
-    $check(pmt_businesses() === ['小程序开发', '网站模板', 'AI网站定制'], '三个业务有专用 xlsx 模板');
+    $check(pmt_businesses() === ['小程序开发', '网站模板', 'AI网站定制', '商标'], '原三个业务保留专用Excel，并新增商标专业模板');
     foreach (['网站模板', 'AI网站定制'] as $b) {
         $h = ps_business_import_headers($b);
         foreach (['网站域名', '域名到期日期', '服务器到期日期', '续费联系方式', '域名归属'] as $need) $check(in_array($need, $h, true), "{$b} 模板有“{$need}”列");

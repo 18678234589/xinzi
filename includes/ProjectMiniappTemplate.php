@@ -8,12 +8,13 @@
 /** 有专用 xlsx 模板的业务。 */
 function pmt_businesses()
 {
-    return ['小程序开发', '网站模板', 'AI网站定制'];
+    return ['小程序开发', '网站模板', 'AI网站定制', '商标'];
 }
 
 /** 列定义：[表头, 列宽, 类型 text|date|list|plain, 下拉选项, 是否必填, 说明] */
 function pmt_columns($business = '小程序开发')
 {
+    if ($business === '商标') { require_once __DIR__ . '/ProjectTrademarkTemplate.php'; return ptt_columns(); }
     if ($business === '网站模板' || $business === 'AI网站定制') return pmt_web_columns($business);
     return [
         ['日期', 12, 'date', [], true, '下单 / 付款日期，如 2026-09-01'],
@@ -90,6 +91,7 @@ function pmt_headers($business = '小程序开发')
 /** 示例行（订单编号以“示例”开头，上传时自动跳过）。 */
 function pmt_example_rows($business = '小程序开发')
 {
+    if ($business === '商标') { require_once __DIR__ . '/ProjectTrademarkTemplate.php'; return ptt_examples(); }
     if ($business === '网站模板' || $business === 'AI网站定制') return pmt_web_examples($business);
     $base = ['日期' => '2026-09-01', '店铺' => '美呀美旗舰店', '付款昵称' => 'tb12345678', '售价' => '350', '状态(填已完成/未完成)' => '已完成', '客服' => '王宁', '制作技术' => '石凯新'];
     $k = '订单类型(下拉选择)'; $t = '业务种类(永久/年费)';
@@ -195,6 +197,12 @@ function pmt_xlsx($business = '小程序开发')
         if ($c[2] === 'list') {
             $validations .= '<dataValidation type="list" allowBlank="1" showInputMessage="1" showErrorMessage="1" errorTitle="请从下拉里选择" error="请点单元格右侧的小箭头，从列表里选择：' . pmt_xml(implode(' / ', $c[3])) . '" promptTitle="' . pmt_xml(explode('(', $c[0])[0]) . '" prompt="请从下拉列表选择" sqref="' . $range . '"><formula1>"' . pmt_xml(implode(',', $c[3])) . '"</formula1></dataValidation>';
             $count++;
+        } elseif ($c[2] === 'integer') {
+            $validations .= '<dataValidation type="whole" operator="between" allowBlank="1" showInputMessage="1" showErrorMessage="1" errorTitle="计价数量" error="请填写范围内的整数，不能按小数件计费" promptTitle="整数数量" prompt="' . pmt_xml($c[5]) . '" sqref="' . $range . '"><formula1>' . (int)$c[3][0] . '</formula1><formula2>' . (int)$c[3][1] . '</formula2></dataValidation>';
+            $count++;
+        } elseif ($c[2] === 'money') {
+            $validations .= '<dataValidation type="decimal" operator="greaterThanOrEqual" allowBlank="1" showErrorMessage="1" errorTitle="金额" error="请填写非负金额，不要填写文字、负数或单件单价" sqref="' . $range . '"><formula1>0</formula1></dataValidation>';
+            $count++;
         } elseif ($c[2] === 'date' && mb_strpos($c[5], '永久') !== false) {
             // 到期日期既可填日期也可写“永久”：自定义校验放行日期、“永久”和空白
             $first = pmt_col_letter($i) . '2';
@@ -205,9 +213,12 @@ function pmt_xlsx($business = '小程序开发')
             $count++;
         }
     }
+    $pane = $business === '商标' ? 'bottomRight' : 'bottomLeft';
+    $firstInput = ($business === '商标' ? 'D' : 'A') . (count(pmt_example_rows($business)) + 2);
+    $freeze = $business === '商标' ? 'xSplit="3" ySplit="1" topLeftCell="D2"' : 'ySplit="1" topLeftCell="A2"';
     $sheet1 = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
         . '<dimension ref="A1:' . $last . (count(pmt_example_rows($business)) + 1) . '"/>'
-        . '<sheetViews><sheetView workbookViewId="0" tabSelected="1"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/><selection pane="bottomLeft" activeCell="A' . (count(pmt_example_rows($business)) + 2) . '" sqref="A' . (count(pmt_example_rows($business)) + 2) . '"/></sheetView></sheetViews>'
+        . '<sheetViews><sheetView workbookViewId="0" tabSelected="1"><pane ' . $freeze . ' activePane="' . $pane . '" state="frozen"/><selection pane="' . $pane . '" activeCell="' . $firstInput . '" sqref="' . $firstInput . '"/></sheetView></sheetViews>'
         . '<sheetFormatPr defaultRowHeight="18"/><cols>' . $cols . '</cols><sheetData>' . $rows . '</sheetData>'
         . ($count ? '<dataValidations count="' . $count . '">' . $validations . '</dataValidations>' : '')
         . '<pageMargins left="0.7" right="0.7" top="0.75" bottom="0.75" header="0.3" footer="0.3"/></worksheet>';
@@ -218,11 +229,13 @@ function pmt_xlsx($business = '小程序开发')
     $help[] = ['', '', ''];
     $exampleCount = count(pmt_example_rows($business));
     $help[] = ['示例行', '', '表格前 ' . $exampleCount . ' 行灰色字是示例，订单编号以“示例”开头，上传时自动跳过，可删可留；从第 ' . ($exampleCount + 2) . ' 行起填写真实订单。'];
-    $help[] = ['续费提醒', '', '填了到期日期和续费联系方式后，系统会在到期前 10 / 3 / 1 天自动短信提醒客户；到期日期写“永久”的不提醒。'];
+    if ($business === '商标') $help = array_merge($help, ptt_notes());
+    else $help[] = ['续费提醒', '', '填了到期日期和续费联系方式后，系统会在到期前 10 / 3 / 1 天自动短信提醒客户；到期日期写“永久”的不提醒。'];
     $helpRows = '';
     foreach ($help as $n => $line) {
         $r = $n + 1;
-        $helpRows .= '<row r="' . $r . '"' . ($n === 0 ? ' ht="24" customHeight="1"' : '') . '>';
+        $helpHeight = $business === '商标' ? max(24, 6 + 18 * max(ceil(mb_strwidth((string)$line[0], 'UTF-8') / 32), ceil(mb_strwidth((string)$line[2], 'UTF-8') / 85))) : ($n === 0 ? 24 : 0);
+        $helpRows .= '<row r="' . $r . '"' . ($helpHeight ? ' ht="' . $helpHeight . '" customHeight="1"' : '') . '>';
         foreach ($line as $i => $text) $helpRows .= pmt_cell(pmt_col_letter($i) . $r, $text, $n === 0 ? 8 : ($text === '' && $i < 2 ? 0 : 7));
         $helpRows .= '</row>';
     }

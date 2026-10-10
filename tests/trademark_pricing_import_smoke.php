@@ -7,7 +7,7 @@ require_once __DIR__.'/require_isolated_database.php';
 $pdo=db();require_isolated_test_database($pdo);
 if(DB_HOST!=='127.0.0.1'||(string)DB_PORT!=='13399')throw new RuntimeException('只允许本地隔离库');
 require __DIR__.'/../migrations/apply_management_accounts.php';
-$tag=bin2hex(random_bytes(5));$prefix='TM-IMPORT-'.$tag.'-';$employeeIds=[];$uid=0;$fileId=0;$stored=null;$templateIds=[];
+$tag=bin2hex(random_bytes(5));$prefix='TM-IMPORT-'.$tag.'-';$employeeIds=[];$uid=0;$fileId=0;$stored=null;$templateIds=[];$proFileId=0;$proStored=null;
 $check=function($ok,$message){if(!$ok)throw new RuntimeException($message);echo "PASS $message\n";};
 $run=function($post){$_SERVER['SCRIPT_NAME']='/project/import.php';$_SERVER['REQUEST_METHOD']='POST';$_POST=$post+['csrf'=>'tm-pricing'];$_GET=[];$_FILES=[];ob_start();include __DIR__.'/../project/import.php';ob_end_clean();return[$imported??0,$error??''];};
 try{
@@ -52,13 +52,51 @@ try{
     [$count,$error]=$run(['action'=>'commit','business'=>'商标','auto_import'=>1]);
     $check($error==='','重新上传整表再次提交成功');
     $check(count($costs(1))===1&&count($costs(2))===1&&count($costs(4))===2,'重复上传不重复加收服务或多选项目费');
+    require_once __DIR__.'/../includes/ProjectTrademarkTemplate.php';
+    $proHead=ps_business_import_headers('商标');
+    $proBase=['日期'=>date('Y-m-d'),'店铺/渠道'=>'测试微信','付款昵称'=>'客户','订单销售金额（元）'=>'2000','办理事项（必选）'=>'商标注册','商标名称'=>'回归标志','尼斯类别（1-45）'=>'30','计价件数（商标×类别）'=>'2','申报方式'=>'公司网报','交付状态'=>'已完成','客服'=>'客服回归'.$tag];
+    $proCases=[
+        201=>[],202=>['计价件数（商标×类别）'=>''],
+        203=>['办理事项（必选）'=>'商标超期续展','订单销售金额（元）'=>'1600'],
+        204=>['办理事项（必选）'=>'商标许可备案','计价件数（商标×类别）'=>'1','订单销售金额（元）'=>'235'],
+        205=>['办理事项（必选）'=>'混合业务','计价件数（商标×类别）'=>'5','混合业务计价明细'=>'注册2+超期续展3','订单销售金额（元）'=>'3000'],
+        206=>['办理事项（必选）'=>'成品商标成本','实际直接成本（元）'=>'888','费用说明'=>'供应商已询价888元'],
+        207=>['办理事项（必选）'=>'混合业务','计价件数（商标×类别）'=>'4','混合业务计价明细'=>'注册2+超期续展3','订单销售金额（元）'=>'3000'],
+        208=>['办理事项（必选）'=>''],209=>['办理事项（必选）'=>'商标变更'],
+        210=>['实际直接成本（元）'=>'270'],211=>['计价件数（商标×类别）'=>'1.5'],
+        212=>['订单销售金额（元）'=>'320'],213=>['订单销售金额（元）'=>'320','价格异常说明'=>'核对后确认活动价'],
+        214=>['实际直接成本（元）'=>'待询价'],215=>['尼斯类别（1-45）'=>'46'],
+        216=>['商标名称'=>'','申请号/注册号'=>'00123456789012345678'],
+        217=>['办理事项（必选）'=>'成品商标成本','实际直接成本（元）'=>'888'],
+        218=>['实际直接成本（元）'=>'700'],219=>['实际直接成本（元）'=>'700','费用说明'=>'标准540另有服务费160待审核'],
+        220=>['计价件数（商标×类别）'=>'1','注册额外小项总数'=>'3'],221=>[],
+    ];
+    $buffer=fopen('php://temp','r+');fputcsv($buffer,$proHead);
+    foreach($proCases as$i=>$changes){$values=array_merge($proBase,$changes,['订单编号'=>$prefix.$i]);$cells=array_map(function($h)use($values){return $values[$h]??'';},$proHead);fputcsv($buffer,$cells);if($i===221)fputcsv($buffer,$cells);}
+    rewind($buffer);$proCsv=stream_get_contents($buffer);fclose($buffer);
+    $tmp=tempnam(sys_get_temp_dir(),'tm-professional-');file_put_contents($tmp,$proCsv);$proStored=ps_private_store('imports',$tmp,'tm_professional_'.$tag.'.csv');unlink($tmp);
+    $pdo->prepare("INSERT INTO project_import_files(business_name,original_name,stored_name,file_size,uploaded_by_type,uploaded_by_id,employee_id)VALUES('商标','商标专业模板回归.csv',?,?,'employee',?,?)")->execute([$proStored,strlen($proCsv),$uid,$employeeIds[0]]);$proFileId=(int)$pdo->lastInsertId();
+    [$count,$error]=$run(['action'=>'repreview','business'=>'商标','file_id'=>$proFileId,'all_sheets'=>1]);$preview=$_SESSION['project_import_preview']??[];
+    $check($error===''&&count($preview)===21,'专业表头真实预览22行，同号重复归为一笔待处理记录');
+    $byNo=[];foreach($preview as$r)$byNo[$r['order_no']]=$r;
+    $proExpected=[201=>540,203=>1350,204=>135,205=>2565,206=>888,209=>0,213=>540,216=>540,219=>700,220=>351];
+    foreach($proExpected as$i=>$amount)$check(!empty($byNo[$prefix.$i]['base_valid']),'专业模板有效第'.$i.'笔：'.($byNo[$prefix.$i]['error']??''));
+    foreach([202,207,208,210,211,212,214,215,217,218,221]as$i)$check(empty($byNo[$prefix.$i]['base_valid']),'专业模板拦截缺件数、错事项、明细冲突、单价误填、亏损未说明或重复单：'.$i);
+    [$count,$error]=$run(['action'=>'commit','business'=>'商标','auto_import'=>1]);$check($error==='','专业模板实际提交成功 '.$error);
+    foreach($proExpected as$i=>$amount)$check($costs($i)&&array_sum(array_column($costs($i),'amount'))==$amount,'专业模板实际成本'.$i.' = '.$amount);
+    foreach([202,207,208,210,211,212,214,215,217,218,221]as$i)$check(!$costs($i),'专业模板错误行未计入成本：'.$i);
+    $q=$pdo->prepare('SELECT d.details_json FROM project_order_details d JOIN project_orders o ON o.id=d.order_id WHERE o.order_no=?');$q->execute([$prefix.'216']);$reg=json_decode($q->fetchColumn(),true);$check($reg['trademark_number']==='00123456789012345678','申请号/注册号完整保留前导零与长编号');
+    $check(count($costs(219))===2&&$costs(219)[1]['review_status']==='pending','标准价外真实服务费单独等待财务审核');
+    [$count,$error]=$run(['action'=>'repreview','business'=>'商标','file_id'=>$proFileId,'all_sheets'=>1]);[$count,$error]=$run(['action'=>'commit','business'=>'商标','auto_import'=>1]);
+    $check($error===''&&count($costs(205))===2&&count($costs(219))===2,'专业模板重复上传不重复计费，混合业务明细保留');
     echo "PASS real trademark preview, supplement, commit and retry\n";
 }finally{
     $q=$pdo->prepare('SELECT id FROM project_orders WHERE order_no LIKE ?');$q->execute([$prefix.'%']);
     foreach($q->fetchAll(PDO::FETCH_COLUMN)as$oid){foreach(['project_import_result_rows','project_order_items','project_commission_snapshots','project_commission_adjustments','project_cash_movements','project_costs','project_participants','project_order_sources','project_order_resources','project_order_details','project_department_orders','project_department_uploaders','project_auto_reviews','project_order_requests','project_order_credentials','project_refund_import_rows']as$table){try{$pdo->prepare('DELETE FROM '.$table.' WHERE order_id=?')->execute([$oid]);}catch(PDOException$e){if(!in_array($e->getCode(),['42S02','42S22'],true))throw$e;}}$pdo->prepare('DELETE FROM project_orders WHERE id=?')->execute([$oid]);}
-    if($fileId){try{$pdo->prepare('DELETE FROM project_import_result_rows WHERE file_id=?')->execute([$fileId]);}catch(PDOException$e){if($e->getCode()!=='42S02')throw$e;}$pdo->prepare('DELETE FROM project_import_files WHERE id=?')->execute([$fileId]);}
+    foreach([$fileId,$proFileId]as$cleanupFileId)if($cleanupFileId){try{$pdo->prepare('DELETE FROM project_import_result_rows WHERE file_id=?')->execute([$cleanupFileId]);}catch(PDOException$e){if($e->getCode()!=='42S02')throw$e;}$pdo->prepare('DELETE FROM project_import_files WHERE id=?')->execute([$cleanupFileId]);}
     if($uid){$pdo->prepare('DELETE FROM project_users WHERE id=?')->execute([$uid]);}
     foreach($employeeIds as$id)$pdo->prepare('DELETE FROM employees WHERE id=?')->execute([$id]);
     foreach($templateIds as$id)$pdo->prepare('DELETE FROM project_cost_templates WHERE id=?')->execute([$id]);
     if($stored)ps_private_delete('imports',$stored);
+    if($proStored)ps_private_delete('imports',$proStored);
 }

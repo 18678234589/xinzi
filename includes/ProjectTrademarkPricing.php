@@ -158,11 +158,12 @@ function ptc_import_check(&$record, $existing, $choice = '', $actor = [])
     }
     $record['details']['trademark_service'] = $plan['service'];
     if (trim((string)($record['details']['trademark_count']??''))==='' && isset($plan['count'])) $record['details']['trademark_count']=(string)$plan['count'];
+    if ($plan['status'] === 'ready' && isset($record['contract_amount']) && is_numeric($record['contract_amount']) && (float)$plan['total'] > (float)$record['contract_amount'] + 0.004) $record['warning'] .= '；成本高于销售金额，请核对整单售价、计价件数及补款归属';
 }
 
 function ptc_merge_import_details($orderId, &$details, $incoming, $actor)
 {
-    foreach (['trademark_service', 'trademark_extra_count'] as $key) if (trim((string)($incoming[$key] ?? '')) !== '' && (string)($details[$key] ?? '') !== (string)$incoming[$key]) {
+    foreach (['trademark_service', 'trademark_extra_count', 'trademark_number', 'trademark_classes', 'trademark_breakdown', 'trademark_cost_note', 'trademark_price_note'] as $key) if (trim((string)($incoming[$key] ?? '')) !== '' && (string)($details[$key] ?? '') !== (string)$incoming[$key]) {
         ps_audit('order', (int)$orderId, 'import_trademark_pricing_field', $actor, ['field' => $key, 'from' => $details[$key] ?? '', 'to' => $incoming[$key]]);
         $details[$key] = $incoming[$key];
     }

@@ -37,7 +37,7 @@ function ps_business_catalog()
         // 微信代写：编辑员自接单（店铺订单每单补助 3 元），部门利润池按月分配（规则中心“部门利润池分配”）。
         '微信代写' => ['departments' => ['微信代写客服', '微信代写售后', '微信营销部经理'], 'resources' => false, 'requires_technical' => false, 'service_fee_rate' => 0, 'order_kinds' => ['店铺订单', '微信付款'], 'kind_required' => true, 'default_kind' => '店铺订单', 'cost_label' => '写手稿费', 'import_cost' => true, 'free_shop' => true, 'fields' => ['writer_code' => '写手编号', 'writing_volume' => '字数']],
         // 商标部：普通订单 (售价 − 成本 − 1%服务费) × 12% + 3元/单；新客户订单 + 6元/单；同一客服同一客户当月第二单起记“同客户”（照常提成、不计单量）；小额返款订单 3元/单；资料专员与提交专员每件 2.2 元。
-        '商标' => ['departments' => ['商标', '商标部'], 'resources' => false, 'requires_technical' => false, 'service_fee_rate' => 0.01, 'order_kinds' => ['普通订单', '新客户', '同客户', '小额返款'], 'kind_required' => true, 'default_kind' => '普通订单', 'cost_label' => '成本', 'import_cost' => true, 'free_shop' => true, 'fields' => ['trademark_service' => '办理事项', 'trademark_name' => '商标名称', 'trademark_count' => '商标个数', 'trademark_extra_count' => '多选项目总数', 'service_type' => '网报类型']],
+        '商标' => ['departments' => ['商标', '商标部'], 'resources' => false, 'requires_technical' => false, 'service_fee_rate' => 0.01, 'order_kinds' => ['普通订单', '新客户', '同客户', '小额返款'], 'kind_required' => true, 'default_kind' => '普通订单', 'cost_label' => '成本', 'import_cost' => true, 'free_shop' => true, 'fields' => ['trademark_service' => '办理事项', 'trademark_name' => '商标名称', 'trademark_number' => '申请号/注册号', 'trademark_classes' => '尼斯类别', 'trademark_count' => '计价件数（商标×类别）', 'trademark_extra_count' => '注册额外小项总数', 'trademark_breakdown' => '混合业务计价明细', 'service_type' => '申报方式', 'trademark_cost_note' => '费用说明', 'trademark_price_note' => '价格异常说明']],
         // 标书（曹双双、王宁兼标书客服）：(售价 − 成本 − 售价 × 3% 服务费) × 10%；成本 = 设计师佣金合计，随表导入。
         '标书' => ['departments' => ['标书'], 'resources' => false, 'requires_technical' => false, 'service_fee_rate' => 0.03, 'order_kinds' => [], 'cost_label' => '设计师佣金', 'import_cost' => true, 'free_shop' => true, 'fields' => ['designer' => '设计师 / 技术昵称']],
         // 平面设计（阎泸琪）：逐单不计提成，按月营业额阶梯结算（规则中心“营业额阶梯薪酬”）；原表“老客户”列有内容记为老客户找回（+10%）。
@@ -224,11 +224,21 @@ function ps_business_import_columns($business)
         $columns['ppt_marker'] = ['设计师佣金'];
     }
     if ($business === '商标') {
-        $columns['detail:trademark_service'] = ['办理事项', '商标办理事项', '商标业务', '商标业务类型', '服务项目', '成本项目'];
-        $columns['detail:trademark_extra_count'] = ['多选项目总数', '多选项目数', '附加项目数'];
+        $columns['shop'][] = '店铺/渠道';
+        $columns['contract_amount'] = array_merge(['订单销售金额（元）','订单销售金额','销售金额（元）'], $columns['contract_amount']);
+        $columns['status'][] = '交付状态';
+        $columns['contact_note'][] = '客户联系方式/备注';
+        $columns['direct_cost'] = array_merge(['实际直接成本（元）','实际直接成本'], $columns['direct_cost']);
+        $columns['detail:trademark_service'] = ['办理事项（必选）', '办理事项', '商标办理事项', '商标业务', '商标业务类型', '服务项目', '成本项目'];
+        $columns['detail:trademark_extra_count'] = ['注册额外小项总数', '多选项目总数', '多选项目数', '附加项目数'];
         $columns['detail:trademark_name'] = ['商标名称', '商标'];
-        $columns['detail:trademark_count'] = ['商标个数', '商标数量', '个数', '数量', '件数'];
-        $columns['detail:service_type'] = ['网报类型', '网报方式', '网报加急', '业务类型', '类型（网报，加急）', '类型(网报,加急)', '类型'];
+        $columns['detail:trademark_number'] = ['申请号/注册号', '商标申请号', '商标注册号'];
+        $columns['detail:trademark_classes'] = ['尼斯类别（1-45）', '尼斯类别', '商标类别'];
+        $columns['detail:trademark_count'] = ['计价件数（商标×类别）', '计价件数', '商标个数', '商标数量', '个数', '数量', '件数'];
+        $columns['detail:trademark_breakdown'] = ['混合业务计价明细'];
+        $columns['detail:trademark_cost_note'] = ['费用说明'];
+        $columns['detail:trademark_price_note'] = ['价格异常说明'];
+        $columns['detail:service_type'] = ['申报方式', '网报类型', '网报方式', '网报加急', '业务类型', '类型（网报，加急）', '类型(网报,加急)', '类型'];
         // 客服原表“设计”列：网报加急空一格时件数会落在这里，导入时由 ps_trademark_fix_row 归位
         $columns['trademark_extra'] = ['设计'];
     }
@@ -331,7 +341,7 @@ function ps_business_import_headers($business, $actor = null)
 
 function ps_business_import_headers_base($business)
 {
-    if (in_array($business, ['小程序开发', '网站模板', 'AI网站定制'], true)) { require_once __DIR__ . '/ProjectMiniappTemplate.php'; return pmt_headers($business); }
+    if (in_array($business, ['小程序开发', '网站模板', 'AI网站定制', '商标'], true)) { require_once __DIR__ . '/ProjectMiniappTemplate.php'; return pmt_headers($business); }
     // 网站售后部续费表按原表列序输出，中间保留一列空表头与原表一致。
     if ($business === '网站续费') return ['接单客服', '拍建站', '续费年数', '程序名称', '版本', '店铺', '付费旺旺', '日期', '订单编号', '售价', '总成本', '空间成本', '域名成本', '域名真实成本', '', '空间域名', '备注1', '备注2'];
     // 网站售后部备案两表按原表列序输出（原表无状态列，模板补「状态」列由上传时按实际填写）。

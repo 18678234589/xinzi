@@ -287,7 +287,7 @@
 - 加载：`require_once __DIR__.'/ProjectIntake.php';`
 - 加载：`require_once __DIR__.'/ProjectRenewals.php';`
 
-## includes/ProjectBusiness.php (408 行, 33.7 KB)
+## includes/ProjectBusiness.php (418 行, 35.4 KB)
 
 - `ps_business_catalog` L8–46
 - `ps_business_account_products` L49–56
@@ -305,13 +305,13 @@
 - `ps_business_details` L153–166
 - `ps_save_business_details` L168–172
 - `ps_order_kind_valid` L174–184
-- `ps_business_import_columns` L190–296
-- `ps_import_role_extras` L300–322
-- `ps_business_import_headers` L325–330
-- `ps_business_import_headers_base` L332–360
-- `ps_business_import_map` L363–376
-- `ps_import_delivery_status` L381–393
-- `ps_business_people_labels` L395–407
+- `ps_business_import_columns` L190–306
+- `ps_import_role_extras` L310–332
+- `ps_business_import_headers` L335–340
+- `ps_business_import_headers_base` L342–370
+- `ps_business_import_map` L373–386
+- `ps_import_delivery_status` L391–403
+- `ps_business_people_labels` L405–417
 - 加载：`require_once __DIR__ . '/ProjectSettlement.php';`
 - 加载：`require_once __DIR__ . '/ProjectKindLabels.php';`
 - 加载：`require_once __DIR__ . '/ProjectMiniappTemplate.php';`
@@ -559,22 +559,24 @@
 - 加载：`require_once __DIR__ . '/ProjectKnowledge.php';`
 - 加载：`require_once __DIR__ . '/ProjectBusiness.php';`
 
-## includes/ProjectMiniappTemplate.php (262 行, 22.6 KB)
+## includes/ProjectMiniappTemplate.php (275 行, 24.4 KB)
 
 - `pmt_businesses` L9–12
-- `pmt_columns` L15–35
-- `pmt_web_columns` L38–69
-- `pmt_web_examples` L71–83
-- `pmt_headers` L85–88
-- `pmt_example_rows` L91–103
-- `pmt_col_letter` L105–110
-- `pmt_xml` L112–115
-- `pmt_serial` L118–123
-- `pmt_zip` L126–137
-- `pmt_cell` L139–144
-- `pmt_xlsx` L147–245
-- `pmt_normalize_term` L248–255
-- `pmt_is_permanent_text` L258–261
+- `pmt_columns` L15–36
+- `pmt_web_columns` L39–70
+- `pmt_web_examples` L72–84
+- `pmt_headers` L86–89
+- `pmt_example_rows` L92–105
+- `pmt_col_letter` L107–112
+- `pmt_xml` L114–117
+- `pmt_serial` L120–125
+- `pmt_zip` L128–139
+- `pmt_cell` L141–146
+- `pmt_xlsx` L149–258
+- `pmt_normalize_term` L261–268
+- `pmt_is_permanent_text` L271–274
+- 加载：`require_once __DIR__ . '/ProjectTrademarkTemplate.php';`
+- 加载：`require_once __DIR__ . '/ProjectTrademarkTemplate.php';`
 
 ## includes/ProjectMonthly.php (35 行, 3.8 KB)
 
@@ -1037,20 +1039,31 @@
 - 加载：`require_once __DIR__ . '/ProjectTrademarkPricing.php';`
 - 加载：`require_once __DIR__ . '/ProjectTrademarkReconcile.php';`
 
-## includes/ProjectTrademarkPricing.php (195 行, 16.2 KB)
+## includes/ProjectTrademarkPricing.php (196 行, 16.8 KB)
 
 - `ptc_service_names` L3–30
 - `ptc_find_service` L32–39
 - `ptc_mixed_plan` L42–71
 - `ptc_cost_plan` L74–125
 - `ptc_order_pricing_data` L128–134
-- `ptc_import_check` L136–161
-- `ptc_merge_import_details` L163–170
-- `ptc_approval_guard` L173–194
+- `ptc_import_check` L136–162
+- `ptc_merge_import_details` L164–171
+- `ptc_approval_guard` L174–195
 
 ## includes/ProjectTrademarkReconcile.php (98 行, 7.7 KB)
 
 - `ptc_reconcile_order_cost` L3–97
+
+## includes/ProjectTrademarkTemplate.php (115 行, 10.9 KB)
+
+- `ptt_services` L4–7
+- `ptt_columns` L10–36
+- `ptt_examples` L38–48
+- `ptt_notes` L50–59
+- `ptt_is_professional_header` L61–65
+- `ptt_prepare_record` L68–99
+- `ptt_validate_price` L101–114
+- 加载：`require_once __DIR__ . '/ProjectTrademarkCost.php';`
 
 ## includes/ProjectVault.php (363 行, 21.3 KB)
 
@@ -1363,13 +1376,14 @@
 - `ps_import_business_detect` L39–93
 - `ps_import_business_preference_save` L96–103
 
-## includes/intake/parse_rows.php (108 行, 7.5 KB)
+## includes/intake/parse_rows.php (109 行, 7.8 KB)
 
-- `ps_business_import_example_row` L4–25
-- `ps_import_row_is_example` L28–32
-- `ps_import_row_is_data` L35–39
-- `ps_import_headerless_map` L45–94
-- `ps_import_employee_index` L97–107
+- `ps_business_import_example_row` L4–26
+- `ps_import_row_is_example` L29–33
+- `ps_import_row_is_data` L36–40
+- `ps_import_headerless_map` L46–95
+- `ps_import_employee_index` L98–108
+- 加载：`require_once dirname(__DIR__) . '/ProjectTrademarkTemplate.php';`
 
 ## includes/intake/participants_orders.php (151 行, 8.7 KB)
 
@@ -2439,13 +2453,14 @@
 - 加载：`require_once (dirname((dirname(__DIR__, 1)), 1)) . '/../includes/ProjectAutoReview.php';`
 - 加载：`require_once (dirname((dirname(__DIR__, 1)), 1)) . '/../includes/ProjectRenewalImport.php';`
 
-## project/import/preview_controller.php (148 行, 13.8 KB)
+## project/import/preview_controller.php (157 行, 14.8 KB)
 
 - 加载：`include (dirname(__DIR__, 1)) . '/import/02_read_sheets.php';`
 - 加载：`require_once (dirname(__DIR__, 1)) . '/../includes/ProjectRenewalImport.php';`
 - 加载：`include (dirname(__DIR__, 1)) . '/import/03a_order_no_and_split.php';`
 - 加载：`include (dirname(__DIR__, 1)) . '/import/03b_date_amount_status.php';`
 - 加载：`include (dirname(__DIR__, 1)) . '/import/03c_people_resources.php';`
+- 加载：`require_once (dirname(__DIR__, 1)) . '/../includes/ProjectTrademarkTemplate.php';`
 - 加载：`include (dirname(__DIR__, 1)) . '/import/04_merge_items.php';`
 - 加载：`include (dirname(__DIR__, 1)) . '/import/04_merge_rows.php';`
 - 加载：`include (dirname(__DIR__, 1)) . '/import/05_commit.php';`
@@ -3264,7 +3279,7 @@
 - 加载：`require_once __DIR__ . '/../includes/ProjectIntake.php';`
 - 加载：`include __DIR__ . '/../project/import.php';`
 
-## tests/import_web_template_smoke.php (88 行, 7.9 KB)
+## tests/import_web_template_smoke.php (88 行, 8.1 KB)
 
 - 加载：`require_once __DIR__ . '/../includes/ProjectIntake.php';`
 - 加载：`include __DIR__ . '/../project/import.php';`
@@ -3674,13 +3689,14 @@
 - `tm_check` L7–13
 - 加载：`require_once __DIR__ . '/../includes/ProjectIntake.php';`
 
-## tests/trademark_pricing_import_smoke.php (65 行, 9.1 KB)
+## tests/trademark_pricing_import_smoke.php (103 行, 14.3 KB)
 
 - 加载：`require_once __DIR__.'/../includes/ProjectTrademarkCost.php';`
 - 加载：`require_once __DIR__.'/../includes/ProjectOrderSource.php';`
 - 加载：`require_once __DIR__.'/require_isolated_database.php';`
 - 加载：`require __DIR__.'/../migrations/apply_management_accounts.php';`
 - 加载：`include __DIR__.'/../project/import.php';`
+- 加载：`require_once __DIR__.'/../includes/ProjectTrademarkTemplate.php';`
 
 ## tests/trademark_pricing_smoke.php (122 行, 12.8 KB)
 
@@ -3690,6 +3706,12 @@
 - 加载：`require_once __DIR__ . '/require_isolated_database.php';`
 - 加载：`include __DIR__.'/../project/order/actions/cost/review_cost.php';`
 - 加载：`include __DIR__.'/../project/order/actions/cost/review_cost.php';`
+
+## tests/trademark_template_smoke.php (37 行, 3.5 KB)
+
+- 加载：`require_once __DIR__.'/../includes/ProjectIntake.php';`
+- 加载：`require_once __DIR__.'/../includes/ProjectMiniappTemplate.php';`
+- 加载：`require_once __DIR__.'/require_isolated_database.php';`
 
 ## tests/trademark_upload_flow_202608.php (81 行, 5.8 KB)
 

@@ -3,6 +3,7 @@
 /** 模板示例行：每列给一个正确写法；订单号以“示例”开头，上传时自动跳过，忘删也不会入账。 */
 function ps_business_import_example_row($business, $headers)
 {
+    if ($business === '商标') { require_once dirname(__DIR__) . '/ProjectTrademarkTemplate.php'; $sample=ptt_examples()[0]; return array_map(function($label)use($sample){return $sample[$label]??'';},$headers); }
     $columns = ps_business_import_columns($business);
     $kinds = ps_business_order_kinds($business);
     $samples = ['order_date' => '2026-09-01', 'shop' => '美呀美旗舰店', 'business' => '写具体做什么，如 小程序商城搭建', 'payment_nickname' => 'tb12345678', 'payment_reference'
