@@ -38,6 +38,10 @@ if (!isset($_GET['month']) && $_SERVER['REQUEST_METHOD'] !== 'POST') {
     try {
         $monthScope = $actor['role'] === 'finance' ? '' : ' AND (EXISTS (SELECT 1 FROM project_participants mp WHERE mp.order_id=o.id AND mp.employee_id=' . (int)$actor['employee_id'
     ] . ') OR EXISTS (SELECT 1 FROM project_department_uploaders du WHERE du.order_id=o.id AND du.employee_id=' . (int)$actor['employee_id'] . '))';
+        if ($actor['role'] !== 'finance' && pdh_departments($actor)) { // 部门主管：本部门成员的订单也算“有订单的月份”
+            $headDeps = implode(',', array_map([db(), 'quote'], pdh_departments($actor)));
+            $monthScope = substr($monthScope, 0, -1) . ' OR EXISTS (SELECT 1 FROM project_participants hp JOIN employees he ON he.id=hp.employee_id WHERE hp.order_id=o.id AND he.department IN (' . $headDeps . ')))';
+        }
         if (ps_is_management($actor)) $monthScope = ' AND (' . ps_management_order_condition($actor) . ')';
         if ($actor['role'] === 'finance') $monthScope = ' AND (' . ps_finance_business_condition(ps_finance_filter($actor, $_GET['filter_finance'] ?? null)) . ')';
         $hasMonth = (int)db()->query("SELECT COUNT(*) FROM project_orders o WHERE o." . $dateBasis . ">='" . $month . "-01' AND o." . $dateBasis . "<'" . date('Y-m-d', strtotime($month
