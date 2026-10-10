@@ -88,10 +88,19 @@ try {
     $s0 = csr_score_row(['incoming_cnt' => 100, 'valid_cnt' => 40, 'slow_cnt' => 20, 'reply_rate' => 0.5, 'resp3_rate' => 0.5, 'avg_resp' => 99, 'first_resp' => 99]);
     $check(abs($s0['score']) < 1e-9, '每项都不如最差值时是 0 分');
 
-    // 权限
-    $check(csr_can_view($finance) && csr_can_manage($finance), '财务：能看、能管理');
+    // 权限：后台财务能看；核算财务刘群 / admin 与设计客服主管张光萍能管理；设计客服员工能看能传；其他人看不到
+    $adminId = function ($u) use ($pdo) { $q = $pdo->prepare('SELECT id FROM admins WHERE username=?'); $q->execute([$u]); return (int)$q->fetchColumn(); };
+    $liuqun = ['type' => 'admin', 'id' => $adminId('liuqun'), 'role' => 'finance', 'employee_id' => 0];
+    $other = ['type' => 'admin', 'id' => $adminId('songwenna'), 'role' => 'finance', 'employee_id' => 0];
+    $check($liuqun['id'] && csr_can_view($liuqun) && csr_can_manage($liuqun), '核算财务刘群：能看、能管理');
+    $check(csr_can_view($other) && !csr_can_manage($other), '其他后台财务账号：能看，不能管理');
+    $zgp = (int)$pdo->query("SELECT id FROM employees WHERE name='张光萍'")->fetchColumn();
+    $head = ['type' => 'employee', 'id' => 0, 'role' => 'customer_service', 'employee_id' => $zgp];
+    $check($zgp && csr_can_view($head) && csr_can_manage($head), '设计客服主管张光萍：能看、能管理');
+    $yy = (int)$pdo->query("SELECT id FROM employees WHERE name='于洋'")->fetchColumn();
+    $check(!csr_can_view(['type' => 'employee', 'id' => 0, 'role' => 'customer_service', 'employee_id' => $yy]), '其他部门的主管（于洋）：看不到');
     $design = ['type' => 'employee', 'id' => 0, 'role' => 'customer_service', 'employee_id' => $ids['张欣']];
-    $check(csr_can_view($design) && !csr_can_manage($design), '设计客服：能看能上传，不能管理');
+    $check(csr_can_view($design) && !csr_can_manage($design), '设计客服员工：能看能上传，不能管理');
     $web = (int)$pdo->query("SELECT id FROM employees WHERE department='网站客服' LIMIT 1")->fetchColumn();
     $check(!csr_can_view(['type' => 'employee', 'id' => 0, 'role' => 'customer_service', 'employee_id' => $web]), '网站客服：看不到');
     echo "全部通过\n";

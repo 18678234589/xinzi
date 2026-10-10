@@ -42,6 +42,8 @@ function csr_ensure()
         created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
         UNIQUE KEY uk_period_nick (year, month, store, nick), KEY idx_emp (employee_id, year, month)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+    $pdo->exec("CREATE TABLE IF NOT EXISTS project_dept_heads (department VARCHAR(100) NOT NULL, employee_id INT NOT NULL, created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY (department, employee_id)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+    $pdo->prepare("INSERT IGNORE INTO project_dept_heads (department, employee_id) SELECT ?, id FROM employees WHERE name=? LIMIT 1")->execute([CS_PERF_RANK_DEPT, CSR_HEAD_NAME]);
     $pdo->exec("CREATE TABLE IF NOT EXISTS cs_perf_reception_cfg (k VARCHAR(40) NOT NULL PRIMARY KEY, v TEXT NOT NULL) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
     $done = true;
 }
@@ -294,22 +296,30 @@ function csr_month_rows($year, $month)
     return $rows;
 }
 
-/** 谁能看 / 上传：财务、管理层账号、部门主管、设计客服部门的员工。 */
+/** 设计客服的主管：张光萍（登记在 project_dept_heads）；核算财务：刘群（后台账号 liuqun）。后台超级管理员 admin 同刘群权限。 */
+const CSR_HEAD_NAME = '张光萍';
+const CSR_MANAGER_ADMINS = ['admin', 'liuqun'];
+
+/** 谁能看 / 上传：后台财务账号、设计客服的主管、设计客服部门的员工。 */
 function csr_can_view($actor)
 {
     if (!$actor) return false;
-    if (($actor['type'] ?? '') === 'admin' || ($actor['role'] ?? '') === 'finance') return true;
-    if (function_exists('ps_is_management') && ps_is_management($actor)) return true;
-    return csr_is_dept_head($actor) || csr_employee_dept($actor) === CS_PERF_RANK_DEPT;
+    if (($actor['type'] ?? '') === 'admin') return true;
+    return csr_is_design_head($actor) || csr_employee_dept($actor) === CS_PERF_RANK_DEPT;
 }
 
-/** 谁能绑定昵称、调整评分参数、删除整份上传：财务、管理层账号、部门主管。 */
+/** 谁能对应昵称、调整评分规则、删整份上传：核算财务刘群 / 超级管理员，以及设计客服的主管张光萍。 */
 function csr_can_manage($actor)
 {
     if (!$actor) return false;
-    if (($actor['type'] ?? '') === 'admin' || ($actor['role'] ?? '') === 'finance') return true;
-    if (function_exists('ps_is_management') && ps_is_management($actor)) return true;
-    return csr_is_dept_head($actor);
+    if (($actor['type'] ?? '') === 'admin') {
+        try {
+            $q = db()->prepare('SELECT username FROM admins WHERE id=?');
+            $q->execute([(int)($actor['id'] ?? 0)]);
+            return in_array((string)$q->fetchColumn(), CSR_MANAGER_ADMINS, true);
+        } catch (Throwable $e) { return false; }
+    }
+    return csr_is_design_head($actor);
 }
 
 function csr_employee_dept($actor)
@@ -322,12 +332,13 @@ function csr_employee_dept($actor)
     } catch (Throwable $e) { return ''; }
 }
 
-function csr_is_dept_head($actor)
+/** 是不是设计客服部门的主管（project_dept_heads 里登记了“设计客服”）。 */
+function csr_is_design_head($actor)
 {
     if (empty($actor['employee_id'])) return false;
     try {
-        $q = db()->prepare('SELECT 1 FROM project_dept_heads WHERE employee_id=? LIMIT 1');
-        $q->execute([(int)$actor['employee_id']]);
+        $q = db()->prepare('SELECT 1 FROM project_dept_heads WHERE department=? AND employee_id=? LIMIT 1');
+        $q->execute([CS_PERF_RANK_DEPT, (int)$actor['employee_id']]);
         return (bool)$q->fetchColumn();
     } catch (Throwable $e) { return false; }
 }

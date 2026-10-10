@@ -1,10 +1,10 @@
 <?php
 // 客服绩效（设计客服）：上传店铺每月导出的“咨询接待分析”表 → 按评分规则算每人每店得分 → 部门内排名，前三名 850 / 800 / 750。
-// 财务、管理层账号、部门主管、设计客服部门的员工可看可上传；绑定昵称、改评分规则、删整份上传限财务 / 管理层 / 主管。
+// 后台财务账号、设计客服主管（张光萍）、设计客服部门的员工可看可上传；对应昵称、改评分规则、删整份上传限核算财务（刘群）和主管（张光萍）。
 require_once __DIR__ . '/../includes/ProjectSettlement.php';
 require_once __DIR__ . '/../includes/lib/cs_perf_reception.php';
 $actor = ps_require_actor();
-if (!csr_can_view($actor)) { http_response_code(403); exit('此页面仅财务、设计客服和部门主管可访问'); }
+if (!csr_can_view($actor)) { http_response_code(403); exit('此页面仅财务、设计客服和设计客服主管可访问'); }
 $canManage = csr_can_manage($actor);
 csr_ensure();
 
@@ -93,7 +93,7 @@ include __DIR__ . '/../includes/header.php';
 <div class="container-fluid" style="max-width:1280px">
   <div class="sp-hero">
     <h2><i class="fas fa-headset mr-2"></i>客服绩效</h2>
-    <p>每月初把店铺导出的“咨询接待分析”表传上来（两家店各传一份，传错了重传同月同店会直接覆盖），系统按下方评分规则给每个人打分，<b>多店取平均后在部门内排名：第 1 名 850、第 2 名 800、第 3 名 750</b>，结果直接用于当月报酬结算。</p>
+    <p>每月初把店铺导出的“咨询接待分析”表传上来（两家店各传一份，传错了重传同月同店会直接覆盖），系统按下方评分规则给每个人打分，<b>多店取平均后在部门内排名：第 1 名 850、第 2 名 800、第 3 名 750</b>，结果直接用于当月报酬结算。设计客服主管：张光萍，核算财务：刘群。</p>
   </div>
   <?php if ($success): ?><div class="alert alert-success"><?php echo e($success); ?></div><?php endif; ?>
   <?php foreach ($notes as $n): ?><div class="alert alert-warning"><?php echo e($n); ?></div><?php endforeach; ?>
