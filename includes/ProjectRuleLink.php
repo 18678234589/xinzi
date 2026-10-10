@@ -56,7 +56,8 @@ function prl_info($orderId, $actor)
         if (ps_rules_for_person($p['commission_group'], $business, $order['order_date'], $role, $kind)) continue;
         $keys = ps_role_keys($role);
         $effKind = ps_role_rule_order_kind($business, $p['commission_group'], $role, $kind);
-        $st = db()->prepare("SELECT * FROM project_commission_rules WHERE commission_group=? AND project_type IN (?, '*') AND effective_from<=? ORDER BY is_active DESC, effective_from DESC, id DESC");
+        require_once __DIR__ . '/ProjectExtraRules.php';
+        $st = db()->prepare("SELECT * FROM project_commission_rules WHERE commission_group=? AND project_type IN (?, '*') AND effective_from<=?" . (pxr_supported() ? ' AND is_extra=0' : '') . " ORDER BY is_active DESC, effective_from DESC, id DESC");
         $st->execute([$p['commission_group'], $business === '网站定制' ? 'AI网站定制' : $business, $order['order_date']]);
         $cands = []; $seen = []; $anyActive = false;
         foreach ($st->fetchAll() as $r) {

@@ -22,7 +22,8 @@ function ps_rule_for($group, $projectType, $orderDate, $role = '', $orderKind = 
     $orderKind = ps_role_rule_order_kind($projectType, $group, $role, $orderKind);
     $key = $group . '|' . $projectType . '|' . $orderDate;
     if (!isset($cache[$key])) {
-        $q = db()->prepare("SELECT * FROM project_commission_rules WHERE commission_group=? AND project_type IN (?, '*') AND effective_from<=? AND is_active=1 ORDER BY effective_from DESC, id DESC"
+        require_once __DIR__ . '/../ProjectExtraRules.php';
+        $q = db()->prepare("SELECT * FROM project_commission_rules WHERE commission_group=? AND project_type IN (?, '*') AND effective_from<=? AND is_active=1" . (pxr_supported() ? ' AND is_extra=0' : '') . " ORDER BY effective_from DESC, id DESC"
     );
         $q->execute([$group, $projectType, $orderDate]);
         $cache[$key] = $q->fetchAll();

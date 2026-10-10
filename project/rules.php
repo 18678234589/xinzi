@@ -65,8 +65,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $subsidyOnly = implode(',', array_filter(array_map('intval', preg_split('/[^\d]+/', $subsidyOnly))));
             db()->prepare('INSERT INTO project_commission_rules (commission_group,project_type,role_name,order_kind,calc_mode,rate,service_fee_rate,per_order_subsidy,min_contract_amount,min_cost_rate,note,effective_from,subsidy_employee_ids) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)')
                 ->execute([$group, $type, $role, $kind, $mode, $rate, $fee, $amount($_POST['subsidy'] ?? '', '每单补助'), $amount($_POST['min_contract'] ?? '', '最低售价'), $percent($_POST['min_cost_percent'] ?? '', '成本下限', true), $note, $date, $subsidyOnly !== '' ? $subsidyOnly : null]);
-            ps_audit('rule', (int)db()->lastInsertId(), 'create', $actor, ['group' => $group, 'rate' => $rate, 'project_type' => $type, 'role' => $role, 'kind' => $kind, 'mode' => $mode, 'fee' => $fee]);
-            $success = '逐单分成规则已添加，未审核订单立即按新规则预估';
+            $newRuleId = (int)db()->lastInsertId();
+            if (($_POST['rule_kind'] ?? '') === 'extra') { // 补贴规则：只发每单补助，叠加在同业务的提成规则之上
+                require_once __DIR__ . '/../includes/ProjectExtraRules.php';
+                if ($rate != 0 || (float)$amount($_POST['subsidy'] ?? '', '每单补助') <= 0) { db()->prepare('DELETE FROM project_commission_rules WHERE id=?')->execute([$newRuleId]); throw new RuntimeException('补贴规则的分成比例须为 0，且每单补助要大于 0'); }
+                pxr_ensure_column();
+                db()->prepare('UPDATE project_commission_rules SET is_extra=1 WHERE id=?')->execute([$newRuleId]);
+            }
+            ps_audit('rule', $newRuleId, 'create', $actor, ['group' => $group, 'rate' => $rate, 'project_type' => $type, 'role' => $role, 'kind' => $kind, 'mode' => $mode, 'fee' => $fee, 'extra' => ($_POST['rule_kind'] ?? '') === 'extra' ? 1 : 0]);
+            $success = ($_POST['rule_kind'] ?? '') === 'extra' ? '补贴规则已添加，会叠加在同业务的提成规则之上' : '逐单分成规则已添加，未审核订单立即按新规则预估';
         } elseif ($action === 'rule_update') {
             // 直接修改即时生效：未审核订单马上按新参数预估；已审核订单保存了审核时的比例与服务费，不受影响。
             $ruleId = (int)($_POST['rule_id'] ?? 0);
@@ -293,6 +300,7 @@ while (count($tiers) < 7) $tiers[] = ['from' => '', 'rate' => '', 'base' => ''];
 <div class="form-group col-md-2"><label>业务</label><select name="project_type" id="ruleBusiness" class="form-control"><option value="*">全部业务（兜底）</option><?php foreach ($activeBusinesses as $businessName): ?><option value="<?php echo e($businessName); ?>"><?php echo e($businessName); ?></option><?php endforeach; ?></select></div>
 <div class="form-group col-md-2"><label>岗位（留空 = 全部）</label><input name="role_name" class="form-control" list="ruleRoleNames" placeholder="如 前端 / 外包前端"><datalist id="ruleRoleNames"><?php foreach ($roleSuggestions as $roleOption): ?><option value="<?php echo e($roleOption); ?>"><?php endforeach; ?></datalist></div>
 <div class="form-group col-md-2"><label>订单类型</label><select name="order_kind" id="ruleKind" class="form-control"><option value="">全部</option></select></div>
+<div class="form-group col-md-2"><label>规则类型</label><select name="rule_kind" class="form-control"><option value="main">提成规则（含比例）</option><option value="extra">补贴规则（只发每单补助，叠加）</option></select></div>
 <div class="form-group col-md-2"><label>计算方式</label><select name="calc_mode" class="form-control"><option value="pool">组池 × 组内权重</option><option value="individual">个人独立计提</option></select></div>
 <div class="form-group col-md-2"><label>生效日期</label><input type="date" name="effective_from" value="<?php echo date('Y-m-d'); ?>" class="form-control" required></div>
 <div class="form-group col-md-2"><label>分成比例 %</label><input type="number" step="0.0001" min="0" max="100" name="rate_percent" class="form-control" required></div>
@@ -306,7 +314,7 @@ while (count($tiers) < 7) $tiers[] = ['from' => '', 'rate' => '', 'base' => ''];
 <div class="small text-muted">匹配顺序：具体业务 &gt; 全部业务，指定岗位 &gt; 全部岗位，指定订单类型 &gt; 全部类型。组池：max(收入 − 直接成本 − 售价×服务费率, 0) × 比例 × 组内权重；个人独立：max(收入 − 直接成本×本人权重 − 售价×服务费率, 0) × 比例。</div></div>
 <div class="table-responsive"><table class="table table-sm mb-0 project-rule-table"><thead><tr><th>业务 · 组别</th><th>岗位 / 订单类型</th><th>方式</th><th>比例 %</th><th>服务费 %</th><th>补助 ¥</th><th>补助限定</th><th>最低售价 ¥</th><th>成本下限 %</th><th>说明</th><th></th></tr></thead><tbody>
 <?php foreach ($rules as $r): $formId = 'rule' . (int)$r['id']; ?><tr class="<?php echo $r['is_active'] ? '' : 'text-muted'; ?>">
-<td><?php echo e($r['project_type'] === '*' ? '全部业务' : $r['project_type']); ?><div class="small text-muted"><?php echo e(ps_label('group', $r['commission_group'])); ?> · <?php echo e($r['effective_from']); ?> 起<?php echo $r['is_active'] ? '' : ' · 已停用'; ?></div></td>
+<td><?php echo e($r['project_type'] === '*' ? '全部业务' : $r['project_type']); ?><div class="small text-muted"><?php echo e(ps_label('group', $r['commission_group'])); ?> · <?php echo e($r['effective_from']); ?> 起<?php echo $r['is_active'] ? '' : ' · 已停用'; ?><?php echo !empty($r['is_extra']) ? ' · <span class="badge badge-info">补贴规则（叠加）</span>' : ''; ?></div></td>
 <td><?php echo e($r['role_name'] === '*' ? '全部岗位' : $r['role_name']); ?><div class="small text-muted"><?php echo e($r['order_kind'] === '*' ? '全部类型' : pkl_label($r['project_type'], $r['order_kind'])); ?></div></td>
 <td><select form="<?php echo $formId; ?>" name="calc_mode" class="form-control form-control-sm"><option value="pool">组池</option><option value="individual" <?php echo $r['calc_mode'] === 'individual' ? 'selected' : ''; ?>>独立</option></select></td>
 <td><input form="<?php echo $formId; ?>" name="rate_percent" type="number" step="0.0001" min="0" max="100" class="form-control form-control-sm" style="width:84px" value="<?php echo e(rtrim(rtrim(number_format($r['rate'] * 100, 4, '.', ''), '0'), '.')); ?>"></td>

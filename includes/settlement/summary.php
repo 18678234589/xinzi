@@ -165,6 +165,20 @@ function ps_summary($order, $costs, $participants)
                         $people[$i][$ck]['note'] = preg_replace('/\s*\+ 每单补助.*$/u', '', (string)$people[$i][$ck]['note']);
                     }
                 }
+                // 补贴规则（叠加）：提成规则之外单独配置的每单补贴，匹配上就加进本人的补助（如备案-提成的拍链接每单 0.5 元）。
+                require_once __DIR__ . '/../ProjectExtraRules.php';
+                foreach ($rule ? pxr_for_person($group, $order['project_type'], $order['order_date'], $person['role_name'] ?? '', $orderKind) : [] as $extra) {
+                    foreach ([['calc', $income, $costNow, $noteNow], ['estimated_calc', $estIncome, $costEst, $noteEst]] as $ext) {
+                        list($ck, $extInc, $extCost, $extNote) = $ext;
+                        if (!$people[$i][$ck]) continue;
+                        $e = ps_calc_person($extra, $extInc, $extCost, $contract, $person['group_weight'], $businessFeeRate, '', $feeBase);
+                        if ($e['subsidy'] <= 0) continue;
+                        $people[$i][$ck]['subsidy'] = round($people[$i][$ck]['subsidy'] + $e['subsidy'], 2);
+                        $people[$i][$ck]['subsidy_pool'] = round(($people[$i][$ck]['subsidy_pool'] ?? 0) + $e['subsidy_pool'], 2);
+                        $people[$i][$ck]['note'] .= ' + 补贴 ' . money_plain($e['subsidy']) . '（' . (trim((string)$extra['note']) !== '' ? trim((string)$extra['note']) : '补贴规则') . '）';
+                    }
+                    $subsidyRule = true;
+                }
             }
             if ($order['project_type'] === '商标' && $group === 'technical') {
                 $people[$i]['calc'] = ps_trademark_piece_calc($people[$i]['calc'], $trademarkCount);
