@@ -127,6 +127,19 @@ rejects(function()use($service,$id,$messages){$service->finish($id,'reset',$mess
 for($i=0;$i<10;$i++) { $service->send('reset','missing-account','13900000003','s1','192.0.2.1');$now+=61; }
 rejects(function()use($service){$service->send('reset','missing-account','13900000003','s1','192.0.2.1');},'phone daily cap includes unmatched requests');
 check(count($messages)===0,'unknown accounts never call SMS transport');
+check($pdo->query("SELECT state FROM account_recovery_challenges LIMIT 1")->fetchColumn()==='not_sent','unmatched requests never claim sent status');
+
+[$pdo,$service]=fixture($now,$messages);
+$pdo->prepare('INSERT INTO account_recovery_contacts (account_type,account_id,phone_hash,phone_cipher,verified_at) VALUES (?,?,?,?,0)')->execute(['admin',1,hash_hmac('sha256','phone:13900000001',str_repeat('H',32)),pv_encrypt('13900000001')]);
+$id=$service->send('reset','13900000001','13900000001','s1','192.0.2.1');
+check(count($messages)===1,'preconfigured administrator phone can receive a recovery OTP without password login');
+check((int)$pdo->query('SELECT verified_at FROM account_recovery_contacts')->fetchColumn()===0,'sending OTP does not mark phone verified');
+rejects(function()use($service,$id){$service->finish($id,'reset','000000','s1','StrongPassword!','StrongPassword!');},'wrong OTP cannot verify preconfigured phone');
+check((int)$pdo->query('SELECT verified_at FROM account_recovery_contacts')->fetchColumn()===0,'wrong OTP leaves preconfigured phone unverified');
+rejects(function()use($service,$id,$messages){$service->finish($id,'reset',$messages[$id]['code'],'s1','12345678','12345678');},'weak password cannot complete preconfigured recovery');
+check((int)$pdo->query('SELECT verified_at FROM account_recovery_contacts')->fetchColumn()===0,'failed password validation leaves phone unverified');
+$service->finish($id,'reset',$messages[$id]['code'],'s1','StrongPassword!','StrongPassword!');
+check((int)$pdo->query('SELECT verified_at FROM account_recovery_contacts')->fetchColumn()===$now,'successful OTP reset verifies preconfigured phone atomically');
 require_once __DIR__.'/../includes/RecoverySms.php';
 $config=['access_key_id'=>'TestAccessKey','secret_cipher'=>pv_encrypt('TestSigningSecret'),'sign_name'=>'测试签名','template_code'=>'SMS_509735214'];
 $request=recovery_sms_request($config,'13900000001','654321','test-request','2026-10-10T00:00:00Z','test-nonce');

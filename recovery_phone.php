@@ -19,8 +19,8 @@ if ($_SERVER['REQUEST_METHOD']==='POST') {
 }
 $masked='尚未绑定'; $isSuper=false;
 try {
-    $q=db()->prepare('SELECT phone_cipher FROM account_recovery_contacts WHERE account_type=? AND account_id=?'); $q->execute([$actor['type'],$actor['id']]); $cipher=$q->fetchColumn();
-    if ($cipher) { $phone=pv_decrypt($cipher); $masked=substr($phone,0,3).'****'.substr($phone,-4); }
+    $q=db()->prepare('SELECT phone_cipher,verified_at FROM account_recovery_contacts WHERE account_type=? AND account_id=?'); $q->execute([$actor['type'],$actor['id']]); $contact=$q->fetch(PDO::FETCH_ASSOC);
+    if ($contact) { $phone=pv_decrypt($contact['phone_cipher']); $masked=substr($phone,0,3).'****'.substr($phone,-4).((int)$contact['verified_at']===0?'（待短信验证）':'（已验证）'); }
     if ($actor['type']==='admin') { $q=db()->prepare('SELECT username FROM admins WHERE id=?');$q->execute([$actor['id']]);$isSuper=$q->fetchColumn()==='admin'; }
 } catch (PDOException $e) {}
 recovery_head('绑定找回手机号'); recovery_messages($error,$success);

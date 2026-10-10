@@ -41,6 +41,10 @@ class PasswordRecovery
                 if ($other || $staff) throw new RuntimeException('此手机号已绑定其他账号');
             } else {
                 $account=$this->row('SELECT * FROM admins WHERE username=?',[$username]);
+                if (!$account && $username===$phone) {
+                    $contact=$this->row("SELECT account_id FROM account_recovery_contacts WHERE account_type='admin' AND phone_hash=?",[$phoneHash]);
+                    if ($contact) $account=$this->account('admin',(int)$contact['account_id']);
+                }
                 if (!$account) { $type='employee'; $account=$this->row('SELECT * FROM project_users WHERE (username=? OR phone=?) AND is_active=1',[$username,$username]); }
                 if ($account && !hash_equals($phone,$this->boundPhone($type,$account))) $account=null;
             }
@@ -58,12 +62,12 @@ class PasswordRecovery
             $this->pdo->commit();
         } catch (Throwable $e) { if ($this->pdo->inTransaction()) $this->pdo->rollBack(); throw $e; }
         // Unknown accounts receive the same public response and consume the same rate limit.
-        $result=['state'=>'sent','code'=>'NO_MATCH'];
+        $result=['state'=>'not_sent','code'=>'NO_MATCH'];
         if ($account) {
             try { $result=call_user_func($this->transport,$phone,$code,$id); }
             catch (Throwable $e) { $result=['state'=>'unknown','code'=>'TRANSPORT_RESULT_UNKNOWN']; }
         }
-        $state=in_array($result['state']??'', ['sent','failed','unknown'],true)?$result['state']:'unknown';
+        $state=in_array($result['state']??'', ['sent','failed','unknown','not_sent'],true)?$result['state']:'unknown';
         $this->run("UPDATE account_recovery_challenges SET state=?,provider_code=? WHERE id=? AND state='sending'",[$state,substr(preg_replace('/[^A-Za-z0-9._-]/','',(string)($result['code']??'')),0,100),$id]);
         return $id;
     }
@@ -87,6 +91,8 @@ class PasswordRecovery
             if ($purpose==='reset') {
                 if (!hash_equals($phone,$this->boundPhone($type,$account))) throw new RuntimeException('手机号已变更，请重新获取验证码');
                 auth_password_validate($password,$confirmation,$account['username']);
+                // An operator may preconfigure a phone, but only possession of this OTP verifies it.
+                $this->run('UPDATE account_recovery_contacts SET verified_at=? WHERE account_type=? AND account_id=? AND verified_at=0',[$this->now(),$type,$account['id']]);
                 $column=$type==='admin'?'password':'password_hash';
                 $sql='UPDATE '.$this->table($type).' SET '.$column.'=?,auth_version=?'.($type==='employee'?',password_changed_at=CURRENT_TIMESTAMP':'').' WHERE id=?';
                 $this->run($sql,[password_hash($password,PASSWORD_DEFAULT),$version,$account['id']]);
