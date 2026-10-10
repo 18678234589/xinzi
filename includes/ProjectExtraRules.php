@@ -8,10 +8,10 @@
  */
 
 /** is_extra 列是否已存在（同一请求内缓存）。 */
-function pxr_supported()
+function pxr_supported($refresh = false)
 {
     static $ok = null;
-    if ($ok === null) {
+    if ($ok === null || $refresh) {
         try { $ok = (bool)db()->query("SHOW COLUMNS FROM project_commission_rules LIKE 'is_extra'")->fetch(); }
         catch (Throwable $e) { $ok = false; }
     }
@@ -23,6 +23,7 @@ function pxr_ensure_column()
 {
     if (pxr_supported()) return;
     db()->exec('ALTER TABLE project_commission_rules ADD COLUMN is_extra TINYINT(1) NOT NULL DEFAULT 0');
+    pxr_supported(true);
 }
 
 /** 某参与人在这张订单上适用的全部补贴规则（同岗位同类型取最新一版）。 */
