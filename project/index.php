@@ -11,6 +11,7 @@ require_once __DIR__ . '/../includes/ProjectVault.php';
 require_once __DIR__ . '/../includes/commission_explain.php';
 require_once __DIR__ . '/../includes/ProjectPartnerDashboard.php';
 require_once __DIR__ . '/../includes/ProjectAutoReview.php';
+require_once __DIR__ . '/../includes/ProjectDeptHead.php';
 $actor = ps_require_actor();
 $participationOnly = ($_GET['participating'] ?? '') === '1';
 $filterEmployeeId = ps_partner_list_employee_id($actor, $_GET['employee_id'] ?? 0);
@@ -20,7 +21,7 @@ $allowedBusinesses = ps_actor_businesses($actor);
 $departmentImportBusiness = '';
 foreach (['网站续费', '网站修改'] as $candidate) if (ps_department_import_allowed($actor, $candidate)) { $departmentImportBusiness = $candidate; break; }
 // 只有固定报酬、不录订单的合作人员（如售后退款部）：直接进入“我的项目报酬”
-if ($actor['role'] !== 'finance' && !$allowedBusinesses && !$participationOnly && $_SERVER['REQUEST_METHOD'] !== 'POST') { header('Location: ' . BASE_URL . '/project/payroll.php');
+if ($actor['role'] !== 'finance' && !$allowedBusinesses && !$participationOnly && !pdh_departments($actor) && $_SERVER['REQUEST_METHOD'] !== 'POST') { header('Location: ' . BASE_URL . '/project/payroll.php');
     exit; }
 $selectedBusiness = ps_business_choice($actor, (string)($_POST['project_type'] ?? $_GET['business'] ?? ''));
 $roleDefaultKinds = [];

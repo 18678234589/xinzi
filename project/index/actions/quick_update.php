@@ -6,6 +6,7 @@
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && (isset($_POST['action']) && $_POST['action'] === 'quick_update_order')) {
     ps_check_csrf();
+    require_once (dirname(__DIR__, 3)) . '/includes/ProjectDeptHead.php';
     $isAjax = (!empty($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) === 'xmlhttprequest') || !empty($_POST['ajax']);
 
     try {
@@ -34,8 +35,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (isset($_POST['action']) && $_POST[
         if (!$isFinance) {
             $partQ = db()->prepare('SELECT 1 FROM project_participants WHERE order_id=? AND employee_id=? UNION SELECT 1 FROM project_department_uploaders WHERE order_id=? AND employee_id=? LIMIT 1');
             $partQ->execute([$orderId, (int)$actor['employee_id'], $orderId, (int)$actor['employee_id']]);
-            if (!$partQ->fetchColumn()) {
-                throw new RuntimeException('只能修改本人参与或录入的订单');
+            if (!$partQ->fetchColumn() && !pdh_can_view_order($orderId, $actor)) {
+                throw new RuntimeException('只能修改本人参与或录入的订单（部门主管可改本部门成员的订单）');
             }
         }
 

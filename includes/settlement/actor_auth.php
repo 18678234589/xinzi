@@ -99,9 +99,10 @@ function ps_order($id, $actor)
     $order = $q->fetch();
     if (!$order) { http_response_code(404); exit('订单不存在'); }
     if ($actor['role'] !== 'finance' && !ps_management_can_business($actor, $order['project_type'])) {
+        require_once __DIR__ . '/../ProjectDeptHead.php';
         $access = db()->prepare('SELECT 1 FROM project_participants WHERE order_id=? AND employee_id=? LIMIT 1');
         $access->execute([(int)$id, $actor['employee_id']]);
-        if (!$access->fetchColumn() && !ps_department_import_uploader_access($id, (int)$actor['employee_id'])) {
+        if (!$access->fetchColumn() && !ps_department_import_uploader_access($id, (int)$actor['employee_id']) && !pdh_can_view_order($id, $actor)) {
             $isMissingBackendTech = false;
             if ($actor['role'] === 'technical' && in_array(ps_business_normalize($order['project_type'] ?? ''), ['AI网站定制', '网站定制'], true)) {
                 $checkHasBackend = db()->prepare("SELECT 1 FROM project_participants WHERE order_id=? AND commission_group='technical' AND role_name LIKE '%后端%' LIMIT 1");

@@ -1,4 +1,5 @@
 <?php
+require_once __DIR__ . '/ProjectDeptHead.php';
 // 列表筛选：月份 + 业务 + 待办 + 关键字（订单号/客户/付款昵称/项目账号的类型·说明·地址·账号·备注）。
 $filterBusiness = (string)($_GET['filter_business'] ?? '');
 $filterFinance = ps_finance_filter($actor, $_GET['filter_finance'] ?? null);
@@ -44,10 +45,14 @@ if ($actor['role'] === 'finance') {
 } elseif ($filterState === 'pending_backend' && $actor['role'] === 'technical') {
     // 技术人员筛选“待指定后端”时，允许查看所有未指定后端的网站类订单以便认领
 } else {
-    $where[] = $participationOnly ? 'EXISTS (SELECT 1 FROM project_participants mp WHERE mp.order_id=o.id AND mp.employee_id=?)' : '(EXISTS (SELECT 1 FROM project_participants mp WHERE mp.order_id=o.id AND mp.employee_id=?) OR EXISTS (SELECT 1 FROM project_department_uploaders du WHERE du.order_id=o.id AND du.employee_id=?))'
+    $where[] = $participationOnly ? 'EXISTS (SELECT 1 FROM project_participants mp WHERE mp.order_id=o.id AND mp.employee_id=?)' : '(EXISTS (SELECT 1 FROM project_participants mp WHERE mp.order_id=o.id AND mp.employee_id=?) OR EXISTS (SELECT 1 FROM project_department_uploaders du WHERE du.order_id=o.id AND du.employee_id=?)%HEAD%)'
     ;
     $params[] = $actor['employee_id'];
     if (!$participationOnly) $params[] = $actor['employee_id'];
+    // 部门主管：另外能看到本部门成员参与的订单
+    list($headSql, $headParams) = $participationOnly ? ['', []] : pdh_order_condition($actor);
+    $where[count($where) - 1] = str_replace('%HEAD%', $headSql !== '' ? ' OR ' . $headSql : '', $where[count($where) - 1]);
+    foreach ($headParams as $hp) $params[] = $hp;
 }
 $reviewSelect = pa_storage_available() ? 'a.state auto_review_state,a.policy_version auto_review_policy,a.checked_row_version auto_review_version,a.checked_source_at auto_review_source_at,a.reasons_json auto_review_reasons,a.evidence_json auto_review_evidence,a.checked_at auto_review_checked_at,'
     : 'NULL auto_review_state,';
@@ -168,7 +173,7 @@ foreach ($pageOrders as $row) {
         $costDisplayStates[(int)$row['id']] = ps_cost_display_state($row, $rowCosts);
         $rowSum = $isApproved ? null : ps_summary($row, $rowCosts, $rowPeople);
         foreach ($rowPeople as $rp) {
-            if ($actor['role'] !== 'finance' && !ps_is_management($actor) && (int)$rp['employee_id'] !== (int)$actor['employee_id']) continue;
+            if ($actor['role'] !== 'finance' && !ps_is_management($actor) && (int)$rp['employee_id'] !== (int)$actor['employee_id'] && !pdh_manages_person($actor, $rp)) continue;
             $amount = null;
             if ($isApproved) $amount = $snapshotMap[$row['id'] . ':' . $rp['commission_group'] . ':' . $rp['employee_id']] ?? null;
             else foreach ($rowSum['groups'][$rp['commission_group']]['people'] ?? [] as $sp) if ((int)$sp['employee_id'] === (int)$rp['employee_id'] && $sp['estimated_calc']) $amount
