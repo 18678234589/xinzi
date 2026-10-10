@@ -54,6 +54,16 @@ if ($actor['role'] === 'finance') {
     $where[count($where) - 1] = str_replace('%HEAD%', $headSql !== '' ? ' OR ' . $headSql : '', $where[count($where) - 1]);
     foreach ($headParams as $hp) $params[] = $hp;
 }
+// 按部门筛选：财务可选全部部门，部门主管可选自己所管的部门；订单上有该部门的成员参与即算
+$deptChoices = [];
+if ($actor['role'] === 'finance') $deptChoices = db()->query("SELECT DISTINCT department FROM employees WHERE department<>'' ORDER BY department")->fetchAll(PDO::FETCH_COLUMN);
+elseif (!$participationOnly) { $deptChoices = pdh_departments($actor); sort($deptChoices); }
+$filterDepartment = (string)($_GET['filter_department'] ?? '');
+if ($filterDepartment !== '' && !in_array($filterDepartment, $deptChoices, true)) $filterDepartment = '';
+if ($filterDepartment !== '') {
+    $where[] = 'EXISTS (SELECT 1 FROM project_participants dp JOIN employees de ON de.id=dp.employee_id WHERE dp.order_id=o.id AND de.department=?)';
+    $params[] = $filterDepartment;
+}
 $reviewSelect = pa_storage_available() ? 'a.state auto_review_state,a.policy_version auto_review_policy,a.checked_row_version auto_review_version,a.checked_source_at auto_review_source_at,a.reasons_json auto_review_reasons,a.evidence_json auto_review_evidence,a.checked_at auto_review_checked_at,'
     : 'NULL auto_review_state,';
 $reviewJoin = pa_storage_available() ? ' LEFT JOIN project_auto_reviews a ON a.order_id=o.id' : '';
