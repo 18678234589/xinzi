@@ -2,6 +2,8 @@
 require_once __DIR__ . '/includes/auth.php';
 
 $error = '';
+$passwordResetSuccess = !empty($_SESSION['password_reset_success']);
+unset($_SESSION['password_reset_success']);
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $username = trim($_POST['username'] ?? '');
@@ -85,6 +87,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 <h4 class="mt-3 font-weight-bold">项目合作结算中心</h4>
                 <p class="text-muted">双重验证登录 <span class="badge badge-success badge-2fa">2FA</span></p>
             </div>
+            <?php if ($passwordResetSuccess): ?>
+                <div class="alert alert-success" role="status">密码已重置，请使用新密码登录。</div>
+            <?php endif; ?>
             <?php if ($error): ?>
                 <div class="alert alert-danger"><i class="fas fa-exclamation-circle"></i> <?php echo e($error); ?></div>
             <?php endif; ?>

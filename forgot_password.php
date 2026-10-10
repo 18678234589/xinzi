@@ -17,8 +17,10 @@ if ($_SERVER['REQUEST_METHOD']==='POST') {
             $success='若账号与绑定手机号匹配，将发送验证码。验证码有效期 5 分钟，60 秒内请勿重复获取。';
         } elseif (($_POST['action']??'')==='reset') {
             $service->finish((string)($_SESSION['recovery_reset_id']??''),'reset',trim((string)($_POST['code']??'')),session_id(),(string)($_POST['new_password']??''),(string)($_POST['confirm_password']??''));
-            $_SESSION=[]; session_regenerate_id(true); $sent=false;
-            $success='密码已重置，旧登录会话已退出。请使用新密码登录。';
+            $_SESSION=[]; session_regenerate_id(true);
+            $_SESSION['password_reset_success']=true;
+            header('Location: '.BASE_URL.'/login.php',true,303);
+            exit;
         } else { throw new RuntimeException('请求无效'); }
     } catch (PDOException $e) { $error='短信找回尚未安装完成，请联系管理员'; }
     catch (Throwable $e) { $error=$e->getMessage(); }
