@@ -12,6 +12,24 @@ function ps_import_website_business($selectedBusiness, $programName, $technicalT
     return in_array($candidate, $allowedBusinesses, true) ? $candidate : $selectedBusiness;
 }
 
+/**
+ * 森动备案只有“项目执行”岗位配了分成规则（一人包办）。客服列又写了同一个人（旧模板两列都填本人）时不再重复记一份——
+ * 那份没有规则，订单上会一直显示“待配置”；只写了客服列的人按“项目执行”记。返回 [人员, 提示]。
+ */
+function ps_import_filing_people($people, $technicalLabel = '项目执行')
+{
+    $note = '';
+    foreach ($people['customer_service'] as $id => $person) {
+        if (isset($people['technical'][$id])) unset($people['customer_service'][$id]);
+    }
+    if (!$people['technical'] && $people['customer_service']) {
+        foreach ($people['customer_service'] as $id => $person) $people['technical'][$id] = ['id' => $id, 'role' => $technicalLabel, 'name' => $person['name']];
+        $people['customer_service'] = [];
+        $note = '森动备案只有“' . $technicalLabel . '”岗位有分成规则，“客服”列的人已按“' . $technicalLabel . '”记入';
+    }
+    return [$people, $note];
+}
+
 function ps_import_website_people_roles($people, $business)
 {
     if ($business !== 'AI网站定制') return $people;

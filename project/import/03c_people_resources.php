@@ -22,6 +22,10 @@
                         else $record['people']['technical'][$id] = ['id' => $id, 'role' => $peopleLabels['backend'], 'name' => $name];
                     }
                     $record['people'] = ps_import_website_people_roles($record['people'], $record['project_type']);
+                    if ($selectedBusiness === '森动备案') {
+                        [$record['people'], $filingNote] = ps_import_filing_people($record['people'], $peopleLabels['frontend']);
+                        if ($filingNote !== '') $record['warning'] .= ($record['warning'] ? '；' : '') . $filingNote;
+                    }
                     if (!empty($record['join_parent'])) { // 同一笔销售：只记本人加入原订单的那一份，不沿用表格里写的其他人
                         $joinSelfId = (int)$actor['employee_id'];
                         $record['people'] = ['technical' => [], 'customer_service' => []];

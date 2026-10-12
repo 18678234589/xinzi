@@ -89,6 +89,22 @@ try {
     [$pv2, $imp2] = $importAs($luan, '森动备案', $csv);
     $n = $pdo->prepare("SELECT COUNT(*) FROM project_orders WHERE order_no IN (" . implode(',', array_fill(0, 6, '?')) . ")"); $n->execute($nos);
     $check((int)$n->fetchColumn() === 6, '整张表重传不重复建单');
+    // 旧模板“客服”“项目执行”两列都填本人：只留“项目执行”一条（客服那条没有分成规则，会一直显示“待配置”）；只写客服列的按项目执行记。
+    $check(in_array('客服', ps_business_import_headers('森动备案'), true) && in_array('项目执行', ps_business_import_headers('森动备案'), true), '森动备案模板带“客服”“项目执行”两列');
+    $rows2 = [
+        ['日期' => '2026.9.15', '店铺' => '微信', '业务' => '备案', '付款昵称' => 'nickP' . $tag, '售价' => '100', '成本' => '80', $sk => '已完成', '微信交易流水号' => 'WXP' . $tag, '联系微信号' => 'nickP' . $tag, '域名' => "t$tag-p.com", '客服' => '栾鑫', '项目执行' => '栾鑫'],
+        ['日期' => '2026.9.16', '业务' => '二次备案', $sk => '已完成', '联系微信号' => 'nickP' . $tag, '域名' => "t$tag-p.com", '客服' => '栾鑫', '项目执行' => '栾鑫'],
+        ['日期' => '2026.9.17', '业务' => '二次备案', $sk => '已完成', '联系微信号' => 'nickQ' . $tag, '域名' => "t$tag-q.com", '客服' => '栾鑫'],
+    ];
+    [$pvp, $impp, $errp] = $importAs($luan, '森动备案', $csvOf('森动备案', $rows2));
+    $check($errp === '' && $impp === 3, '两列都填本人的 3 行全部导入：' . $impp . ' ' . $errp . ' ' . implode('；', array_map(function ($r) { return $r['error'] ?? ''; }, $pvp)));
+    $pn = array_column($pvp, 'order_no');
+    $pq = $pdo->prepare("SELECT o.order_no,pp.commission_group,pp.role_name,pp.employee_id FROM project_participants pp JOIN project_orders o ON o.id=pp.order_id WHERE o.order_no IN (" . implode(',', array_fill(0, 3, '?')) . ")");
+    $pq->execute($pn);
+    $people = [];
+    foreach ($pq->fetchAll() as $r) $people[$r['order_no']][] = $r['commission_group'] . ':' . $r['role_name'];
+    foreach ($pn as $i => $no) $check(($people[$no] ?? []) === ['technical:项目执行'], '第 ' . ($i + 1) . ' 行只有“项目执行”一条参与人：' . implode(',', $people[$no] ?? ['无']));
+    $check(mb_strpos((string)$pvp[2]['warning'], '已按“项目执行”记入') !== false && mb_strpos((string)$pvp[0]['warning'], '已按“项目执行”记入') === false, '只写客服列才提示改记项目执行，两列都是本人不提示');
     echo "\n=== 森动备案测试全部通过 ===\n";
 } catch (Throwable $e) {
     fwrite(STDERR, $e->getMessage() . "\n");
