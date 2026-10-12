@@ -71,7 +71,10 @@ function get_shops()
 function get_shop_list()
 {
     try {
-        $stmt = db()->query("SELECT s.*, (SELECT COUNT(*) FROM orders o WHERE o.shop = s.name AND COALESCE(o.is_deleted, 0) = 0) AS order_count FROM shops s ORDER BY s.sort ASC, s.id ASC"
+        // 订单表无 shop 索引：逐店铺关联子查询会各扫一遍全表（13 店约 10 秒），改为一次分组统计后关联。
+        $stmt = db()->query("SELECT s.*, COALESCE(c.cnt, 0) AS order_count FROM shops s
+            LEFT JOIN (SELECT shop, COUNT(*) AS cnt FROM orders WHERE COALESCE(is_deleted, 0) = 0 GROUP BY shop) c ON c.shop = s.name
+            ORDER BY s.sort ASC, s.id ASC"
     );
         return $stmt->fetchAll();
     } catch (PDOException $e) {

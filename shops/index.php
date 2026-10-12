@@ -92,8 +92,15 @@ if ($hasSearch) {
     $where = "COALESCE(o.is_deleted, 0) = 0";
     $params = [];
     if ($filter_month !== '') {
-        $where .= " AND DATE_FORMAT(o.order_date, '%Y-%m') = ?";
-        $params[] = $filter_month;
+        if (preg_match('/^\d{4}-(0[1-9]|1[0-2])$/', $filter_month)) {
+            // 范围条件可走 order_date 索引；DATE_FORMAT 会逼着扫全表。
+            $where .= " AND o.order_date >= ? AND o.order_date < ?";
+            $params[] = $filter_month . '-01';
+            $params[] = date('Y-m-01', strtotime($filter_month . '-01 +1 month'));
+        } else {
+            $where .= " AND DATE_FORMAT(o.order_date, '%Y-%m') = ?";
+            $params[] = $filter_month;
+        }
     }
     if ($filter_shop !== '') {
         $where .= " AND o.shop = ?";
@@ -104,7 +111,10 @@ if ($hasSearch) {
         $params[] = '%' . $filter_order_no . '%';
     }
     try {
-        $sql = "SELECT s.*, (SELECT COUNT(*) FROM orders o WHERE o.shop = s.name AND {$where}) AS order_count FROM shops s ORDER BY s.sort ASC, s.id ASC";
+        // 先按店铺分组统计一次再关联，避免每个店铺各扫一遍订单表。
+        $sql = "SELECT s.*, COALESCE(c.cnt, 0) AS order_count FROM shops s
+            LEFT JOIN (SELECT o.shop, COUNT(*) AS cnt FROM orders o WHERE {$where} GROUP BY o.shop) c ON c.shop = s.name
+            ORDER BY s.sort ASC, s.id ASC";
         $stmt = db()->prepare($sql);
         $stmt->execute($params);
         $shops = $stmt->fetchAll();
@@ -146,8 +156,8 @@ include __DIR__ . '/../includes/header.php';
                 <label class="mb-0 small">店铺</label>
                 <select name="shop" class="form-control form-control-sm">
                     <option value="">全部店铺</option>
-                    <?php foreach (get_shop_list() as $sl): ?>
-                    <option value="<?php echo e($sl['name']); ?>" <?php echo $filter_shop === $sl['name'] ? 'selected' : ''; ?>><?php echo e($sl['name']); ?></option>
+                    <?php foreach (get_shops() as $slName): ?>
+                    <option value="<?php echo e($slName); ?>" <?php echo $filter_shop === $slName ? 'selected' : ''; ?>><?php echo e($slName); ?></option>
                     <?php endforeach; ?>
                 </select>
             </div>
