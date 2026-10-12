@@ -2,6 +2,7 @@
                     $target = &$preview[$seen[$orderKey]];
                     $target['lines'][] = $record['line'];
                     $target['items'] = array_merge($target['items'] ?? [], $record['items']);
+                    $target['renewal_fields'] = pr_import_merge_fields($target['renewal_fields'] ?? [], $record['renewal_fields'] ?? []);
                     if (empty($record['base_valid']) || empty($target['base_valid'])) {
                         $target['base_valid'] = false;
                         $target['status'] = '需处理';

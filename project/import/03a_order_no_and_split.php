@@ -12,11 +12,12 @@
                     }
                     if ($record['order_no'] !== $lookup($row, 'order_no') && $lookup($row, 'order_no') !== '') $record['warning'] .= ($record['warning'] ? '；' : '') . '订单号“'
     . mb_substr($lookup($row, 'order_no'), 0, 40) . '”按“' . $record['order_no'] . '”识别（已去掉标签 / 备注，同号不会重复建单）';
-                    $siteBaseType = null;
+                    $siteBaseType = null; $siteBaseOrder = null;
                     if ($record['order_no'] !== '' && psp_is_website($record['project_type'])) {
-                        $siteTypeQuery = db()->prepare('SELECT project_type FROM project_orders WHERE order_no=? LIMIT 1');
+                        $siteTypeQuery = db()->prepare('SELECT id,project_type FROM project_orders WHERE order_no=? LIMIT 1');
                         $siteTypeQuery->execute([$record['order_no']]);
-                        $siteBaseType = $siteTypeQuery->fetchColumn();
+                        $siteBaseOrder = $siteTypeQuery->fetch();
+                        $siteBaseType = $siteBaseOrder['project_type'] ?? null;
                     }
                     // 同付款号的附加项行（SSL / 安全证书 / 补差价等）并回原单，不算另一个网站，也不需要网站项目标识
                     $isSiteAddon = $record['order_no'] !== '' && psp_is_website($record['project_type']) && psp_is_addon_program($lookup($row, 'program_name')) && trim((string)($fixSiteKeys[$record['line']] ?? '')) === '' && $lookup($row, 'site_project_key') === '' && $lookup($row, 'detail:website_url') === '';
@@ -30,11 +31,15 @@
                         if ($rawSiteKey !== '') $siteExplicit[$siteBase] = true;
                         elseif ($siteSeq[$siteBase] > 1 && empty($siteExplicit[$siteBase])) {
                             // 同一付款号有多个网站、表格没有域名 / 网站项目标识：按表格顺序自动标识（第 1 个网站同时补上标识），财务核对付款分配
-                            $rawSiteKey = 'auto-' . $siteSeq[$siteBase];
-                            $record['site_key_auto'] = true;
+                            $rootIdentity = $siteBaseOrder ? psp_order((int)$siteBaseOrder['id']) : null;
+                            $legacyMerged = $siteBaseOrder && !$rootIdentity;
+                            $rawSiteKey = $legacyMerged ? '' : ($rootIdentity ? psp_import_auto_key(psp_members((int)$rootIdentity['root_order_id']), $siteSeq[$siteBase], $lookup($row, 'contract_amount')) : 'auto-' . $siteSeq[$siteBase]);
+                            $record['site_key_auto'] = !$legacyMerged;
+                            $record['site_legacy_merged'] = $legacyMerged;
                             $firstIndex = $seen[$siteBase] ?? null;
-                            if ($firstIndex !== null && isset($preview[$firstIndex]) && empty($preview[$firstIndex]['site_key']) && !empty($preview[$firstIndex]['site_external_no'])) { $preview[$firstIndex]['site_key'] = 'auto-1'; $preview[$firstIndex]['site_key_auto'] = true; $siteSeenKeys[$siteBase]['auto-1'] = true; }
-                            $record['warning'] .= ($record['warning'] ? '；' : '') . '同一付款号有多个网站但表里没有域名 / 网站项目标识：已按表格顺序标为第 ' . $siteSeq[$siteBase] . ' 个网站';
+                            if ($legacyMerged && $firstIndex !== null && isset($preview[$firstIndex])) $preview[$firstIndex]['site_legacy_merged'] = true;
+                            if (!$legacyMerged && $firstIndex !== null && isset($preview[$firstIndex]) && empty($preview[$firstIndex]['site_key']) && !empty($preview[$firstIndex]['site_external_no'])) { $firstKey = $rootIdentity ? $rootIdentity['site_key'] : 'auto-1'; $preview[$firstIndex]['site_key'] = $firstKey; $preview[$firstIndex]['site_key_auto'] = !$rootIdentity; $siteSeenKeys[$siteBase][$firstKey] = true; }
+                            $record['warning'] .= ($record['warning'] ? '；' : '') . ($legacyMerged ? '历史同付款号订单已合并，本次保持原订单并合并附加行；拆分网站须补充各网站标识，不能靠行数重复建单' : '同付款号网站按原登记标识匹配；新网站须核对付款分配');
                         }
                         $record['site_key'] = $rawSiteKey !== '' ? psp_key($rawSiteKey) : '';
                         if ($record['site_key'] !== '') {
@@ -63,11 +68,18 @@
                                     }
                                 }
                             }
-                        } elseif ($siteSeq[$siteBase] > 1) {
+                        } elseif ($siteSeq[$siteBase] > 1 && empty($record['site_legacy_merged'])) {
                             $record['order_no'] = $siteBase . '~pending-' . $record['line'];
                         }
                         if ($siteSeq[$siteBase] > 1) $record['warning'] .= ($record['warning'] ? '；' : '') . '同一付款号有多个网站，须逐个标识项目并由财务核对总付款分配'
     ;
+                    }
+                    if ($isSiteAddon && isset($siteLastOrderNos[$record['order_no']])) {
+                        $addonBase = $record['order_no'];
+                        $record['order_no'] = $siteLastOrderNos[$addonBase];
+                        if ($record['order_no'] !== $addonBase) $record['multi_site_parent_no'] = $addonBase;
+                    } elseif (!$isSiteAddon && !empty($record['site_external_no'])) {
+                        $siteLastOrderNos[$record['site_external_no']] = $record['order_no'];
                     }
                     $record['payment_reference'] = trim((string)($fixPaymentReferences[$record['line']] ?? $lookup($row, 'payment_reference')));
                     if ($record['payment_reference'] === '' && $publicReference !== '') $record['payment_reference'] = $publicReference;

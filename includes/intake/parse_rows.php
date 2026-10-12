@@ -45,6 +45,7 @@ function ps_import_row_is_data($row)
  */
 function ps_import_headerless_map($rows, $knownShops, $employeesByName)
 {
+    require_once __DIR__ . '/../ProjectRenewalImportFields.php';
     $rows = array_slice(array_values(array_filter($rows, 'is_array')), 0, 50);
     $width = $rows ? max(array_map('count', $rows)) : 0;
     $columns = [];
@@ -59,7 +60,7 @@ function ps_import_headerless_map($rows, $knownShops, $employeesByName)
     if (!isset($map['order_no'])) return null;
     $pick('order_date', function ($v) { return (preg_match('/^\d{1,4}([.\/-]\d{1,2}){1,2}\.?$/', $v) || mb_strpos($v, '月') !== false || (is_numeric($v) && $v > 40000 && $v < 60000
     )) && ps_import_date($v); });
-    $pick('contact_note', function ($v) { return (bool)preg_match('/^1[3-9]\d{9}$/', $v); });
+    $pick('contact_note', function ($v) { return pr_import_phone_value($v, true) !== ''; });
     $pick('contract_amount', function ($v) { return is_numeric(str_replace([',', '¥', '￥'], '', $v)) && (float)str_replace([',', '¥', '￥'], '', $v) < 1000000; }, $map['order_no'
     ]);
     $pick('shop', function ($v) use ($knownShops) { foreach ($knownShops as $shop) if ($v === $shop || mb_strpos($shop, $v) !== false || mb_strpos($v, $shop) !== false) return true

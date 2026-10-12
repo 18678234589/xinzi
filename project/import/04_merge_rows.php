@@ -11,7 +11,7 @@
     ?? '');
                 foreach ($preview as &$siteRow) {
                     $external = (string)($siteRow['site_external_no'] ?? '');
-                    if ($external === '' || ($siteSeq[$external] ?? 0) < 2) continue;
+                    if ($external === '' || ($siteSeq[$external] ?? 0) < 2 || !empty($siteRow['site_legacy_merged'])) continue;
                     $keys = $siteKeysByExternal[$external] ?? [];
                     $autoKeys = array_filter($keys, function ($k) { return strpos((string)$k, 'auto-') === 0; });
                     if ($autoKeys && count($autoKeys) !== count($keys)) $keys[] = '';

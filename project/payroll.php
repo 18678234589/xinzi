@@ -1,6 +1,8 @@
 <?php
 require_once __DIR__ . '/../includes/ProjectSettlement.php';
 require_once __DIR__ . '/../includes/ProjectMonthly.php';
+require_once __DIR__ . '/../includes/ProjectPayrollOrderSummary.php';
+require_once __DIR__ . '/../includes/ProjectImportReconciliation.php';
 $actor = ps_require_actor();
 $month = (string)($_GET['month'] ?? date('Y-m', strtotime('first day of last month')));
 if (!preg_match('/^\d{4}-(0[1-9]|1[0-2])$/', $month)) $month = date('Y-m', strtotime('first day of last month'));
@@ -228,7 +230,150 @@ include __DIR__ . '/../includes/header.php';
 <?php endif; ?>
 <div class="alert alert-<?php echo $period['status'] === 'locked' ? 'secondary' : 'info'; ?>">项目分成月份 <?php echo e($month); ?>：<?php echo $period['status'] === 'locked' ? '已锁定（' . e($period['locked_at']) . '）' : '未锁定'; ?>。此状态仅锁定项目分成，不代表项目报酬已发放。</div>
 <?php if ($actor['role'] === 'finance' && $employeeId === 0 && $period['status'] !== 'locked'): ?><form method="post" class="text-right mb-3" onsubmit="return confirm('确认该月项目分成已核对？锁定后新订单不能计入本月。')"><input type="hidden" name="csrf" value="<?php echo e(ps_csrf_token()); ?>"><input type="hidden" name="action" value="lock_period"><input type="hidden" name="period" value="<?php echo e($month); ?>"><button class="btn btn-outline-danger btn-sm">锁定本月项目分成</button></form><?php endif; ?>
-<div class="card mb-3"><div class="card-body"><div class="row align-items-center"><div class="col-md-8"><div class="text-muted small"><?php echo $selectedEmployee ? e($selectedEmployee['name'] . ' · ' . $selectedEmployee['department']) : '全部合作人员'; ?> · <?php echo e($month); ?></div><h3 class="mb-0">应结算合计 ¥<?php echo money($total); ?></h3></div><div class="col-md-4 text-md-right text-muted small">逐单分成快照 + 售后调整 + 月度规则<?php echo $period['status'] === 'locked' ? '（已冻结）' : '（月度规则实时计算）'; ?></div></div></div></div>
+<?php
+// 算法明细：拆解应结算合计的构成（另行支付不计入）
+$orderRegistrationSummary = ps_payroll_order_summary($employeeId, $month);
+ps_payroll_order_summary_render($orderRegistrationSummary);
+ps_payroll_import_reconciliation_render(ps_payroll_import_reconciliation($employeeId, $month, $actor));
+$algoLines = [];
+// 待审核订单：明细里保留项目行（金额 0、不计入合计），避免未通过审核的项目在明细里消失（2026-10-10）。
+$pendingBounds = [$month . '-01', date('Y-m-01', strtotime($month . '-01 +1 month'))];
+// 跨月未结算单：订单日期在周期外但提交（created_at）在本周期起的，随本周期结算（如 8 月单 9 月周期提交 → 结 9 月，2026-10-12 业务口径）。
+$pendingQ = db()->prepare('SELECT o.project_type, COUNT(DISTINCT o.id) n FROM project_orders o JOIN project_participants p ON p.order_id=o.id WHERE o.settlement_status=\'draft\' AND ((o.order_date>=? AND o.order_date<?) OR (o.order_date<? AND o.created_at>=? AND o.created_at<?))' . ($employeeId > 0 ? ' AND p.employee_id=?' : '') . ' GROUP BY o.project_type ORDER BY o.project_type');
+$pendingParams = array_merge($pendingBounds, [$pendingBounds[0], $pendingBounds[0], $pendingBounds[1]]);
+if ($employeeId > 0) $pendingQ->execute(array_merge($pendingParams, [$employeeId]));
+else $pendingQ->execute($pendingParams);
+$pendingRows = $pendingQ->fetchAll();
+// 单量补贴规则（order_kind='*' 的 is_extra=1 每单补贴，如备案-提成提成表每单 1 元）：待审核占位行用（2026-10-12）。
+$wildSub = [];
+foreach (db()->query("SELECT project_type,per_order_subsidy,note FROM project_commission_rules WHERE is_extra=1 AND is_active=1 AND order_kind='*' AND per_order_subsidy>0 AND effective_from<='" . date('Y-m-t', strtotime($month . '-01')) . "'") as $wr) {
+    $wildSub[$wr['project_type']]['per'] = ($wildSub[$wr['project_type']]['per'] ?? 0) + (float)$wr['per_order_subsidy'];
+    $wildSub[$wr['project_type']]['note'] = trim((string)$wr['note']) !== '' ? trim((string)$wr['note']) : '单量补贴';
+}
+// 单量补贴走系统自动核对：核对通过的自动结算；查不到收款流水／实付异常的转人工审核（2026-10-12 口径）。
+$wildAuto = [];
+if ($wildSub) {
+    $waIn = '(' . implode(',', array_map(function ($t) { return db()->quote($t); }, array_keys($wildSub))) . ')';
+    $waQ = db()->prepare("SELECT o.project_type, a.state, COUNT(DISTINCT o.id) n FROM project_orders o LEFT JOIN project_auto_reviews a ON a.order_id=o.id JOIN project_participants p ON p.order_id=o.id WHERE o.settlement_status='draft' AND o.project_type IN " . $waIn . " AND ((o.order_date>=? AND o.order_date<?) OR (o.order_date<? AND o.created_at>=? AND o.created_at<?))" . ($employeeId > 0 ? ' AND p.employee_id=?' : '') . " GROUP BY o.project_type, a.state");
+    $waParams = array_merge($pendingBounds, [$pendingBounds[0], $pendingBounds[0], $pendingBounds[1]]);
+    if ($employeeId > 0) $waQ->execute(array_merge($waParams, [$employeeId]));
+    else $waQ->execute($waParams);
+    foreach ($waQ->fetchAll() as $wa) {
+        $bucket = $wa['state'] === null ? 'queued' : (in_array((string)$wa['state'], ['auto_passed', 'settled'], true) ? 'pass' : 'manual');
+        $wildAuto[$wa['project_type']][$bucket] = ($wildAuto[$wa['project_type']][$bucket] ?? 0) + (int)$wa['n'];
+    }
+}
+// 单量补贴占位行按自动核对结果拆分（单人 / 全员视图共用，2026-10-12）。
+$wildSubLines = function () use ($wildSub, $wildAuto) {
+    $lines = [];
+    foreach ($wildSub as $type => $w) {
+        $pass = (int)($wildAuto[$type]['pass'] ?? 0); $manual = (int)($wildAuto[$type]['manual'] ?? 0); $queued = (int)($wildAuto[$type]['queued'] ?? 0);
+        if ($pass > 0) $lines[] = [$type . '单量补贴（自动核对通过 ' . $pass . ' 单 × ¥' . money($w['per']) . '，待结算）', 0.0, $w['note'] . '；系统自动核对已通过，结算落库后随分成快照计入；预期 ¥' . money($pass * $w['per'])];
+        if ($manual > 0) $lines[] = [$type . '单量补贴（' . $manual . ' 单 × ¥' . money($w['per']) . '，待人工审核）', 0.0, $w['note'] . '；系统自动核对未通过的订单（收款流水未匹配或实付异常）转人工审核，财务核对收款后再批；预期 ¥' . money($manual * $w['per']) . '，审核通过后随分成快照计入，未审核不计入左列合计'];
+        if ($queued > 0) $lines[] = [$type . '单量补贴（' . $queued . ' 单待系统自动核对）', 0.0, $w['note'] . '；系统每 5 分钟自动核对，核对通过自动结算，查不到收款流水的转人工审核；预期 ¥' . money($queued * $w['per']) . '，未审核不计入左列合计'];
+    }
+    return $lines;
+};
+// 待审核拍链接补贴：每单 0.5 元只按“建站订单”列有值的单计（拍链接类）；未审核前为 0，仅占位提示预期金额（2026-10-12）。
+$linkPer = (float)(db()->query("SELECT per_order_subsidy FROM project_commission_rules WHERE is_extra=1 AND project_type='备案-提成' AND order_kind='拍链接' AND effective_from<='" . date('Y-m-t', strtotime($month . '-01')) . "' ORDER BY effective_from DESC, id DESC LIMIT 1")->fetchColumn() ?: 0);
+$linkN = 0;
+if ($linkPer > 0) {
+    // 同上口径：跨月未结算的拍链接单也计入本周期占位行（17 单 = 16 张 9 月 + 1 张 8 月 28 日，2026-10-12）。
+    $linkQ = db()->prepare('SELECT COUNT(DISTINCT o.id) FROM project_orders o JOIN project_participants p ON p.order_id=o.id WHERE o.settlement_status=\'draft\' AND o.project_type=\'备案-提成\' AND o.order_kind=\'拍链接\' AND ((o.order_date>=? AND o.order_date<?) OR (o.order_date<? AND o.created_at>=? AND o.created_at<?))' . ($employeeId > 0 ? ' AND p.employee_id=?' : ''));
+    $linkParams = array_merge($pendingBounds, [$pendingBounds[0], $pendingBounds[0], $pendingBounds[1]]);
+    if ($employeeId > 0) $linkQ->execute(array_merge($linkParams, [$employeeId]));
+    else $linkQ->execute($linkParams);
+    $linkN = (int)$linkQ->fetchColumn();
+}
+if ($employeeId > 0) {
+    $algoShare = 0.0; $algoSubsidy = 0.0;
+    foreach ($rows as $r) { $algoShare += (float)$r['commission_amount']; $algoSubsidy += (float)($r['subsidy_amount'] ?? 0); }
+    $algoAdjust = 0.0;
+    foreach ($adjustRows as $a) $algoAdjust += (float)$a['amount'];
+    // 算法明细分列：按业务类型拆成「提成行 / 单量行 / 每单补贴行」多条，不再合并成一条「逐单分成快照」（2026-10-10）。
+    $ruleIds = [];
+    foreach ($rows as $r) $ruleIds[(int)$r['rule_id']] = true;
+    $ruleMeta = [];
+    if ($ruleIds) {
+        $rq = db()->prepare('SELECT id,project_type,rate,per_order_subsidy,is_extra FROM project_commission_rules WHERE id IN (' . implode(',', array_keys($ruleIds)) . ')');
+        $rq->execute();
+        foreach ($rq->fetchAll() as $m) $ruleMeta[(int)$m['id']] = $m;
+    }
+    $shareGroups = []; $unitGroups = []; $subGroups = [];
+    foreach ($rows as $r) {
+        $meta = $ruleMeta[(int)$r['rule_id']] ?? null;
+        $type = $meta ? (string)$meta['project_type'] : ('规则 ' . (int)$r['rule_id']);
+        $comm = (float)$r['commission_amount'];
+        $sub = (float)($r['subsidy_amount'] ?? 0);
+        if (!$meta || (float)$meta['rate'] > 0) {
+            // 按比例分成的规则：分成部分留业务类型行，每单补助拆到补贴行
+            $shareGroups[$type]['n'] = ($shareGroups[$type]['n'] ?? 0) + 1;
+            $shareGroups[$type]['amt'] = round(($shareGroups[$type]['amt'] ?? 0) + $comm - $sub, 2);
+            if ($sub > 0) {
+                $subGroups[$type]['n'] = ($subGroups[$type]['n'] ?? 0) + 1;
+                $subGroups[$type]['amt'] = round(($subGroups[$type]['amt'] ?? 0) + $sub, 2);
+            }
+        } elseif (!empty($meta['is_extra'])) {
+            // 额外补贴规则（拍链接 0.5 元等）单独挂补贴行
+            $subGroups[$type]['n'] = ($subGroups[$type]['n'] ?? 0) + 1;
+            $subGroups[$type]['amt'] = round(($subGroups[$type]['amt'] ?? 0) + $comm, 2);
+        } else {
+            // rate=0 按单量计酬（备案-单量等）：整单金额算业务类型行，不进补贴行
+            $unitGroups[$type]['n'] = ($unitGroups[$type]['n'] ?? 0) + 1;
+            $unitGroups[$type]['amt'] = round(($unitGroups[$type]['amt'] ?? 0) + $comm, 2);
+            if ((float)$meta['per_order_subsidy'] > 0) $unitGroups[$type]['per'] = (float)$meta['per_order_subsidy'];
+        }
+    }
+    ksort($shareGroups); ksort($unitGroups); ksort($subGroups);
+    foreach ($shareGroups as $type => $g) {
+        $algoLines[] = [$type . '（' . (int)$g['n'] . ' 单）', $g['amt'], '规则中心按比例分成：每单 =（可结算收入 − 直接成本 − 服务费）× 分成比例 × 本人权重，服务费为合同额 × 3%' . ($subGroups ? '；每单补助已拆到「每单补贴金额」行' : '')];
+    }
+    foreach ($unitGroups as $type => $g) {
+        $algoLines[] = [$type . '（' . (int)$g['n'] . ' 单' . (!empty($g['per']) ? ' × ¥' . money($g['per']) : '') . '）', $g['amt'], '规则中心按单量计酬，每单固定金额，已含在左列金额'];
+    }
+    if ($subGroups) {
+        $subParts = []; $subTotal = 0.0; $subN = 0;
+        foreach ($subGroups as $type => $g) {
+            $subParts[] = $type . ' ¥' . money($g['amt']) . '（' . (int)$g['n'] . ' 单）';
+            $subTotal += $g['amt'];
+            $subN += (int)$g['n'];
+        }
+        $algoLines[] = ['每单补贴金额（' . (int)$subN . ' 单）', round($subTotal, 2), '规则中心每单补助（拍链接 0.5 元、单量规则外补贴等），来源：' . implode('、', $subParts) . '；已从对应分成行拆出单列'];
+    }
+    foreach ($pendingRows as $pending) {
+        $algoLines[] = [$pending['project_type'] . '（' . (int)$pending['n'] . ' 单待审核）', 0.0, ps_payroll_pending_reason_text($orderRegistrationSummary, $pending['project_type'])];
+    }
+    foreach ($wildSubLines() as $wildLine) $algoLines[] = $wildLine;
+    if ($linkN > 0 && $linkPer > 0) $algoLines[] = ['拍链接补贴（' . $linkN . ' 单 × ¥' . money($linkPer) . '，待审核）', 0.0, '拍链接每单 ' . money($linkPer) . ' 元补贴只按“建站订单”列有值的单计；预期 ¥' . money($linkN * $linkPer) . '，审核通过后随分成快照计入，未审核不计入左列合计'];
+    if ($adjustRows) $algoLines[] = ['售后调整（' . count($adjustRows) . ' 条）', $algoAdjust, '退款扣回 / 补发，按订单逐条调整后计入'];
+    foreach ($monthlyItems as $item) if (empty($item['paid_separately'])) $algoLines[] = [$item['rule_name'], (float)$item['amount'], (string)$item['detail']];
+} else {
+    $algoShare = 0.0; $algoBase = 0.0; $algoAttend = 0.0; $algoOther = 0.0;
+    foreach ($rows as $r) {
+        $algoShare += (float)$r['share']; $algoBase += (float)$r['base_fee'];
+        $algoAttend += (float)$r['attendance_bonus']; $algoOther += (float)$r['other'];
+    }
+    $algoLines[] = ['逐单分成 + 售后调整', $algoShare, '全员逐单分成快照（收入 − 成本 − 服务费后计提）与售后调整合计'];
+    if ($pendingRows) {
+        $pendingParts = [];
+        foreach ($pendingRows as $pending) $pendingParts[] = $pending['project_type'] . ' ' . (int)$pending['n'] . ' 单';
+        $algoLines[] = ['待审核项目（' . implode('、', $pendingParts) . '）', 0.0, ps_payroll_pending_reason_text($orderRegistrationSummary)];
+    }
+    foreach ($wildSubLines() as $wildLine) $algoLines[] = $wildLine;
+    if ($linkN > 0 && $linkPer > 0) $algoLines[] = ['拍链接补贴（' . $linkN . ' 单 × ¥' . money($linkPer) . '，待审核）', 0.0, '拍链接每单 ' . money($linkPer) . ' 元补贴只按“建站订单”列有值的单计；预期 ¥' . money($linkN * $linkPer) . '，审核通过后随分成快照计入，未审核不计入左列合计'];
+    $algoLines[] = ['固定服务费', $algoBase, '按规则中心配置 × 考勤折算'];
+    $algoLines[] = ['全勤奖', $algoAttend, '按考勤，须经财务批准'];
+    $algoLines[] = ['月度奖励与补助', $algoOther, '规则中心月度规则（不含另行支付）合计'];
+}
+?>
+<div class="card mb-3"><div class="card-body"><div class="row align-items-center"><div class="col-md-8"><div class="text-muted small"><?php echo $selectedEmployee ? e($selectedEmployee['name'] . ' · ' . $selectedEmployee['department']) : '全部合作人员'; ?> · <?php echo e($month); ?></div><h3 class="mb-0">应结算合计 ¥<?php echo money($total); ?></h3></div><div class="col-md-4 text-md-right text-muted small">逐单分成快照 + 售后调整 + 月度规则<?php echo $period['status'] === 'locked' ? '（已冻结）' : '（月度规则实时计算）'; ?></div></div>
+<details class="mt-2"><summary class="small text-primary" style="cursor:pointer;user-select:none">算法明细（点击展开）</summary>
+<div class="table-responsive mt-2"><table class="table table-sm table-bordered mb-0 bg-white"><thead><tr><th>项目</th><th class="text-right">金额</th><th>算法</th></tr></thead><tbody>
+<?php foreach ($algoLines as $algoLine): ?><tr><td><?php echo e($algoLine[0]); ?></td><td class="text-right font-weight-bold <?php echo $algoLine[1] < 0 ? 'text-danger' : ''; ?>">¥<?php echo money($algoLine[1]); ?></td><td class="small text-muted"><?php echo e($algoLine[2]); ?></td></tr><?php endforeach; ?>
+<tr class="table-light"><td class="font-weight-bold">应结算合计</td><td class="text-right font-weight-bold">¥<?php echo money($total); ?></td><td class="small text-muted">以上计入项之和<?php echo $separateTotal > 0 ? '；另行支付 ¥' . money($separateTotal) . ' 单独发放、不计入' : ''; ?></td></tr>
+</tbody></table></div>
+</details>
+</div></div>
 <?php if ($employeeId > 0): ?>
 <?php if ($hasFullSlip): $orderShare = 0.0; foreach ($rows as $r) $orderShare += (float)$r['commission_amount']; $adjustShare = 0.0; foreach ($adjustRows as $a) $adjustShare += (float)$a['amount']; ?>
 <div class="card mb-3 project-slip"><div class="card-header d-flex justify-content-between flex-wrap"><span>项目报酬结算单 · <?php echo e($selectedEmployee['name']); ?> · <?php echo e($month); ?></span><span class="text-muted small"><?php echo $period['status'] === 'locked' ? '已锁定' : '实时计算，锁月后冻结'; ?></span></div><div class="card-body">

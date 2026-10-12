@@ -10,7 +10,7 @@ function psp_is_website($business)
 function psp_is_addon_program($programName)
 {
     $name = mb_strtolower(trim((string)$programName), 'UTF-8');
-    if ($name === '') return true;
+    if ($name === '' || in_array($name, ['纯利润', '利润', '补款', '尾款'], true)) return true;
     return (bool)preg_match('/ssl|https|证书|域名|环境|配置|上传资料|补差价|差价|加语言|加急|加购|修改网站|网站修改|空间|服务器/u', $name);
 }
 
@@ -26,6 +26,17 @@ function psp_child_no($external, $key)
     $no = (string)$external . '~site-' . substr(hash('sha256', $key), 0, 12);
     if (strlen($no) > 100) throw new RuntimeException('订单号过长，无法生成网站项目编号，请联系财务');
     return $no;
+}
+
+/** 无标识重传只能复用唯一匹配的已登记网站，不能给已有网站再生成 auto-N 副本。 */
+function psp_import_auto_key($members, $sequence, $amount)
+{
+    $children = array_values(array_filter($members, function ($m) { return (int)$m['order_id'] !== (int)$m['root_order_id']; }));
+    if (!$children) return 'auto-' . (int)$sequence;
+    $amount = str_replace([',', '¥', '￥', ' '], '', trim((string)$amount));
+    $matches = is_numeric($amount) ? array_values(array_filter($children, function ($m) use ($amount) { return abs((float)$m['contract_amount'] - (float)$amount) < 0.005; })) : [];
+    if (count($matches) === 1) return $matches[0]['site_key'];
+    throw new RuntimeException('该付款号已有多个网站，本行无法唯一对应原网站；请补上域名或网站项目标识后再导入，系统不会另建重复订单');
 }
 
 function psp_lookup($external, $key)

@@ -57,6 +57,8 @@ function ps_order_no_canonical($raw)
 {
     $no = trim((string)$raw);
     $no = trim(preg_replace('/^(?:订单编号|订单号|订单|单号|编号)\s*[:：]\s*/u', '', $no));
+    // Excel 文本格式的前导单引号不是订单号的一部分；旧表重传也须落到同一付款号。
+    $no = preg_replace("/^['＇’]+(?=[\\p{Han}A-Za-z0-9_-]{6,})/u", '', $no);
     if (preg_match('/^[\p{Han}]{0,4}[A-Za-z0-9_-]{6,}/u', $no, $m)) return $m[0];
     return $no;
 }
