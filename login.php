@@ -10,10 +10,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $password = (string)($_POST['password'] ?? '');
     $captcha  = trim($_POST['captcha'] ?? '');
 
+    // 验证码一次有效：不论填对填错都立即作废，必须重新获取，不能用同一个验证码连续试密码。
+    $expectedCaptcha = (string)($_SESSION['captcha'] ?? '');
+    unset($_SESSION['captcha']);
+
     // 双重验证：第一重 用户名+密码，第二重 图形验证码
     if ($username === '' || $password === '') {
         $error = '请输入用户名和密码';
-    } elseif ($captcha === '' || strcasecmp($captcha, $_SESSION['captcha'] ?? '') !== 0) {
+    } elseif (auth_login_locked($username)) {
+        // 锁定期间连正确密码也不接受，避免攻击者借此判断是否猜中。
+        $error = '登录尝试过于频繁，请 ' . AUTH_THROTTLE_WINDOW_MINUTES . ' 分钟后再试';
+    } elseif ($captcha === '' || $expectedCaptcha === '' || strcasecmp($captcha, $expectedCaptcha) !== 0) {
+        auth_login_failed($username, false);
         $error = '验证码错误，请重新输入';
     } else {
         $stmt = db()->prepare("SELECT * FROM admins WHERE username = ? LIMIT 1");
@@ -21,11 +29,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $admin = $stmt->fetch();
 
         if ($admin && auth_password_verify($password, $admin['password'])) {
-            unset($_SESSION['captcha']); // 验证通过后清除验证码
+            auth_login_succeeded($username);
+            auth_password_upgrade($admin['id'], $password, $admin['password'], $admin['username']);
             unset($_SESSION['project_user_id']);
             $_SESSION['admin_id']       = $admin['id'];
             $_SESSION['admin_username'] = $admin['username'];
             $_SESSION['auth_version'] = (int)($admin['auth_version'] ?? 0);
+            $_SESSION['vault_pw_ok'] = auth_password_is_strong($password);
             session_regenerate_id(true);
             header('Location: ' . BASE_URL . '/index.php');
             exit;
@@ -37,10 +47,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $staffQuery->execute([$username, $username]);
                 $staff = $staffQuery->fetch();
                 if ($staff && password_verify($password, $staff['password_hash'])) {
-                    unset($_SESSION['captcha']);
+                    auth_login_succeeded($username);
                     unset($_SESSION['admin_id'], $_SESSION['admin_username']);
                     $_SESSION['project_user_id'] = (int)$staff['id'];
                     $_SESSION['auth_version'] = (int)($staff['auth_version'] ?? 0);
+                    $_SESSION['vault_pw_ok'] = auth_password_is_strong($password);
                     unset($_SESSION['rip_shown']); // 每次登录都重新提醒补录续费资料
                     session_regenerate_id(true);
                     $destination = !$staff['phone'] ? '/project/profile.php?first=1' : (($staff['role'] === 'governance') ? (empty($staff['password_changed_at']) ? '/project/profile.php?password=1' : '/project/governance_ideas.php') : '/project/index.php');
@@ -50,6 +61,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             } catch (PDOException $ignored) {
                 // 项目迁移尚未执行时，保持现有管理员登录流程。
             }
+            auth_login_failed($username);
             $error = '用户名或密码错误';
         }
     }

@@ -12,7 +12,7 @@ if ($_SERVER['REQUEST_METHOD']==='POST') {
             if ($captcha==='' || $expected==='' || strcasecmp($captcha,$expected)!==0) throw new RuntimeException('图形验证码错误，请点击图片刷新后重试');
             $username=trim((string)($_POST['username']??'')); $phone=trim((string)($_POST['phone']??''));
             if ($username==='' || strlen($username)>100) throw new RuntimeException('请输入用户名');
-            $_SESSION['recovery_reset_id']=$service->send('reset',$username,$phone,session_id(),(string)($_SERVER['REMOTE_ADDR']??''));
+            $_SESSION['recovery_reset_id']=$service->send('reset',$username,$phone,session_id(),auth_client_ip());
             $sent=true;
             $success='若账号与绑定手机号匹配，将发送验证码。验证码有效期 5 分钟，60 秒内请勿重复获取。';
         } elseif (($_POST['action']??'')==='reset') {

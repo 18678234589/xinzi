@@ -2,6 +2,35 @@
 require_once __DIR__ . '/../includes/ProjectVault.php';
 
 $actor = pv_require_access();
+if (!pv_password_ok()) {
+    // 登录密码不达标：不读取、不输出任何条目，只给弹窗说明。
+    $gateMessage = '您的登录密码不符合安全要求，暂时不能进入“平台与服务器信息”。';
+    if ($_SERVER['REQUEST_METHOD'] === 'POST') { http_response_code(403); header('Content-Type: application/json; charset=utf-8'); echo json_encode(['error' => $gateMessage . '请先修改密码。'], JSON_UNESCAPED_UNICODE); exit; }
+    header('Cache-Control: no-store, max-age=0');
+    $page_title = '平台与服务器信息';
+    include __DIR__ . '/../includes/header.php';
+    $changeUrl = pv_password_change_url($actor);
+    ?>
+<div class="card"><div class="card-body text-center py-5">
+  <i class="fas fa-lock fa-2x text-warning mb-3"></i>
+  <h5><?php echo e($gateMessage); ?></h5>
+  <p class="text-muted mb-3">请先把登录密码改成<strong>至少 10 位，且同时含大写和小写字母</strong>。</p>
+  <a class="btn btn-primary" href="<?php echo e($changeUrl); ?>">去修改密码</a> <a class="btn btn-outline-secondary" href="<?php echo BASE_URL; ?>/index.php">返回首页</a>
+</div></div>
+<div class="modal fade" id="vaultPwGate" tabindex="-1" role="dialog" aria-labelledby="vaultPwGateTitle" data-backdrop="static" data-keyboard="false"><div class="modal-dialog modal-dialog-centered" role="document"><div class="modal-content">
+  <div class="modal-header bg-warning"><h5 class="modal-title" id="vaultPwGateTitle"><i class="fas fa-exclamation-triangle mr-1"></i>登录密码强度不够</h5></div>
+  <div class="modal-body">
+    <p>“平台与服务器信息”里保存着服务器和各平台的账号密码，进入前要求登录密码：</p>
+    <ul class="mb-2"><li>至少 <strong>10 位</strong></li><li>同时包含<strong>大写字母和小写字母</strong></li></ul>
+    <p class="small text-muted mb-0">您当前这次登录使用的密码不满足要求，所以已被禁止进入。修改密码后即可进入；如果您的密码已经符合要求，请退出后重新登录一次。</p>
+  </div>
+  <div class="modal-footer"><a class="btn btn-outline-secondary" href="<?php echo BASE_URL; ?>/index.php">返回首页</a><a class="btn btn-primary" href="<?php echo e($changeUrl); ?>">去修改密码</a></div>
+</div></div></div>
+<script>window.addEventListener('load', function () { if (window.jQuery) jQuery('#vaultPwGate').modal('show'); });</script>
+<?php
+    include __DIR__ . '/../includes/footer.php';
+    exit;
+}
 if (!headers_sent()) { header('Cache-Control: no-store, max-age=0'); header('X-Robots-Tag: noindex'); }
 $canManageAccess = pv_can_manage_access($actor);
 $error = '';

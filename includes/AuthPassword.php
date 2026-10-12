@@ -6,6 +6,12 @@ function auth_password_verify($plain, $stored)
         ? hash_equals(strtolower((string)$stored), md5((string)$plain))
         : password_verify((string)$plain, (string)$stored);
 }
+/** 进入“平台与服务器信息”栏目的密码要求：至少 10 位，且同时含大写与小写字母。 */
+function auth_password_is_strong($password)
+{
+    $password = (string)$password;
+    return mb_strlen($password, 'UTF-8') >= 10 && preg_match('/[a-z]/', $password) === 1 && preg_match('/[A-Z]/', $password) === 1;
+}
 function auth_password_validate($password, $confirmation, $username)
 {
     if (strlen($password) < 8 || strlen($password) > 72 || in_array($password, ['12345678','123456789','88888888','11111111'], true)) throw new RuntimeException('新密码须为 8–72 字节，不能使用简单密码');
@@ -22,7 +28,7 @@ function auth_session_validate()
     $q->execute([(int)$_SESSION[$field]]);
     $account = $q->fetch();
     if (!$account || ($type === 'employee' && !$account['is_active']) || (int)($account['auth_version'] ?? 0) !== (int)($_SESSION['auth_version'] ?? 0)) {
-        unset($_SESSION['admin_id'], $_SESSION['admin_username'], $_SESSION['project_user_id'], $_SESSION['auth_version']);
+        unset($_SESSION['admin_id'], $_SESSION['admin_username'], $_SESSION['project_user_id'], $_SESSION['auth_version'], $_SESSION['vault_pw_ok']);
         session_regenerate_id(true);
     }
 }

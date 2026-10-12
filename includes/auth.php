@@ -7,6 +7,7 @@ session_start();
 require_once __DIR__ . '/../config/database.php';
 require_once __DIR__ . '/functions.php';
 require_once __DIR__ . '/AuthPassword.php';
+require_once __DIR__ . '/AuthThrottle.php';
 auth_session_validate();
 
 /**

@@ -41,6 +41,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $change->execute([password_hash($new, PASSWORD_DEFAULT), $actor['id'], (int)$user['auth_version'], $user['password_hash']]);
             if ($change->rowCount() !== 1) throw new RuntimeException('账号信息已变更，请重新登录后操作');
             $_SESSION['auth_version'] = (int)$user['auth_version'] + 1;
+            $_SESSION['vault_pw_ok'] = auth_password_is_strong($new);
             session_regenerate_id(true);
             ps_audit('account', $actor['id'], 'change_password', $actor, []);
             $success = '密码已修改，请记住新密码';

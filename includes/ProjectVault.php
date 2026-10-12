@@ -143,6 +143,17 @@ function pv_parse_local($text)
         // 没写“账号”标签但紧挨着密码前的单词（如 root password=…）
         if ($item['account'] === '' && $item['password'] !== '' && preg_match('/(?:^|\s)([A-Za-z0-9_.@-]{2,40})\s+(?:密码|password|pwd|pass)/iu', preg_replace('/\s+/u', ' ', $block), $m) && !preg_match('/^(mysql|redis|ftp|ssh)$/i', $m[1])) { $item['account'] = $m[1]; $rest = preg_replace('/(?<!\S)' . preg_quote($m[1], '/') . '(?!\S)/u', ' ', $rest, 1); }
         $rest = trim(preg_replace('/\s+/u', ' ', $rest));
+/** 本次登录用的密码是否达标（登录或改密码时写入会话；旧会话没有记录，按未达标处理）。命令行脚本不经过网页登录，不受此限。 */
+function pv_password_ok()
+{
+    return PHP_SAPI === 'cli' || !empty($_SESSION['vault_pw_ok']);
+}
+
+function pv_password_change_url($actor)
+{
+    return BASE_URL . ($actor && $actor['type'] === 'admin' ? '/project/system.php#my-password' : '/project/profile.php');
+}
+
         // 名称：剩余文字的前几个词；其余作为备注（如安全入口、到期时间）
         $words = $rest === '' ? [] : explode(' ', $rest);
         $nameWords = [];
