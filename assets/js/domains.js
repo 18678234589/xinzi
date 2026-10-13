@@ -2,12 +2,19 @@
   'use strict';
   var root = document.getElementById('domainConsole');
   if (!root) return;
-  var csrf = root.dataset.csrf, page = 1, total = 0, search = '', domain = '', sequence = 0, detailSequence = 0, editRecord = null, rows = [], externalDns = '';
+  var csrf = root.dataset.csrf, page = 1, total = 0, search = '', domain = '', sequence = 0, detailSequence = 0, recordsSequence = 0, editRecord = null, rows = [], recordProvider = '', recordLabel = '';
   var byId = function (id) { return document.getElementById(id); };
   var esc = function (v) { return String(v == null ? '' : v).replace(/[&<>"']/g, function (x) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[x]; }); };
   // 添加 / 编辑解析的表单在抽屉下方，顶部的提示看不到：表单打开时把结果显示在表单旁边，并滚动到可见位置。
   var message = function (text, detail, error) {
     var box = byId(detail ? 'domainDetailNotice' : 'domainNotice'), form = byId('domainRecordForm'), inline = byId('recordFormStatus');
+    var nsInline = byId('nsFormStatus'), nsPanel = byId('domainNs');
+    if (detail && nsInline && nsPanel && !nsPanel.hidden) {
+      if (inline) inline.hidden = true;
+      box.hidden = true; nsInline.textContent = text; nsInline.hidden = !text; nsInline.classList.toggle('error', !!error);
+      if (text && nsInline.scrollIntoView) nsInline.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+      return;
+    }
     var recordsPanel = byId('domainRecords');
     var useInline = !!(detail && inline && text && ((form && !form.hidden) || (recordsPanel && !recordsPanel.hidden)));
     if (inline) { inline.textContent = useInline ? text : ''; inline.hidden = !useInline; inline.classList.toggle('error', !!error); }
@@ -27,13 +34,14 @@
       try { data = await response.json(); } catch (_) { throw new Error('暂未收到有效响应，请稍后重试'); }
       if (!response.ok || !data.ok) throw new Error(data.error || '操作暂未成功');
       return data.data;
-    } catch (e) { if (e.name === 'AbortError') throw new Error('商务中国响应较慢，请稍后重试；修改类操作请先刷新核对结果，勿重复提交'); throw e; }
+    } catch (e) { if (e.name === 'AbortError') throw new Error('服务商响应较慢，请稍后重试；修改类操作请先刷新核对结果，勿重复提交'); throw e; }
     finally { clearTimeout(timer); }
   }
   async function busy(button, work) {
     if (button.disabled) return;
+    var requestedDomain = domain, inDetail = byId('domainDrawer').open;
     var text = button.innerHTML; button.disabled = true; button.textContent = '处理中…';
-    try { await work(); } catch (e) { message(e.message, byId('domainDrawer').open, true); }
+    try { await work(); } catch (e) { if (!inDetail || (byId('domainDrawer').open && requestedDomain === domain)) message(e.message, inDetail, true); }
     finally { button.disabled = false; button.innerHTML = text; }
   }
   function date(value) { return value ? String(value).slice(0, 10) : '暂未返回'; }
@@ -70,7 +78,7 @@
   }
   async function openDetail(name) {
     domain = name; var current = ++detailSequence;
-    externalDns = ''; byId('domainDnsWarning').hidden = true; byId('domainExternalDnsLink').hidden = true;
+    recordProvider = ''; recordLabel = ''; recordsSequence++; byId('domainDnsWarning').hidden = true; byId('domainExternalDnsLink').hidden = true; byId('nsFormStatus').hidden = true;
     byId('domainDetailName').textContent = domain; message('', true);
     byId('domainOverview').innerHTML = '<p class="domain-help">正在读取域名详情…</p>';
     byId('domainNsValue').value = ''; byId('domainRecordForm').hidden = true;
@@ -80,37 +88,39 @@
       if (data.warning) message(data.warning, true, false);
       var info = data.info, ns = [];
       for (var n = 1; n <= 6; n++) if (info['dns_host' + n]) ns.push(info['dns_host' + n]);
-      var nsNames = ns.map(function (host) { return String(host).toLowerCase().replace(/\.$/, ''); });
-      var businessNs = nsNames.length && nsNames.every(function (host) { return /\.cnmsn\.net$/.test(host) || /^bizcn[12]\.dnspod\.net$/.test(host); });
-      if (nsNames.length && !businessNs) {
-        var provider = nsNames.every(function (host) { return /\.dnspod\.(net|com|cn)$/.test(host); }) ? 'dnspod' : (nsNames.every(function (host) { return /\.ns\.cloudflare\.com$/.test(host); }) ? 'cloudflare' : '');
-        externalDns = provider === 'dnspod' ? 'DNSPod' : (provider === 'cloudflare' ? 'Cloudflare' : '外部解析服务');
-        var warn = byId('domainDnsWarning'); warn.textContent = '注册商 NS 指向 ' + externalDns + '。这里编辑的是商务中国记录，不会修改外部服务商正在使用的记录。请进入本站解析管理修改实际使用的解析。'; warn.hidden = false;
-        var link = byId('domainExternalDnsLink'); link.href = 'dns.php?d=' + encodeURIComponent(domain) + (provider ? '&p=' + provider : ''); link.hidden = false;
-      }
       byId('domainNsValue').value = ns.join('\n');
       if(window.bizcnNsSync)window.bizcnNsSync(byId('domainNsValue'));
-      byId('domainOverview').innerHTML = '<div class="domain-detail-grid">' + [['注册时间', date(info.reg_date)], ['到期时间', date(info.expire_date)], ['注册商', info.registrar || '暂未返回'], ['域名状态', info.status || '暂未返回'], ['WHOIS 核验状态', info.whois_status || '暂未返回'], ['实名状态（注册商原值）', info.dnvc_status || '请在实名页查询']].map(function (pair) { return '<article><span>' + esc(pair[0]) + '</span><strong>' + esc(pair[1]) + '</strong></article>'; }).join('') + '</div><div class="domain-ns-summary"><h3>当前 NS</h3><p>' + (ns.length ? ns.map(esc).join('<br>') : '注册商暂未返回 NS') + '</p></div>';
+      byId('domainOverview').innerHTML = '<div class="domain-detail-grid">' + [['注册时间', date(info.reg_date)], ['到期时间', date(info.expire_date)], ['注册商', info.registrar || '暂未返回'], ['域名状态', info.status || '暂未返回'], ['WHOIS 核验状态', info.whois_status || '暂未返回'], ['实名状态（注册商原值）', info.dnvc_status || '请在实名页查询']].map(function (pair) { return '<article><span>' + esc(pair[0]) + '</span><strong>' + esc(pair[1]) + '</strong></article>'; }).join('') + '</div><div class="domain-ns-summary"><h3>当前 NS</h3><p id="domainCurrentNs">' + (ns.length ? ns.map(esc).join('<br>') : '注册商暂未返回 NS') + '</p></div>';
     } catch (e) { if (current === detailSequence) message(e.message, true, true); }
   }
   async function records(savedMessage) {
-    var requested = domain, current = detailSequence;
+    var requested = domain, current = detailSequence, read = ++recordsSequence;
+    recordProvider = ''; byId('domainAddRecord').disabled = true; byId('domainRecordForm').hidden = true;
+    byId('domainRecordHelp').textContent = '正在根据当前 NS 连接解析服务商…';
     byId('domainRecordRows').innerHTML = '<p class="domain-help">正在读取解析…</p>';
     try {
-      var data = await api('records', { domain: requested }); if (current !== detailSequence) return;
+      var data = await api('records', { domain: requested }); if (current !== detailSequence || read !== recordsSequence) return;
+      recordProvider = data.provider || 'bizcn'; recordLabel = data.provider_label || '商务中国';
+      byId('domainAddRecord').disabled = false;
+      byId('domainRecordHelp').textContent = '当前解析服务商：' + recordLabel + '。此处直接通过 API 管理该服务商的解析记录。';
       byId('domainRecordRows').innerHTML = data.rows.length ? data.rows.map(function (row, i) {
-        return '<article class="domain-record"><span class="domain-record-type">' + esc(row.type) + '</span><div><strong>' + esc(row.host) + '</strong><code>' + esc(row.value) + '</code><small>优先级 ' + esc(row.mxlevel || '—') + '</small></div><button class="domain-btn ghost" data-record-edit="' + i + '">编辑</button><button class="domain-btn danger" data-record-delete="' + i + '">删除</button></article>';
-      }).join('') : '<p class="domain-empty">当前未返回解析记录。若 NS 在外部服务商，请到对应平台管理。</p>';
+        return '<article class="domain-record"><span class="domain-record-type">' + esc(row.type) + '</span><div><strong>' + esc(row.host) + '</strong><code>' + esc(row.value) + '</code><small>' + (row.ttl ? 'TTL ' + esc(row.ttl === 1 ? '自动' : row.ttl + ' 秒') + ' · ' : '') + (row.line ? esc(row.line) + ' · ' : '') + (row.proxied ? '已开启代理 · ' : '') + (row.enabled === false ? '已停用 · ' : '') + '优先级 ' + esc(row.mxlevel == null ? '—' : row.mxlevel) + '</small></div>' + (row.editable === false ? '<small>只读</small>' : '<button class="domain-btn ghost" data-record-edit="' + i + '">编辑</button><button class="domain-btn danger" data-record-delete="' + i + '">删除</button>') + '</article>';
+      }).join('') : '<p class="domain-empty">' + esc(recordLabel) + ' 暂无解析记录，可以直接添加。</p>';
       byId('domainRecordRows').querySelectorAll('[data-record-edit]').forEach(function (button) { button.onclick = function () { recordForm(data.rows[Number(button.dataset.recordEdit)]); }; });
-      byId('domainRecordRows').querySelectorAll('[data-record-delete]').forEach(function (button) { button.onclick = function () { var row = data.rows[Number(button.dataset.recordDelete)]; if (!window.confirm('确认删除 ' + requested + ' 的 ' + row.host + ' / ' + row.type + ' 记录？可能影响网站或邮箱。')) return; busy(button, async function () { await api('record_delete', { domain: requested, confirm: requested, type: row.type, host: row.host, old_value: row.value, priority: row.mxlevel || 10 }); message('解析记录已删除', true); await records(); }); }; });
-    } catch (e) { if (current === detailSequence) { byId('domainRecordRows').innerHTML = ''; message(savedMessage ? savedMessage + '。但记录列表刷新失败：' + e.message + '，请稍后刷新核对，勿重复保存。' : e.message, true, true); } }
+      byId('domainRecordRows').querySelectorAll('[data-record-delete]').forEach(function (button) { button.onclick = function () { var row = data.rows[Number(button.dataset.recordDelete)]; if (!window.confirm('确认删除 ' + requested + ' 在 ' + recordLabel + ' 的 ' + row.host + ' / ' + row.type + ' 记录？可能影响网站或邮箱。')) return; busy(button, async function () { var result = await api('record_delete', { domain: requested, confirm: requested, provider: data.provider || 'bizcn', record_id: row.id || '', record_revision: row.revision || '', type: row.type, host: row.host, old_value: row.value, priority: row.mxlevel || 10 }); if (current !== detailSequence) return; var saved = result.message || '解析记录已删除'; message(saved, true); await records(saved); }); }; });
+    } catch (e) { if (current === detailSequence && read === recordsSequence) { byId('domainRecordHelp').textContent = '暂未连接到当前解析服务商，请刷新解析记录重试。'; byId('domainRecordRows').innerHTML = ''; message(savedMessage ? savedMessage + '。但记录列表刷新失败：' + e.message + '，请稍后刷新核对，勿重复保存。' : e.message, true, true); } }
   }
   function recordForm(row) {
+    if (!recordProvider || (row && row.editable === false)) return;
     editRecord = row || null; byId('domainRecordForm').hidden = false; message('', true);
     byId('domainRecordTitle').textContent = row ? '编辑解析' : '添加解析';
     byId('recordType').value = row ? row.type : 'A'; byId('recordHost').value = row ? row.host : '@';
-    byId('recordType').disabled = byId('recordHost').disabled = false; byId('recordEditHint').hidden = !row; // 类型 / 主机可改：改动时后端先新增、再删旧记录
-    byId('recordValue').value = row ? row.value : ''; byId('recordPriority').value = row ? (row.mxlevel || 10) : 10;
+    byId('recordType').disabled = byId('recordHost').disabled = false; byId('recordEditHint').hidden = !row;
+    byId('recordEditHint').textContent = recordProvider === 'bizcn' ? '修改为 CNAME 等互斥类型时，会先删除原记录再添加；添加失败会尝试恢复原记录。请提交后查看结果提示。' : '保存后将直接修改 ' + recordLabel + ' 中的这条记录。';
+    byId('recordType').querySelectorAll('option').forEach(function (option) { option.disabled = recordProvider !== 'bizcn' && ['SRV', 'CAA'].indexOf(option.value) >= 0; });
+    byId('recordValue').value = row ? row.value : ''; byId('recordPriority').value = row && row.mxlevel != null ? row.mxlevel : 10;
+    byId('recordTtlWrap').hidden = recordProvider === 'bizcn'; byId('recordTtl').value = row && row.ttl != null ? row.ttl : 600;
+    byId('recordProxyWrap').hidden = recordProvider !== 'cloudflare'; byId('recordProxyMode').value = row && row.proxied ? '1' : '0';
     byId('recordValue').focus();
   }
   async function realname() {
@@ -145,10 +155,10 @@
   byId('domainClose').onclick = function () { byId('domainDrawer').close(); detailSequence++; };
   byId('domainDrawer').addEventListener('close', function () { detailSequence++; });
   root.querySelectorAll('[data-tab]').forEach(function (b) { b.onclick = function () { tab(b.dataset.tab); }; });
-  byId('domainNsForm').onsubmit = function (e) { e.preventDefault(); var requested = domain; if (!window.confirm('确认将 ' + requested + ' 的 NS 修改为：\n' + byId('domainNsValue').value + '\n\n请确保新 NS 上已有完整解析。')) return; busy(e.submitter || this.querySelector('button'), async function () { var data = await api('ns', { domain: requested, confirm: requested, ns: byId('domainNsValue').value }); message(data.message, true); }); };
+  byId('domainNsForm').onsubmit = function (e) { e.preventDefault(); var requested = domain, current = detailSequence; if (!window.confirm('确认将 ' + requested + ' 的 NS 修改为：\n' + byId('domainNsValue').value + '\n\n请确保新 NS 上已有完整解析。')) return; busy(e.submitter || this.querySelector('button'), async function () { var data = await api('ns', { domain: requested, confirm: requested, ns: byId('domainNsValue').value }); if (current !== detailSequence) return; detailSequence++; recordProvider = ''; recordsSequence++; byId('domainRecordForm').hidden = true; if (data.nameservers) { byId('domainNsValue').value = data.nameservers.join('\n'); if (byId('domainCurrentNs')) byId('domainCurrentNs').innerHTML = data.nameservers.map(esc).join('<br>'); } message(data.message || 'NS 服务器已修改成功，全球生效需等待 DNS 缓存更新', true); }); };
   byId('domainAddRecord').onclick = function () { recordForm(null); };
   byId('recordCancel').onclick = function () { byId('domainRecordForm').hidden = true; };
-  byId('domainRecordForm').onsubmit = function (e) { e.preventDefault(); var requested = domain, old = editRecord; var reminder = externalDns ? '\n\n注册商 NS 指向 ' + externalDns + '：本次只修改商务中国记录，不会修改外部解析。是否仍要保存到商务中国？' : ''; if (!window.confirm('确认' + (old ? '修改' : '添加') + ' ' + requested + ' 的解析记录？' + reminder)) return; busy(e.submitter || this.querySelector('button'), async function () { var data = await api(old ? 'record_edit' : 'record_add', { domain: requested, confirm: requested, type: byId('recordType').value, host: byId('recordHost').value, value: byId('recordValue').value, old_value: old ? old.value : '', old_type: old ? old.type : '', old_host: old ? old.host : '', old_priority: old ? (old.mxlevel || 10) : '', priority: byId('recordPriority').value }); byId('domainRecordForm').hidden = true; var saved = data.message || '解析记录已保存成功'; if (externalDns) saved += '（仅保存商务中国记录；' + externalDns + ' 解析未变更）'; message(saved, true); await records(saved); }); };
+  byId('domainRecordForm').onsubmit = function (e) { e.preventDefault(); if (!recordProvider) return; var requested = domain, old = editRecord, current = detailSequence; if (!window.confirm('确认' + (old ? '修改' : '添加') + ' ' + requested + ' 在 ' + recordLabel + ' 的解析记录？')) return; busy(e.submitter || this.querySelector('button'), async function () { var data = await api(old ? 'record_edit' : 'record_add', { domain: requested, confirm: requested, provider: recordProvider, record_id: old ? (old.id || '') : '', record_revision: old ? (old.revision || '') : '', ttl: byId('recordTtl').value, proxied: byId('recordProxyMode').value, type: byId('recordType').value, host: byId('recordHost').value, value: byId('recordValue').value, old_value: old ? old.value : '', old_type: old ? old.type : '', old_host: old ? old.host : '', old_priority: old ? (old.mxlevel || 10) : '', priority: byId('recordPriority').value }); if (current !== detailSequence) return; byId('domainRecordForm').hidden = true; var saved = data.message || '解析记录已保存成功'; message(saved, true); await records(saved); }); };
   root.querySelectorAll('[data-panel]').forEach(function (button) { button.onclick = function () {
     // Open synchronously so browsers do not block the tab after asynchronous IO.
     var popup = window.open('about:blank', '_blank'); if (!popup) { message('请允许浏览器打开新窗口后重试', true, true); return; }

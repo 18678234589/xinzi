@@ -1,6 +1,7 @@
 <?php
 require_once __DIR__ . '/../includes/BizcnDomains.php';
 require_once __DIR__ . '/../includes/BizcnRegistration.php';
+require_once __DIR__ . '/../includes/BizcnDnsRouting.php';
 $actor = ps_require_actor();
 if (!bd_can_access($actor)) { http_response_code(403); exit('当前账户未分配域名管理权限'); }
 header('Cache-Control: no-store, max-age=0');
@@ -27,7 +28,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $domain = bd_domain($_POST['domain'] ?? '');
             $snapshot=bc_find($domain);
             // Snapshot membership permits reading only. Writes and panel tokens keep live ownership checks.
-            if (!$snapshot || !in_array($action,['detail','records','realname'],true)) bd_require_owned($domain);
+            $owned=null;
+            if (!$snapshot || !in_array($action,['detail','records','realname'],true)) $owned=bd_require_owned($domain);
+            if(in_array($action,['record_add','record_edit','record_delete'],true)) {
+                $dnsContext=bdr_context($domain,$owned);
+                if(($dnsContext['provider']==='bizcn') && !empty($_POST['provider']) && $_POST['provider']!=='bizcn') throw new RuntimeException('域名的解析服务商已变化，请刷新解析记录后重试');
+            }
             if ($action === 'detail') {
                 $whois=[];$warning='';$live=false;
                 try {$whois=bd_call('infoDomainWhoisService', 'infoDomainWhois', ['infoDomainWhois'=>['domainname'=>$domain,'detailed'=>'false']]);$live=true;}
@@ -39,8 +45,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 foreach($base as $key=>$value)if(!isset($info[$key]) || $info[$key]==='')$info[$key]=$value;
                 $result = ['domain'=>$domain,'info'=>$info,'live'=>$live,'warning'=>$warning,'snapshot_date'=>$snapshot['source_as_of'] ?? null,'owner_username'=>$snapshot['owner_username'] ?? ''];
             } elseif ($action === 'records') {
-                $data = bd_call('infoDnsRecordService','infoDnsRecord',['domainname'=>$domain]);
-                $result = ['rows'=>bd_rows($data['records']['record'] ?? [])];
+                $result = bdr_records($domain,bdr_context($domain,$owned));
             } elseif ($action === 'realname') {
                 $result = bd_call('domainService','domainAuditQuery',['domainname'=>$domain]);
             } elseif ($action === 'panel') {
@@ -54,7 +59,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 ps_audit('domain',0,'ns_requested',$actor,['domain'=>$domain,'ns'=>$ns]);
                 bd_call('modDomainDnsService','modDomainDns',['moddomaindns'=>['domainname'=>$domain,'dns_host'=>$ns]]);
                 ps_audit('domain',0,'ns_success',$actor,['domain'=>$domain,'ns'=>$ns]);
-                $result = ['message'=>'NS 修改请求已成功提交，全球生效需等待 DNS 缓存更新'];
+                $result = ['message'=>'NS 服务器已修改成功，全球生效需等待 DNS 缓存更新','nameservers'=>$ns,'provider'=>bdr_provider($ns)];
+            } elseif (in_array($action,['record_add','record_edit','record_delete'],true) && $dnsContext['provider']!=='bizcn') {
+                $result=bdr_save($action,$domain,$_POST,$actor,$dnsContext);
             } elseif (in_array($action,['record_add','record_edit','record_delete'],true)) {
                 if (($_POST['confirm'] ?? '') !== $domain) throw new RuntimeException('请确认正在修改的域名');
                 $mode = substr($action,7); $args = bd_record($_POST,$mode);
@@ -113,11 +120,11 @@ include __DIR__ . '/../includes/header.php';
   <div id="domainNotice" class="domain-notice" role="status" aria-live="polite" hidden></div>
   <section class="domain-table-card"><div class="domain-table-scroll"><table class="domain-table"><thead><tr><th>域名</th><th>注册商</th><th>所属账号</th><th>注册时间</th><th>到期时间</th><th>注册商状态</th><th>NS 服务器</th><th>管理</th></tr></thead><tbody id="domainRows"><tr><td colspan="8" class="domain-empty"><span class="domain-spinner"></span> 正在读取域名列表…</td></tr></tbody></table></div><footer class="domain-pagination"><span id="domainPageInfo">每页 30 个域名 · 数据来源商务中国</span><div><button class="domain-btn ghost" id="domainPrev" disabled>上一页</button><button class="domain-btn ghost" id="domainNext" disabled>下一页</button></div></footer></section>
   <p class="domain-footnote"><i class="fas fa-info-circle"></i> 导出目录是表格日期的快照，不代表已实时同步。详情按需查询；NS、解析修改和官方面板仍需注册商实时核验归属。仅在注册区明确确认付款后才申请购买；查询、刷新不扣费。</p>
-  <dialog id="domainDrawer" class="domain-drawer"><div class="domain-drawer-head"><div><span class="domain-kicker">DOMAIN CONTROL</span><h2 id="domainDetailName">域名详情</h2></div><button class="domain-close" id="domainClose" aria-label="关闭详情">×</button></div><nav class="domain-tabs" aria-label="域名管理选项"><button data-tab="overview" class="active">概览</button><button data-tab="ns">NS 服务器</button><button data-tab="records">解析记录</button><button data-tab="realname">实名认证</button></nav><div class="domain-drawer-body"><div id="domainDetailNotice" class="domain-notice" role="status" hidden></div><section id="domainOverview"></section><section id="domainNs" hidden><p class="domain-help">切换 NS 会改变域名的权威解析服务。请先在新服务商配置好全部解析，避免网站或邮箱中断。</p><form id="domainNsForm"><label for="domainNsValue">NS 服务器，一行一个（2–6 个）</label><textarea id="domainNsValue" rows="6" placeholder="ns1.example.com&#10;ns2.example.com" required></textarea><button class="domain-btn" type="submit">确认修改 NS</button></form></section><section id="domainRecords" hidden><div id="domainDnsWarning" class="domain-notice error" role="status" hidden></div><a id="domainExternalDnsLink" class="domain-btn ghost" href="dns.php" hidden>去本站管理实际解析</a><div class="domain-section-heading"><h3>解析记录</h3><button class="domain-btn" id="domainAddRecord">＋添加记录</button></div><div id="recordFormStatus" class="domain-notice" role="status" aria-live="polite" hidden></div><p class="domain-help">本区域仅管理商务中国记录。DNSPod / Cloudflare 请从本站“解析管理”修改；使用外部 NS 时，改动此处记录不会影响正在使用的解析。</p><div id="domainRecordRows"></div><form id="domainRecordForm" hidden><h3 id="domainRecordTitle">添加解析</h3><div class="domain-form-grid"><label>记录类型<select id="recordType"><option>A</option><option>AAAA</option><option>CNAME</option><option>MX</option><option>TXT</option><option>NS</option><option>SRV</option><option>CAA</option></select></label><label>主机记录<input id="recordHost" value="@" required maxlength="253"></label><label class="domain-form-wide">解析值<input id="recordValue" required maxlength="2048" placeholder="IP 地址、目标域名或文本"></label><label>MX 优先级<input id="recordPriority" type="number" min="0" max="65535" value="10"></label></div><p class="domain-help" id="recordEditHint" hidden>修改为 CNAME 等互斥类型时，需要先删除原记录再添加新记录；添加失败会尝试恢复原记录。请先核对目标地址，提交后查看下面的结果提示。</p><div class="domain-form-actions"><button type="submit" class="domain-btn">保存解析</button><button type="button" class="domain-btn ghost" id="recordCancel">取消</button></div></form></section><section id="domainRealname" hidden><h3>实名认证</h3><div id="domainRealnameResult">正在查询…</div><p class="domain-help">实名资料包含证件信息，上传、补件与信息模板管理在商务中国官方安全面板完成，避免在多人协作系统中留存证件。</p><button class="domain-btn" data-panel>进入官方实名管理 <i class="fas fa-external-link-alt"></i></button></section></div><footer class="domain-drawer-footer"><span>实名、续费与高级功能</span><button class="domain-btn ghost" data-panel>打开官方面板 ↗</button></footer></dialog>
+  <dialog id="domainDrawer" class="domain-drawer"><div class="domain-drawer-head"><div><span class="domain-kicker">DOMAIN CONTROL</span><h2 id="domainDetailName">域名详情</h2></div><button class="domain-close" id="domainClose" aria-label="关闭详情">×</button></div><nav class="domain-tabs" aria-label="域名管理选项"><button data-tab="overview" class="active">概览</button><button data-tab="ns">NS 服务器</button><button data-tab="records">解析记录</button><button data-tab="realname">实名认证</button></nav><div class="domain-drawer-body"><div id="domainDetailNotice" class="domain-notice" role="status" hidden></div><section id="domainOverview"></section><section id="domainNs" hidden><p class="domain-help">切换 NS 会改变域名的权威解析服务。请先在新服务商配置好全部解析，避免网站或邮箱中断。</p><form id="domainNsForm"><label for="domainNsValue">NS 服务器，一行一个（2–6 个）</label><textarea id="domainNsValue" rows="6" placeholder="ns1.example.com&#10;ns2.example.com" required></textarea><button class="domain-btn" type="submit">确认修改 NS</button></form><div id="nsFormStatus" class="domain-notice" role="status" aria-live="polite" hidden></div></section><section id="domainRecords" hidden><div id="domainDnsWarning" class="domain-notice error" role="status" hidden></div><a id="domainExternalDnsLink" class="domain-btn ghost" href="dns.php" hidden>去本站管理实际解析</a><div class="domain-section-heading"><h3>解析记录</h3><button class="domain-btn" id="domainAddRecord" disabled>＋添加记录</button></div><div id="recordFormStatus" class="domain-notice" role="status" aria-live="polite" hidden></div><p class="domain-help" id="domainRecordHelp">根据当前 NS 自动连接商务中国、DNSPod 或 Cloudflare，直接管理该服务商的解析记录。</p><div id="domainRecordRows"></div><form id="domainRecordForm" hidden><h3 id="domainRecordTitle">添加解析</h3><div class="domain-form-grid"><label>记录类型<select id="recordType"><option>A</option><option>AAAA</option><option>CNAME</option><option>MX</option><option>TXT</option><option>NS</option><option>SRV</option><option>CAA</option></select></label><label>主机记录<input id="recordHost" value="@" required maxlength="253"></label><label class="domain-form-wide">解析值<input id="recordValue" required maxlength="2048" placeholder="IP 地址、目标域名或文本"></label><label>MX 优先级<input id="recordPriority" type="number" min="0" max="65535" value="10"></label><label id="recordTtlWrap" hidden>TTL（秒，Cloudflare 可填 1 表示自动）<input id="recordTtl" type="number" min="1" max="86400" value="600"></label><label id="recordProxyWrap" hidden>Cloudflare 代理<select id="recordProxyMode"><option value="0">仅 DNS</option><option value="1">开启代理</option></select></label></div><p class="domain-help" id="recordEditHint" hidden>修改为 CNAME 等互斥类型时，需要先删除原记录再添加新记录；添加失败会尝试恢复原记录。请先核对目标地址，提交后查看下面的结果提示。</p><div class="domain-form-actions"><button type="submit" class="domain-btn">保存解析</button><button type="button" class="domain-btn ghost" id="recordCancel">取消</button></div></form></section><section id="domainRealname" hidden><h3>实名认证</h3><div id="domainRealnameResult">正在查询…</div><p class="domain-help">实名资料包含证件信息，上传、补件与信息模板管理在商务中国官方安全面板完成，避免在多人协作系统中留存证件。</p><button class="domain-btn" data-panel>进入官方实名管理 <i class="fas fa-external-link-alt"></i></button></section></div><footer class="domain-drawer-footer"><span>实名、续费与高级功能</span><button class="domain-btn ghost" data-panel>打开官方面板 ↗</button></footer></dialog>
   <template id="domainNsChoicesTemplate"><?php $ns_target='domainNsValue';$ns_group='domain_ns_mode';include __DIR__.'/domain_dns_choices.php'; ?></template>
 </main>
 <script src="<?php echo BASE_URL; ?>/assets/js/domain-dns.js?v=20261012r1" defer></script>
-<script src="<?php echo BASE_URL; ?>/assets/js/domains.js?v=20261013-expiry" defer></script>
+<script src="<?php echo BASE_URL; ?>/assets/js/domains.js?v=20261013-dnsrouting" defer></script>
 <script src="<?php echo BASE_URL; ?>/assets/js/domain-dns-link.js?v=20261012-dnspod" defer></script>
 <script src="<?php echo BASE_URL; ?>/assets/js/domain-registration.js?v=20261012r6" defer></script>
 <?php include __DIR__ . '/../includes/footer.php'; ?>

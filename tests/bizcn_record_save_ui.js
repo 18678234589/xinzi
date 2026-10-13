@@ -20,19 +20,26 @@ async function scenario(mode) {
       const action=args.body.get('action');requests.push({action,body:args.body});let ok=true,data;
       if(action==='list')data={ok:true,data:{rows:[{domainname:'example.com'}],total:1,page:1,updated_at:'now'}};
       else if(action==='detail')data={ok:true,data:{info:mode==='external'?{dns_host1:'carl.dnspod.net',dns_host2:'sixteen.dnspod.net'}:{}}};
+      else if(action==='ns')data=mode==='nsfail'?{ok:false,error:'fixture NS rejected'}:{ok:true,data:{nameservers:['sixteen.dnspod.net','carl.dnspod.net']}};
       else if(action==='records'){
         reads++;
         if(reads>1&&mode==='refreshfail'){ok=false;data={error:'fixture refresh failed'};}
-        else data={ok:true,data:{rows:[{type:reads>1?'CNAME':'A',host:'www',value:reads>1?'target.example.net':'1.2.3.4'}]}};
+        else data={ok:true,data:{provider:mode==='external'?'dnspod':mode==='cloudflare'?'cloudflare':'bizcn',provider_label:mode==='external'?'DNSPod':mode==='cloudflare'?'Cloudflare':'商务中国',rows:[{id:'42',revision:'fixture-revision',ttl:1800,proxied:mode==='cloudflare',line:'电信',type:reads>1?'CNAME':'A',host:'www',value:reads>1?'target.example.net':'1.2.3.4'}]}};
       } else if(action==='record_edit'){
         if(mode==='savefail'){ok=false;data={error:'fixture provider rejected CNAME'};}
         else data={ok:true,data:{message:'解析记录已保存成功'}};
       } else throw new Error('Unexpected action '+action);
-      return {ok,redirected:false,json:async()=>data};
+      return {ok:ok&&data.ok!==false,redirected:false,json:async()=>data};
     }});
   await flush();
   get('domainRows').onclick({target:{closest:()=>({dataset:{domainIndex:'0'}})}});
-  await flush();tabs.find(t=>t.dataset.tab==='records').onclick();await flush();editButton.onclick();
+  await flush();
+  if(mode==='ns'||mode==='nsfail') {
+    tabs.find(t=>t.dataset.tab==='ns').onclick();get('domainNsValue').value='sixteen.dnspod.net\ncarl.dnspod.net';
+    get('domainNsForm').onsubmit({preventDefault(){},submitter:saveButton});await flush();await flush();
+    return {get,requests,saveButton,tabs};
+  }
+  tabs.find(t=>t.dataset.tab==='records').onclick();await flush();editButton.onclick();
   assert.strictEqual(get('recordType').disabled,false);
   get('recordType').value='CNAME';get('recordValue').value='target.example.net';
   get('domainRecordForm').onsubmit({preventDefault(){},submitter:saveButton});
@@ -58,8 +65,18 @@ async function scenario(mode) {
   test(page.get('recordFormStatus').textContent.includes('保存成功')&&page.get('recordFormStatus').textContent.includes('刷新失败'),'refresh failure does not erase successful mutation outcome');
   test(page.get('recordFormStatus').textContent.includes('勿重复保存'),'ambiguous refresh guides user to query instead of retry');
   page=await scenario('external');
-  test(!page.get('domainDnsWarning').hidden&&page.get('domainDnsWarning').textContent.includes('DNSPod'),'external resolver warning is visible');
-  test(page.get('domainExternalDnsLink').href==='dns.php?d=example.com&p=dnspod','external resolver links to site management');
-  test(page.get('recordFormStatus').textContent.includes('解析未变更'),'registrar save never claims external DNS changed');
+  test(page.get('domainDnsWarning').hidden&&page.get('domainExternalDnsLink').hidden,'DNSPod manages records inline without registrar warning');
+  test(page.get('domainRecordHelp').textContent.includes('DNSPod'),'active provider shown beside actual records');
+  sent=page.requests.find(r=>r.action==='record_edit').body;
+  test(sent.get('provider')==='dnspod'&&sent.get('record_id')==='42'&&sent.get('record_revision')==='fixture-revision','DNSPod edits identify provider and exact record revision');
+  test(sent.get('ttl')==='1800','existing TTL preserved');
+  page=await scenario('cloudflare');sent=page.requests.find(r=>r.action==='record_edit').body;
+  test(sent.get('provider')==='cloudflare'&&sent.get('proxied')==='1','Cloudflare proxy preserved while editing');
+  page=await scenario('ns');
+  test(!page.get('nsFormStatus').hidden&&page.get('nsFormStatus').textContent.includes('修改成功'),'NS success visible next to NS form even if API omits message');
+  test(page.get('nsFormStatus').scrolls>0,'NS result scrolled into view');
+  test(page.get('domainCurrentNs').innerHTML.includes('sixteen.dnspod.net'),'overview NS updates on save');
+  page=await scenario('nsfail');
+  test(!page.get('nsFormStatus').hidden&&page.get('nsFormStatus').textContent.includes('NS rejected'),'NS errors visible next to NS form');
   console.log(JSON.stringify({passed:checks,failed:0,real_dns_writes:0}));
 })().catch(e=>{console.error(e);process.exit(1);});
