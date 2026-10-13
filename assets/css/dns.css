@@ -1,0 +1,93 @@
+/* 域名管理 · 解析管理（DNSPod / Cloudflare）。自包含，不依赖 domains.css。 */
+.dns-console { --dns-ink: #1f2d27; --dns-mute: #6b7a73; --dns-line: #e3ebe6; --dns-green: #2f7a67; --dns-green-d: #245443; --dns-warn: #b7791f; --dns-bad: #c0392b; max-width: 1180px; margin: 0 auto; padding: 4px 0 40px; color: var(--dns-ink); }
+.dns-hero { display: flex; justify-content: space-between; align-items: flex-end; gap: 16px; flex-wrap: wrap; padding: 26px 30px; margin-bottom: 18px; border-radius: 18px; color: #fff; background: linear-gradient(135deg, #2f7a67 0%, #245443 60%, #1d3f35 100%); box-shadow: 0 18px 40px -22px rgba(36, 84, 67, .7); }
+.dns-hero h1 { margin: 4px 0 6px; font-size: 1.6rem; font-weight: 700; letter-spacing: .01em; }
+.dns-hero p { margin: 0; opacity: .88; max-width: 640px; }
+.dns-kicker { font-size: .72rem; letter-spacing: .18em; text-transform: uppercase; opacity: .75; word-break: break-all; }
+.dns-card { background: #fff; border: 1px solid var(--dns-line); border-radius: 16px; padding: 20px 24px; margin-bottom: 16px; box-shadow: 0 1px 0 rgba(255, 255, 255, .9) inset, 0 12px 28px -24px rgba(31, 60, 48, .45); }
+.dns-card h2 { font-size: 1.05rem; font-weight: 700; margin: 0 0 10px; }
+.dns-card h2 small { color: var(--dns-mute); font-weight: 500; margin-left: 6px; }
+.dns-card h3 { font-size: .95rem; margin: 14px 0 8px; }
+.dns-card-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 8px; }
+.dns-help { color: var(--dns-mute); font-size: .86rem; margin: 0 0 12px; line-height: 1.6; }
+.dns-muted { color: var(--dns-mute); font-size: .85rem; }
+.dns-btn { display: inline-flex; align-items: center; gap: 6px; padding: 8px 16px; border: 1px solid var(--dns-green); border-radius: 10px; background: var(--dns-green); color: #fff; font-size: .88rem; font-weight: 600; text-decoration: none; cursor: pointer; transition: transform .12s, box-shadow .12s, background .12s; white-space: nowrap; }
+.dns-btn:hover { background: var(--dns-green-d); color: #fff; text-decoration: none; transform: translateY(-1px); box-shadow: 0 8px 18px -10px rgba(36, 84, 67, .8); }
+.dns-btn:focus-visible { outline: 2px solid #8fd1bb; outline-offset: 2px; }
+.dns-btn.ghost { background: transparent; color: var(--dns-green); }
+.dns-hero .dns-btn.ghost { color: #fff; border-color: rgba(255, 255, 255, .55); }
+.dns-btn.ghost:hover { background: rgba(47, 122, 103, .08); color: var(--dns-green-d); box-shadow: none; }
+.dns-hero .dns-btn.ghost:hover { background: rgba(255, 255, 255, .14); color: #fff; }
+.dns-btn.danger { background: transparent; color: var(--dns-bad); border-color: rgba(192, 57, 43, .45); }
+.dns-btn.danger:hover { background: rgba(192, 57, 43, .09); color: var(--dns-bad); box-shadow: none; }
+.dns-link { background: none; border: 0; padding: 0; color: var(--dns-green); font-weight: 600; cursor: pointer; font-size: .85rem; text-align: left; }
+.dns-link:hover { text-decoration: underline; }
+.dns-notice { padding: 12px 16px; border-radius: 12px; margin-bottom: 14px; font-size: .9rem; border: 1px solid; }
+.dns-notice.ok { background: #eef8f3; border-color: #bfe3d2; color: #1d5a45; }
+.dns-notice.error { background: #fdf0ee; border-color: #f2c4bd; color: #8e2a1f; }
+.dns-notice.warn { background: #fff7e8; border-color: #f0d9a8; color: #7a5410; }
+.dns-ns-box { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.dns-ns-box strong { flex-basis: 100%; }
+.dns-console code { background: #f1f6f3; border: 1px solid #e0ebe5; border-radius: 6px; padding: 2px 8px; color: #1d4a3b; font-size: .84rem; word-break: break-all; }
+.dns-status { display: flex; gap: 24px; flex-wrap: wrap; justify-content: space-between; }
+.dns-status p { margin: 0 0 8px; }
+.dns-status code { margin-right: 6px; }
+.dns-providers { display: flex; gap: 12px; flex-wrap: wrap; align-items: stretch; }
+.dns-provider { min-width: 190px; padding: 14px 16px; border: 1px dashed #cfdcd5; border-radius: 12px; display: flex; flex-direction: column; gap: 6px; background: #fafcfb; }
+.dns-provider.has { border-style: solid; border-color: #bfe3d2; background: #f4fbf7; }
+.dns-provider.current { box-shadow: 0 0 0 2px rgba(47, 122, 103, .35); }
+.dns-provider a { font-size: .85rem; font-weight: 600; }
+.dns-chip { display: inline-flex; align-items: center; gap: 4px; padding: 2px 10px; border-radius: 999px; font-size: .78rem; background: #eef1ef; color: #55655e; border: 1px solid #e1e7e4; }
+.dns-chip.on { background: #e6f5ee; color: #1d6a4f; border-color: #bfe3d2; }
+.dns-chip.warn { background: #fff4de; color: #8a5a0c; border-color: #f0d9a8; }
+.dns-form-row { display: flex; gap: 14px; align-items: flex-end; flex-wrap: wrap; }
+.dns-form-row label, .dns-record-form label { display: flex; flex-direction: column; gap: 4px; font-size: .8rem; color: var(--dns-mute); font-weight: 600; }
+.dns-form-row input:not([type=radio]), .dns-record-form input:not([type=checkbox]), .dns-record-form select { padding: 8px 12px; border: 1px solid #d3dfd9; border-radius: 10px; font-size: .92rem; color: var(--dns-ink); background: #fff; min-width: 120px; }
+.dns-form-row input:focus, .dns-record-form input:focus, .dns-record-form select:focus { outline: 2px solid rgba(47, 122, 103, .35); border-color: var(--dns-green); }
+.dns-grow { flex: 1 1 260px; }
+.dns-grow input { width: 100%; }
+.dns-radio { border: 0; margin: 0; padding: 0; display: flex; gap: 14px; align-items: center; min-height: 40px; }
+.dns-radio legend { font-size: .8rem; color: var(--dns-mute); font-weight: 600; float: left; width: auto; margin: 0 8px 0 0; padding: 0; }
+.dns-radio label { flex-direction: row; align-items: center; gap: 6px; font-size: .92rem; color: var(--dns-ink); font-weight: 600; cursor: pointer; }
+.dns-bizcn { margin-top: 12px; padding-top: 12px; border-top: 1px dashed var(--dns-line); }
+.dns-record-form { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; padding: 14px 16px; margin: 6px 0 14px; border: 1px solid #d6e6de; background: #f6fbf8; border-radius: 12px; }
+.dns-record-form h3 { flex-basis: 100%; margin: 0; }
+.dns-record-form[hidden], #rPriorityWrap[hidden] { display: none; }
+.dns-check { flex-direction: row !important; align-items: center; gap: 8px !important; color: var(--dns-ink) !important; }
+.dns-form-actions { display: flex; gap: 8px; }
+.dns-table-wrap { overflow-x: auto; }
+.dns-table { width: 100%; border-collapse: collapse; font-size: .9rem; }
+.dns-table th { text-align: left; font-size: .76rem; color: var(--dns-mute); font-weight: 600; letter-spacing: .04em; padding: 8px 10px; border-bottom: 1px solid var(--dns-line); white-space: nowrap; }
+.dns-table td { padding: 10px; border-bottom: 1px solid #f0f4f2; vertical-align: top; }
+.dns-table tr:hover td { background: #fbfdfc; }
+.dns-table tr.off td { opacity: .55; }
+.dns-table small { display: block; color: var(--dns-mute); font-size: .76rem; margin-top: 2px; }
+.dns-value { display: inline-block; max-width: 460px; }
+.dns-type { display: inline-block; min-width: 46px; text-align: center; padding: 1px 8px; border-radius: 6px; background: #e8f1ed; color: #20523f; font-size: .76rem; font-weight: 700; }
+.dns-actions { white-space: nowrap; }
+.dns-actions form { display: inline; }
+.dns-actions .dns-btn { padding: 4px 12px; font-size: .8rem; }
+.dns-empty { text-align: center; color: var(--dns-mute); padding: 26px 10px !important; }
+.dns-domain { font-weight: 700; color: var(--dns-green-d); }
+.dns-plan { margin-top: 14px; padding: 14px 16px; border-radius: 12px; border: 1px solid #d6e6de; background: #f9fcfa; }
+.dns-fail { margin: 8px 0 0; padding-left: 18px; font-size: .84rem; color: #7a5410; }
+@media (max-width: 720px) { .dns-hero { padding: 20px; } .dns-card { padding: 16px; } .dns-value { max-width: 240px; } .dns-provider { min-width: 100%; } }
+@media (prefers-reduced-motion: reduce) { .dns-btn { transition: none; } .dns-btn:hover { transform: none; } }
+
+/* 域名管理页顶部的入口条 */
+.dns-entry { display: flex; align-items: center; justify-content: space-between; gap: 14px; flex-wrap: wrap; margin: 0 0 16px; padding: 14px 20px; border-radius: 14px; border: 1px solid #cfe5db; background: linear-gradient(90deg, #f1faf6, #fff); }
+.dns-entry strong { display: block; font-size: .98rem; color: #1d4a3b; }
+.dns-entry span { color: #5f7169; font-size: .84rem; }
+.dns-entry a { display: inline-flex; align-items: center; gap: 6px; padding: 8px 16px; border-radius: 10px; background: #2f7a67; color: #fff; font-weight: 600; font-size: .88rem; text-decoration: none; white-space: nowrap; }
+.dns-entry a:hover { background: #245443; color: #fff; text-decoration: none; }
+.dns-drawer-link { display: inline-flex; align-items: center; gap: 6px; margin: 6px 12px 0 0; padding: 5px 12px; border-radius: 999px; border: 1px solid #bfe3d2; background: #eef8f3; color: #1d6a4f; font-size: .82rem; font-weight: 600; text-decoration: none; }
+.dns-drawer-link:hover { background: #dff1e8; color: #14503b; text-decoration: none; }
+
+/* 接入 Cloudflare 三步引导 */
+.dns-steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.dns-steps li { display: flex; justify-content: space-between; align-items: center; gap: 14px; flex-wrap: wrap; padding: 12px 16px; border: 1px solid var(--dns-line); border-radius: 12px; background: #fafcfb; }
+.dns-steps li.done { background: #f1faf6; border-color: #bfe3d2; }
+.dns-steps li.wait { opacity: .6; }
+.dns-steps strong { display: block; }
+.dns-steps small { display: block; color: var(--dns-mute); font-size: .8rem; margin-top: 2px; max-width: 640px; }
+.dns-steps form { display: inline; }
