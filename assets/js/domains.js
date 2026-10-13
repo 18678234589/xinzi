@@ -59,7 +59,7 @@
       if (current !== sequence) return;
       rows = data.rows || []; total = data.total; page = data.page;
       byId('domainCount').textContent = total.toLocaleString() + ' 个';
-      byId('domainUpdated').textContent = data.source === 'export' ? '商务中国导出表快照：' + (data.updated_at || '暂无') + (data.registered_added ? ' · 另有 API 确认注册 ' + data.registered_added + ' 个' : '') + ' · 按到期时间排序 · 不是实时同步' : '数据更新时间 ' + data.updated_at + ' · 按注册商顺序';
+      byId('domainUpdated').textContent = data.source === 'export' ? '商务中国导出表快照：' + (data.updated_at || '暂无') + (data.registered_added ? ' · 另有 API 确认注册 ' + data.registered_added + ' 个' : '') + ' · 临近到期优先，已过期在后 · 不是实时同步' : '数据更新时间 ' + data.updated_at + ' · 按注册商顺序';
       byId('domainRows').innerHTML = rows.length ? rows.map(function (row, i) {
         var ns = nameservers(row.nameserver), name = row.domainname || row.doaminnamecode;
         return '<tr><td><button class="domain-name" data-domain-index="' + i + '">' + esc(row.display_name || name) + '</button><small>商务中国</small></td><td>' + esc(row.registrar || '详情中查看') + '</td><td>' + esc(row.owner_username || '暂未返回') + '</td><td>' + esc(date(row.regdate)) + '</td><td>' + expiry(row.expireddate) + '</td><td><span class="domain-status">' + esc(row.status || '暂未返回') + '</span></td><td class="domain-ns-cell">' + (ns.length ? ns.map(esc).join('<br>') : '<span class="domain-muted">详情中查看</span>') + '</td><td><button class="domain-btn ghost" data-domain-index="' + i + '">管理 <i class="fas fa-arrow-right"></i></button></td></tr>';

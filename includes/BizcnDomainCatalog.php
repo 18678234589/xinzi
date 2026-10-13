@@ -90,7 +90,8 @@ function bc_list($search, $page)
     }
     $q=db()->prepare('SELECT COUNT(*) FROM bizcn_domain_catalog WHERE '.$where); $q->execute($values); $total=(int)$q->fetchColumn();
     $page=max(1,min((int)$page,max(1,(int)ceil($total/30))));
-    $q=db()->prepare('SELECT domainname,display_name,registrar,owner_username,regdate,expireddate,status,source_as_of FROM bizcn_domain_catalog WHERE '.$where.' ORDER BY expireddate IS NULL,expireddate,domainname LIMIT 30 OFFSET '.(($page-1)*30)); $q->execute($values);
+    // Put upcoming renewals before old expired inventory, across the entire result set.
+    $q=db()->prepare('SELECT domainname,display_name,registrar,owner_username,regdate,expireddate,status,source_as_of FROM bizcn_domain_catalog WHERE '.$where.' ORDER BY CASE WHEN expireddate>=? THEN 0 WHEN expireddate IS NOT NULL THEN 1 ELSE 2 END,expireddate,domainname LIMIT 30 OFFSET '.(($page-1)*30)); $q->execute(array_merge($values,[date('Y-m-d')]));
     return ['rows'=>$q->fetchAll(), 'total'=>$total, 'catalog_total'=>(int)$meta['c'], 'page'=>$page, 'page_size'=>30, 'source'=>'export', 'updated_at'=>$meta['snapshot'], 'registered_added'=>(int)$meta['registrations']];
 }
 

@@ -117,7 +117,7 @@ include __DIR__ . '/../includes/header.php';
   <template id="domainNsChoicesTemplate"><?php $ns_target='domainNsValue';$ns_group='domain_ns_mode';include __DIR__.'/domain_dns_choices.php'; ?></template>
 </main>
 <script src="<?php echo BASE_URL; ?>/assets/js/domain-dns.js?v=20261012r1" defer></script>
-<script src="<?php echo BASE_URL; ?>/assets/js/domains.js?v=20261013-savefix" defer></script>
+<script src="<?php echo BASE_URL; ?>/assets/js/domains.js?v=20261013-expiry" defer></script>
 <script src="<?php echo BASE_URL; ?>/assets/js/domain-dns-link.js?v=20261012-dnspod" defer></script>
 <script src="<?php echo BASE_URL; ?>/assets/js/domain-registration.js?v=20261012r6" defer></script>
 <?php include __DIR__ . '/../includes/footer.php'; ?>
