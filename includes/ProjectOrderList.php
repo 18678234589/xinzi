@@ -145,7 +145,9 @@ if ($pageOrderIds) {
             $d = json_decode((string)$dr['details_json'], true) ?: [];
             if (!isset($pageOrderExtras[$oid])) $pageOrderExtras[$oid] = ['server_expiry' => '', 'domain_expiry' => '', 'phone' => '', 'wechat' => '', 'cost_amount' => 0.0, 'cost_reason' => ''];
             if (empty($pageOrderExtras[$oid]['phone']) && !empty($d['customer_phone'])) $pageOrderExtras[$oid]['phone'] = $d['customer_phone'];
+            if (empty($pageOrderExtras[$oid]['phone']) && !empty($d['contact_phone'])) $pageOrderExtras[$oid]['phone'] = $d['contact_phone']; // 森动备案等表格的“联系方式”列
             if (empty($pageOrderExtras[$oid]['wechat']) && !empty($d['customer_wechat'])) $pageOrderExtras[$oid]['wechat'] = $d['customer_wechat'];
+            if (empty($pageOrderExtras[$oid]['wechat']) && !empty($d['contact_wechat'])) $pageOrderExtras[$oid]['wechat'] = $d['contact_wechat'];
             if (empty($pageOrderExtras[$oid]['server_expiry']) && !empty($d['server_expiry'])) $pageOrderExtras[$oid]['server_expiry'] = $d['server_expiry'];
         }
     } catch (Throwable $e) {}
