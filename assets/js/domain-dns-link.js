@@ -10,7 +10,7 @@
     if (!link) {
       link = document.createElement('a');
       link.className = 'dns-drawer-link';
-      link.innerHTML = '<i class="fas fa-network-wired" aria-hidden="true"></i> 用 DNSPod / Cloudflare 解析';
+      link.innerHTML = '<i class="fas fa-network-wired" aria-hidden="true"></i> 在本站管理 DNSPod / Cloudflare 解析';
       title.parentNode.appendChild(link);
     }
     link.href = 'dns.php?d=' + encodeURIComponent(name.toLowerCase());

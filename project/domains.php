@@ -95,7 +95,7 @@ include __DIR__ . '/../includes/header.php';
     <div class="domain-orbit" aria-hidden="true"><span></span><span></span><span></span><i class="fas fa-globe"></i></div>
     <div class="domain-hero-copy"><div class="domain-kicker">DOMAIN STUDIO <span>商务中国 · 域名 API</span></div><h1>每一个域名，都有自己的轨道。</h1><p>在这里搜索、查看到期时间，轻松管理 NS 与解析。<br>让客户的网站，被稳稳地连接。</p><div class="domain-hero-tags"><span><i class="fas fa-shield-alt"></i> 安全操作留痕</span><span><i class="fas fa-sync-alt"></i> 直接读取注册商</span><span><i class="fas fa-mobile-alt"></i> 随时随地管理</span></div></div>
   </section>
-  <div class="dns-entry"><div><strong><i class="fas fa-network-wired" aria-hidden="true"></i> 解析管理：DNSPod / Cloudflare</strong><span>把域名交给 DNSPod 或 Cloudflare 解析：添加域名、管理解析记录、复制解析、一键切换解析商（商务中国域名可直接改 NS）。</span></div><a href="dns.php">进入解析管理 <i class="fas fa-arrow-right" aria-hidden="true"></i></a></div>
+  <div class="dns-entry"><div><strong><i class="fas fa-network-wired" aria-hidden="true"></i> 本站解析管理：DNSPod / Cloudflare</strong><span>使用已接入的 API，在本站添加域名、增删改解析记录、复制解析。无需登录腾讯云；商务中国域名还可在本站修改 NS。</span></div><a href="dns.php">在本站管理解析 <i class="fas fa-arrow-right" aria-hidden="true"></i></a></div>
   <?php include __DIR__.'/domain_registration_view.php'; ?>
   <section class="domain-toolbar"><div><h2>我的域名空间 <span id="domainCount">—</span></h2><p id="domainUpdated">正在读取域名目录…</p></div><form id="domainSearch"><label class="sr-only" for="domainQuery">搜索域名、所属账号或注册商</label><i class="fas fa-search"></i><input id="domainQuery" placeholder="搜索域名 / 所属账号 / 注册商" maxlength="253"><button class="domain-btn" type="submit">搜索</button><button class="domain-btn ghost" type="button" id="domainRefresh" title="刷新当前域名目录"><i class="fas fa-sync-alt"></i></button></form></section>
   <?php if ($actor['type']==='admin' && pv_admin_username($actor['id'])==='admin'): ?>
@@ -109,6 +109,6 @@ include __DIR__ . '/../includes/header.php';
 </main>
 <script src="<?php echo BASE_URL; ?>/assets/js/domain-dns.js?v=20261012r1" defer></script>
 <script src="<?php echo BASE_URL; ?>/assets/js/domains.js?v=20261012r5" defer></script>
-<script src="<?php echo BASE_URL; ?>/assets/js/domain-dns-link.js?v=20261012" defer></script>
+<script src="<?php echo BASE_URL; ?>/assets/js/domain-dns-link.js?v=20261012-dnspod" defer></script>
 <script src="<?php echo BASE_URL; ?>/assets/js/domain-registration.js?v=20261012r6" defer></script>
 <?php include __DIR__ . '/../includes/footer.php'; ?>

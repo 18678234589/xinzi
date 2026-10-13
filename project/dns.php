@@ -146,7 +146,7 @@ include __DIR__ . '/../includes/header.php';
   <section class="dns-hero">
     <div><div class="dns-kicker">DNS · <?php echo $domain !== '' ? e($domain) : 'DNSPod / Cloudflare'; ?></div>
       <h1><?php echo $domain !== '' ? '解析管理' : '让域名，选择自己的解析服务商'; ?></h1>
-      <p><?php echo $domain !== '' ? '查看并修改解析记录；换解析商时先复制记录，再把 NS 改过去。' : '添加域名到 DNSPod 或 Cloudflare，拿到要改的 NS；也可以把一家的解析复制到另一家。商务中国域名可一键改 NS。'; ?></p></div>
+      <p><?php echo $domain !== '' ? '直接在本站添加、编辑或删除解析记录，无需登录腾讯云或 Cloudflare；换解析商时先复制记录，再修改 NS。' : '通过已配置的 API，直接在本站添加域名、管理 DNSPod / Cloudflare 解析记录和复制解析。商务中国域名也可在本站修改 NS，无需另开腾讯云控制台。'; ?></p></div>
     <a class="dns-btn ghost" href="<?php echo BASE_URL; ?>/project/domains.php"><i class="fas fa-arrow-left"></i> 返回域名管理</a>
   </section>
   <?php if ($error): ?><div class="dns-notice error" role="alert"><?php echo e($error); ?></div><?php endif; ?>
@@ -197,28 +197,29 @@ include __DIR__ . '/../includes/header.php';
     <?php endforeach; ?></div>
   </section>
 
-  <?php if (dns_provider_configured('cloudflare')):
-      $cfHas = in_array('cloudflare', $detail['have'], true);
-      $cfLive = $detail['resolver'] === 'cloudflare';
-      $cfZone = $cfHas ? $zonesBy['cloudflare'][$domain] : null;
-      $cfNsLive = $cfZone && $cfZone['ns'] && !array_diff($cfZone['ns'], $detail['public_ns']);
+  <?php $guideProvider = $provider ?: (dns_provider_configured('dnspod') ? 'dnspod' : 'cloudflare');
+    if (dns_provider_configured($guideProvider)):
+      $guideLabel = DNS_PROVIDERS[$guideProvider];
+      $guideHas = in_array($guideProvider, $detail['have'], true);
+      $guideNs = $guideHas ? $detail['ns'] : [];
+      $guideNsLive = $guideHas && $guideNs && !array_diff($guideNs, $detail['public_ns']);
       $sources = [];
       if ($detail['bizcn']) $sources['bizcn'] = '商务中国';
-      foreach ($detail['have'] as $k) if ($k !== 'cloudflare') $sources[$k] = DNS_PROVIDERS[$k];
+      foreach ($detail['have'] as $k) if ($k !== $guideProvider) $sources[$k] = DNS_PROVIDERS[$k];
   ?>
   <section class="dns-card dns-guide">
-    <h2><i class="fas fa-cloud" aria-hidden="true"></i> 接入 Cloudflare 解析 <?php echo $cfNsLive ? '<span class="dns-chip on"><i class="fas fa-check"></i> 已完成</span>' : ''; ?></h2>
-    <p class="dns-help">三步把这个域名交给我们账号下的 Cloudflare 解析。第 1、2 步不会影响线上解析，只有第 3 步改 NS 才真正切换，所以请按顺序来。</p>
-    <?php if (in_array($detail['resolver'], ['other', 'mixed'], true)): ?><div class="dns-notice warn">当前公网 NS 指向其它服务商或存在混用。请先到当前实际使用的解析后台核对全部记录；商务中国或 DNSPod 账号中保存的记录可能不是正在生效的记录。原服务商不在本页支持范围时，请在 Cloudflare 的“添加记录”中逐条录入，确认网站、邮箱所需记录齐全后再改 NS。</div><?php endif; ?>
+    <h2><i class="fas fa-cloud" aria-hidden="true"></i> 接入 <?php echo e($guideLabel); ?> 解析 <?php echo $guideNsLive ? '<span class="dns-chip on"><i class="fas fa-check"></i> 已完成</span>' : ''; ?></h2>
+    <p class="dns-help">下面的创建域名、复制解析和记录增删改都在本站完成，无需登录 <?php echo $guideProvider === 'dnspod' ? '腾讯云' : 'Cloudflare'; ?>。尚未接入时按三步操作：添加域名 → 复制并核对记录 → 修改注册商 NS。已经接入的域名，直接使用下方“添加记录”或“编辑”。</p>
+    <?php if (in_array($detail['resolver'], ['other', 'mixed'], true)): ?><div class="dns-notice warn">当前公网 NS 指向其它服务商或存在混用。请先到当前实际使用的解析后台核对全部记录；商务中国或其它账号中保存的记录可能不是正在生效的记录。原服务商不在本页支持范围时，请在 <?php echo e($guideLabel); ?> 的“添加记录”中逐条录入，确认网站、邮箱所需记录齐全后再改 NS。</div><?php endif; ?>
     <ol class="dns-steps">
-      <li class="<?php echo $cfHas ? 'done' : 'todo'; ?>"><div><strong>① 在 Cloudflare 创建域名</strong><small><?php echo $cfHas ? '已创建，Cloudflare 分配的 NS：' . e(implode('、', $cfZone['ns'])) : '创建后会得到两个 NS（第 3 步用）。'; ?></small></div>
-        <?php if (!$cfHas): ?><form method="post"><input type="hidden" name="csrf" value="<?php echo e($csrf); ?>"><input type="hidden" name="action" value="create_zone"><input type="hidden" name="domain" value="<?php echo e($domain); ?>"><input type="hidden" name="provider" value="cloudflare"><button class="dns-btn" type="submit">创建</button></form><?php else: ?><span class="dns-chip on"><i class="fas fa-check"></i> 已完成</span><?php endif; ?></li>
-      <li class="<?php echo !$cfHas ? 'wait' : 'todo'; ?>"><div><strong>② 复制现有解析到 Cloudflare</strong><small>把原来正在用的解析记录搬过来（只新增、不覆盖），否则切换后网站、邮箱会中断。</small></div>
-        <?php if (!$cfHas): ?><span class="dns-muted">先完成第 ①步</span>
-        <?php elseif (!$sources): ?><span class="dns-muted">原解析不在商务中国 / DNSPod：先从原服务商导出或查看记录，再选择 Cloudflare，使用下方“添加记录”逐条填写。请保留网站的 A / CNAME、邮箱的 MX / TXT 等记录，暂不支持的类型需到 Cloudflare 后台添加。</span>
-        <?php else: foreach ($sources as $k => $label): ?><form method="post"><input type="hidden" name="csrf" value="<?php echo e($csrf); ?>"><input type="hidden" name="action" value="copy_preview"><input type="hidden" name="d" value="<?php echo e($domain); ?>"><input type="hidden" name="p" value="cloudflare"><input type="hidden" name="from" value="<?php echo e($k); ?>"><input type="hidden" name="to" value="cloudflare"><button class="dns-btn ghost" type="submit">预览：从 <?php echo e($label); ?> 复制</button></form><?php endforeach; endif; ?></li>
-      <li class="<?php echo $cfNsLive ? 'done' : ($cfHas ? 'todo' : 'wait'); ?>"><div><strong>③ 把域名的 NS 改成 Cloudflare 的</strong><small><?php echo $cfNsLive ? '公网 NS 已指向 Cloudflare。' : ($detail['bizcn'] ? '域名在商务中国账户里，可以一键修改。' : '域名不在商务中国账户里：到它所在的注册商后台，把 NS 改成第 ① 步的两个 NS。'); ?></small></div>
-        <?php if ($cfHas && !$cfNsLive): ?><a class="dns-btn" href="?d=<?php echo rawurlencode($domain); ?>&p=cloudflare#dnsNs">去修改 NS</a><?php elseif (!$cfHas): ?><span class="dns-muted">先完成第 ①步</span><?php endif; ?></li>
+      <li class="<?php echo $guideHas ? 'done' : 'todo'; ?>"><div><strong>① 在本站添加到 <?php echo e($guideLabel); ?></strong><small><?php echo $guideHas ? '已添加，' . e($guideLabel) . ' 分配的 NS：' . e(implode('、', $guideNs)) : '点击下面按钮，通过 API 添加并获取实际分配的 NS（第 3 步用）。'; ?></small></div>
+        <?php if (!$guideHas): ?><form method="post"><input type="hidden" name="csrf" value="<?php echo e($csrf); ?>"><input type="hidden" name="action" value="create_zone"><input type="hidden" name="domain" value="<?php echo e($domain); ?>"><input type="hidden" name="provider" value="<?php echo e($guideProvider); ?>"><button class="dns-btn" type="submit">添加到 <?php echo e($guideLabel); ?></button></form><?php else: ?><span class="dns-chip on"><i class="fas fa-check"></i> 已完成</span><?php endif; ?></li>
+      <li class="<?php echo !$guideHas ? 'wait' : 'todo'; ?>"><div><strong>② 复制现有解析到 <?php echo e($guideLabel); ?></strong><small>预览后确认复制（只新增、不覆盖），并核对网站、邮箱所需记录，再修改 NS。</small></div>
+        <?php if (!$guideHas): ?><span class="dns-muted">先完成第 ①步</span>
+        <?php elseif (!$sources): ?><span class="dns-muted">没有可直接复制的其它服务商记录：使用下方“添加记录”填写，或按现有记录直接管理。迁移时请保留网站的 A / CNAME、邮箱的 MX / TXT 等记录。</span>
+        <?php else: foreach ($sources as $k => $label): ?><form method="post"><input type="hidden" name="csrf" value="<?php echo e($csrf); ?>"><input type="hidden" name="action" value="copy_preview"><input type="hidden" name="d" value="<?php echo e($domain); ?>"><input type="hidden" name="p" value="<?php echo e($guideProvider); ?>"><input type="hidden" name="from" value="<?php echo e($k); ?>"><input type="hidden" name="to" value="<?php echo e($guideProvider); ?>"><button class="dns-btn ghost" type="submit">预览：从 <?php echo e($label); ?> 复制</button></form><?php endforeach; endif; ?></li>
+      <li class="<?php echo $guideNsLive ? 'done' : ($guideHas ? 'todo' : 'wait'); ?>"><div><strong>③ 把注册商 NS 改成 <?php echo e($guideLabel); ?> 的</strong><small><?php echo $guideNsLive ? '公网 NS 已指向 ' . e($guideLabel) . '，无需再次修改，直接在本站管理解析记录。' : ($detail['bizcn'] ? '域名在商务中国账户里，可以在本站修改，无需另开后台。' : '域名不在商务中国账户里：仅首次接入需要到它所在的注册商修改 NS；解析记录仍在本站管理。'); ?></small></div>
+        <?php if ($guideHas && !$guideNsLive): ?><a class="dns-btn" href="?d=<?php echo rawurlencode($domain); ?>&p=<?php echo e($guideProvider); ?>#dnsNs">在本站查看并修改 NS</a><?php elseif (!$guideHas): ?><span class="dns-muted">先完成第 ①步</span><?php endif; ?></li>
     </ol>
   </section>
   <?php endif; ?>
