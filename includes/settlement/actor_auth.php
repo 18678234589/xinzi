@@ -33,7 +33,7 @@ function ps_require_actor()
     if ($actor['type'] === 'employee' && $actor['role'] === 'governance') {
         $script = basename($_SERVER['SCRIPT_NAME'] ?? '');
         $allowed = ['profile.php', 'governance.php', 'governance_ideas.php', 'governance_election.php', 'governance_rules.php', 'governance_evidence.php', 'payroll.php', 'welfare.php'
-    , 'contributions.php', 'messages.php', 'holidays.php', 'vault.php', 'knowledge.php', 'knowledge_article.php', 'knowledge_links.php', 'knowledge_categories.php', 'knowledge_rules.php'
+    , 'contributions.php', 'messages.php', 'holidays.php', 'vault.php', 'domains.php', 'dns.php', 'cdn.php', 'knowledge.php', 'knowledge_article.php', 'knowledge_links.php', 'knowledge_categories.php', 'knowledge_rules.php'
     , 'knowledge_keywords.php', 'knowledge_integrations.php', 'knowledge_skills.php', 'knowledge_skill.php', 'knowledge_skill_import.php', 'knowledge_skills_export.php', 'knowledge_costs.php'
     ];
         if ($script === 'rules.php' && ($_GET['domain'] ?? $_POST['domain'] ?? '') === 'governance') $allowed[] = 'rules.php';
@@ -54,7 +54,7 @@ function ps_require_actor()
         $script = basename($_SERVER['SCRIPT_NAME'] ?? '');
         $knowledgeRuleRead = (($script === 'rules.php' && in_array($_GET['domain'] ?? '', ['welfare','governance'],true)) || $script === 'governance_rules.php') && ($_SERVER['REQUEST_METHOD'
     ] ?? 'GET') === 'GET';
-        if (!$knowledgeRuleRead && !in_array($script, ['profile.php', 'vault.php', 'messages.php', 'dup_feedback.php', 'knowledge.php', 'knowledge_article.php', 'knowledge_links.php'
+        if (!$knowledgeRuleRead && !in_array($script, ['profile.php', 'vault.php', 'domains.php', 'dns.php', 'cdn.php', 'messages.php', 'dup_feedback.php', 'knowledge.php', 'knowledge_article.php', 'knowledge_links.php'
     , 'knowledge_categories.php', 'knowledge_rules.php', 'knowledge_keywords.php', 'knowledge_integrations.php', 'knowledge_skills.php', 'knowledge_skill.php', 'knowledge_skill_import.php'
     , 'knowledge_skills_export.php', 'knowledge_costs.php'], true)) { header('Location: ' . BASE_URL . '/project/vault.php'); exit; }
         if ($script !== 'profile.php' && empty($actor['password_changed_at']) && PHP_SAPI !== 'cli') { header('Location: ' . BASE_URL . '/project/profile.php?password=1'); exit; }

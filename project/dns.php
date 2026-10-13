@@ -24,6 +24,7 @@ $domain = trim((string)($_GET['d'] ?? $_POST['d'] ?? ''));
 $provider = (string)($_GET['p'] ?? $_POST['p'] ?? '');
 if ($provider !== '' && !isset(DNS_PROVIDERS[$provider])) $provider = '';
 $error = '';
+$cdnPrefill = null;
 $copyPlan = null;
 $srcLabels = DNS_PROVIDERS + ['bizcn' => '商务中国'];
 $copyFrom = '';
@@ -35,6 +36,14 @@ foreach (DNS_PROVIDERS as $key => $label) {
     $zonesBy[$key] = [];
     if (!dns_provider_configured($key)) { $providerErrors[$key] = '尚未配置，请管理员到“接口设置”保存密钥'; continue; }
     try { foreach (dns_zones($key) as $z) $zonesBy[$key][$z['domain']] = $z; } catch (Throwable $e) { $providerErrors[$key] = $e instanceof RuntimeException ? $e->getMessage() : '暂时读取失败，请稍后重试'; }
+}
+
+if ($_SERVER['REQUEST_METHOD'] === 'GET' && isset($_GET['cdn_domain'], $_GET['cdn_cname'])) {
+    try {
+        $cdnPrefill = dns_cdn_prefill((string)$_GET['cdn_domain'], (string)$_GET['cdn_cname'], $zonesBy, $provider);
+        if (!$cdnPrefill) throw new RuntimeException('所选解析账号中没有覆盖此加速域名的主域名。请先添加实际所属主域名，再按 CDN 页面提供的 CNAME 配置记录；本页没有修改任何解析。');
+        $domain = $cdnPrefill['domain']; $provider = $cdnPrefill['provider'];
+    } catch (RuntimeException $e) { $error = $e->getMessage(); }
 }
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -141,7 +150,7 @@ $resolverLabel = ['cloudflare' => 'Cloudflare 解析中', 'dnspod' => 'DNSPod �
 $page_title = '解析管理';
 include __DIR__ . '/../includes/header.php';
 ?>
-<link rel="stylesheet" href="<?php echo BASE_URL; ?>/assets/css/dns.css?v=20261012">
+<link rel="stylesheet" href="<?php echo BASE_URL; ?>/assets/css/dns.css?v=20261013-contrast">
 <main class="dns-console" data-csrf="<?php echo e($csrf); ?>">
   <section class="dns-hero">
     <div><div class="dns-kicker">DNS · <?php echo $domain !== '' ? e($domain) : 'DNSPod / Cloudflare'; ?></div>
@@ -249,12 +258,13 @@ include __DIR__ . '/../includes/header.php';
   <section class="dns-card">
     <div class="dns-card-head"><h2><?php echo e(DNS_PROVIDERS[$provider]); ?> 解析记录 <small><?php echo count($detail['records']); ?> 条</small></h2><button class="dns-btn" type="button" id="dnsAddBtn"><i class="fas fa-plus"></i> 添加记录</button></div>
     <?php if ($detail['record_error']): ?><div class="dns-notice error"><?php echo e($detail['record_error']); ?></div><?php endif; ?>
-    <form method="post" class="dns-record-form" id="dnsRecordForm" hidden><input type="hidden" name="csrf" value="<?php echo e($csrf); ?>"><input type="hidden" name="action" value="record_save"><input type="hidden" name="d" value="<?php echo e($domain); ?>"><input type="hidden" name="p" value="<?php echo e($provider); ?>"><input type="hidden" name="record_id" id="rId">
+    <?php if ($cdnPrefill): ?><div class="dns-notice warn">已预填七牛 CDN 的 CNAME，尚未修改解析。请核对同名的 A / AAAA / CNAME 记录和源站设置，确认后再保存；已有同名记录请使用“编辑”，不要重复添加。Cloudflare 使用“仅 DNS”。</div><?php endif; ?>
+    <form method="post" class="dns-record-form" id="dnsRecordForm" <?php echo $cdnPrefill?'':'hidden'; ?>><input type="hidden" name="csrf" value="<?php echo e($csrf); ?>"><input type="hidden" name="action" value="record_save"><input type="hidden" name="d" value="<?php echo e($domain); ?>"><input type="hidden" name="p" value="<?php echo e($provider); ?>"><input type="hidden" name="record_id" id="rId">
       <h3 id="rTitle">添加记录</h3>
       <p class="dns-help" style="flex-basis:100%;margin:0">主机记录：@ 表示主域名，www 表示 www.<?php echo e($domain); ?>。A 记录填服务器 IPv4，AAAA 填 IPv6，CNAME 填目标域名，MX / TXT 按邮箱或验证服务给出的内容填写。迁移时先保留原记录的 TTL 和代理设置，不确定时请技术人员核对。</p>
-      <label>类型<select name="type" id="rType"><?php foreach (DNS_EDIT_TYPES as $t): ?><option><?php echo e($t); ?></option><?php endforeach; ?></select></label>
-      <label>主机记录<input name="name" id="rName" required maxlength="200" placeholder="@ 或 www" autocomplete="off"></label>
-      <label class="dns-grow">记录值<input name="value" id="rValue" required maxlength="2048" placeholder="IP 或域名" autocomplete="off"></label>
+      <label>类型<select name="type" id="rType"><?php foreach (DNS_EDIT_TYPES as $t): ?><option <?php echo $cdnPrefill && $t==='CNAME'?'selected':''; ?>><?php echo e($t); ?></option><?php endforeach; ?></select></label>
+      <label>主机记录<input name="name" id="rName" required maxlength="200" placeholder="@ 或 www" autocomplete="off" value="<?php echo e($cdnPrefill['name']??''); ?>"></label>
+      <label class="dns-grow">记录值<input name="value" id="rValue" required maxlength="2048" placeholder="IP 或域名" autocomplete="off" value="<?php echo e($cdnPrefill['value']??''); ?>"></label>
       <label>TTL（秒）<input name="ttl" id="rTtl" type="number" value="600" min="1" max="86400"></label>
       <label id="rPriorityWrap">MX 优先级<input name="priority" id="rPriority" type="number" value="10" min="0" max="65535"></label>
       <?php if ($provider === 'cloudflare'): ?><label class="dns-check"><input type="checkbox" name="proxied" id="rProxied" value="1"> 经 Cloudflare 代理（橙云）</label><?php endif; ?>
@@ -303,6 +313,7 @@ include __DIR__ . '/../includes/header.php';
     syncType(); form.scrollIntoView({ behavior: 'smooth', block: 'center' }); $('rName').focus();
   };
   $('rType').addEventListener('change', syncType);
+  syncType();
   $('dnsAddBtn').addEventListener('click', function () { open(null); });
   $('rCancel').addEventListener('click', function () { form.hidden = true; });
   document.querySelectorAll('[data-edit]').forEach(function (b) { b.addEventListener('click', function () { open(JSON.parse(b.getAttribute('data-edit'))); }); });

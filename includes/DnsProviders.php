@@ -12,6 +12,22 @@ const DNS_PROVIDERS = ['dnspod' => 'DNSPod', 'cloudflare' => 'Cloudflare'];
 const DNS_EDIT_TYPES = ['A', 'AAAA', 'CNAME', 'TXT', 'MX', 'NS'];
 const DNS_PROXY_TYPES = ['A', 'AAAA', 'CNAME'];
 
+/** Locate the actual account zone for a CDN hostname; never guess a public suffix. */
+function dns_cdn_prefill($hostname, $cname, array $zonesBy, $preferred = '')
+{
+    $hostname = dns_validate_domain($hostname);
+    $cname = dns_validate_domain($cname);
+    if ($hostname === $cname) throw new RuntimeException('CNAME 不能指向加速域名本身');
+    $providers = isset(DNS_PROVIDERS[$preferred]) ? [$preferred] : array_keys(DNS_PROVIDERS);
+    $match = null;
+    foreach ($providers as $provider) foreach ($zonesBy[$provider] ?? [] as $zone=>$row) {
+        if ($hostname !== $zone && substr($hostname, -(strlen($zone)+1)) !== '.' . $zone) continue;
+        if ($match && strlen($match['domain']) >= strlen($zone)) continue;
+        $match = ['provider'=>$provider, 'domain'=>$zone, 'name'=>$hostname === $zone ? '@' : substr($hostname, 0, -(strlen($zone)+1)), 'value'=>$cname];
+    }
+    return $match;
+}
+
 class DnsApiError extends RuntimeException
 {
     /** 服务商返回的错误码（腾讯云 Code / Cloudflare 无则空）。 */

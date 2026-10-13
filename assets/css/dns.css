@@ -80,6 +80,13 @@
 .dns-entry span { color: #5f7169; font-size: .84rem; }
 .dns-entry a { display: inline-flex; align-items: center; gap: 6px; padding: 8px 16px; border-radius: 10px; background: #2f7a67; color: #fff; font-weight: 600; font-size: .88rem; text-decoration: none; white-space: nowrap; }
 .dns-entry a:hover { background: #245443; color: #fff; text-decoration: none; }
+
+/* The site theme colors ordinary links green; action links need button contrast. */
+.dns-console .dns-btn, .dns-console .dns-btn:hover, .dns-entry a, .dns-entry a:hover { color:#fff!important; }
+.dns-console .dns-btn.ghost, .dns-console .dns-btn.ghost:hover, .dns-console .dns-link { color:#223c32!important; }
+.dns-console .dns-btn.ghost { background:#f5f8f6; }
+.dns-console .dns-hero .dns-btn.ghost, .dns-console .dns-hero .dns-btn.ghost:hover { color:#fff!important; background:rgba(255,255,255,.08); }
+.dns-console .dns-btn.danger, .dns-console .dns-btn.danger:hover { color:#a02b24!important; }
 .dns-drawer-link { display: inline-flex; align-items: center; gap: 6px; margin: 6px 12px 0 0; padding: 5px 12px; border-radius: 999px; border: 1px solid #bfe3d2; background: #eef8f3; color: #1d6a4f; font-size: .82rem; font-weight: 600; text-decoration: none; }
 .dns-drawer-link:hover { background: #dff1e8; color: #14503b; text-decoration: none; }
 

@@ -1,0 +1,24 @@
+.cdn-hero-links { display:flex; gap:8px; flex-wrap:wrap; }
+.cdn-console .dns-hero .dns-btn.ghost { color:#fff; border-color:rgba(255,255,255,.5); }
+.cdn-form { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:16px 24px; }
+.cdn-form label, .cdn-confirm label { display:flex; flex-direction:column; gap:6px; color:var(--dns-ink); font-size:.88rem; }
+.cdn-form input:not([type=checkbox]), .cdn-form select, .cdn-confirm input:not([type=checkbox]), .cdn-lookup input { width:100%; min-width:0; border:1px solid #d3dfd9; border-radius:10px; padding:10px 12px; background:#fff; color:var(--dns-ink); }
+.cdn-form input:focus, .cdn-form select:focus, .cdn-confirm input:focus { outline:2px solid rgba(47,122,103,.3); border-color:var(--dns-green); }
+.cdn-form small { font-weight:400; color:var(--dns-mute); line-height:1.6; }
+.cdn-form-actions { grid-column:1/-1; display:flex; gap:12px; flex-wrap:wrap; align-items:center; }
+.cdn-form-actions .dns-help { margin:0; }
+.cdn-check { flex-direction:row!important; align-items:center; gap:8px; }
+.cdn-summary { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px 24px; }
+.cdn-summary div { min-width:0; }
+.cdn-summary dt { font-size:.8rem; color:var(--dns-mute); font-weight:400; }
+.cdn-summary dd { margin:4px 0 0; overflow-wrap:anywhere; font-weight:600; }
+.cdn-confirm { display:flex; flex-direction:column; gap:14px; align-items:flex-start; }
+.cdn-confirm label { max-width:100%; }
+.cdn-confirm input:not([type=checkbox]) { min-width:280px; max-width:100%; }
+.cdn-preview { border:2px solid var(--dns-green); }
+.cdn-cname { display:flex; gap:12px; align-items:center; flex-wrap:wrap; margin:14px 0; }
+.cdn-cname code { background:#edf5f1; padding:12px; border-radius:8px; overflow-wrap:anywhere; }
+.cdn-lookup { display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin:12px 0; }
+.cdn-lookup input { width:300px; max-width:100%; }
+.cdn-form [hidden] { display:none!important; }
+@media(max-width:720px) { .cdn-form,.cdn-summary { grid-template-columns:1fr; } .cdn-confirm input:not([type=checkbox]) { min-width:0; } .cdn-lookup input { width:100%; } }
