@@ -2,6 +2,7 @@
 /* Bizcn SOAP adapter. Endpoints and argument names verified against provider WSDL. */
 require_once __DIR__ . '/ProjectVault.php';
 require_once __DIR__ . '/BizcnDomainValues.php';
+require_once __DIR__ . '/BizcnDnsRecords.php';
 require_once __DIR__ . '/BizcnDomainCatalog.php';
 
 function bd_config()
@@ -61,8 +62,13 @@ function bd_list($search, $page)
 
 function bd_require_owned($domain)
 {
-    // Count is unnecessary here: avoid an extra external round trip on every action.
-    $data = bd_call('domainService','getDomainList', ['checkname'=>bd_config()['username'], 'limit'=>30, 'offset'=>0, 'domainkey'=>$domain, 'domaintype'=>'']);
-    foreach (bd_rows($data['domainlist']['domain'] ?? []) as $row) if (strtolower((string)($row['domainname'] ?? '')) === $domain || strtolower((string)($row['doaminnamecode'] ?? '')) === $domain) return $row;
-    throw new RuntimeException('该域名不在当前商务中国账户中，无法管理');
+    // 本 API 账号没有“域名列表”权限（getDomainList / getDomainCount 对任何域名都返回 531），不能用列表核验归属。
+    // 改用 infoDomainWhois 逐域名实时核验：属于本账户的域名返回资料，其他域名返回 531（线上实测）。
+    try {
+        $info = bd_call('infoDomainWhoisService', 'infoDomainWhois', ['infoDomainWhois' => ['domainname' => $domain, 'detailed' => 'false']]);
+    } catch (RuntimeException $e) {
+        if (strpos($e->getMessage(), '531') !== false) throw new RuntimeException('该域名不在当前商务中国账户中，无法管理');
+        throw $e; // 网络或其他接口错误：原样提示，避免误判为“不是我们的域名”
+    }
+    return ['domainname' => $domain] + (array)$info;
 }

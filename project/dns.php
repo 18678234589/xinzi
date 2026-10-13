@@ -158,8 +158,8 @@ include __DIR__ . '/../includes/header.php';
       <p><?php echo $domain !== '' ? '直接在本站添加、编辑或删除解析记录，无需登录腾讯云或 Cloudflare；换解析商时先复制记录，再修改 NS。' : '通过已配置的 API，直接在本站添加域名、管理 DNSPod / Cloudflare 解析记录和复制解析。商务中国域名也可在本站修改 NS，无需另开腾讯云控制台。'; ?></p></div>
     <a class="dns-btn ghost" href="<?php echo BASE_URL; ?>/project/domains.php"><i class="fas fa-arrow-left"></i> 返回域名管理</a>
   </section>
-  <?php if ($error): ?><div class="dns-notice error" role="alert"><?php echo e($error); ?></div><?php endif; ?>
-  <?php if ($flash && !empty($flash['ok'])): ?><div class="dns-notice ok" role="status"><?php echo e($flash['ok']); ?>
+  <?php if ($error): ?><div class="dns-notice error" role="alert" id="dnsSaveNotice" tabindex="-1"><?php echo e($error); ?></div><?php endif; ?>
+  <?php if ($flash && !empty($flash['ok'])): ?><div class="dns-notice ok" role="status" id="dnsSuccessNotice" tabindex="-1"><?php echo e($flash['ok']); ?>
     <?php if (!empty($flash['ns'])): ?><div class="dns-ns-box"><strong>请到域名注册商处，把 <?php echo e($flash['ns_domain']); ?> 的 NS 改为：</strong><?php foreach ($flash['ns'] as $ns): ?><code><?php echo e($ns); ?></code><?php endforeach; ?><button type="button" class="dns-btn ghost" data-copy="<?php echo e(implode("\n", $flash['ns'])); ?>">复制全部</button></div><?php endif; ?>
     <?php if (!empty($flash['failed'])): ?><ul class="dns-fail"><?php foreach ($flash['failed'] as $f): ?><li><?php echo e($f); ?></li><?php endforeach; ?></ul><?php endif; ?></div><?php endif; ?>
   <?php foreach ($providerErrors as $key => $message): ?><div class="dns-notice warn"><strong><?php echo e(DNS_PROVIDERS[$key]); ?></strong>：<?php echo e($message); ?></div><?php endforeach; ?>
@@ -300,6 +300,8 @@ include __DIR__ . '/../includes/header.php';
 </main>
 <script>
 (function () {
+  var notice = document.getElementById('dnsSaveNotice') || document.getElementById('dnsSuccessNotice');
+  if (notice) { notice.scrollIntoView({ block: 'center' }); notice.focus({ preventScroll: true }); }
   document.querySelectorAll('[data-copy]').forEach(function (b) { b.addEventListener('click', function () {
     var t = b.getAttribute('data-copy'), done = function () { var o = b.textContent; b.textContent = '已复制'; setTimeout(function () { b.textContent = o; }, 1500); };
     if (navigator.clipboard) navigator.clipboard.writeText(t).then(done); else { var a = document.createElement('textarea'); a.value = t; document.body.appendChild(a); a.select(); document.execCommand('copy'); a.remove(); done(); } }); });

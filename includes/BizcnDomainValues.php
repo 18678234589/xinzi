@@ -92,6 +92,12 @@ function bd_record($input, $mode)
     $value = trim((string)($input['value'] ?? '')); $old = trim((string)($input['old_value'] ?? ''));
     if ($mode !== 'delete' && ($value === '' || strlen($value) > 2048 || preg_match('/[\x00-\x1f]/', $value))) throw new InvalidArgumentException('请填写有效解析值');
     if ($mode !== 'delete' && (($type==='A' && !filter_var($value,FILTER_VALIDATE_IP,FILTER_FLAG_IPV4)) || ($type==='AAAA' && !filter_var($value,FILTER_VALIDATE_IP,FILTER_FLAG_IPV6)))) throw new InvalidArgumentException('IP 地址格式不正确');
+    if ($mode !== 'delete' && $type === 'CNAME') {
+        try { $value = bd_domain($value); }
+        catch (InvalidArgumentException $e) { throw new InvalidArgumentException('CNAME 记录值必须是完整目标域名，不要填写 IP、https:// 或路径'); }
+        $owner = $host === '@' ? bd_domain($input['domain'] ?? '') : strtolower($host) . '.' . bd_domain($input['domain'] ?? '');
+        if ($value === $owner) throw new InvalidArgumentException('CNAME 不能指向自身，否则会造成解析循环');
+    }
     if ($mode !== 'add' && ($old === '' || strlen($old)>2048)) throw new InvalidArgumentException('原记录已变化，请刷新后重试');
     $priority = (int)($input['priority'] ?? 10);
     if ($priority<0 || $priority>65535) throw new InvalidArgumentException('优先级应为 0–65535');
