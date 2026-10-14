@@ -73,6 +73,21 @@ function pda_find_existing($business, $date, $amount, $nickname, $domain, $exclu
     return count($byNick) === 1 ? $byNick[0] : null;
 }
 
+/**
+ * 二次备案（没有金额）：同业务、同日期、同域名的已有二次备案订单，按出现顺序一一对应——表里第 N 次出现的“同日期同域名”行，对应库里第 N 张。
+ * 库里已有的张数不够（表里这天这个域名写了更多行）时返回 null，多出来的行才作为新订单。
+ */
+function pda_find_existing_secondary($business, $date, $domain, $seq)
+{
+    $domain = mb_strtolower(trim((string)$domain));
+    if ($business === '' || $domain === '' || !preg_match('/^\d{4}-\d{2}-\d{2}$/', (string)$date) || $seq < 1) return null;
+    $q = db()->prepare("SELECT o.id,o.order_no,o.settlement_status,COALESCE(d.details_json,'') details FROM project_orders o LEFT JOIN project_order_details d ON d.order_id=o.id WHERE o.project_type=? AND o.order_kind='二次备案' AND o.order_date=? ORDER BY o.id");
+    $q->execute([$business, $date]);
+    $same = [];
+    foreach ($q->fetchAll() as $o) if (mb_strtolower(trim((string)((json_decode($o['details'], true) ?: [])['domain_name'] ?? ''))) === $domain) $same[] = $o;
+    return $same[$seq - 1] ?? null;
+}
+
 /** 预览里给疑似重复行用的申诉入口链接。 */
 function pda_appeal_url($business, array $existing, $date, $amount, $nickname, $domain, $shop)
 {
@@ -90,7 +105,7 @@ function pda_submit(array $actor, array $in, array $file)
     $reason = trim((string)($in['reason'] ?? ''));
     $q = db()->prepare('SELECT id,order_no,project_type FROM project_orders WHERE id=?'); $q->execute([(int)($in['existing'] ?? 0)]); $existing = $q->fetch();
     if (!$existing || $existing['project_type'] !== $business) throw new RuntimeException('没有找到被判为重复的已有订单');
-    if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date) || $amount <= 0) throw new RuntimeException('日期或金额无效，请从导入预览里的链接进入');
+    if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date) || $amount < 0) throw new RuntimeException('日期或金额无效，请从导入预览里的链接进入');
     if (mb_strlen($reason) < 10) throw new RuntimeException('请写清楚为什么这是另一笔订单（至少 10 个字），例如：不同客户、各自独立的付款、各自备案不同域名');
     if (empty($file['tmp_name']) || ($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) throw new RuntimeException('请上传证明不是同一订单的证据（付款截图、聊天记录、合同等）');
     $ext = strtolower(pathinfo((string)$file['name'], PATHINFO_EXTENSION));

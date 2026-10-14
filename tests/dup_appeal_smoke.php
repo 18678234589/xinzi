@@ -76,6 +76,24 @@ try {
     $check($pv5[0]['order_no'] !== $firstNo && empty($pv5[0]['dup_adopted']) && $cnt() === 3, '申诉通过后重传：作为独立订单导入（库里 3 单）：' . $pv5[0]['order_no']);
     [$pv6] = $importAs($luan, '森动备案', $csvOf('森动备案', [$row('科恒扫码收款', 'cust' . $tag, $d1)]));
     $check($pv6[0]['order_no'] === $pv5[0]['order_no'] && $cnt() === 3, '再传一次：不重复建单');
+    // 二次备案（没有金额）：同一张表换了列的写法（联系微信号 ↔ 联系方式），内部号不同，也不能重复建单
+    $d3 = "dup$tag-c.com";
+    $sec = function ($col) use ($sk, $d3, $tag) { return ['日期' => '2026.9.15', '业务' => '二次备案', $sk => '已完成', $col => 'wx' . $tag, '域名' => $d3]; };
+    [$pvs1, $imps1] = $importAs($luan, '森动备案', $csvOf('森动备案', [$sec('联系微信号')]));
+    $secCnt = function () use ($pdo, $d3) { $q = $pdo->prepare("SELECT COUNT(*) FROM project_orders o JOIN project_order_details d ON d.order_id=o.id WHERE o.order_kind='二次备案' AND d.details_json LIKE ?"); $q->execute(['%' . $d3 . '%']); return (int)$q->fetchColumn(); };
+    $check($imps1 === 1 && $secCnt() === 1, '二次备案首次导入 1 单');
+    // 模拟老版本模板导入的二次备案：内部号和现在算出来的不同（线上就是这么出现重复的）
+    $pdo->prepare("UPDATE project_orders SET order_no=? WHERE order_no=?")->execute(['EB-LEGACY' . $tag, $pvs1[0]['order_no']]);
+    [$pvs2] = $importAs($luan, '森动备案', $csvOf('森动备案', [$sec('联系微信号')]));
+    $check($secCnt() === 1 && !empty($pvs2[0]['dup_adopted']) && $pvs2[0]['order_no'] === 'EB-LEGACY' . $tag, '内部号不同的老二次备案：按“同日期同域名”对应，沿用已有订单，没有新建（库里仍 1 单）');
+    [$pvs3] = $importAs($luan, '森动备案', $csvOf('森动备案', [$sec('联系微信号'), $sec('联系微信号')]));
+    $check($secCnt() === 2, '同一天同域名写两行：多出来的那一行才新建（共 2 单）');
+    [$pvs4] = $importAs($luan, '森动备案', $csvOf('森动备案', [$sec('联系微信号'), $sec('联系微信号')]));
+    $check($secCnt() === 2, '两行整张表再传一次：不新增（仍 2 单）');
+    // 表头被 Excel 全表“查找替换”改过（微信 → 科恒扫码收款）：仍能认出交易流水号和联系微信号
+    $renamed = ps_business_import_map('森动备案', ['日期', '店铺', '业务', '付款昵称', '订单编号', '售价', '科恒扫码收款交易流水号', '联系科恒扫码收款号', '域名', '状态(填已完成/未完成)'], false);
+    $check(isset($renamed['payment_reference']) && $renamed['payment_reference'] === 6, '表头“科恒扫码收款交易流水号”能识别为交易流水号');
+    $check(isset($renamed['detail:contact_wechat']) && $renamed['detail:contact_wechat'] === 7, '表头“联系科恒扫码收款号”能识别为联系微信号');
     @unlink($ev);
     echo "全部通过
 ";

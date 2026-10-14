@@ -378,8 +378,20 @@ function ps_business_import_headers_base($business)
 }
 
 /** 表头 => 列序号映射；缺少订单编号或全部人员列时报错。 */
+/**
+ * 表头归一：用户在 Excel 里对整张表做“查找替换”（如把“微信”全部换成“科恒扫码收款”）时，表头也会被改掉，
+ * 变成“科恒扫码收款交易流水号”“联系科恒扫码收款号”，导入就认不出交易号和联系微信。这里把渠道别名换回“微信”，并去掉表头里的空格 / 换行再匹配。
+ */
+function ps_import_header_norm($cell)
+{
+    $c = str_replace(["Â ", '　', "", "
+", ' '], '', trim((string)$cell));
+    return str_replace(['科恒扫码收款', '扫码收款'], '微信', $c);
+}
+
 function ps_business_import_map($business, $head, $requirePeople = true)
 {
+    $head = array_map('ps_import_header_norm', $head);
     $map = [];
     foreach (ps_business_import_columns($business) as $key => $aliases) {
         foreach ($aliases as $alias) {

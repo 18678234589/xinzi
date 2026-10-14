@@ -160,13 +160,33 @@
                     $existing = $exists->fetch();
                     // 疑似重复：没有真实订单号（系统自己生成 WX- / EB- 号）的行，同业务、同日期、同金额、又不像别的客户，默认就是已有的那一单——沿用它，不再新建。
                     // 业务负责人认为是另一笔订单，可在预览里点“去申诉”，财务通过后重传即可作为独立订单导入（见 ProjectDupAppeal.php）。
+                    $pdaSeqNow = 0;
+                    if (empty($record['writing']) && $selectedBusiness === '森动备案' && strpos((string)$record['order_no'], 'EB-') === 0 && trim((string)$lookup($row, 'contract_amount')) === '' && trim((string)$lookup($row, 'detail:domain_name')) !== '') {
+                        $pdaSeqKey0 = mb_strtolower(trim((string)$lookup($row, 'detail:domain_name'))) . '|' . (string)ps_import_date($lookup($row, 'order_date'));
+                        $pdaSeq[$pdaSeqKey0] = ($pdaSeq[$pdaSeqKey0] ?? 0) + 1; // 同日期同域名第几次出现（不论库里是否已有对应号）
+                        $pdaSeqNow = $pdaSeq[$pdaSeqKey0];
+                    }
                     if (!$existing && empty($record['writing']) && preg_match('/^(?:WX|EB)-/', (string)$record['order_no'])) {
                         require_once (dirname((dirname(__DIR__, 1)), 1)) . '/includes/ProjectDupAppeal.php';
                         $pdaDate = (string)ps_import_date($lookup($row, 'order_date'));
                         $pdaAmount = (float)str_replace([',', '¥', '￥', ' '], '', (string)$lookup($row, 'contract_amount'));
                         $pdaNick = trim((string)$lookup($row, 'payment_nickname')); $pdaDomain = trim((string)$lookup($row, 'detail:domain_name'));
                         $pdaKey = pda_row_key($selectedBusiness, $pdaDate, $pdaAmount, $pdaNick, $pdaDomain);
-                        if ($pdaAmount > 0 && $pdaDate !== '') {
+                        if ($pdaAmount <= 0 && $pdaDomain !== '' && $pdaDate !== '' && strpos((string)$record['order_no'], 'EB-') === 0) {
+                            // 二次备案（没有金额）：同日期、同域名，按出现顺序对应库里已有的二次备案；写法不同（联系微信号列 / 联系方式列）导致内部号不同时，不再重复建单
+                            if (pda_approved_id($selectedBusiness, $pdaKey)) {
+                                $record['order_no'] = 'EB-' . strtoupper(substr(hash('sha256', 'appeal|' . $pdaKey . '|' . $pdaSeqNow), 0, 12));
+                                $exists->execute([$record['order_no']]);
+                                $existing = $exists->fetch();
+                                $record['warning'] .= ($record['warning'] ? '；' : '') . '重复订单申诉已通过，按独立订单处理';
+                            } elseif ($pdaMatch = pda_find_existing_secondary($selectedBusiness, $pdaDate, $pdaDomain, $pdaSeqNow)) {
+                                $record['order_no'] = $pdaMatch['order_no'];
+                                $exists->execute([$record['order_no']]);
+                                $existing = $exists->fetch();
+                                $record['dup_adopted'] = ['order_id' => (int)$pdaMatch['id'], 'order_no' => $pdaMatch['order_no'], 'url' => pda_appeal_url($selectedBusiness, $pdaMatch, $pdaDate, 0, $pdaNick, $pdaDomain, trim((string)$lookup($row, 'shop')))];
+                                $record['warning'] .= ($record['warning'] ? '；' : '') . '与已有二次备案 ' . $pdaMatch['order_no'] . ' 日期、域名相同，已按同一订单处理（不会新建）';
+                            }
+                        } elseif ($pdaAmount > 0 && $pdaDate !== '') {
                             if (pda_approved_id($selectedBusiness, $pdaKey)) {
                                 // 申诉已通过：这一行是独立订单，用固定的另一个内部号（重传不重复建单）
                                 $record['order_no'] = 'WX-' . strtoupper(substr(hash('sha256', 'appeal|' . $pdaKey . '|' . $record['order_no']), 0, 24));
