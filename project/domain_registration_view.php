@@ -11,45 +11,45 @@
         <p class="domain-help">老客户直接查找并选择。<strong>新客户、新实名</strong>：先点下面按钮，在商务中国「域名管理 &gt; 添加域名模板」填写主体信息并上传证件，提交后商务中国需 2–5 个工作日审核；审核通过后点「刷新最新实名并查找」即可选用。证件资料只在商务中国页面填写，本系统不收集、不留存。</p>
         <button class="domain-btn ghost" id="registrationNewSubject" type="button">改在商务中国官方页面手工创建 ↗</button>
       </div>
-      <details class="domain-form-wide registration-ai" id="templateCreator" data-regions="<?php echo htmlspecialchars(json_encode(array_map('array_keys', bt_regions()), JSON_UNESCAPED_UNICODE), ENT_QUOTES, 'UTF-8'); ?>" data-cert-types="<?php echo htmlspecialchars(json_encode(['company' => bt_company_cert_types(), 'person' => bt_person_cert_types()], JSON_UNESCAPED_UNICODE), ENT_QUOTES, 'UTF-8'); ?>">
-        <summary><i class="fas fa-magic" aria-hidden="true"></i> 新客户：智能识别营业执照 / 身份证，自动填写实名信息</summary>
-        <p class="domain-help">粘贴客户发来的文字（公司名、联系人、手机、地址、邮箱等），再上传营业执照或身份证照片（身份证正反面可分两张传，系统自动拼成一张）。系统先按规则识别，再由 AI 补全，填好后<strong>请逐项核对</strong>（尤其是证件号码）再提交商务中国审核。证件图片只用于本次识别和提交，不会保存在本系统。</p>
-        <form id="tcAiForm" class="domain-form-grid">
-          <label class="domain-form-wide">客户文字信息（可不填）<textarea id="tcText" rows="4" maxlength="4000" placeholder="例如：济南某某科技有限公司，联系人张三，手机 138xxxxxxxx，地址 山东省济南市历下区…，邮箱 xxx@qq.com"></textarea></label>
-          <label class="domain-form-wide">营业执照 / 身份证图片（JPG、PNG，最多 4 张）<input id="tcFiles" type="file" accept="image/jpeg,image/png,image/*" multiple></label>
-          <div class="domain-form-wide"><span id="tcFileInfo" class="domain-help"></span><button class="domain-btn" id="tcRecognize" type="submit">智能识别并填写</button></div>
-        </form>
-        <div id="tcNotice" class="domain-notice" role="status" aria-live="polite" hidden></div>
-        <form id="tcForm" class="domain-form-grid" hidden>
-          <label>主体类型<select id="tcKind"><option value="company">单位（企业）</option><option value="person">个人</option></select></label>
-          <label>证件类型<select id="tcCertType"></select></label>
-          <label>模板名称<input id="tcTemplateName" maxlength="50" required></label>
-          <label>域名所有者（<span id="tcOwnerHint">单位全称</span>，与证件一致）<input id="tcOwnerName" maxlength="100" required></label>
-          <label>证件号码 / 统一社会信用代码<input id="tcCertNo" maxlength="40" required autocomplete="off"></label>
-          <label>姓（单位填法定代表人）<input id="tcSurname" maxlength="10" required></label>
-          <label>名<input id="tcGivenName" maxlength="20" required></label>
-          <label>省份<select id="tcProvince" required></select></label>
-          <label>城市<select id="tcCity" required></select></label>
-          <label class="domain-form-wide">详细地址（省市之后）<input id="tcAddress" maxlength="200" required></label>
-          <label>邮编<input id="tcPostcode" maxlength="6" inputmode="numeric" required></label>
-          <label>电话（须是商务中国账户已验证）<input id="tcPhone" maxlength="30" required placeholder="13xxxxxxxxx"></label>
-          <label>邮箱（须是商务中国账户已验证）<input id="tcEmail" type="email" maxlength="100" required></label>
-          <label>所有者英文<input id="tcOrgE" maxlength="120" required></label>
-          <label>姓（英文）<input id="tcSurnameE" maxlength="40" required></label>
-          <label>名（英文）<input id="tcGivenNameE" maxlength="40" required></label>
-          <label>省份（英文）<input id="tcProvinceE" maxlength="40" required></label>
-          <label>城市（英文）<input id="tcCityE" maxlength="40" required></label>
-          <label class="domain-form-wide">地址（英文）<input id="tcAddressE" maxlength="200" required></label>
-          <div class="domain-form-wide">
-            <label class="registration-ack"><input type="checkbox" id="tcAck" required>我已逐项核对以上信息与证件一致；提交后商务中国审核 2–5 个工作日，信息不一致会导致审核失败</label>
-            <button class="domain-btn" id="tcSubmit" type="submit">提交商务中国实名审核</button>
-          </div>
-        </form>
-        <div id="tcResult" class="domain-notice" role="status" aria-live="polite" hidden></div>
-      </details>
       <label>域名实名主体<select id="registrationTemplate" required><option value="">请先查找实名主体</option></select></label>
       <div class="domain-form-wide"><button class="domain-btn" type="submit" id="registrationCheck" disabled>查询可注册性与实时价格</button><p class="domain-help">先查询，不扣费。首期支持一年注册，续费另行确认；高价域名由管理员操作。证件资料不在这里收集。</p></div>
     </form>
+    <details class="registration-ai" id="templateCreator" data-regions="<?php echo htmlspecialchars(json_encode(array_map('array_keys', bt_regions()), JSON_UNESCAPED_UNICODE), ENT_QUOTES, 'UTF-8'); ?>" data-cert-types="<?php echo htmlspecialchars(json_encode(['company' => bt_company_cert_types(), 'person' => bt_person_cert_types()], JSON_UNESCAPED_UNICODE), ENT_QUOTES, 'UTF-8'); ?>">
+      <summary><i class="fas fa-magic" aria-hidden="true"></i> 新客户：智能识别营业执照 / 身份证，自动填写实名信息</summary>
+      <p class="domain-help">粘贴客户发来的文字（公司名、联系人、手机、地址、邮箱等），再上传营业执照或身份证照片（身份证正反面可分两张传，系统自动拼成一张）。系统先按规则识别，再由 AI 补全，填好后<strong>请逐项核对</strong>（尤其是证件号码）再提交商务中国审核。证件图片只用于本次识别和提交，不会保存在本系统。</p>
+      <form id="tcAiForm" class="domain-form-grid">
+        <label class="domain-form-wide">客户文字信息（可不填）<textarea id="tcText" rows="4" maxlength="4000" placeholder="例如：济南某某科技有限公司，联系人张三，手机 138xxxxxxxx，地址 山东省济南市历下区…，邮箱 xxx@qq.com"></textarea></label>
+        <label class="domain-form-wide">营业执照 / 身份证图片（JPG、PNG，最多 4 张）<input id="tcFiles" type="file" accept="image/jpeg,image/png,image/*" multiple></label>
+        <div class="domain-form-wide"><span id="tcFileInfo" class="domain-help"></span><button class="domain-btn" id="tcRecognize" type="submit">智能识别并填写</button></div>
+      </form>
+      <div id="tcNotice" class="domain-notice" role="status" aria-live="polite" hidden></div>
+      <form id="tcForm" class="domain-form-grid" hidden>
+        <label>主体类型<select id="tcKind"><option value="company">单位（企业）</option><option value="person">个人</option></select></label>
+        <label>证件类型<select id="tcCertType"></select></label>
+        <label>模板名称<input id="tcTemplateName" maxlength="50" required></label>
+        <label>域名所有者（<span id="tcOwnerHint">单位全称</span>，与证件一致）<input id="tcOwnerName" maxlength="100" required></label>
+        <label>证件号码 / 统一社会信用代码<input id="tcCertNo" maxlength="40" required autocomplete="off"></label>
+        <label>姓（单位填法定代表人）<input id="tcSurname" maxlength="10" required></label>
+        <label>名<input id="tcGivenName" maxlength="20" required></label>
+        <label>省份<select id="tcProvince" required></select></label>
+        <label>城市<select id="tcCity" required></select></label>
+        <label class="domain-form-wide">详细地址（省市之后）<input id="tcAddress" maxlength="200" required></label>
+        <label>邮编<input id="tcPostcode" maxlength="6" inputmode="numeric" required></label>
+        <label>电话（须是商务中国账户已验证）<input id="tcPhone" maxlength="30" required placeholder="13xxxxxxxxx"></label>
+        <label>邮箱（须是商务中国账户已验证）<input id="tcEmail" type="email" maxlength="100" required></label>
+        <label>所有者英文<input id="tcOrgE" maxlength="120" required></label>
+        <label>姓（英文）<input id="tcSurnameE" maxlength="40" required></label>
+        <label>名（英文）<input id="tcGivenNameE" maxlength="40" required></label>
+        <label>省份（英文）<input id="tcProvinceE" maxlength="40" required></label>
+        <label>城市（英文）<input id="tcCityE" maxlength="40" required></label>
+        <label class="domain-form-wide">地址（英文）<input id="tcAddressE" maxlength="200" required></label>
+        <div class="domain-form-wide">
+          <label class="registration-ack"><input type="checkbox" id="tcAck" required>我已逐项核对以上信息与证件一致；提交后商务中国审核 2–5 个工作日，信息不一致会导致审核失败</label>
+          <button class="domain-btn" id="tcSubmit" type="submit">提交商务中国实名审核</button>
+        </div>
+      </form>
+      <div id="tcResult" class="domain-notice" role="status" aria-live="polite" hidden></div>
+    </details>
     <form id="registrationConfirm" hidden>
       <div id="registrationQuote" class="domain-detail-grid"></div>
       <p class="domain-help">价格为商务中国接口返回的一年注册价（人民币），从商务中国账户余额扣除。请核对实名主体与 NS；注册成功后通常不能取消，避免误购。</p>
