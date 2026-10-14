@@ -111,4 +111,11 @@
     var cfg = new FormData(); post('config', cfg, 30000).then(function (c) { if (c.template_contact) { el('registrationContactPhone').value = c.template_contact.phone.replace('+86.', ''); el('registrationContactEmail').value = c.template_contact.email; } }).catch(function () {});
   }
   fillCerts('company'); fillProvinces('', '');
+  // 入口：页头按钮 / 导航“注册域名”（#register）直接展开注册区并打开智能识别。
+  function openCreator() {
+    if (el('registrationWorkspace').hidden) el('registrationToggle').click();
+    box.open = true; box.scrollIntoView({ behavior: 'smooth', block: 'start' }); el('tcText').focus({ preventScroll: true });
+  }
+  el('registrationOpenCreator').onclick = openCreator;
+  if (window.location.hash === '#register') setTimeout(openCreator, 0);
 })();

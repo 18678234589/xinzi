@@ -1,6 +1,6 @@
 <?php if (!isset($actor,$csrf)) { http_response_code(404); exit; } ?>
 <section class="domain-registration" id="domainRegistration">
-  <div class="domain-section-heading"><div><span class="domain-kicker">CREATE YOUR NEXT CONNECTION</span><h2>注册一个新的开始</h2><p id="registrationQuota" class="domain-help">正在读取今日额度…</p></div><button class="domain-btn ghost" id="registrationToggle" type="button" aria-expanded="false">＋ 注册域名</button></div>
+  <div class="domain-section-heading"><div><span class="domain-kicker">CREATE YOUR NEXT CONNECTION</span><h2>注册一个新的开始</h2><p id="registrationQuota" class="domain-help">正在读取今日额度…</p></div><div class="registration-head-actions"><button class="domain-btn" id="registrationOpenCreator" type="button"><i class="fas fa-magic" aria-hidden="true"></i> 智能识别实名 + 注册</button><button class="domain-btn ghost" id="registrationToggle" type="button" aria-expanded="false">＋ 注册域名</button></div></div>
   <div id="registrationNotice" class="domain-notice" role="status" aria-live="polite" hidden></div>
   <div id="registrationWorkspace" hidden>
     <form id="registrationSearch" class="domain-form-grid">
