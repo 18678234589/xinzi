@@ -151,7 +151,7 @@ $previewFileId = $preview ? (int)($_SESSION['project_import_file'] ?? 0) : 0;
   <div class="import-fix-foot"><?php echo $actor['role'] === 'finance' ? '更正后点上方“重新核对”即可导入。' : '财务确认后，回到这里点“重新核对”就能导入；也可以改表格后重新上传。'
     ; ?></div>
 </div>
-<?php endif; ?><?php endif; ?><?php if ($row['warning']): ?><div class="small import-warn mt-1"><?php echo e($row['warning']); ?></div><?php endif; ?></td></tr><?php endforeach; ?>
+<?php endif; ?><?php endif; ?><?php if ($row['warning']): ?><div class="small import-warn mt-1"><?php echo e($row['warning']); ?></div><?php endif; ?><?php if (!empty($row['dup_adopted'])): ?><div class="small mt-1"><a class="btn btn-sm btn-outline-warning" target="_blank" href="<?php echo e($row['dup_adopted']['url']); ?>"><i class="fas fa-balance-scale mr-1"></i>不是同一笔订单？去申诉</a></div><?php endif; ?></td></tr><?php endforeach; ?>
 </tbody></table></div><div class="card-body border-top d-flex flex-wrap justify-content-between align-items-center" style="gap:10px;position:sticky;bottom:0;z-index:20;background:#fff;box-shadow:0 -3px 10px rgba(15,64,40,.12);border-radius:0 0 14px 14px"><small class="text-muted">红色行不会入账；可先处理已通过的行。绿色按钮点击后订单才真正写入，仅上传预览不会入库。售价不会直接变成实收<?php
     echo $businessDefinition['resources'] ? '，SSL 报备价不会直接入成本' : ''; ?>。</small><div class="d-flex flex-wrap" style="gap:8px"><?php if ($repairableCount || $siteKeyFixCount
     ): ?><button class="btn btn-outline-primary mt-2" type="submit" name="action" value="repair_preview">应用补填并重新核对</button><?php endif; ?><button class="btn btn-success btn-lg mt-2" type="submit" name="action" value="commit" <?php

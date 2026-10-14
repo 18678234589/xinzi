@@ -124,7 +124,7 @@ try {
     [$pvt, $impt, $errt] = $importAs($luan, '森动备案', $tplCsv);
     $check($errt === '' && $impt === 3, '模板示例行自动跳过，真实 3 行（对公 / 微信备案 + 二次备案）全部导入：' . $impt . ' ' . $errt . ' ' . implode('；', array_map(function ($r) { return $r['error'] ?? ''; }, $pvt)));
     $check(array_column($pvt, 'shop')[0] === '对公' && array_column($pvt, 'shop')[1] === '微信' && array_column($pvt, 'order_kind') === ['备案', '备案', '二次备案'], '店铺列的微信 / 对公原样保留，订单类型按“业务”列');
-    $check(strpos($pvt[0]['order_no'], 'WX-') === 0 && strpos($pvt[1]['order_no'], 'WX-') === 0, '没有订单编号的备案生成内部订单号（WX-…）');
+    $check(strpos($pvt[0]['order_no'], 'WX-') === 0 && strpos($pvt[1]['order_no'], 'WX-') === 0, '没有订单编号的备案生成内部订单号（WX-…）：' . $pvt[0]['order_no'] . ' ' . $pvt[1]['order_no']);
     $tplNos = array_column($pvt, 'order_no');
     [$pvtAgain, $imptAgain, $errtAgain] = $importAs($luan, '森动备案', $tplCsv);
     $check($errtAgain === '' && array_column($pvtAgain, 'order_no') === $tplNos, '标准模板整表重传保持相同内部编号');
