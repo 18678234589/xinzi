@@ -28,21 +28,21 @@ function bd_can_access($actor)
     return bd_policy($actor['role'], $department, $q->fetchAll(PDO::FETCH_COLUMN), pv_can_access($actor));
 }
 
-function bd_call($service, $method, $params)
+function bd_call($service, $method, $params, $timeout = 18)
 {
-    $allowed = ['domainService'=>['getDomainList','getDomainCount','domainAuditQuery','jumpPanel','modDomainID','checkPremium'], 'domainTemplateService'=>['getTemplateList','queryTemplateAuthStatus'], 'orderService'=>['queryDomainOrder'], 'infoDomainWhoisService'=>['infoDomainWhois'], 'infoDnsRecordService'=>['infoDnsRecord'], 'modDomainDnsService'=>['modDomainDns'], 'addDnsRecordService'=>['addDnsRecord'], 'modDnsRecordService'=>['modDnsRecord'], 'delDnsRecordService'=>['delDnsRecord']];
+    $allowed = ['domainService'=>['getDomainList','getDomainCount','domainAuditQuery','jumpPanel','modDomainID','checkPremium'], 'domainTemplateService'=>['getTemplateList','queryTemplateAuthStatus','addTemplate'], 'orderService'=>['queryDomainOrder'], 'infoDomainWhoisService'=>['infoDomainWhois'], 'infoDnsRecordService'=>['infoDnsRecord'], 'modDomainDnsService'=>['modDomainDns'], 'addDnsRecordService'=>['addDnsRecord'], 'modDnsRecordService'=>['modDnsRecord'], 'delDnsRecordService'=>['delDnsRecord']];
     if (!isset($allowed[$service]) || !in_array($method, $allowed[$service], true)) throw new RuntimeException('不支持此操作');
-    return bd_transport($service,$method,$params);
+    return bd_transport($service,$method,$params,$timeout);
 }
 
 // Internal transport; paid registration may only call this after br_reserve + br_mark_started.
-function bd_transport($service,$method,$params)
+function bd_transport($service,$method,$params,$timeout = 18)
 {
     $config = bd_config();
     $params = ['user'=>['name'=>$config['username'], 'password'=>$config['password']]] + $params;
     $body = '<?xml version="1.0" encoding="UTF-8"?><soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/"><soap:Body><m:' . $method . ' xmlns:m="http://ws/">' . bd_xml($params) . '</m:' . $method . '></soap:Body></soap:Envelope>';
     $curl = curl_init('https://api.bizcn.com/rrpservices/' . $service);
-    curl_setopt_array($curl, [CURLOPT_POST=>true, CURLOPT_POSTFIELDS=>$body, CURLOPT_HTTPHEADER=>['Content-Type: text/xml; charset=utf-8', 'SOAPAction: ""'], CURLOPT_RETURNTRANSFER=>true, CURLOPT_CONNECTTIMEOUT=>4, CURLOPT_TIMEOUT=>18, CURLOPT_SSL_VERIFYPEER=>true, CURLOPT_SSL_VERIFYHOST=>2, CURLOPT_FOLLOWLOCATION=>false]);
+    curl_setopt_array($curl, [CURLOPT_POST=>true, CURLOPT_POSTFIELDS=>$body, CURLOPT_HTTPHEADER=>['Content-Type: text/xml; charset=utf-8', 'SOAPAction: ""'], CURLOPT_RETURNTRANSFER=>true, CURLOPT_CONNECTTIMEOUT=>4, CURLOPT_TIMEOUT=>$timeout, CURLOPT_SSL_VERIFYPEER=>true, CURLOPT_SSL_VERIFYHOST=>2, CURLOPT_FOLLOWLOCATION=>false]);
     $response = curl_exec($curl); $status = curl_getinfo($curl, CURLINFO_HTTP_CODE); curl_close($curl);
     if ($response === false || $status !== 200) throw new RuntimeException('商务中国连接暂未成功，请重试或检查接口 IP 白名单');
     return bd_parse($response, $method, [$config['password'], md5($config['password'])]);

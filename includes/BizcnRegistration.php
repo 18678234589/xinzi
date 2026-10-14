@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__.'/BizcnRegistrationStore.php';
+require_once __DIR__.'/BizcnTemplateAi.php';
 
 function br_template_pass($id)
 {
@@ -57,7 +58,7 @@ function br_dispatch($action,$input,$actor)
     $pdo=db();$account=bd_config()['username'];$now=time();$s=br_settings($pdo,$account);
     if($action==='registration_config') {
         $count=$pdo->prepare('SELECT COUNT(*) FROM bizcn_registration_templates WHERE provider_account=?');$count->execute([$account]);$directory=(int)$count->fetchColumn();
-        return ['daily_limit'=>$s['daily_limit'],'used'=>br_usage($pdo,$account,br_day($now)),'day'=>br_day($now),'timezone'=>'Asia/Shanghai','revision'=>$s['revision'],'templates'=>$s['templates'],'directory_count'=>$directory,'ns'=>$s['ns'],'admin'=>br_admin($actor),'ready'=>(count($s['templates'])>0 || $directory>0) && count($s['ns'])===2 && $s['daily_limit']>0];
+        return ['daily_limit'=>$s['daily_limit'],'used'=>br_usage($pdo,$account,br_day($now)),'day'=>br_day($now),'timezone'=>'Asia/Shanghai','revision'=>$s['revision'],'templates'=>$s['templates'],'directory_count'=>$directory,'ai_ready'=>function_exists('ps_ai_ready') && ps_ai_ready(),'template_contact'=>bt_contact(),'ns'=>$s['ns'],'admin'=>br_admin($actor),'ready'=>(count($s['templates'])>0 || $directory>0) && count($s['ns'])===2 && $s['daily_limit']>0];
     }
     if($action==='registration_templates') {
         if(!br_admin($actor))throw new RuntimeException('只有管理员可查询和批准实名模板');
@@ -156,6 +157,10 @@ function br_dispatch($action,$input,$actor)
         ps_audit('domain_registration',0,'template_panel',$actor,['via'=>$domain]);
         return ['url'=>'https://dnsmsn.com/login/domain/doLogin.do?token='.rawurlencode($data['token'])];
     }
+    if($action==='registration_template_ai')return bt_action_ai($input,$actor);
+    if($action==='registration_template_create')return bt_action_create($input,$actor);
+    if($action==='registration_template_status')return bt_action_status($input);
+    if($action==='registration_template_contact')return bt_action_contact($input,$actor);
     if($action==='registration_status') {
         $r=br_request($pdo,$account,$actor,$input['id'] ?? 0);
         if(in_array($r['status'],['processing','unknown'],true) && $r['order_id']!=='') {

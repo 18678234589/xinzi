@@ -482,17 +482,22 @@
 - 加载：`require_once __DIR__ . '/BizcnDomainAggregator.php';`
 - 加载：`include $file : [];`
 
-## includes/BizcnRegistration.php (185 行, 17.3 KB)
+## includes/BizcnRegions.php (40 行, 9.4 KB)
 
-- `br_template_pass` L4–9
-- `br_price` L10–22
-- `br_public` L23–27
-- `br_catalog_registered` L28–36
-- `br_owner_label` L37–40
-- `br_sync_templates_page` L41–48
-- `br_directory_template` L49–54
-- `br_dispatch` L55–184
+- `bt_regions` L3–39
+
+## includes/BizcnRegistration.php (190 行, 17.7 KB)
+
+- `br_template_pass` L5–10
+- `br_price` L11–23
+- `br_public` L24–28
+- `br_catalog_registered` L29–37
+- `br_owner_label` L38–41
+- `br_sync_templates_page` L42–49
+- `br_directory_template` L50–55
+- `br_dispatch` L56–189
 - 加载：`require_once __DIR__.'/BizcnRegistrationStore.php';`
+- 加载：`require_once __DIR__.'/BizcnTemplateAi.php';`
 
 ## includes/BizcnRegistrationStore.php (106 行, 9.8 KB)
 
@@ -511,6 +516,36 @@
 - `br_state` L71–77
 - `br_record_result` L78–93
 - `br_release_unknown` L94–105
+
+## includes/BizcnTemplateAi.php (384 行, 22.8 KB)
+
+- `bt_person_cert_types` L9–12
+- `bt_company_cert_types` L13–16
+- `bt_id_card_valid` L20–27
+- `bt_credit_code_valid` L28–36
+- `bt_text_hints` L37–46
+- `bt_city_stem` L50–53
+- `bt_match_region` L54–80
+- `bt_phone` L81–89
+- `bt_ascii` L90–94
+- `bt_ai_prompt` L98–111
+- `bt_ai_extract` L112–117
+- `bt_merge_fields` L123–175
+- `bt_is_upload` L179–182
+- `bt_upload_paths` L183–197
+- `bt_load_image` L198–206
+- `bt_resize_width` L208–217
+- `bt_jpeg` L218–223
+- `bt_ai_blob` L225–233
+- `bt_certificate_jpeg` L235–257
+- `bt_contact` L261–267
+- `bt_validate_fields` L268–304
+- `bt_template_args` L305–320
+- `bt_action_ai` L324–351
+- `bt_action_create` L352–365
+- `bt_action_status` L366–374
+- `bt_action_contact` L375–383
+- 加载：`require_once __DIR__ . '/BizcnRegions.php';`
 
 ## includes/DnsProviders.php (369 行, 20.2 KB)
 
@@ -2805,11 +2840,11 @@
 ## project/domain_dns_choices.php (9 行, 1.3 KB)
 
 
-## project/domain_registration_view.php (40 行, 5.8 KB)
+## project/domain_registration_view.php (78 行, 10.5 KB)
 
 - 加载：`include __DIR__.'/domain_dns_choices.php';`
 
-## project/domains.php (268 行, 24.8 KB)
+## project/domains.php (269 行, 24.9 KB)
 
 - 加载：`require_once __DIR__ . '/../includes/BizcnDomains.php';`
 - 加载：`require_once __DIR__ . '/../includes/BizcnRegistration.php';`
@@ -3727,6 +3762,20 @@
 - 加载：`require __DIR__.'/bizcn_registration.php';`
 - 加载：`require __DIR__.'/../includes/BizcnDomainValues.php';`
 - 加载：`require __DIR__.'/../includes/BizcnRegistration.php';`
+
+## tests/bizcn_template_ai.php (113 行, 10.9 KB)
+
+- `tt` L5–5
+- `trej` L6–6
+- `ps_audit` L8–8
+- `ps_ai_ready` L9–9
+- `ps_ai_chat` L10–10
+- `ps_ai_json` L11–11
+- `bd_call` L12–12
+- `ps_setting_get` L14–14
+- `ps_setting_set` L15–15
+- `noisy` L63–63
+- 加载：`require __DIR__ . '/../includes/BizcnTemplateAi.php';`
 
 ## tests/custom_site_cs_smoke.php (44 行, 3.6 KB)
 
