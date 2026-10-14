@@ -24,7 +24,8 @@ $move = []; $backup = []; $checked = 0; $noParse = 0; $upd = $pdo->prepare('UPDA
 foreach ($pdo->query($sql) as $row) {
     $checked++;
     $raw = json_decode((string)$row['raw_data'], true);
-    if (!is_array($raw) || !empty($raw['__trade_time__'])) continue;
+    // 只处理新版上传（带 __statement_uploaded_at__）里“当时没认出时间”的行：更早的版本是故意按上传时选的月份入账的，不能动
+    if (!is_array($raw) || !empty($raw['__trade_time__']) || empty($raw['__statement_uploaded_at__'])) continue;
     $best = null; $bestRank = 9;
     foreach ($raw as $k => $v) { if (strpos((string)$k, '__') === 0) continue; $r = $rank((string)$k); if ($r > 0 && $r < $bestRank) { $best = $v; $bestRank = $r; } }
     if ($best === null) continue;
