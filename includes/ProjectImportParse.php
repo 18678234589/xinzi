@@ -25,6 +25,9 @@ function ps_import_date($value)
         }
         return checkdate($month, $day, $year) ? sprintf('%04d-%02d-%02d', $year, $month, $day) : null;
     }
+    // 日期时间连写（2026081012:21:30 / 20260703093827）、月日不补零带时间（2026-8-7 10:00）等写法统一交给 sod_parse
+    require_once __DIR__ . '/ShopOrderDate.php';
+    if (($sod = sod_parse($value)) !== null) return $sod['date'];
     $time = strtotime(str_replace(['年','月','日','/','.'], ['-','-','','-','-'], $value));
     return $time ? date('Y-m-d', $time) : null;
 }

@@ -94,6 +94,8 @@
                     $batchStmt->execute([0, $batchHeaders]);
 
                     $inserted = 0; $skipped = 0; $noDate = 0; $updated = 0; $dups = 0;
+                    require_once (dirname(__DIR__, 2)) . '/../includes/ShopOrderDate.php';
+                    $monthFallback = 0; $fallbackSamples = []; $byMonth = []; $seenInFile = []; $conflicts = [];
                     // 预读：本店铺已有的同订单号流水（按店铺 + 订单号去重；一次查完，避免逐行查询拖慢上传）
                     $existingMap = []; $prepNos = [];
                     foreach ($dataRows as $r0) {
@@ -154,12 +156,19 @@
                                 } elseif (preg_match('/(\d{4})(\d{2})(\d{2})\s/', $tradeTime, $m)) {
                                     $dt = "{$m[1]}-{$m[2]}-{$m[3]}"; $tradeTimeStr = $tradeTime;
                                 }
+                                // 其余写法（2026-8-7 10:00 月日不补零、2026081012:21:30 / 20260703093827 日期时间连写、2026/7/1 934 等）统一交给 sod_parse
+                                if ($dt === '' && ($sod = sod_parse($tradeTime)) !== null) { $dt = $sod['date']; $tradeTimeStr = $sod['time']; }
                             }
                         }
 
                         $dateFromRow = false;
                         if ($dt !== '' && $dt >= date('Y-m-d', strtotime('-5 years')) && $dt <= date('Y-m-d', strtotime('+35 days'))) { $parsedDate = $dt; $dateFromRow = true; }
-                        elseif ($upload_month !== '') $parsedDate = $upload_month . '-01';
+                        elseif ($upload_month !== '') {
+                            // 这一行的时间认不出来，才按所选月份入账——必须在结果里提示，否则订单会悄悄记到错误的月份
+                            $parsedDate = $upload_month . '-01';
+                            $monthFallback++;
+                            if (count($fallbackSamples) < 3) $fallbackSamples[] = '“' . mb_substr(trim((string)($row[$idxTradeTime] ?? '')), 0, 24) . '”';
+                        }
                         if ($parsedDate === '') { $noDate++; continue; } // 既没有可识别的日期、也没选月份：这一行无法确定归属月份，跳过并在结果里提示
 
                         // 原样存储每列；额外存入店铺名
@@ -215,6 +224,11 @@
                             }
                             if ($matchIdx !== null) {
                                 $e = $existingMap[$orderNo][$matchIdx];
+                                // 同一张表里订单号重复、金额却不同：不拿后一行覆盖前一行（会丢一笔钱），保留先出现的并在结果里列出，请核对表格
+                                if (isset($seenInFile[$orderNo . '|' . ($srcNegative ? 'r' : 'o')]) && abs((float)$e['order_amount'] - $amount) > 0.004) {
+                                    if (count($conflicts) < 5) $conflicts[] = $orderNo . '（' . number_format((float)$e['order_amount'], 2) . ' / ' . number_format($amount, 2) . '）';
+                                    $dups++; continue;
+                                }
                                 $eStatus = trim((string)($e['raw']['__order_status__'] ?? '')); $eTime = (string)($e['raw']['__trade_time__'] ?? '');
                                 $newer = ps_shop_status_rank($orderStatus) > ps_shop_status_rank($eStatus)
                                     || (ps_shop_status_rank($orderStatus) === ps_shop_status_rank($eStatus) && ($tradeTimeStr === '' || $eTime === '' || $tradeTimeStr >= $eTime));
@@ -228,12 +242,16 @@
                                 $existingMap[$orderNo][$matchIdx] = ['id' => $e['id'], 'order_no' => $orderNo, 'order_amount' => $amount, 'order_date' => $newDate, 'raw' => $merged
     ];
                                 $updated++;
+                                $seenInFile[$orderNo . '|' . ($srcNegative ? 'r' : 'o')] = 1;
                                 ps_sync_project_status_latest($orderNo, $shop['name'], $orderStatus);
                                 continue;
                             }
                         }
 
+                        if (!$dateFromRow) $rawMap['__date_fallback__'] = '1';
                         $stmt->execute([0, $amount, $parsedDate, $shop['name'], $orderNo, json_encode($rawMap, JSON_UNESCAPED_UNICODE), $isAbn, $abnReason]);
+                        $byMonth[substr($parsedDate, 0, 7)] = ($byMonth[substr($parsedDate, 0, 7)] ?? 0) + 1;
+                        if ($orderNo !== '') $seenInFile[$orderNo . '|' . ($srcNegative ? 'r' : 'o')] = 1;
                         $newId = (int)db()->lastInsertId();
                         if ($orderNo !== '') $existingMap[$orderNo][] = ['id' => $newId, 'order_no' => $orderNo, 'order_amount' => $amount, 'order_date' => $parsedDate, 'raw' => $rawMap
     ];
@@ -252,7 +270,7 @@
                     if ($error === '') {
                         $rq = ['shop_id' => $shop_id, 'upload_ok' => '1', 'msg' => urlencode("导入完成！为【{$shop['name']}】成功导入 {$inserted} 条" . ($skipped > 0 ?
     "，{$skipped} 条标记为异常" : "") . ($updated > 0 ? "；{$updated} 条已有订单的状态 / 金额按最新数据更新" : "") . ($dups > 0 ? "；{$dups} 条是已有的重复订单（同店铺同订单号），已自动跳过"
-    : "") . ($noDate > 0 ? "；另有 {$noDate} 行没有可识别的日期，未导入（请在“归属月份”里选一个月份后重传，或补全日期列）" : ""))];
+    : "") . ($noDate > 0 ? "；另有 {$noDate} 行没有可识别的日期，未导入（请在“归属月份”里选一个月份后重传，或补全日期列）" : "") . ($monthFallback > 0 ? "；注意：有 {$monthFallback} 行的时间认不出来（如 " . implode('、', $fallbackSamples) . "），已按你选的归属月份 {$upload_month} 入账，请核对" : "") . ($conflicts ? "；表格里有订单号重复且金额不同的行，只保留了先出现的一行，请核对：" . implode('、', $conflicts) : "") . ($byMonth ? "；本次新增按月份：" . implode('、', array_map(function ($mk, $mc) { return $mk . ' ' . $mc . ' 条'; }, array_keys($byMonth), $byMonth)) : ""))];
                         header('Location: ' . BASE_URL . '/shops/upload.php?' . http_build_query($rq));
                         exit;
                     }
