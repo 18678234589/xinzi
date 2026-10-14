@@ -8,7 +8,11 @@
       <p class="domain-help">把客户发来的<strong>域名、公司名、电话、邮箱、地址</strong>整段粘贴进来，再上传营业执照（或身份证）照片：系统自动识别，并查询<strong>域名能否注册、价格</strong>和<strong>该公司是否已有可用的实名主体</strong>，结果直接显示在下面，不扣费。老客户实名已通过时不用再传图片，只粘贴文字即可。证件图片只用于本次识别和提交，不保存在本系统。</p>
       <form id="tcAiForm" class="domain-form-grid">
         <label class="domain-form-wide">客户信息<textarea id="tcText" rows="5" maxlength="4000" placeholder="例如：&#10;example.com 济南某某科技有限公司&#10;电话：138xxxxxxxx&#10;邮箱：xxx@qq.com&#10;地址：山东省济南市历下区…"></textarea></label>
-        <label class="domain-form-wide">营业执照 / 身份证图片（JPG、PNG，最多 4 张；新实名必传）<input id="tcFiles" type="file" accept="image/jpeg,image/png,image/*" multiple></label>
+        <div class="domain-form-wide">
+          <span class="registration-drop-label">营业执照 / 身份证图片（JPG、PNG，最多 4 张；新实名必传）</span>
+          <div id="tcDrop" class="registration-drop" tabindex="0" role="button" aria-label="拖拽图片到这里，或点击选择；也可以直接粘贴截图"><i class="fas fa-cloud-upload-alt" aria-hidden="true"></i><strong>把图片拖到这里</strong><span>或点击选择，可一次选多张，也可以分多次添加；还能直接 Ctrl+V 粘贴截图</span><input id="tcFiles" type="file" accept="image/jpeg,image/png,image/*" multiple hidden></div>
+          <div id="tcThumbs" class="registration-thumbs"></div>
+        </div>
         <div class="domain-form-wide"><span id="tcFileInfo" class="domain-help"></span><button class="domain-btn" id="tcRecognize" type="submit">智能识别并预检</button></div>
       </form>
       <div id="tcNotice" class="domain-notice" role="status" aria-live="polite" hidden></div>

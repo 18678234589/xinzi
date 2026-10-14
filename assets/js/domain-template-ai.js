@@ -57,12 +57,44 @@
     Object.keys(map).forEach(function (k) { f[k] = el(map[k]).value.trim(); }); return f;
   }
   var warnText = { cert_no: '证件号码与文字或校验位不一致，请对照证件逐位核对', region: '省市没有识别完整，请手动选择', contact_default: '电话 / 邮箱使用了管理员设置的默认联系方式，请确认是否合适' };
-  el('tcFiles').onchange = async function () {
-    var picked = Array.prototype.slice.call(this.files || []);
-    if (picked.length > 4) { note('tcNotice', '最多上传 4 张图片', true); this.value = ''; files = []; return; }
-    files = []; for (var i = 0; i < picked.length; i++) files.push(await shrink(picked[i]));
-    el('tcFileInfo').textContent = files.length ? '已选择 ' + files.length + ' 张图片' + (files.length > 1 ? '（将上下拼接为一张提交）' : '') : '';
-  };
+  // 证件图片：可拖拽、点击选择、粘贴；多次添加会累加（不会覆盖已选的），每张可单独移除。
+  var MAX_FILES = 4, previews = [];
+  function renderFiles() {
+    previews.forEach(function (u) { URL.revokeObjectURL(u); }); previews = [];
+    el('tcThumbs').innerHTML = files.map(function (f, i) {
+      var url = URL.createObjectURL(f); previews.push(url);
+      return '<figure class="registration-thumb"><img src="' + url + '" alt="证件图片 ' + (i + 1) + '"><figcaption>第 ' + (i + 1) + ' 张</figcaption><button type="button" data-remove-file="' + i + '" aria-label="移除第 ' + (i + 1) + ' 张">×</button></figure>';
+    }).join('');
+    el('tcThumbs').querySelectorAll('[data-remove-file]').forEach(function (b) { b.onclick = function (e) { e.stopPropagation(); files.splice(Number(b.dataset.removeFile), 1); renderFiles(); }; });
+    el('tcFileInfo').textContent = files.length ? '已添加 ' + files.length + ' / ' + MAX_FILES + ' 张' + (files.length > 1 ? '（身份证正反面等多张会上下拼接为一张提交）' : '') : '';
+  }
+  async function addFiles(list) {
+    var picked = Array.prototype.slice.call(list || []).filter(function (f) { return /^image\//.test(f.type) || /\.(jpe?g|png)$/i.test(f.name); });
+    if (!picked.length) { note('tcNotice', '请选择 JPG / PNG 图片', true); return; }
+    var room = MAX_FILES - files.length;
+    if (room <= 0) { note('tcNotice', '最多 ' + MAX_FILES + ' 张，请先移除不需要的图片', true); return; }
+    if (picked.length > room) note('tcNotice', '最多 ' + MAX_FILES + ' 张，已添加前 ' + room + ' 张', true); else note('tcNotice', '', false);
+    picked = picked.slice(0, room);
+    for (var i = 0; i < picked.length; i++) files.push(await shrink(picked[i]));
+    renderFiles();
+  }
+  function clearFiles() { files = []; el('tcFiles').value = ''; renderFiles(); }
+  var drop = el('tcDrop');
+  drop.onclick = function () { el('tcFiles').click(); };
+  drop.onkeydown = function (e) { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); el('tcFiles').click(); } };
+  el('tcFiles').onclick = function (e) { e.stopPropagation(); };
+  el('tcFiles').onchange = async function () { var chosen = this.files; await addFiles(chosen); this.value = ''; };
+  ['dragenter', 'dragover'].forEach(function (name) { drop.addEventListener(name, function (e) { e.preventDefault(); drop.classList.add('over'); }); });
+  ['dragleave', 'dragend'].forEach(function (name) { drop.addEventListener(name, function () { drop.classList.remove('over'); }); });
+  drop.addEventListener('drop', function (e) { e.preventDefault(); drop.classList.remove('over'); addFiles(e.dataTransfer && e.dataTransfer.files); });
+  // 在识别区任意位置粘贴截图 / 复制的图片。
+  box.addEventListener('paste', function (e) {
+    var items = (e.clipboardData && e.clipboardData.files) || [];
+    if (items.length) { e.preventDefault(); addFiles(items); }
+  });
+  // 拖到识别区之外时浏览器会直接打开图片；在识别区内放开则交给上面的投放区。
+  box.addEventListener('dragover', function (e) { if (e.dataTransfer && Array.prototype.indexOf.call(e.dataTransfer.types || [], 'Files') >= 0) e.preventDefault(); });
+  box.addEventListener('drop', function (e) { if (e.target !== drop && !drop.contains(e.target) && e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length) { e.preventDefault(); addFiles(e.dataTransfer.files); } });
   el('tcKind').onchange = function () { fillCerts(this.value); };
   el('tcProvince').onchange = function () { fillCities(''); };
   var money = function (cents) { return '¥' + (cents / 100).toFixed(2); };
@@ -126,7 +158,7 @@
       var d = await post('template_create', body, 150000);
       var r = el('tcResult'); r.classList.remove('error'); r.hidden = false;
       r.innerHTML = '<strong>' + esc(d.template_name) + '</strong> 已提交，模板编号 <code>' + esc(d.contid) + '</code>。' + esc(d.message) + ' <button type="button" class="domain-btn" id="tcStatusBtn2" data-id="' + esc(d.contid) + '">查询审核进度</button>';
-      el('tcStatusBtn2').onclick = checkStatus; el('tcForm').hidden = true; el('tcFiles').value = ''; files = []; el('tcFileInfo').textContent = '';
+      el('tcStatusBtn2').onclick = checkStatus; el('tcForm').hidden = true; clearFiles();
       el('registrationTemplateQuery').value = d.contid;
       // 紧接着预检：域名可注册时直接出现「实名审核中也先注册」按钮，实名与注册一起走。
       try { note('tcNotice', '实名已提交，正在查询域名…', false); await precheck(el('tcDomain').value.trim(), f.owner_name); note('tcNotice', '实名已提交。域名预检结果见下方，可直接继续注册。', false); } catch (e2) { note('tcNotice', '实名已提交，但域名预检没有成功：' + e2.message, true); }
