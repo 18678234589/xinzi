@@ -2,7 +2,7 @@
   'use strict';
   var root = document.getElementById('domainConsole');
   if (!root) return;
-  var csrf = root.dataset.csrf, page = 1, total = 0, search = '', filter = 'all', statusKey = '', domain = '', sequence = 0, detailSequence = 0, recordsSequence = 0, editRecord = null, rows = [], recordProvider = '', recordLabel = '', currentDetailData = null;
+  var csrf = root.dataset.csrf, page = 1, total = 0, search = '', filter = 'all', statusKey = '', scope = root.dataset.defaultScope === 'mine' ? 'mine' : 'all', scopeNote = '', domain = '', sequence = 0, detailSequence = 0, recordsSequence = 0, editRecord = null, rows = [], recordProvider = '', recordLabel = '', currentDetailData = null;
   var byId = function (id) { return document.getElementById(id); };
   var esc = function (v) { return String(v == null ? '' : v).replace(/[&<>"']/g, function (x) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[x]; }); };
 
@@ -70,12 +70,18 @@
   }
   function statusSummary(s) {
     var note = byId('domainStatusNote');
-    if (!s) { if (note) note.hidden = true; return; }
+    if (!s || s.scope === 'mine') { if (s && s.scope === 'mine') root.querySelectorAll('[data-count]').forEach(function (b) { var n = Number((s.counts || {})[b.dataset.count] || 0); b.textContent = n ? n.toLocaleString() : ''; b.hidden = !n; }); if (note) note.hidden = true; return; }
     root.querySelectorAll('[data-count]').forEach(function (b) { var n = Number((s.counts || {})[b.dataset.count] || 0); b.textContent = n ? n.toLocaleString() : ''; b.hidden = !n; });
     if (!note) return;
     var when = s.last_checked ? new Date(s.last_checked * 1000).toLocaleString('zh-CN', { hour12: false }) : '尚未同步';
     note.hidden = false;
     note.textContent = '状态数据来自后台逐个域名同步：已同步 ' + Number(s.synced).toLocaleString() + ' / ' + Number(s.total).toLocaleString() + ' 个，最近同步 ' + when + (s.synced < s.total ? '。同步未完成，计数会逐步完整。' : '。有问题的域名每小时复查，其余每 3 天复查。');
+  }
+  function markScope() {
+    var tabs = byId('domainScopeTabs');
+    if (tabs) tabs.querySelectorAll('[data-scope]').forEach(function (b) { b.classList.toggle('active', b.dataset.scope === scope); });
+    var chips = byId('domainFilterTabs'); if (chips) chips.hidden = scope === 'mine';
+    var imp = root.querySelector('.domain-import'); if (imp) imp.hidden = scope === 'mine';
   }
   async function load() {
     var current = ++sequence;
@@ -83,9 +89,12 @@
     byId('domainRows').innerHTML = '<tr><td colspan="8" class="domain-empty"><span class="domain-spinner"></span> 正在读取域名列表…</td></tr>';
     message('', false);
     try {
-      var data = await api('list', { search: search, page: page, source: filter, status: statusKey });
+      var data = await api('list', { search: search, page: page, source: filter, status: statusKey, scope: scope });
       if (current !== sequence) return;
+      if (scope === 'mine' && !search && !statusKey && !data.total) { scope = 'all'; scopeNote = '你参与的订单还没有登记域名，已显示全部域名。注册域名时填写订单号，或在域名详情里绑定订单，就会出现在「我的订单域名」。'; markScope(); return load(); }
       rows = data.rows || []; total = data.total; page = data.page;
+      if (data.mine_total != null && byId('countMine')) byId('countMine').textContent = Number(data.mine_total).toLocaleString();
+      markScope();
       if (data.counts) {
         if (byId('countAll')) byId('countAll').textContent = Number(data.counts.all || 0).toLocaleString();
         if (byId('countDns')) byId('countDns').textContent = Number(data.counts.dns || 0).toLocaleString();
@@ -93,7 +102,8 @@
         if (byId('countBizcn')) byId('countBizcn').textContent = Number(data.counts.bizcn || 0).toLocaleString();
       }
       statusSummary(data.status_summary);
-      byId('domainCount').textContent = total.toLocaleString() + ' 个';
+      byId('domainCount').textContent = total.toLocaleString() + ' 个' + (scope === 'mine' ? '（我的订单）' : '');
+      if (scopeNote) { message(scopeNote, false, false); scopeNote = ''; }
       byId('domainUpdated').textContent = data.source === 'unified'
         ? '多数据源统一管理（DNS解析托管 + 业务续费 + 商务中国）· 数据时间 ' + (data.updated_at || '最新')
         : (data.source === 'export' ? '商务中国导出表快照：' + (data.updated_at || '暂无') + (data.registered_added ? ' · 另有 API 确认注册 ' + data.registered_added + ' 个' : '') + ' · 临近到期优先' : '数据更新时间 ' + data.updated_at);
@@ -106,7 +116,7 @@
         if (row.order_no) {
           ownerDisplay = '<a href="index.php?search=' + encodeURIComponent(row.order_no) + '" target="_blank" style="color:inherit;text-decoration:underline;" title="点击在订单管理中查看">' + ownerDisplay + '</a>';
         }
-        return '<tr><td><button class="domain-name" data-domain-index="' + i + '">' + esc(row.display_name || name) + '</button>' + sourceHtml + '</td><td>' + esc(row.registrar || '详情中查看') + '</td><td>' + ownerDisplay + '</td><td>' + esc(date(row.regdate)) + '</td><td>' + expiry(row.expireddate) + '</td><td><span class="domain-status">' + esc(row.status || '暂未返回') + '</span>' + statusTags(row) + '</td><td class="domain-ns-cell">' + (ns.length ? ns.map(esc).join('<br>') : '<span class="domain-muted">详情中查看</span>') + '</td><td><button class="domain-btn ghost" data-domain-index="' + i + '">管理 <i class="fas fa-arrow-right"></i></button></td></tr>';
+        return '<tr><td><button class="domain-name" data-domain-index="' + i + '">' + esc(row.display_name || name) + '</button>' + sourceHtml + '</td><td>' + esc(row.registrar || '详情中查看') + '</td><td>' + ownerDisplay + '</td><td>' + esc(date(row.regdate)) + '</td><td>' + expiry(row.expireddate) + '</td><td><span class="domain-status">' + esc(row.status || '暂未返回') + '</span>' + statusTags(row) + '</td><td class="domain-ns-cell">' + (row.ns_label ? '<span class="domain-tag ns-' + esc(row.ns_provider) + '">' + esc(row.ns_label) + '</span><br>' : '') + (ns.length ? ns.map(esc).join('<br>') : '<span class="domain-muted">详情中查看</span>') + '</td><td class="domain-actions"><button class="domain-btn" data-domain-index="' + i + '" data-open-records="1">解析</button><button class="domain-btn ghost" data-domain-index="' + i + '">管理 <i class="fas fa-arrow-right"></i></button></td></tr>';
       }).join('') : '<tr><td colspan="8" class="domain-empty">没有找到匹配的域名。试试输入域名的一部分。</td></tr>';
       byId('domainPageInfo').textContent = '第 ' + page + ' / ' + Math.max(1, Math.ceil(total / 30)) + ' 页 · 共 ' + total.toLocaleString() + ' 个域名';
       byId('domainPrev').disabled = page <= 1; byId('domainNext').disabled = page * 30 >= total;
@@ -173,6 +183,7 @@
         extraLinks = '<div style="margin-top:14px;"><a class="domain-btn ghost" href="index.php?search=' + encodeURIComponent(data.order_no) + '" target="_blank"><i class="fas fa-file-invoice"></i> 查看关联业务订单（' + esc(data.order_no) + '）↗</a></div>';
       }
       byId('domainOverview').innerHTML = '<div class="domain-detail-grid">' + pairs.map(function (pair) { return '<article><span>' + esc(pair[0]) + '</span><strong>' + esc(pair[1]) + '</strong></article>'; }).join('') + '</div><div class="domain-ns-summary"><h3>当前 NS</h3><p id="domainCurrentNs">' + (ns.length ? ns.map(esc).join('<br>') : '暂未返回 NS') + '</p></div>' + extraLinks;
+      renderOrders(data);
     } catch (e) { if (current === detailSequence) message(e.message, true, true); }
   }
 
@@ -268,6 +279,27 @@
     markStatus(); page = 1; load();
   };
 
+  var scopeTabs = byId('domainScopeTabs');
+  if (scopeTabs) scopeTabs.onclick = function (e) {
+    var btn = e.target.closest('[data-scope]'); if (!btn || btn.dataset.scope === scope) return;
+    scope = btn.dataset.scope; statusKey = ''; filter = 'all'; scopeNote = '';
+    if (filterTabs) filterTabs.querySelectorAll('[data-filter]').forEach(function (b) { b.classList.toggle('active', b.dataset.filter === 'all'); });
+    markStatus(); markScope(); page = 1; load();
+  };
+  // 域名详情里的订单：查看、绑定、解绑。
+  function renderOrders(data) {
+    var box = byId('domainOrders');
+    if (!box) { box = document.createElement('div'); box.id = 'domainOrders'; box.className = 'domain-ns-summary'; byId('domainOverview').appendChild(box); }
+    var list = data.orders || [];
+    box.innerHTML = '<h3>关联订单</h3>' + (list.length ? list.map(function (o) {
+      return '<p><a href="index.php?search=' + encodeURIComponent(o.order_no) + '" target="_blank">' + esc(o.order_no) + '</a> · ' + esc(o.customer_name || '客户') + (o.can_manage && (o.source === 'manual' || o.source === 'registration') ? ' <button class="domain-btn ghost" type="button" data-unbind="' + esc(o.order_no) + '">解除绑定</button>' : '') + '</p>';
+    }).join('') : '<p class="domain-help">还没有关联订单。绑定后，这个域名会出现在该订单参与人的「我的订单域名」里。</p>')
+      + '<div class="domain-bind-row"><input id="domainBindOrder" maxlength="100" placeholder="输入订单编号" autocomplete="off"><button class="domain-btn" type="button" id="domainBindBtn">绑定到订单</button></div>';
+    var requested = domain;
+    byId('domainBindBtn').onclick = function () { var no = byId('domainBindOrder').value.trim(); if (!no) { message('请输入订单编号', true, true); return; } busy(this, async function () { var d = await api('order_bind', { domain: requested, order_no: no }); if (requested !== domain) return; message(d.message, true, false); renderOrders({ orders: d.orders }); }); };
+    box.querySelectorAll('[data-unbind]').forEach(function (b) { b.onclick = function () { if (!window.confirm('解除 ' + requested + ' 与订单 ' + b.dataset.unbind + ' 的绑定？')) return; busy(b, async function () { var d = await api('order_unbind', { domain: requested, order_no: b.dataset.unbind }); if (requested !== domain) return; message(d.message, true, false); renderOrders({ orders: d.orders }); }); }; });
+  }
+
   var importForm = byId('domainImportForm');
   if (importForm) importForm.onsubmit = function (e) {
     e.preventDefault(); var file = byId('domainImportFile').files[0];
@@ -281,7 +313,7 @@
 
   byId('domainPrev').onclick = function () { if (page > 1) { page--; load(); } };
   byId('domainNext').onclick = function () { if (page * 30 < total) { page++; load(); } };
-  byId('domainRows').onclick = function (e) { var button = e.target.closest('[data-domain-index]'); if (button) { var row = rows[Number(button.dataset.domainIndex)]; openDetail(row.doaminnamecode || row.domainname); } };
+  byId('domainRows').onclick = function (e) { var button = e.target.closest('[data-domain-index]'); if (button) { var row = rows[Number(button.dataset.domainIndex)]; openDetail(row.doaminnamecode || row.domainname); if (button.dataset.openRecords) tab('records'); } };
   byId('domainClose').onclick = function () { byId('domainDrawer').close(); detailSequence++; };
   byId('domainDrawer').addEventListener('close', function () { detailSequence++; });
   root.querySelectorAll('[data-tab]').forEach(function (b) { b.onclick = function () { tab(b.dataset.tab); }; });

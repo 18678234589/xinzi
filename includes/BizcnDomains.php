@@ -6,6 +6,7 @@ require_once __DIR__ . '/BizcnDnsRecords.php';
 require_once __DIR__ . '/BizcnDomainCatalog.php';
 require_once __DIR__ . '/BizcnDomainAggregator.php';
 require_once __DIR__ . '/BizcnDomainStatus.php';
+require_once __DIR__ . '/BizcnOrderDomains.php';
 
 function bd_config()
 {

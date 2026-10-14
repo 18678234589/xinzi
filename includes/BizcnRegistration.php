@@ -1,6 +1,7 @@
 <?php
 require_once __DIR__.'/BizcnRegistrationStore.php';
 require_once __DIR__.'/BizcnTemplateAi.php';
+require_once __DIR__.'/BizcnOrderDomains.php';
 
 function br_template_pass($id,$allowAuditing=false)
 {
@@ -32,6 +33,9 @@ function br_public($r)
 function br_catalog_registered($r)
 {
     if($r['status']!=='registered')return;
+    // Registered for an order: bind the domain so the order's staff find it under "我的订单域名". Never blocks the registration record.
+    $quote=json_decode($r['quote_json'],true) ?: [];
+    if(!empty($quote['order_id'])) {try{bo_link(db(),(int)$quote['order_id'],$r['domainname'],'registration');}catch(Throwable $e){error_log('Bizcn order link failed: '.get_class($e));}}
     $data=json_decode($r['result_json'],true) ?: [];$day=$r['confirmed_day'] ?: br_day(time());
     // import_id=0 denotes registration, not a fabricated spreadsheet import.
     $reg=bc_date($data['createdate'] ?? '',true);$expiry=bc_date($data['expirationdate'] ?? '',true);
@@ -112,9 +116,10 @@ function br_dispatch($action,$input,$actor)
         if(!$template)throw new RuntimeException('请先查找并选择客户的实名主体；新客户请先创建实名信息，审核通过后点“刷新最新实名”');
         if(count($s['ns'])!==2 || $s['daily_limit']===0)throw new RuntimeException('注册暂未开启，请联系管理员配置默认 NS 与每日额度');
         if(bc_find($domain))throw new RuntimeException('该域名已在目录中，请先查看已有域名，不要重复注册');
+        $orderRow=trim((string)($input['order_no'] ?? ''))!=='' ? bo_order_for_actor($pdo,$actor,$input['order_no']) : null;
         $tplStatus=br_template_pass($template['id'],true);$price=br_price($domain);
         if($price['premium'] && !br_admin($actor))throw new RuntimeException('这是高价域名，请由管理员核对后注册');
-        $quote=['domain'=>$domain,'term'=>1,'currency'=>'CNY','template'=>$template,'ns'=>$s['ns'],'revision'=>$s['revision'],'template_pending'=>$tplStatus!=='pass']+$price;
+        $quote=['domain'=>$domain,'term'=>1,'currency'=>'CNY','template'=>$template,'ns'=>$s['ns'],'revision'=>$s['revision'],'template_pending'=>$tplStatus!=='pass']+($orderRow ? ['order_id'=>(int)$orderRow['id'],'order_no'=>$orderRow['order_no']] : [])+$price;
         return br_quote_save($pdo,$account,$actor,$quote,$now);
     }
     if($action==='registration_submit') {

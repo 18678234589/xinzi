@@ -72,8 +72,8 @@
   el('registrationToggle').onclick = function () { var open = el('registrationWorkspace').hidden; el('registrationWorkspace').hidden = !open; this.setAttribute('aria-expanded', String(open)); if (open) history().catch(function (e) { notice(e.message, true); }); };
   el('registrationSearch').onsubmit = function (e) {
     e.preventDefault(); cancelQuote(); busy(el('registrationCheck'), async function () {
-      quote = await api('quote', { domain: el('registrationDomain').value.trim(), template_id: el('registrationTemplate').value }); var q = quote.quote;
-      el('registrationQuote').innerHTML = [['域名', q.domain], ['一年注册价', '¥' + (q.price_cents / 100).toFixed(2) + (q.premium ? ' · 高价域名' : '')], ['实名主体', q.template.owner], ['模板', q.template.label], ['默认 NS', q.ns.join(' / ')], ['有效期', '5分钟，提交时再次核价']].concat(q.template_pending ? [['实名状态', '审核中：域名先注册，实名随后审核通过']] : []).map(function (p) { return '<article><span>' + esc(p[0]) + '</span><strong>' + esc(p[1]) + '</strong></article>'; }).join('');
+      quote = await api('quote', { domain: el('registrationDomain').value.trim(), template_id: el('registrationTemplate').value, order_no: el('registrationOrderNo').value.trim() }); var q = quote.quote;
+      el('registrationQuote').innerHTML = [['域名', q.domain], ['一年注册价', '¥' + (q.price_cents / 100).toFixed(2) + (q.premium ? ' · 高价域名' : '')], ['实名主体', q.template.owner], ['模板', q.template.label], ['默认 NS', q.ns.join(' / ')], ['有效期', '5分钟，提交时再次核价']].concat(q.order_no ? [['关联订单', q.order_no]] : []).concat(q.template_pending ? [['实名状态', '审核中：域名先注册，实名随后审核通过']] : []).map(function (p) { return '<article><span>' + esc(p[0]) + '</span><strong>' + esc(p[1]) + '</strong></article>'; }).join('');
       el('registrationConfirm').hidden = false; notice('可以注册。请核对以下信息，再确认购买。', false);
     });
   };

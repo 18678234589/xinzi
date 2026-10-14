@@ -29,7 +29,7 @@ function bda_get_dns_domains($forceRefresh = false)
     if ($memoryCache !== null && !$forceRefresh) return $memoryCache;
 
     $cacheFile = bda_cache_file('dns_zones.json');
-    if (!$forceRefresh && is_file($cacheFile) && (time() - filemtime($cacheFile) < 300)) {
+    if (!$forceRefresh && is_file($cacheFile) && (time() - filemtime($cacheFile) < 3600)) {
         $content = @file_get_contents($cacheFile);
         $decoded = json_decode($content, true);
         if (is_array($decoded)) {
@@ -73,6 +73,7 @@ function bda_get_dns_domains($forceRefresh = false)
     }
 
     @file_put_contents($cacheFile, json_encode($domains, JSON_UNESCAPED_UNICODE));
+    @chmod($cacheFile, 0666); // 后台任务以 root 运行，网页进程（www-data）仍需能覆盖
     $memoryCache = $domains;
     return $domains;
 }
@@ -83,7 +84,7 @@ function bda_get_renewal_domains($forceRefresh = false)
     if ($memoryCache !== null && !$forceRefresh) return $memoryCache;
 
     $cacheFile = bda_cache_file('renewal_domains.json');
-    if (!$forceRefresh && is_file($cacheFile) && (time() - filemtime($cacheFile) < 300)) {
+    if (!$forceRefresh && is_file($cacheFile) && (time() - filemtime($cacheFile) < 3600)) {
         $content = @file_get_contents($cacheFile);
         $decoded = json_decode($content, true);
         if (is_array($decoded)) {
@@ -162,6 +163,7 @@ function bda_get_renewal_domains($forceRefresh = false)
     }
 
     @file_put_contents($cacheFile, json_encode($domains, JSON_UNESCAPED_UNICODE));
+    @chmod($cacheFile, 0666); // 后台任务以 root 运行，网页进程（www-data）仍需能覆盖
     $memoryCache = $domains;
     return $domains;
 }

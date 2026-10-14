@@ -18,7 +18,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if (strpos($action,'registration_')===0) {
             $result=br_dispatch($action,$_POST+['_files'=>$_FILES],$actor);
         } elseif ($action === 'list') {
-            $result = bs_list_action($_POST['search'] ?? '', $_POST['page'] ?? 1, $_POST['source'] ?? 'all', (string)($_POST['status'] ?? ''), !empty($_POST['refresh']));
+            $result = bs_list_action($_POST['search'] ?? '', $_POST['page'] ?? 1, $_POST['source'] ?? 'all', (string)($_POST['status'] ?? ''), !empty($_POST['refresh']), (string)($_POST['scope'] ?? 'all') === 'mine' ? 'mine' : 'all', $actor);
+        } elseif (in_array($action, ['order_bind', 'order_unbind'], true)) {
+            $result = bo_action($action, $_POST, $actor);
         } elseif ($action === 'import_export') {
             if ($actor['type'] !== 'admin' || pv_admin_username($actor['id']) !== 'admin') throw new RuntimeException('仅超级管理员可导入域名目录');
             $upload=$_FILES['file'] ?? [];
@@ -152,6 +154,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         'can_bizcn_panel' => false,
                     ];
                 }
+                try { $result['orders'] = bo_orders_for(db(), $actor, $domain); } catch (Throwable $e) { $result['orders'] = []; }
             } elseif ($action === 'records') {
                 try {
                     $nsInfo = $resolveNsInfo();
@@ -233,10 +236,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 $page_title = '域名管理';
 include __DIR__ . '/../includes/header.php';
 ?>
-<link rel="stylesheet" href="<?php echo BASE_URL; ?>/assets/css/domains.css?v=20261014-status">
+<link rel="stylesheet" href="<?php echo BASE_URL; ?>/assets/css/domains.css?v=20261014-orders">
 <link rel="stylesheet" href="<?php echo BASE_URL; ?>/assets/css/domain-registration.css?v=20261014r9">
 <link rel="stylesheet" href="<?php echo BASE_URL; ?>/assets/css/dns.css?v=20261013-contrast">
-<main class="domain-console" id="domainConsole" data-csrf="<?php echo htmlspecialchars($csrf,ENT_QUOTES,'UTF-8'); ?>">
+<main class="domain-console" id="domainConsole" data-csrf="<?php echo htmlspecialchars($csrf,ENT_QUOTES,'UTF-8'); ?>" data-default-scope="<?php echo $actor['type']==='employee' ? 'mine' : 'all'; ?>">
   <section class="domain-hero">
     <div class="domain-orbit" aria-hidden="true"><span></span><span></span><span></span><i class="fas fa-globe"></i></div>
     <div class="domain-hero-copy"><div class="domain-kicker">DOMAIN STUDIO <span>多源域名中心 · 商务中国 / Cloudflare / DNSPod / 业务续费</span></div><h1>每一个域名，都有自己的轨道。</h1><p>在这里搜索、查看到期时间，轻松管理 NS 与解析。<br>让客户的网站，被稳稳地连接。</p><div class="domain-hero-tags"><span><i class="fas fa-shield-alt"></i> 安全操作留痕</span><span><i class="fas fa-sync-alt"></i> 多源聚合查询</span><span><i class="fas fa-mobile-alt"></i> 随时随地管理</span></div></div>
@@ -245,6 +248,7 @@ include __DIR__ . '/../includes/header.php';
   <div class="dns-entry"><div><strong><i class="fas fa-cloud" aria-hidden="true"></i> 七牛 CDN 管理</strong><span>在本站添加 CDN 加速域名、查看源站与配置状态、取得 CNAME 并接入解析。</span></div><a href="cdn.php">进入 CDN 管理 <i class="fas fa-arrow-right" aria-hidden="true"></i></a></div>
   <?php include __DIR__.'/domain_registration_view.php'; ?>
   <section class="domain-toolbar"><div><h2>我的域名空间 <span id="domainCount">—</span></h2><p id="domainUpdated">正在读取域名目录…</p></div><form id="domainSearch"><label class="sr-only" for="domainQuery">搜索域名、所属账号或注册商</label><i class="fas fa-search"></i><input id="domainQuery" placeholder="搜索域名 / 所属账号 / 注册商" maxlength="253"><button class="domain-btn" type="submit">搜索</button><button class="domain-btn ghost" type="button" id="domainRefresh" title="刷新当前域名目录"><i class="fas fa-sync-alt"></i></button></form></section>
+  <nav class="domain-scope-tabs" id="domainScopeTabs" aria-label="域名范围"><button type="button" class="domain-scope-btn" data-scope="mine">我的订单域名 <span class="badge" id="countMine">—</span></button><button type="button" class="domain-scope-btn" data-scope="all">全部域名</button></nav>
   <nav class="domain-filter-tabs" id="domainFilterTabs">
     <button type="button" class="domain-filter-btn active" data-filter="all">全部 <span class="badge" id="countAll">—</span></button>
     <button type="button" class="domain-filter-btn" data-filter="dns">DNS解析托管 <span class="badge" id="countDns">—</span></button>
@@ -274,7 +278,7 @@ include __DIR__ . '/../includes/header.php';
   <template id="domainNsChoicesTemplate"><?php $ns_target='domainNsValue';$ns_group='domain_ns_mode';include __DIR__.'/domain_dns_choices.php'; ?></template>
 </main>
 <script src="<?php echo BASE_URL; ?>/assets/js/domain-dns.js?v=20261012r1" defer></script>
-<script src="<?php echo BASE_URL; ?>/assets/js/domains.js?v=20261014-status" defer></script>
+<script src="<?php echo BASE_URL; ?>/assets/js/domains.js?v=20261014-orders" defer></script>
 <script src="<?php echo BASE_URL; ?>/assets/js/domain-dns-link.js?v=20261012-dnspod" defer></script>
 <script src="<?php echo BASE_URL; ?>/assets/js/domain-registration.js?v=20261014r8" defer></script>
 <script src="<?php echo BASE_URL; ?>/assets/js/domain-template-ai.js?v=20261014r4" defer></script>

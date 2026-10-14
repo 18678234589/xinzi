@@ -75,4 +75,14 @@ $cr=br_dispatch('registration_template_create',['fields'=>json_encode($fields,JS
 bt($cr['contid']==='bizcreated001','template created via dispatch');
 $found=br_dispatch('registration_find_template',['search'=>'新客户有限公司'],$a);bt(count($found['rows'])===1&&$found['rows'][0]['id']==='bizcreated001','new template cached and findable immediately');
 unlink($img);
+// 注册时关联订单：只能是自己参与的订单；注册成功后自动绑定
+$p->exec('CREATE TABLE project_orders (id INTEGER PRIMARY KEY, order_no TEXT, customer_name TEXT)');$p->exec('CREATE TABLE project_participants (order_id INTEGER, employee_id INTEGER)');
+$p->exec('CREATE TABLE bizcn_order_domains (order_id INTEGER, domainname TEXT, source TEXT DEFAULT "renewal", expires_on TEXT, ns_hosts TEXT DEFAULT "", ns_provider TEXT DEFAULT "", ns_checked_at INTEGER DEFAULT 0, created_by TEXT DEFAULT "", created_at TEXT, PRIMARY KEY(order_id,domainname))');
+$p->exec("INSERT INTO project_orders VALUES (1,'ORD-1','客户一'),(2,'ORD-2','客户二')");$p->exec('INSERT INTO project_participants VALUES (1,77)');
+$staff=['type'=>'employee','id'=>77,'employee_id'=>77,'role'=>'technical'];
+$q=br_dispatch('registration_quote',['domain'=>'ordered.example.com','template_id'=>'f2','order_no'=>'ORD-1'],$staff);bt($q['quote']['order_id']===1&&$q['quote']['order_no']==='ORD-1','quote carries own order');
+bt(reject(function()use($staff){br_dispatch('registration_quote',['domain'=>'ordered2.example.com','template_id'=>'f2','order_no'=>'ORD-2'],$staff);}),'cannot link to an order you are not on');
+bt(reject(function()use($staff){br_dispatch('registration_quote',['domain'=>'ordered3.example.com','template_id'=>'f2','order_no'=>'NOPE'],$staff);}),'unknown order refused at quote');
+try{br_catalog_registered(['status'=>'registered','result_json'=>'{}','confirmed_day'=>'2026-10-14','provider_account'=>'fixture','domainname'=>'ordered.example.com','quote_json'=>json_encode($q['quote'])]);}catch(Throwable $e){}
+bt($p->query("SELECT source FROM bizcn_order_domains WHERE order_id=1 AND domainname='ordered.example.com'")->fetchColumn()==='registration','registered domain auto-bound to its order');
 echo json_encode(['passed'=>$checks,'failed'=>0,'mock_paid_calls'=>$calls,'real_paid_api_calls'=>0],JSON_UNESCAPED_UNICODE)."\n";

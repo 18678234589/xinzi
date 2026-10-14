@@ -50,6 +50,7 @@
         <p class="domain-help">手动方式：老客户在这里查找并选择实名主体。新客户建议用上方「智能识别 · 一键预检」；也可点下面按钮到商务中国页面手工创建（审核 2–5 个工作日，通过后点「刷新最新实名并查找」）。</p>
         <button class="domain-btn ghost" id="registrationNewSubject" type="button">改在商务中国官方页面手工创建 ↗</button>
       </div>
+      <label>关联订单号（可选，注册成功后自动出现在该订单的「我的订单域名」）<input id="registrationOrderNo" maxlength="100" placeholder="订单编号" autocomplete="off"></label>
       <label>域名实名主体<select id="registrationTemplate" required><option value="">请先查找实名主体</option></select></label>
       <div class="domain-form-wide"><button class="domain-btn" type="submit" id="registrationCheck" disabled>查询可注册性与实时价格</button><p class="domain-help">先查询，不扣费。首期支持一年注册，续费另行确认；高价域名由管理员操作。证件资料不在这里收集。</p></div>
     </form>

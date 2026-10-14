@@ -20,8 +20,9 @@ function bs_categories()
 }
 function bs_expiry_expr() { return 'COALESCE(s.expire_date,c.expireddate)'; }
 /** 某栏目的 SQL 条件（别名 c=目录，s=状态）及参数。即将过期=30天内到期且未过期。 */
-function bs_condition($key, $today, $soon)
+function bs_condition($key, $today, $soon, $expiry = null)
 {
+    $expiry = $expiry ?? bs_expiry_expr();
     $hold = "s.status_text LIKE '%clientHold%'";
     switch ($key) {
         case 'naming_failed': return ["s.dnvc_status='-1'", []];
@@ -31,8 +32,8 @@ function bs_condition($key, $today, $soon)
         case 'template_failed': return ["(s.audit_status='failed' AND s.audit_reason LIKE '%模板%')", []];
         // 被 Hold 却不是上面几种实名 / 命名原因：需要人工到商务中国核对。
         case 'abnormal': return ["($hold AND COALESCE(s.audit_status,'') NOT IN ('not realname','auditing','failed') AND COALESCE(s.dnvc_status,'')<>'-1')", []];
-        case 'expiring': return ['(' . bs_expiry_expr() . ' >= ? AND ' . bs_expiry_expr() . ' <= ?)', [$today, $soon]];
-        case 'expired': return ['(' . bs_expiry_expr() . ' < ?)', [$today]];
+        case 'expiring': return ['(' . $expiry . ' >= ? AND ' . $expiry . ' <= ?)', [$today, $soon]];
+        case 'expired': return ['(' . $expiry . ' < ?)', [$today]];
         case 'redemption': return ["(s.status_text LIKE '%redemption%' OR s.status_text LIKE '%pendingDelete%' OR c.status LIKE '%赎回%')", []];
     }
     throw new InvalidArgumentException('不支持此状态栏目');
@@ -199,12 +200,21 @@ function bs_sync($pdo, $account, $limit, $seconds, $now = null)
     return ['checked' => $done, 'errors' => $errors, 'seconds' => time() - $started];
 }
 
-/** domains.php 的 list 动作入口：表尚未迁移时退回原列表，不影响页面。 */
-function bs_list_action($search, $page, $source, $statusKey, $forceRefresh)
+/** domains.php 的 list 动作入口：scope=mine 为“我的订单域名”（只读数据库）；表尚未迁移时退回原列表，不影响页面。 */
+function bs_list_action($search, $page, $source, $statusKey, $forceRefresh, $scope = 'all', $actor = null)
 {
     $pdo = db();
     $account = bd_config()['username'];
     try {
+        if ($scope === 'mine' && $actor) {
+            $category = ($statusKey !== '' && isset(bs_categories()[$statusKey])) ? $statusKey : '';
+            $result = bo_my_list($pdo, $account, $actor, $category, $search, $page);
+            $summary = bo_my_counts($pdo, $account, $actor);
+            $result['counts'] = null;
+            $result['status_summary'] = ['counts' => $summary['counts'], 'total' => $summary['total'], 'labels' => bs_categories(), 'scope' => 'mine'];
+            $result['mine_total'] = $summary['total'];
+            return $result;
+        }
         if ($statusKey !== '' && isset(bs_categories()[$statusKey])) {
             $result = bs_list($pdo, $account, $statusKey, $search, $page);
             $result['counts'] = bd_list('', 1, 'bizcn', false)['counts'] ?? null;
@@ -213,6 +223,7 @@ function bs_list_action($search, $page, $source, $statusKey, $forceRefresh)
             $result['rows'] = bs_decorate($pdo, $account, $result['rows']);
         }
         $result['status_summary'] = bs_counts($pdo, $account) + ['labels' => bs_categories()];
+        if ($actor) $result['mine_total'] = bo_mine_total($pdo, $account, $actor);
         return $result;
     } catch (PDOException $e) {
         if ($e->getCode() !== '42S02') throw $e;

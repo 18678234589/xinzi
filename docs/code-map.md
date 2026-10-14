@@ -433,14 +433,14 @@
 - `bdr_save` L88–112
 - 加载：`require_once __DIR__.'/DnsProviders.php';`
 
-## includes/BizcnDomainAggregator.php (444 行, 17.5 KB)
+## includes/BizcnDomainAggregator.php (446 行, 17.7 KB)
 
 - `bda_cache_file` L13–18
 - `bda_clear_cache` L20–24
-- `bda_get_dns_domains` L26–78
-- `bda_get_renewal_domains` L80–167
-- `bda_find_domain` L169–199
-- `bda_unified_list` L201–443
+- `bda_get_dns_domains` L26–79
+- `bda_get_renewal_domains` L81–169
+- `bda_find_domain` L171–201
+- `bda_unified_list` L203–445
 - 加载：`require_once __DIR__ . '/BizcnDomainValues.php';`
 - 加载：`require_once __DIR__ . '/BizcnDomainCatalog.php';`
 - 加载：`require_once __DIR__ . '/DnsProviders.php';`
@@ -456,22 +456,22 @@
 - `bc_import` L98–134
 - 加载：`require_once __DIR__.'/../classes/SimpleXLSX.php';`
 
-## includes/BizcnDomainStatus.php (222 行, 13.8 KB)
+## includes/BizcnDomainStatus.php (233 行, 14.6 KB)
 
 - `bs_categories` L7–20
 - `bs_expiry_expr` L21–21
-- `bs_condition` L23–39
-- `bs_dates` L40–45
-- `bs_from` L46–46
-- `bs_counts` L49–66
-- `bs_row_tags` L69–85
-- `bs_decorate` L86–116
-- `bs_list` L119–142
-- `bs_store` L146–152
-- `bs_fetch` L154–175
-- `bs_pending` L179–184
-- `bs_sync` L185–200
-- `bs_list_action` L203–221
+- `bs_condition` L23–40
+- `bs_dates` L41–46
+- `bs_from` L47–47
+- `bs_counts` L50–67
+- `bs_row_tags` L70–86
+- `bs_decorate` L87–117
+- `bs_list` L120–143
+- `bs_store` L147–153
+- `bs_fetch` L155–176
+- `bs_pending` L180–185
+- `bs_sync` L186–201
+- `bs_list_action` L204–232
 
 ## includes/BizcnDomainValues.php (110 行, 6.5 KB)
 
@@ -484,21 +484,43 @@
 - `bd_rows` L80–84
 - `bd_record` L86–109
 
-## includes/BizcnDomains.php (69 行, 4.4 KB)
+## includes/BizcnDomains.php (70 行, 4.4 KB)
 
-- `bd_config` L10–17
-- `bd_can_access` L19–30
-- `bd_call` L32–37
-- `bd_transport` L40–50
-- `bd_list` L52–55
-- `bd_require_owned` L57–68
+- `bd_config` L11–18
+- `bd_can_access` L20–31
+- `bd_call` L33–38
+- `bd_transport` L41–51
+- `bd_list` L53–56
+- `bd_require_owned` L58–69
 - 加载：`require_once __DIR__ . '/ProjectVault.php';`
 - 加载：`require_once __DIR__ . '/BizcnDomainValues.php';`
 - 加载：`require_once __DIR__ . '/BizcnDnsRecords.php';`
 - 加载：`require_once __DIR__ . '/BizcnDomainCatalog.php';`
 - 加载：`require_once __DIR__ . '/BizcnDomainAggregator.php';`
 - 加载：`require_once __DIR__ . '/BizcnDomainStatus.php';`
+- 加载：`require_once __DIR__ . '/BizcnOrderDomains.php';`
 - 加载：`include $file : [];`
+
+## includes/BizcnOrderDomains.php (223 行, 13 KB)
+
+- `bo_provider_labels` L7–10
+- `bo_extract_domain` L11–15
+- `bo_auto_links` L16–36
+- `bo_rebuild` L38–57
+- `bo_ns_refresh` L59–73
+- `bo_employee_id` L77–80
+- `bo_can_manage_order` L81–89
+- `bo_find_order` L90–99
+- `bo_order_for_actor` L101–106
+- `bo_link` L107–115
+- `bo_orders_for` L116–124
+- `bo_action` L125–139
+- `bo_expiry_expr` L143–143
+- `bo_from` L144–153
+- `bo_search_where` L154–161
+- `bo_my_counts` L162–179
+- `bo_my_list` L180–215
+- `bo_mine_total` L216–222
 
 ## includes/BizcnPostcodes.php (40 行, 10 KB)
 
@@ -508,18 +530,19 @@
 
 - `bt_regions` L3–39
 
-## includes/BizcnRegistration.php (216 行, 19.9 KB)
+## includes/BizcnRegistration.php (230 行, 21.9 KB)
 
-- `br_template_pass` L5–10
-- `br_price` L11–23
-- `br_public` L24–28
-- `br_catalog_registered` L29–37
-- `br_owner_label` L38–41
-- `br_sync_templates_page` L42–49
-- `br_directory_template` L50–55
-- `br_dispatch` L56–215
+- `br_template_pass` L6–14
+- `br_price` L15–27
+- `br_public` L28–32
+- `br_catalog_registered` L33–44
+- `br_owner_label` L45–48
+- `br_sync_templates_page` L49–56
+- `br_directory_template` L57–62
+- `br_dispatch` L63–229
 - 加载：`require_once __DIR__.'/BizcnRegistrationStore.php';`
 - 加载：`require_once __DIR__.'/BizcnTemplateAi.php';`
+- 加载：`require_once __DIR__.'/BizcnOrderDomains.php';`
 
 ## includes/BizcnRegistrationStore.php (106 行, 9.8 KB)
 
@@ -539,7 +562,7 @@
 - `br_record_result` L78–93
 - `br_release_unknown` L94–105
 
-## includes/BizcnTemplateAi.php (397 行, 24 KB)
+## includes/BizcnTemplateAi.php (397 行, 23.9 KB)
 
 - `bt_person_cert_types` L10–13
 - `bt_company_cert_types` L14–17
@@ -851,17 +874,18 @@
 - `ps_import_file_mark` L186–194
 - 加载：`require_once __DIR__ . '/../classes/SimpleXLSX.php';`
 
-## includes/ProjectImportParse.php (211 行, 14.1 KB)
+## includes/ProjectImportParse.php (214 行, 14.4 KB)
 
-- `ps_import_date` L3–30
-- `ps_import_names` L36–65
-- `ps_import_split_joined_names` L68–84
-- `ps_import_name_resembles_employee` L87–102
-- `ps_import_names_lenient` L108–121
-- `ps_import_autofill_details` L127–138
-- `ps_import_fix_guide` L144–177
-- `ps_import_followup_rows` L183–198
-- `ps_import_public_transfer` L201–210
+- `ps_import_date` L3–33
+- `ps_import_names` L39–68
+- `ps_import_split_joined_names` L71–87
+- `ps_import_name_resembles_employee` L90–105
+- `ps_import_names_lenient` L111–124
+- `ps_import_autofill_details` L130–141
+- `ps_import_fix_guide` L147–180
+- `ps_import_followup_rows` L186–201
+- `ps_import_public_transfer` L204–213
+- 加载：`require_once __DIR__ . '/ShopOrderDate.php';`
 
 ## includes/ProjectImportReconciliation.php (44 行, 5.2 KB)
 
@@ -1137,7 +1161,7 @@
 - `pon_rename` L17–50
 - 加载：`require_once __DIR__ . '/ProjectOrderSource.php';`
 
-## includes/ProjectOrderSource.php (242 行, 16.6 KB)
+## includes/ProjectOrderSource.php (253 行, 17.3 KB)
 
 - `ps_source_record` L5–9
 - `ps_payment_reference_order_no` L12–17
@@ -1147,10 +1171,11 @@
 - `ps_save_customer_intake` L59–110
 - `ps_source_nickname` L112–122
 - `ps_shop_status_rank` L129–139
-- `ps_sync_project_status_latest` L142–154
-- `ps_sync_project_from_shop_order` L156–190
-- `ps_sync_existing_shop_order` L192–206
-- `ps_shop_order_lookup` L212–241
+- `ps_shop_compatible` L145–150
+- `ps_sync_project_status_latest` L153–165
+- `ps_sync_project_from_shop_order` L167–201
+- `ps_sync_existing_shop_order` L203–217
+- `ps_shop_order_lookup` L223–252
 - 加载：`require_once __DIR__ . '/ProjectWriting.php';`
 - 加载：`require_once __DIR__ . '/ProjectSettlement.php';`
 
@@ -1674,6 +1699,10 @@
 - 加载：`require_once __DIR__ . '/salary/ModulesConfigTrait.php';`
 - 加载：`require_once __DIR__ . '/salary/ModulesTypesTrait.php';`
 - 加载：`include $legacyFile;`
+
+## includes/ShopOrderDate.php (32 行, 2.2 KB)
+
+- `sod_parse` L8–31
 
 ## includes/announcement_popup.php (21 行, 2.1 KB)
 
@@ -2439,6 +2468,11 @@
 - 加载：`require_once __DIR__ . '/../includes/ProjectIntake.php';`
 - 加载：`require_once __DIR__ . '/../includes/ProjectSettlement.php';`
 
+## jobs/order_domains_sync.php (24 行, 1.4 KB)
+
+- 加载：`require_once __DIR__ . '/../includes/functions.php';`
+- 加载：`require_once __DIR__ . '/../includes/BizcnDomains.php';`
+
 ## jobs/project_auto_review.php (30 行, 1.6 KB)
 
 - 加载：`require_once __DIR__ . '/../includes/ProjectAutoReview.php';`
@@ -2869,11 +2903,11 @@
 ## project/domain_dns_choices.php (9 行, 1.3 KB)
 
 
-## project/domain_registration_view.php (81 行, 10.7 KB)
+## project/domain_registration_view.php (82 行, 10.9 KB)
 
 - 加载：`include __DIR__.'/domain_dns_choices.php';`
 
-## project/domains.php (282 行, 26.7 KB)
+## project/domains.php (286 行, 27.4 KB)
 
 - 加载：`require_once __DIR__ . '/../includes/BizcnDomains.php';`
 - 加载：`require_once __DIR__ . '/../includes/BizcnRegistration.php';`
@@ -2995,10 +3029,11 @@
 ## project/import/commit/part_1.php (64 行, 5.6 KB)
 
 
-## project/import/commit/part_2.php (307 行, 32.7 KB)
+## project/import/commit/part_2.php (315 行, 33.6 KB)
 
 - 加载：`require_once (dirname((dirname(__DIR__, 1)), 1)) . '/../includes/dup_feedback.php';`
 - 加载：`require_once (dirname((dirname(__DIR__, 1)), 1)) . '/../includes/ProjectAutoReview.php';`
+- 加载：`require_once (dirname((dirname(__DIR__, 1)), 1)) . '/../includes/ProjectOrderSource.php';`
 - 加载：`require_once (dirname((dirname(__DIR__, 1)), 1)) . '/../includes/ProjectRenewalImport.php';`
 
 ## project/import/preview_controller.php (164 行, 15.5 KB)
@@ -3072,7 +3107,7 @@
 
 - 加载：`require_once (dirname(__DIR__, 3)) . '/includes/ProjectAutoReview.php';`
 
-## project/index/actions/create.php (220 行, 20.5 KB)
+## project/index/actions/create.php (219 行, 20.5 KB)
 
 - 加载：`require_once (dirname(__DIR__, 2)) . '/../includes/ProjectRenewalMath.php';`
 - 加载：`require_once (dirname(__DIR__, 2)) . '/../includes/ProjectOrderJoin.php';`
@@ -3666,8 +3701,9 @@
 ## shops/upload/actions/manual_add.php (17 行, 0.7 KB)
 
 
-## shops/upload/actions/upload.php (266 行, 18.6 KB)
+## shops/upload/actions/upload.php (284 行, 21 KB)
 
+- 加载：`require_once (dirname(__DIR__, 2)) . '/../includes/ShopOrderDate.php';`
 - 加载：`require_once (dirname(__DIR__, 2)) . '/../includes/ProjectShopState.php';`
 
 ## shops/upload/context.php (101 行, 4.7 KB)
@@ -3771,6 +3807,18 @@
 - `bd_reject` L5–5
 - 加载：`require_once __DIR__.'/../includes/BizcnDomainValues.php';`
 
+## tests/bizcn_order_domains.php (85 行, 9.8 KB)
+
+- `ot` L4–4
+- `orej` L5–5
+- `ps_audit` L7–7
+- `bd_domain` L8–8
+- `dns_public_ns` L9–9
+- `bdr_provider` L10–10
+- `db` L12–12
+- 加载：`require __DIR__ . '/../includes/BizcnDomainStatus.php';`
+- 加载：`require __DIR__ . '/../includes/BizcnOrderDomains.php';`
+
 ## tests/bizcn_record_replace.php (59 行, 5.9 KB)
 
 - `replace_test` L4–4
@@ -3787,14 +3835,14 @@
 - `fq` L14–14
 - 加载：`require_once __DIR__.'/../includes/BizcnRegistrationStore.php';`
 
-## tests/bizcn_registration_flow.php (64 行, 8.3 KB)
+## tests/bizcn_registration_flow.php (89 行, 12.5 KB)
 
 - `db` L6–6
 - `bd_config` L7–7
 - `bc_find` L8–8
 - `ps_audit` L9–9
-- `bd_call` L10–17
-- `bd_transport` L18–18
+- `bd_call` L10–18
+- `bd_transport` L19–19
 - 加载：`require __DIR__.'/bizcn_registration.php';`
 - 加载：`require __DIR__.'/../includes/BizcnDomainValues.php';`
 - 加载：`require __DIR__.'/../includes/BizcnRegistration.php';`
@@ -4331,6 +4379,22 @@
 - 加载：`require_once __DIR__ . '/../includes/ProjectSheetEdit.php';`
 - 加载：`require_once __DIR__ . '/require_isolated_database.php';`
 
+## tests/shop_order_date_unit.php (35 行, 1.8 KB)
+
+- 加载：`require_once __DIR__ . '/../includes/ShopOrderDate.php';`
+- 加载：`require_once __DIR__ . '/../includes/ProjectImportParse.php';`
+
+## tests/shop_statement_sync_smoke.php (42 行, 4.3 KB)
+
+- 加载：`require_once __DIR__ . '/../includes/ProjectIntake.php';`
+- 加载：`require_once __DIR__ . '/../includes/ProjectOrderSource.php';`
+
+## tests/shop_upload_dates_smoke.php (65 行, 4.8 KB)
+
+- 加载：`require_once __DIR__ . '/../includes/auth.php';`
+- 加载：`include __DIR__ . '/../shops/upload.php';`
+- 加载：`require_once __DIR__ . '/../includes/ProjectIntake.php';`
+
 ## tests/split_source.php (12 行, 0.5 KB)
 
 - `split_test_source` L4–11
@@ -4625,6 +4689,11 @@
 - 加载：`require_once '/www/wwwroot/hezuoshang/includes/ProjectSiteProjects.php';`
 - 加载：`require_once '/www/wwwroot/hezuoshang/includes/ProjectAutoReview.php';`
 
+## tools/repair_shop_order_dates.php (54 行, 3.8 KB)
+
+- 加载：`require_once $root . '/includes/ProjectIntake.php';`
+- 加载：`require_once $root . '/includes/ShopOrderDate.php';`
+
 ## tools/repair_trademark_costs.php (5 行, 0.2 KB)
 
 - 加载：`require __DIR__ . '/../migrations/repair_trademark_pricing.php';`
@@ -4644,6 +4713,11 @@
 ## tools/split_runtime.php (26 行, 1.2 KB)
 
 - 加载：`require_once $root . '/includes/' . $entry;`
+
+## tools/sync_shop_statements.php (28 行, 1.8 KB)
+
+- 加载：`require_once $root . '/includes/ProjectIntake.php';`
+- 加载：`require_once $root . '/includes/ProjectOrderSource.php';`
 
 ## tools/verify_split.php (60 行, 3 KB)
 
