@@ -18,7 +18,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if (strpos($action,'registration_')===0) {
             $result=br_dispatch($action,$_POST+['_files'=>$_FILES],$actor);
         } elseif ($action === 'list') {
-            $result = bd_list($_POST['search'] ?? '', $_POST['page'] ?? 1, $_POST['source'] ?? 'all', !empty($_POST['refresh']));
+            $result = bs_list_action($_POST['search'] ?? '', $_POST['page'] ?? 1, $_POST['source'] ?? 'all', (string)($_POST['status'] ?? ''), !empty($_POST['refresh']));
         } elseif ($action === 'import_export') {
             if ($actor['type'] !== 'admin' || pv_admin_username($actor['id']) !== 'admin') throw new RuntimeException('仅超级管理员可导入域名目录');
             $upload=$_FILES['file'] ?? [];
@@ -233,7 +233,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 $page_title = '域名管理';
 include __DIR__ . '/../includes/header.php';
 ?>
-<link rel="stylesheet" href="<?php echo BASE_URL; ?>/assets/css/domains.css?v=20261014-multisource">
+<link rel="stylesheet" href="<?php echo BASE_URL; ?>/assets/css/domains.css?v=20261014-status">
 <link rel="stylesheet" href="<?php echo BASE_URL; ?>/assets/css/domain-registration.css?v=20261014r9">
 <link rel="stylesheet" href="<?php echo BASE_URL; ?>/assets/css/dns.css?v=20261013-contrast">
 <main class="domain-console" id="domainConsole" data-csrf="<?php echo htmlspecialchars($csrf,ENT_QUOTES,'UTF-8'); ?>">
@@ -251,6 +251,19 @@ include __DIR__ . '/../includes/header.php';
     <button type="button" class="domain-filter-btn" data-filter="renewal">业务续费台账 <span class="badge" id="countRenewal">—</span></button>
     <button type="button" class="domain-filter-btn" data-filter="bizcn">商务中国目录 <span class="badge" id="countBizcn">—</span></button>
   </nav>
+  <nav class="domain-status-tabs" id="domainStatusTabs" aria-label="按实名、审核和到期状态查看域名">
+    <button type="button" class="domain-status-btn active" data-status="">全部域名</button>
+    <button type="button" class="domain-status-btn bad" data-status="naming_failed">命名审核失败 <span class="badge" data-count="naming_failed"></span></button>
+    <button type="button" class="domain-status-btn warn" data-status="unsubmitted">待提交实名 <span class="badge" data-count="unsubmitted"></span></button>
+    <button type="button" class="domain-status-btn info" data-status="auditing">提交实名审核中 <span class="badge" data-count="auditing"></span></button>
+    <button type="button" class="domain-status-btn bad" data-status="realname_failed">实名审核失败 <span class="badge" data-count="realname_failed"></span></button>
+    <button type="button" class="domain-status-btn bad" data-status="template_failed">模板实名审核失败 <span class="badge" data-count="template_failed"></span></button>
+    <button type="button" class="domain-status-btn warn" data-status="abnormal">实名异常 <span class="badge" data-count="abnormal"></span></button>
+    <button type="button" class="domain-status-btn warn" data-status="expiring">即将过期 <span class="badge" data-count="expiring"></span></button>
+    <button type="button" class="domain-status-btn bad" data-status="expired">已过期 <span class="badge" data-count="expired"></span></button>
+    <button type="button" class="domain-status-btn info" data-status="redemption">域名赎回 <span class="badge" data-count="redemption"></span></button>
+  </nav>
+  <p class="domain-status-note" id="domainStatusNote" hidden></p>
   <?php if ($actor['type']==='admin' && pv_admin_username($actor['id'])==='admin'): ?>
   <details class="domain-import"><summary><i class="fas fa-file-import"></i> 导入商务中国域名表</summary><form id="domainImportForm"><label>全部域名导出表（XLSX，最多10MB）<input id="domainImportFile" name="file" type="file" accept=".xlsx" required></label><label>导出表日期<input type="date" name="source_as_of" required value="<?php echo date('Y-m-d'); ?>"></label><button class="domain-btn" type="submit">确认导入目录</button><p>同一文件不重复导入；新表更新已有域名资料，不删除未出现的域名，也不修改 NS、解析或执行续费。多账号归属保持原样。</p></form></details>
   <?php endif; ?>
@@ -261,7 +274,7 @@ include __DIR__ . '/../includes/header.php';
   <template id="domainNsChoicesTemplate"><?php $ns_target='domainNsValue';$ns_group='domain_ns_mode';include __DIR__.'/domain_dns_choices.php'; ?></template>
 </main>
 <script src="<?php echo BASE_URL; ?>/assets/js/domain-dns.js?v=20261012r1" defer></script>
-<script src="<?php echo BASE_URL; ?>/assets/js/domains.js?v=20261014-multisource" defer></script>
+<script src="<?php echo BASE_URL; ?>/assets/js/domains.js?v=20261014-status" defer></script>
 <script src="<?php echo BASE_URL; ?>/assets/js/domain-dns-link.js?v=20261012-dnspod" defer></script>
 <script src="<?php echo BASE_URL; ?>/assets/js/domain-registration.js?v=20261013r7" defer></script>
 <script src="<?php echo BASE_URL; ?>/assets/js/domain-template-ai.js?v=20261014r3" defer></script>

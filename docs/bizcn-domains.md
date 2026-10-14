@@ -62,6 +62,14 @@ DNSPod 和 Cloudflare 均通过已有 API 在本站创建域名、管理解析�
 
 邮编按城市默认填入（`includes/BizcnPostcodes.php`，337 个城市市区主邮编，不细到区县；由 AI 生成并抽查无锡、济南、广州、深圳、杭州等一致，邮编不参与实名审核），城市来自省市识别或地址文字；表中无该城市时才用 AI 给的邮编。
 
+### 状态栏目（2026-10-14）
+
+域名列表上方新增状态栏：全部域名 / 命名审核失败 / 待提交实名 / 提交实名审核中 / 实名审核失败 / 模板实名审核失败 / 实名异常 / 即将过期 / 已过期 / 域名赎回，非零栏目显示数量，点击后按该状态筛选（可叠加搜索），列表「注册商状态」列显示状态徽标，失败原因在鼠标悬停提示里。所有有域名管理权限的人员可见。
+
+商务中国没有「按状态列出域名」的接口，所以由后台任务 `jobs/bizcn_domain_status_sync.php` 逐个域名查询（`domainAuditQuery` 实名状态 + `infoDomainWhois` 命名审核与 Hold 等，约0.3秒/个）存入 `bizcn_domain_status`（`migrations/20261014_bizcn_domain_status.sql`，部署工具不传 `.sql`，需在线上执行）。线上 root crontab 每10分钟运行一次（`flock` + `GET_LOCK` 防重叠，日志 `/root/hezuoshang_bizcn_status_job.log`，改动前的 crontab 备份在 `/root/crontab.before-bizcn-status-20261014`）。顺序：没查过的优先（先 Hold，再新注册），有问题的（未通过实名 / 命名失败 / Hold / 出错）一小时后复查，其余3天复查。页面显示同步进度「已同步 X / Y」，未同步完时计数会逐步完整。
+
+口径（由接口字段判定）：命名审核失败＝`dnvc_status=-1`；待提交实名＝`not realname`；提交实名审核中＝`auditing`；实名审核失败＝`failed`，失败原因含「模板」的归入模板实名审核失败；实名异常＝域名被 `clientHold` 但不属于以上实名 / 命名原因；即将过期＝30天内到期；已过期＝到期日早于今天（以接口返回的到期日为准，未同步时用目录快照）；域名赎回＝状态含 `redemption` / `pendingDelete`。其中「模板实名审核失败」「实名异常」「域名赎回」是按字段推断的口径，商务中国后台的统计口径可能略有差异，以实际对照为准。离线测试：`php -d extension=pdo_sqlite tests/bizcn_domain_status.php`。
+
 ### DNS 单选与实名模板搜索
 
 已有域名的 NS 设置和管理员注册默认 NS 均提供三选一：

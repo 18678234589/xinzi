@@ -456,6 +456,23 @@
 - `bc_import` L98–134
 - 加载：`require_once __DIR__.'/../classes/SimpleXLSX.php';`
 
+## includes/BizcnDomainStatus.php (222 行, 13.8 KB)
+
+- `bs_categories` L7–20
+- `bs_expiry_expr` L21–21
+- `bs_condition` L23–39
+- `bs_dates` L40–45
+- `bs_from` L46–46
+- `bs_counts` L49–66
+- `bs_row_tags` L69–85
+- `bs_decorate` L86–116
+- `bs_list` L119–142
+- `bs_store` L146–152
+- `bs_fetch` L154–175
+- `bs_pending` L179–184
+- `bs_sync` L185–200
+- `bs_list_action` L203–221
+
 ## includes/BizcnDomainValues.php (110 行, 6.5 KB)
 
 - `bd_policy` L3–11
@@ -467,19 +484,20 @@
 - `bd_rows` L80–84
 - `bd_record` L86–109
 
-## includes/BizcnDomains.php (68 行, 4.3 KB)
+## includes/BizcnDomains.php (69 行, 4.4 KB)
 
-- `bd_config` L9–16
-- `bd_can_access` L18–29
-- `bd_call` L31–36
-- `bd_transport` L39–49
-- `bd_list` L51–54
-- `bd_require_owned` L56–67
+- `bd_config` L10–17
+- `bd_can_access` L19–30
+- `bd_call` L32–37
+- `bd_transport` L40–50
+- `bd_list` L52–55
+- `bd_require_owned` L57–68
 - 加载：`require_once __DIR__ . '/ProjectVault.php';`
 - 加载：`require_once __DIR__ . '/BizcnDomainValues.php';`
 - 加载：`require_once __DIR__ . '/BizcnDnsRecords.php';`
 - 加载：`require_once __DIR__ . '/BizcnDomainCatalog.php';`
 - 加载：`require_once __DIR__ . '/BizcnDomainAggregator.php';`
+- 加载：`require_once __DIR__ . '/BizcnDomainStatus.php';`
 - 加载：`include $file : [];`
 
 ## includes/BizcnPostcodes.php (40 行, 10 KB)
@@ -2401,6 +2419,11 @@
 - 加载：`include __DIR__ . '/../includes/header.php';`
 - 加载：`include __DIR__ . '/../includes/footer.php';`
 
+## jobs/bizcn_domain_status_sync.php (21 行, 1 KB)
+
+- 加载：`require_once __DIR__ . '/../includes/functions.php';`
+- 加载：`require_once __DIR__ . '/../includes/BizcnDomains.php';`
+
 ## jobs/etmll_sync_auto.php (18 行, 1.3 KB)
 
 - 加载：`require_once __DIR__ . '/../includes/etmll_bidirectional.php';`
@@ -2850,7 +2873,7 @@
 
 - 加载：`include __DIR__.'/domain_dns_choices.php';`
 
-## project/domains.php (269 行, 24.9 KB)
+## project/domains.php (282 行, 26.7 KB)
 
 - 加载：`require_once __DIR__ . '/../includes/BizcnDomains.php';`
 - 加载：`require_once __DIR__ . '/../includes/BizcnRegistration.php';`
@@ -3734,6 +3757,13 @@
 - `bd_config` L7–7
 - `order_check` L8–8
 - 加载：`require_once __DIR__.'/../includes/BizcnDomainCatalog.php';`
+
+## tests/bizcn_domain_status.php (76 行, 7.1 KB)
+
+- `st` L4–4
+- `bd_call` L6–14
+- `trej` L48–48
+- 加载：`require __DIR__ . '/../includes/BizcnDomainStatus.php';`
 
 ## tests/bizcn_domains.php (42 行, 3.8 KB)
 

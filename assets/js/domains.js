@@ -2,7 +2,7 @@
   'use strict';
   var root = document.getElementById('domainConsole');
   if (!root) return;
-  var csrf = root.dataset.csrf, page = 1, total = 0, search = '', filter = 'all', domain = '', sequence = 0, detailSequence = 0, recordsSequence = 0, editRecord = null, rows = [], recordProvider = '', recordLabel = '', currentDetailData = null;
+  var csrf = root.dataset.csrf, page = 1, total = 0, search = '', filter = 'all', statusKey = '', domain = '', sequence = 0, detailSequence = 0, recordsSequence = 0, editRecord = null, rows = [], recordProvider = '', recordLabel = '', currentDetailData = null;
   var byId = function (id) { return document.getElementById(id); };
   var esc = function (v) { return String(v == null ? '' : v).replace(/[&<>"']/g, function (x) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[x]; }); };
 
@@ -63,13 +63,27 @@
     return output;
   }
 
+  // 状态栏目：计数来自后台逐个域名同步的实名 / 命名审核状态；没同步到的域名只按目录里的到期日判断。
+  var statusClass = { naming_failed: 'bad', unsubmitted: 'warn', auditing: 'info', realname_failed: 'bad', template_failed: 'bad', abnormal: 'warn', expiring: 'warn', expired: 'bad', redemption: 'info' };
+  function statusTags(row) {
+    return (row.status_tags || []).map(function (t) { return '<span class="domain-tag ' + (statusClass[t.key] || '') + '"' + (row.audit_reason && /failed/.test(t.key) ? ' title="' + esc(row.audit_reason) + '"' : '') + '>' + esc(t.label) + '</span>'; }).join('');
+  }
+  function statusSummary(s) {
+    var note = byId('domainStatusNote');
+    if (!s) { if (note) note.hidden = true; return; }
+    root.querySelectorAll('[data-count]').forEach(function (b) { var n = Number((s.counts || {})[b.dataset.count] || 0); b.textContent = n ? n.toLocaleString() : ''; b.hidden = !n; });
+    if (!note) return;
+    var when = s.last_checked ? new Date(s.last_checked * 1000).toLocaleString('zh-CN', { hour12: false }) : '尚未同步';
+    note.hidden = false;
+    note.textContent = '状态数据来自后台逐个域名同步：已同步 ' + Number(s.synced).toLocaleString() + ' / ' + Number(s.total).toLocaleString() + ' 个，最近同步 ' + when + (s.synced < s.total ? '。同步未完成，计数会逐步完整。' : '。有问题的域名每小时复查，其余每 3 天复查。');
+  }
   async function load() {
     var current = ++sequence;
     byId('domainPrev').disabled = byId('domainNext').disabled = true;
     byId('domainRows').innerHTML = '<tr><td colspan="8" class="domain-empty"><span class="domain-spinner"></span> 正在读取域名列表…</td></tr>';
     message('', false);
     try {
-      var data = await api('list', { search: search, page: page, source: filter });
+      var data = await api('list', { search: search, page: page, source: filter, status: statusKey });
       if (current !== sequence) return;
       rows = data.rows || []; total = data.total; page = data.page;
       if (data.counts) {
@@ -78,6 +92,7 @@
         if (byId('countRenewal')) byId('countRenewal').textContent = Number(data.counts.renewal || 0).toLocaleString();
         if (byId('countBizcn')) byId('countBizcn').textContent = Number(data.counts.bizcn || 0).toLocaleString();
       }
+      statusSummary(data.status_summary);
       byId('domainCount').textContent = total.toLocaleString() + ' 个';
       byId('domainUpdated').textContent = data.source === 'unified'
         ? '多数据源统一管理（DNS解析托管 + 业务续费 + 商务中国）· 数据时间 ' + (data.updated_at || '最新')
@@ -91,7 +106,7 @@
         if (row.order_no) {
           ownerDisplay = '<a href="index.php?search=' + encodeURIComponent(row.order_no) + '" target="_blank" style="color:inherit;text-decoration:underline;" title="点击在订单管理中查看">' + ownerDisplay + '</a>';
         }
-        return '<tr><td><button class="domain-name" data-domain-index="' + i + '">' + esc(row.display_name || name) + '</button>' + sourceHtml + '</td><td>' + esc(row.registrar || '详情中查看') + '</td><td>' + ownerDisplay + '</td><td>' + esc(date(row.regdate)) + '</td><td>' + expiry(row.expireddate) + '</td><td><span class="domain-status">' + esc(row.status || '暂未返回') + '</span></td><td class="domain-ns-cell">' + (ns.length ? ns.map(esc).join('<br>') : '<span class="domain-muted">详情中查看</span>') + '</td><td><button class="domain-btn ghost" data-domain-index="' + i + '">管理 <i class="fas fa-arrow-right"></i></button></td></tr>';
+        return '<tr><td><button class="domain-name" data-domain-index="' + i + '">' + esc(row.display_name || name) + '</button>' + sourceHtml + '</td><td>' + esc(row.registrar || '详情中查看') + '</td><td>' + ownerDisplay + '</td><td>' + esc(date(row.regdate)) + '</td><td>' + expiry(row.expireddate) + '</td><td><span class="domain-status">' + esc(row.status || '暂未返回') + '</span>' + statusTags(row) + '</td><td class="domain-ns-cell">' + (ns.length ? ns.map(esc).join('<br>') : '<span class="domain-muted">详情中查看</span>') + '</td><td><button class="domain-btn ghost" data-domain-index="' + i + '">管理 <i class="fas fa-arrow-right"></i></button></td></tr>';
       }).join('') : '<tr><td colspan="8" class="domain-empty">没有找到匹配的域名。试试输入域名的一部分。</td></tr>';
       byId('domainPageInfo').textContent = '第 ' + page + ' / ' + Math.max(1, Math.ceil(total / 30)) + ' 页 · 共 ' + total.toLocaleString() + ' 个域名';
       byId('domainPrev').disabled = page <= 1; byId('domainNext').disabled = page * 30 >= total;
@@ -233,10 +248,25 @@
       filterTabs.querySelectorAll('[data-filter]').forEach(function (b) { b.classList.remove('active'); });
       btn.classList.add('active');
       filter = btn.dataset.filter || 'all';
+      statusKey = '';
+      markStatus();
       page = 1;
       load();
     };
   }
+
+  function markStatus() {
+    var tabs = byId('domainStatusTabs');
+    if (tabs) tabs.querySelectorAll('[data-status]').forEach(function (b) { b.classList.toggle('active', (b.dataset.status || '') === statusKey); });
+    if (statusKey && filterTabs) filterTabs.querySelectorAll('[data-filter]').forEach(function (b) { b.classList.remove('active'); });
+  }
+  var statusTabs = byId('domainStatusTabs');
+  if (statusTabs) statusTabs.onclick = function (e) {
+    var btn = e.target.closest('[data-status]'); if (!btn) return;
+    statusKey = btn.dataset.status || '';
+    if (!statusKey) { filter = 'all'; if (filterTabs) filterTabs.querySelectorAll('[data-filter]').forEach(function (b) { b.classList.toggle('active', b.dataset.filter === 'all'); }); }
+    markStatus(); page = 1; load();
+  };
 
   var importForm = byId('domainImportForm');
   if (importForm) importForm.onsubmit = function (e) {
