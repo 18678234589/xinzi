@@ -34,11 +34,30 @@ function br_catalog_registered($r)
     $q=db()->prepare('INSERT INTO bizcn_domain_catalog (provider_account,domainname,display_name,registrar,owner_username,regdate,expireddate,status,source_as_of,import_id,source_row) VALUES (?,?,?,?,?,?,?,?,?,0,0) ON DUPLICATE KEY UPDATE status=VALUES(status),regdate=COALESCE(VALUES(regdate),regdate),expireddate=COALESCE(VALUES(expireddate),expireddate)');
     $q->execute([$r['provider_account'],$r['domainname'],$r['domainname'],(string)($data['registrar'] ?? ''),$r['provider_account'],$reg,$expiry,'已注册（API确认）',$day]);
 }
+function br_owner_label($row)
+{
+    return (string)(!empty($row['org_m']) ? $row['org_m'] : ($row['name_m2'] ?? '').($row['name_m1'] ?? ''));
+}
+function br_sync_templates_page($pdo,$account,$page,$size,$now)
+{
+    $d=bd_call('domainTemplateService','getTemplateList',['domaintemplateinfo'=>['pageno'=>(string)$size,'currentpage'=>(string)$page]]);$rows=bd_rows($d['domaintemplatelist']['domaintemplate'] ?? []);
+    $sql='INSERT INTO bizcn_registration_templates (provider_account,template_id,label,owner_label,refreshed_at) VALUES (?,?,?,?,?) ON DUPLICATE KEY UPDATE label=VALUES(label),owner_label=VALUES(owner_label),refreshed_at=VALUES(refreshed_at)';
+    if($pdo->getAttribute(PDO::ATTR_DRIVER_NAME)==='sqlite')$sql='INSERT INTO bizcn_registration_templates (provider_account,template_id,label,owner_label,refreshed_at) VALUES (?,?,?,?,?) ON CONFLICT(provider_account,template_id) DO UPDATE SET label=excluded.label,owner_label=excluded.owner_label,refreshed_at=excluded.refreshed_at';
+    $save=$pdo->prepare($sql);$pdo->beginTransaction();try{foreach($rows as $row){$id=(string)($row['contid'] ?? '');if(!preg_match('/^[a-zA-Z0-9_-]{1,100}$/D',$id))throw new RuntimeException('注册商模板编号异常，暂未同步本批');$save->execute([$account,$id,mb_substr((string)($row['templatename'] ?? ''),0,120),mb_substr(br_owner_label($row),0,200),$now]);}$pdo->commit();}catch(Throwable $e){if($pdo->inTransaction())$pdo->rollBack();throw $e;}
+    return [$d,count($rows)];
+}
+function br_directory_template($pdo,$account,$id)
+{
+    if(!preg_match('/^[a-zA-Z0-9_-]{1,100}$/D',(string)$id))return null;
+    $q=$pdo->prepare('SELECT template_id,label,owner_label FROM bizcn_registration_templates WHERE provider_account=? AND template_id=?');$q->execute([$account,$id]);$r=$q->fetch(PDO::FETCH_ASSOC);
+    return $r ? ['id'=>$r['template_id'],'label'=>$r['label'],'owner'=>$r['owner_label']] : null;
+}
 function br_dispatch($action,$input,$actor)
 {
     $pdo=db();$account=bd_config()['username'];$now=time();$s=br_settings($pdo,$account);
     if($action==='registration_config') {
-        return ['daily_limit'=>$s['daily_limit'],'used'=>br_usage($pdo,$account,br_day($now)),'day'=>br_day($now),'timezone'=>'Asia/Shanghai','revision'=>$s['revision'],'templates'=>$s['templates'],'ns'=>$s['ns'],'admin'=>br_admin($actor),'ready'=>count($s['templates'])>0 && count($s['ns'])===2 && $s['daily_limit']>0];
+        $count=$pdo->prepare('SELECT COUNT(*) FROM bizcn_registration_templates WHERE provider_account=?');$count->execute([$account]);$directory=(int)$count->fetchColumn();
+        return ['daily_limit'=>$s['daily_limit'],'used'=>br_usage($pdo,$account,br_day($now)),'day'=>br_day($now),'timezone'=>'Asia/Shanghai','revision'=>$s['revision'],'templates'=>$s['templates'],'directory_count'=>$directory,'ns'=>$s['ns'],'admin'=>br_admin($actor),'ready'=>(count($s['templates'])>0 || $directory>0) && count($s['ns'])===2 && $s['daily_limit']>0];
     }
     if($action==='registration_templates') {
         if(!br_admin($actor))throw new RuntimeException('只有管理员可查询和批准实名模板');
@@ -64,12 +83,9 @@ function br_dispatch($action,$input,$actor)
     if($action==='registration_sync_templates') {
         if(!br_admin($actor))throw new RuntimeException('仅管理员可同步实名模板目录');
         $page=max(1,min(1000,(int)($input['page'] ?? 1)));
-        $d=bd_call('domainTemplateService','getTemplateList',['domaintemplateinfo'=>['pageno'=>'50','currentpage'=>(string)$page]]);$rows=bd_rows($d['domaintemplatelist']['domaintemplate'] ?? []);
-        $sql='INSERT INTO bizcn_registration_templates (provider_account,template_id,label,owner_label,refreshed_at) VALUES (?,?,?,?,?) ON DUPLICATE KEY UPDATE label=VALUES(label),owner_label=VALUES(owner_label),refreshed_at=VALUES(refreshed_at)';
-        if($pdo->getAttribute(PDO::ATTR_DRIVER_NAME)==='sqlite')$sql='INSERT INTO bizcn_registration_templates (provider_account,template_id,label,owner_label,refreshed_at) VALUES (?,?,?,?,?) ON CONFLICT(provider_account,template_id) DO UPDATE SET label=excluded.label,owner_label=excluded.owner_label,refreshed_at=excluded.refreshed_at';
-        $save=$pdo->prepare($sql);$pdo->beginTransaction();try{foreach($rows as $row){$id=(string)($row['contid'] ?? '');if(!preg_match('/^[a-zA-Z0-9_-]{1,100}$/D',$id))throw new RuntimeException('注册商模板编号异常，暂未同步本批');$owner=!empty($row['org_m'])?$row['org_m']:($row['name_m2'] ?? '').($row['name_m1'] ?? '');$save->execute([$account,$id,mb_substr((string)($row['templatename'] ?? ''),0,120),mb_substr((string)$owner,0,200),$now]);}$pdo->commit();}catch(Throwable $e){if($pdo->inTransaction())$pdo->rollBack();throw $e;}
+        list($d,$received)=br_sync_templates_page($pdo,$account,$page,50,$now);
         $total=(int)($d['totalresult'] ?? 0);$size=(int)($d['pageno'] ?? 50);if($size<=0 || $size>50)$size=50;
-        return ['page'=>$page,'received'=>count($rows),'total'=>$total,'done'=>count($rows)===0 || $page*$size>=$total,'completed'=>min($total,$page*$size)];
+        return ['page'=>$page,'received'=>$received,'total'=>$total,'done'=>$received===0 || $page*$size>=$total,'completed'=>min($total,$page*$size)];
     }
     if($action==='registration_settings') {
         if(!br_admin($actor))throw new RuntimeException('只有管理员可以设置注册上限');
@@ -87,7 +103,10 @@ function br_dispatch($action,$input,$actor)
     if($action==='registration_quote') {
         $domain=bd_domain($input['domain'] ?? '');$template=null;
         foreach($s['templates'] as $t)if($t['id']===($input['template_id'] ?? ''))$template=$t;
-        if(!$template || count($s['ns'])!==2 || $s['daily_limit']===0)throw new RuntimeException('请管理员先批准实名模板并配置默认 NS、开启注册额度');
+        // New customers bring new real-name subjects: any audited template in the account directory may be used. Audit status is re-checked live below.
+        if(!$template)$template=br_directory_template($pdo,$account,$input['template_id'] ?? '');
+        if(!$template)throw new RuntimeException('请先查找并选择客户的实名主体；新客户请先创建实名信息，审核通过后点“刷新最新实名”');
+        if(count($s['ns'])!==2 || $s['daily_limit']===0)throw new RuntimeException('注册暂未开启，请联系管理员配置默认 NS 与每日额度');
         if(bc_find($domain))throw new RuntimeException('该域名已在目录中，请先查看已有域名，不要重复注册');
         br_template_pass($template['id']);$price=br_price($domain);
         if($price['premium'] && !br_admin($actor))throw new RuntimeException('这是高价域名，请由管理员核对后注册');
@@ -114,6 +133,28 @@ function br_dispatch($action,$input,$actor)
             ps_audit('domain_registration',$r['id'],'submitted',$actor,['domain'=>$r['domainname'],'price_cents'=>$quote['price_cents']]);
         }
         $r=br_request($pdo,$account,$actor,$r['id']);br_catalog_registered($r);return br_public($r);
+    }
+    if($action==='registration_find_template') {
+        // Staff-level lookup against the minimal directory (id, name, subject). Never lists everything.
+        $term=trim((string)($input['search'] ?? ''));
+        if(mb_strlen($term)<2 || mb_strlen($term)>120 || preg_match('/[\x00-\x1f]/',$term))throw new InvalidArgumentException('请输入客户实名主体名称或模板编号（至少2个字）');
+        $warning='';
+        if(($input['refresh'] ?? '')==='1') {
+            // Newest audited templates are listed first, so one page covers templates created since the last sync.
+            try{br_sync_templates_page($pdo,$account,1,50,$now);}catch(Throwable $e){error_log('Bizcn template refresh failed: '.get_class($e));$warning='最新实名暂未刷新成功，以下为已同步目录的结果';}
+        }
+        $pattern='%'.str_replace(['!','%','_'],['!!','!%','!_'],$term).'%';
+        $q=$pdo->prepare("SELECT template_id id,label,owner_label owner FROM bizcn_registration_templates WHERE provider_account=? AND (template_id=? OR label LIKE ? ESCAPE '!' OR owner_label LIKE ? ESCAPE '!') ORDER BY refreshed_at DESC,template_id LIMIT 20");$q->execute([$account,$term,$pattern,$pattern]);
+        return ['rows'=>$q->fetchAll(PDO::FETCH_ASSOC),'warning'=>$warning];
+    }
+    if($action==='registration_panel') {
+        // Same permission as the per-domain official panel: new real-name subjects are created and uploaded there, never in this system.
+        $q=$pdo->prepare("SELECT domainname FROM bizcn_domain_catalog WHERE provider_account=? ORDER BY expireddate DESC LIMIT 1");$q->execute([$account]);$domain=(string)$q->fetchColumn();
+        if($domain==='')throw new RuntimeException('暂无可用于进入商务中国官方面板的域名，请联系管理员');
+        bd_require_owned($domain);$data=bd_call('domainService','jumpPanel',['domainname'=>$domain]);
+        if(empty($data['token']))throw new RuntimeException('暂未获取到管理面板入口');
+        ps_audit('domain_registration',0,'template_panel',$actor,['via'=>$domain]);
+        return ['url'=>'https://dnsmsn.com/login/domain/doLogin.do?token='.rawurlencode($data['token'])];
     }
     if($action==='registration_status') {
         $r=br_request($pdo,$account,$actor,$input['id'] ?? 0);

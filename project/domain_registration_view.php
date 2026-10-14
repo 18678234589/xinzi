@@ -5,7 +5,13 @@
   <div id="registrationWorkspace" hidden>
     <form id="registrationSearch" class="domain-form-grid">
       <label>想注册的完整域名<input id="registrationDomain" placeholder="your-next-idea.com" maxlength="253" required autocomplete="off"></label>
-      <label>域名实名主体 / 已批准模板<select id="registrationTemplate" required><option value="">等待管理员配置</option></select></label>
+      <div class="domain-form-wide registration-subject">
+        <label for="registrationTemplateQuery">客户实名主体（输入主体名称、模板名称或模板编号查找）</label>
+        <div class="registration-subject-row"><input id="registrationTemplateQuery" placeholder="例如：某某科技有限公司 / biz…编号" maxlength="120" autocomplete="off"><button class="domain-btn ghost" id="registrationFindTemplate" type="button">查找实名主体</button><button class="domain-btn ghost" id="registrationRefreshTemplates" type="button" title="先同步商务中国最新审核通过的实名，再查找">刷新最新实名并查找</button></div>
+        <p class="domain-help">老客户直接查找并选择。<strong>新客户、新实名</strong>：先点下面按钮，在商务中国「域名管理 &gt; 添加域名模板」填写主体信息并上传证件，提交后商务中国需 2–5 个工作日审核；审核通过后点「刷新最新实名并查找」即可选用。证件资料只在商务中国页面填写，本系统不收集、不留存。</p>
+        <button class="domain-btn ghost" id="registrationNewSubject" type="button">新客户？去商务中国创建实名信息 ↗</button>
+      </div>
+      <label>域名实名主体<select id="registrationTemplate" required><option value="">请先查找实名主体</option></select></label>
       <div class="domain-form-wide"><button class="domain-btn" type="submit" id="registrationCheck" disabled>查询可注册性与实时价格</button><p class="domain-help">先查询，不扣费。首期支持一年注册，续费另行确认；高价域名由管理员操作。证件资料不在这里收集。</p></div>
     </form>
     <form id="registrationConfirm" hidden>

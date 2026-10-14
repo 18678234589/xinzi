@@ -28,12 +28,26 @@
     box.querySelectorAll('[data-owner-index]').forEach(function (input) { input.oninput = function () { approved[ids[Number(input.dataset.ownerIndex)]].owner = input.value; }; });
     box.querySelectorAll('[data-remove-index]').forEach(function (b) { b.onclick = function () { delete approved[ids[Number(b.dataset.removeIndex)]]; approvedView(); }; });
   }
+  function templateOptions(rows, first) {
+    var select = el('registrationTemplate'), current = select.value;
+    select.innerHTML = '<option value="">' + esc(first) + '</option>' + rows.map(function (t) { return '<option value="' + esc(t.id) + '">' + esc((t.label && t.label !== t.owner ? t.label + ' · ' : '') + (t.owner || t.id) + ' · ' + t.id) + '</option>'; }).join('');
+    if (rows.some(function (t) { return t.id === current; })) select.value = current;
+  }
+  async function findTemplates(refresh) {
+    var term = el('registrationTemplateQuery').value.trim();
+    if (term.length < 2) throw new Error('请输入客户实名主体名称或模板编号（至少2个字）');
+    var d = await api('find_template', { search: term, refresh: refresh ? '1' : '0' });
+    templateOptions(d.rows, d.rows.length ? '请选择实际实名主体（找到 ' + d.rows.length + ' 个）' : '没有找到匹配的实名主体');
+    cancelQuote();
+    if (d.rows.length) { el('registrationTemplate').focus(); notice(d.warning || '已找到 ' + d.rows.length + ' 个实名主体，请在下方「域名实名主体」选择，并核对主体名称。', !!d.warning); }
+    else notice(d.warning || '没有找到。新客户请先点「新客户？去商务中国创建实名信息」，审核通过（2–5 个工作日）后再点「刷新最新实名并查找」。', true);
+  }
   async function loadConfig(resetSettings) {
     config = await api('config');
     el('registrationQuota').textContent = '北京时间 ' + config.day + ' · 全平台每日上限 ' + config.daily_limit + ' 个 · 已用/保留 ' + config.used + ' 个 · 可用 ' + Math.max(0, config.daily_limit - config.used) + ' 个';
-    el('registrationTemplate').innerHTML = '<option value="">请选择实际实名主体</option>' + config.templates.map(function (t) { return '<option value="' + esc(t.id) + '">' + esc(t.label + ' · ' + t.owner) + '</option>'; }).join('');
+    templateOptions(config.templates, config.templates.length ? '请选择实际实名主体' : '请先查找实名主体');
     el('registrationCheck').disabled = !config.ready;
-    if (!config.ready) notice('注册准备中：请管理员批准已实名模板、设置默认 NS，并开启每日额度。', false);
+    if (!config.ready) notice('注册准备中：请管理员同步实名模板目录、确认默认 NS，并开启每日额度。', false);
     if (config.admin && resetSettings) {
       el('registrationLimit').value = config.daily_limit; el('registrationDefaultNs').value = config.ns.join('\n'); approved = Object.create(null);
       if(window.bizcnNsSync)window.bizcnNsSync(el('registrationDefaultNs'));
@@ -62,6 +76,14 @@
       el('registrationQuote').innerHTML = [['域名', q.domain], ['一年注册价', '¥' + (q.price_cents / 100).toFixed(2) + (q.premium ? ' · 高价域名' : '')], ['实名主体', q.template.owner], ['模板', q.template.label], ['默认 NS', q.ns.join(' / ')], ['有效期', '5分钟，提交时再次核价']].map(function (p) { return '<article><span>' + esc(p[0]) + '</span><strong>' + esc(p[1]) + '</strong></article>'; }).join('');
       el('registrationConfirm').hidden = false; notice('可以注册。请核对以下信息，再确认购买。', false);
     });
+  };
+  el('registrationFindTemplate').onclick = function () { busy(this, function () { return findTemplates(false); }); };
+  el('registrationRefreshTemplates').onclick = function () { busy(this, function () { return findTemplates(true); }); };
+  el('registrationTemplateQuery').onkeydown = function (e) { if (e.key === 'Enter') { e.preventDefault(); el('registrationFindTemplate').click(); } };
+  el('registrationNewSubject').onclick = function () {
+    // Open the tab inside the click so popup blockers allow it; certificates are entered on Bizcn's own page only.
+    var tab = window.open('', '_blank'); if (tab) tab.opener = null;
+    busy(this, async function () { try { var d = await api('panel'); if (tab) tab.location.href = d.url; else window.location.href = d.url; notice('已打开商务中国官方面板：在「域名管理 > 添加域名模板」创建实名信息，审核通过后回到这里刷新最新实名。', false); } catch (e) { if (tab) tab.close(); throw e; } });
   };
   el('registrationDomain').oninput = cancelQuote; el('registrationTemplate').onchange = cancelQuote; el('registrationCancel').onclick = cancelQuote;
   el('registrationConfirm').onsubmit = function (e) {
@@ -92,4 +114,5 @@
     el('registrationSettingsForm').onsubmit = function (e) { e.preventDefault(); busy(e.submitter || this.querySelector('[type=submit]'), async function () { var d = await api('settings', { revision: config.revision, daily_limit: el('registrationLimit').value, ns: el('registrationDefaultNs').value, templates: JSON.stringify(Object.keys(approved).map(function (id) { return approved[id]; })) }); cancelQuote(); await loadConfig(true); notice(d.message, false); }); };
   }
   loadConfig(true).catch(function (e) { notice(e.message, true); });
+  if (window.location.hash === '#register') { el('registrationToggle').click(); section.scrollIntoView(); }
 })();

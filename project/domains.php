@@ -234,7 +234,7 @@ $page_title = '域名管理';
 include __DIR__ . '/../includes/header.php';
 ?>
 <link rel="stylesheet" href="<?php echo BASE_URL; ?>/assets/css/domains.css?v=20261014-multisource">
-<link rel="stylesheet" href="<?php echo BASE_URL; ?>/assets/css/domain-registration.css?v=20261012r5">
+<link rel="stylesheet" href="<?php echo BASE_URL; ?>/assets/css/domain-registration.css?v=20261013r6">
 <link rel="stylesheet" href="<?php echo BASE_URL; ?>/assets/css/dns.css?v=20261013-contrast">
 <main class="domain-console" id="domainConsole" data-csrf="<?php echo htmlspecialchars($csrf,ENT_QUOTES,'UTF-8'); ?>">
   <section class="domain-hero">
@@ -263,5 +263,5 @@ include __DIR__ . '/../includes/header.php';
 <script src="<?php echo BASE_URL; ?>/assets/js/domain-dns.js?v=20261012r1" defer></script>
 <script src="<?php echo BASE_URL; ?>/assets/js/domains.js?v=20261014-multisource" defer></script>
 <script src="<?php echo BASE_URL; ?>/assets/js/domain-dns-link.js?v=20261012-dnspod" defer></script>
-<script src="<?php echo BASE_URL; ?>/assets/js/domain-registration.js?v=20261012r6" defer></script>
+<script src="<?php echo BASE_URL; ?>/assets/js/domain-registration.js?v=20261013r7" defer></script>
 <?php include __DIR__ . '/../includes/footer.php'; ?>

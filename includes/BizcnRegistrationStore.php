@@ -1,6 +1,8 @@
 <?php
 /** Database-only registration ledger. No network or application bootstrap; injectable for isolated tests. */
 function br_actor_key($actor) { return (string)$actor['type'].':'.(int)$actor['id']; }
+// Company default for new registrations (Bizcn built-in DNS, same as existing domains). Administrators can override it in settings.
+function br_default_ns() { return ['ns7.cnmsn.net','ns8.cnmsn.net']; }
 function br_admin($actor) { return ($actor['type'] ?? '') === 'admin'; }
 function br_day($now) { return (new DateTimeImmutable('@'.$now))->setTimezone(new DateTimeZone('Asia/Shanghai'))->format('Y-m-d'); }
 function br_settings($pdo, $account)
@@ -8,7 +10,7 @@ function br_settings($pdo, $account)
     $sql=$pdo->getAttribute(PDO::ATTR_DRIVER_NAME)==='sqlite' ? 'INSERT OR IGNORE' : 'INSERT IGNORE';
     $pdo->prepare($sql.' INTO bizcn_registration_settings (provider_account,templates_json,ns_json) VALUES (?,?,?)')->execute([$account,'[]','[]']);
     $q=$pdo->prepare('SELECT * FROM bizcn_registration_settings WHERE provider_account=?');$q->execute([$account]);$s=$q->fetch(PDO::FETCH_ASSOC);
-    $s['daily_limit']=(int)$s['daily_limit'];$s['revision']=(int)$s['revision'];$s['templates']=json_decode($s['templates_json'],true) ?: [];$s['ns']=json_decode($s['ns_json'],true) ?: [];
+    $s['daily_limit']=(int)$s['daily_limit'];$s['revision']=(int)$s['revision'];$s['templates']=json_decode($s['templates_json'],true) ?: [];$s['ns']=json_decode($s['ns_json'],true) ?: br_default_ns();
     return $s;
 }
 function br_lock_settings($pdo,$account)

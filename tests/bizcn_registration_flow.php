@@ -45,4 +45,12 @@ $sync=br_dispatch('registration_sync_templates',['page'=>1],$admin);bt($sync['re
 $filter=br_dispatch('registration_templates',['search'=>'甲主体'],$admin);bt($filter['total']===1&&$filter['rows'][0]['id']==='f1','local real-name search');
 $filter=br_dispatch('registration_templates',['contid'=>'f2'],$admin);bt($filter['total']===1&&$filter['rows'][0]['id']==='f2','local exact id search');
 $filter=br_dispatch('registration_templates',['search'=>'%'],$admin);bt($filter['total']===0,'search wildcard escaped');
+$found=br_dispatch('registration_find_template',['search'=>'乙主体'],$a);bt(count($found['rows'])===1&&$found['rows'][0]['id']==='f2','staff can find a directory subject');
+bt(reject(function()use($a){br_dispatch('registration_find_template',['search'=>'乙'],$a);}), 'one-character search refused');
+$found=br_dispatch('registration_find_template',['search'=>'%%'],$a);bt(count($found['rows'])===0,'staff search wildcard escaped');
+$mockAuth='pass';$before=$calls;
+$q=br_dispatch('registration_quote',['domain'=>'newcustomer.example.com','template_id'=>'f2'],$a);bt($q['quote']['template']['owner']==='乙主体'&&$calls===$before,'directory subject can be quoted without admin approval, no purchase');
+bt(reject(function()use($a){br_dispatch('registration_quote',['domain'=>'ghost.example.com','template_id'=>'not-in-directory'],$a);}), 'unknown subject refused');
+$mockAuth='unpass';bt(reject(function()use($a){br_dispatch('registration_quote',['domain'=>'pending.example.com','template_id'=>'f1'],$a);}), 'unaudited directory subject blocked live');$mockAuth='pass';
+$cfg=br_dispatch('registration_config',[],$a);bt($cfg['directory_count']===2&&$cfg['ready'],'directory alone makes registration ready');
 echo json_encode(['passed'=>$checks,'failed'=>0,'mock_paid_calls'=>$calls,'real_paid_api_calls'=>0],JSON_UNESCAPED_UNICODE)."\n";

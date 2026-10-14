@@ -379,6 +379,21 @@
 
 - 加载：`require_once __DIR__.'/includes/RecoveryWeb.php';`
 
+## harness/config.example.php (11 行, 0.6 KB)
+
+
+## harness/entry.php (10 行, 0.6 KB)
+
+- 加载：`require_once __DIR__ . '/../includes/auth.php';`
+- 加载：`require $cfgFile;`
+
+## harness/sso.php (58 行, 4.1 KB)
+
+- `hn_fail` L7–7
+- `hn_identity` L13–24
+- 加载：`require $cfgFile;`
+- 加载：`require_once __DIR__ . '/../includes/auth.php';`
+
 ## includes/AuthPassword.php (35 行, 2 KB)
 
 - `auth_password_verify` L3–8
@@ -408,6 +423,29 @@
 - `bd_record_replace` L11–57
 - 加载：`require_once __DIR__ . '/BizcnDomainValues.php';`
 
+## includes/BizcnDnsRouting.php (113 行, 6.2 KB)
+
+- `bdr_nameservers` L5–10
+- `bdr_provider` L12–19
+- `bdr_context` L21–61
+- `bdr_revision` L63–68
+- `bdr_records` L70–86
+- `bdr_save` L88–112
+- 加载：`require_once __DIR__.'/DnsProviders.php';`
+
+## includes/BizcnDomainAggregator.php (444 行, 17.5 KB)
+
+- `bda_cache_file` L13–18
+- `bda_clear_cache` L20–24
+- `bda_get_dns_domains` L26–78
+- `bda_get_renewal_domains` L80–167
+- `bda_find_domain` L169–199
+- `bda_unified_list` L201–443
+- 加载：`require_once __DIR__ . '/BizcnDomainValues.php';`
+- 加载：`require_once __DIR__ . '/BizcnDomainCatalog.php';`
+- 加载：`require_once __DIR__ . '/DnsProviders.php';`
+- 加载：`require_once __DIR__ . '/BizcnDnsRouting.php';`
+
 ## includes/BizcnDomainCatalog.php (135 行, 10.8 KB)
 
 - `bc_date` L3–11
@@ -429,45 +467,50 @@
 - `bd_rows` L80–84
 - `bd_record` L86–109
 
-## includes/BizcnDomains.php (75 行, 4.9 KB)
+## includes/BizcnDomains.php (68 行, 4.3 KB)
 
-- `bd_config` L8–15
-- `bd_can_access` L17–28
-- `bd_call` L30–35
-- `bd_transport` L38–48
-- `bd_list` L50–61
-- `bd_require_owned` L63–74
+- `bd_config` L9–16
+- `bd_can_access` L18–29
+- `bd_call` L31–36
+- `bd_transport` L39–49
+- `bd_list` L51–54
+- `bd_require_owned` L56–67
 - 加载：`require_once __DIR__ . '/ProjectVault.php';`
 - 加载：`require_once __DIR__ . '/BizcnDomainValues.php';`
 - 加载：`require_once __DIR__ . '/BizcnDnsRecords.php';`
 - 加载：`require_once __DIR__ . '/BizcnDomainCatalog.php';`
+- 加载：`require_once __DIR__ . '/BizcnDomainAggregator.php';`
 - 加载：`include $file : [];`
 
-## includes/BizcnRegistration.php (144 行, 13.9 KB)
+## includes/BizcnRegistration.php (185 行, 17.3 KB)
 
 - `br_template_pass` L4–9
 - `br_price` L10–22
 - `br_public` L23–27
 - `br_catalog_registered` L28–36
-- `br_dispatch` L37–143
+- `br_owner_label` L37–40
+- `br_sync_templates_page` L41–48
+- `br_directory_template` L49–54
+- `br_dispatch` L55–184
 - 加载：`require_once __DIR__.'/BizcnRegistrationStore.php';`
 
-## includes/BizcnRegistrationStore.php (104 行, 9.6 KB)
+## includes/BizcnRegistrationStore.php (106 行, 9.8 KB)
 
 - `br_actor_key` L3–3
-- `br_admin` L4–4
-- `br_day` L5–5
-- `br_settings` L6–13
-- `br_lock_settings` L14–19
-- `br_usage` L20–24
-- `br_save_settings` L25–34
-- `br_quote_save` L35–40
-- `br_request` L41–45
-- `br_reserve` L46–63
-- `br_mark_started` L64–68
-- `br_state` L69–75
-- `br_record_result` L76–91
-- `br_release_unknown` L92–103
+- `br_default_ns` L5–5
+- `br_admin` L6–6
+- `br_day` L7–7
+- `br_settings` L8–15
+- `br_lock_settings` L16–21
+- `br_usage` L22–26
+- `br_save_settings` L27–36
+- `br_quote_save` L37–42
+- `br_request` L43–47
+- `br_reserve` L48–65
+- `br_mark_started` L66–70
+- `br_state` L71–77
+- `br_record_result` L78–93
+- `br_release_unknown` L94–105
 
 ## includes/DnsProviders.php (369 行, 20.2 KB)
 
@@ -2295,7 +2338,7 @@
 - `ps_technical_reconciliation_summary` L300–310
 - 加载：`require_once __DIR__ . '/../ProjectExtraRules.php';`
 
-## includes/workbench-nav.php (8 行, 0.8 KB)
+## includes/workbench-nav.php (11 行, 1.7 KB)
 
 - 加载：`require_once __DIR__ . '/BizcnDomains.php';`
 
@@ -2762,14 +2805,15 @@
 ## project/domain_dns_choices.php (9 行, 1.3 KB)
 
 
-## project/domain_registration_view.php (34 行, 4.6 KB)
+## project/domain_registration_view.php (40 行, 5.8 KB)
 
 - 加载：`include __DIR__.'/domain_dns_choices.php';`
 
-## project/domains.php (124 行, 16.3 KB)
+## project/domains.php (268 行, 24.8 KB)
 
 - 加载：`require_once __DIR__ . '/../includes/BizcnDomains.php';`
 - 加载：`require_once __DIR__ . '/../includes/BizcnRegistration.php';`
+- 加载：`require_once __DIR__ . '/../includes/BizcnDnsRouting.php';`
 - 加载：`include __DIR__ . '/../includes/header.php';`
 - 加载：`include __DIR__.'/domain_registration_view.php';`
 - 加载：`include __DIR__.'/domain_dns_choices.php';`
@@ -2859,7 +2903,7 @@
 ## project/import/02_read_sheets.php (169 行, 16.4 KB)
 
 
-## project/import/03a_order_no_and_split.php (231 行, 23.8 KB)
+## project/import/03a_order_no_and_split.php (233 行, 24.1 KB)
 
 
 ## project/import/03b_date_amount_status.php (313 行, 33.2 KB)
@@ -3625,6 +3669,17 @@
 - 加载：`include __DIR__ . '/../project/import.php';`
 - 加载：`include __DIR__ . '/../project/import.php';`
 
+## tests/bizcn_dns_routing.php (52 行, 5.3 KB)
+
+- `bd_require_owned` L5–5
+- `bd_call` L6–6
+- `bd_rows` L7–7
+- `ps_audit` L8–8
+- `check_route` L20–20
+- `rejects_route` L21–21
+- `writes_route` L22–22
+- 加载：`require_once __DIR__.'/../includes/BizcnDnsRouting.php';`
+
 ## tests/bizcn_domain_catalog.php (27 行, 3 KB)
 
 - `bc_check` L5–5
@@ -3661,7 +3716,7 @@
 - `fq` L14–14
 - 加载：`require_once __DIR__.'/../includes/BizcnRegistrationStore.php';`
 
-## tests/bizcn_registration_flow.php (49 行, 5.8 KB)
+## tests/bizcn_registration_flow.php (57 行, 7 KB)
 
 - `db` L6–6
 - `bd_config` L7–7
@@ -3825,6 +3880,10 @@
 - 加载：`require_once __DIR__ . '/../includes/ProjectIntake.php';`
 - 加载：`include __DIR__ . '/../project/import.php';`
 - 加载：`require_once __DIR__ . '/../includes/ProjectMiniappTemplate.php';`
+
+## tests/inspect_domains.php (10 行, 0.5 KB)
+
+- 加载：`require_once __DIR__ . '/../includes/ProjectIntake.php';`
 
 ## tests/knowledge_categories_unit.php (25 行, 1.8 KB)
 
@@ -4192,10 +4251,28 @@
 - `split_test_source` L4–11
 - 加载：`require_once __DIR__ . '/../tools/code_structure.php';`
 
+## tests/test_domain_dispatch.php (31 行, 1 KB)
+
+- 加载：`require_once __DIR__ . '/../includes/ProjectIntake.php';`
+- 加载：`require_once __DIR__ . '/../includes/BizcnDomains.php';`
+- 加载：`require_once __DIR__ . '/../includes/DnsProviders.php';`
+- 加载：`require_once __DIR__ . '/../includes/BizcnDnsRouting.php';`
+
 ## tests/test_dongxu_view.php (34 行, 1.5 KB)
 
 - 加载：`require_once __DIR__ . '/../includes/ProjectIntake.php';`
 - 加载：`require_once __DIR__ . '/../includes/ProjectBusiness.php';`
+
+## tests/test_extract_domains.php (51 行, 2.1 KB)
+
+- 加载：`require_once __DIR__ . '/../includes/ProjectIntake.php';`
+
+## tests/test_laibangwo_dns.php (33 行, 1 KB)
+
+- 加载：`require_once __DIR__ . '/../includes/ProjectIntake.php';`
+- 加载：`require_once __DIR__ . '/../includes/BizcnDomains.php';`
+- 加载：`require_once __DIR__ . '/../includes/DnsProviders.php';`
+- 加载：`require_once __DIR__ . '/../includes/BizcnDnsRouting.php';`
 
 ## tests/test_password_recovery.php (164 行, 15.4 KB)
 
@@ -4218,6 +4295,14 @@
 - 加载：`require_once __DIR__ . '/../includes/ProjectPresets.php';`
 - 加载：`require_once __DIR__ . '/../includes/SalaryCalculator.php';`
 - 加载：`require_once __DIR__ . '/../classes/SimpleXLSX.php';`
+
+## tests/test_unified_domains.php (54 行, 2.7 KB)
+
+- 加载：`require_once __DIR__ . '/../includes/ProjectIntake.php';`
+- 加载：`require_once __DIR__ . '/../includes/BizcnDomains.php';`
+- 加载：`require_once __DIR__ . '/../includes/DnsProviders.php';`
+- 加载：`require_once __DIR__ . '/../includes/BizcnDnsRouting.php';`
+- 加载：`require_once __DIR__ . '/../includes/BizcnDomainAggregator.php';`
 
 ## tests/trademark_cost_flow_smoke.php (114 行, 11.4 KB)
 
