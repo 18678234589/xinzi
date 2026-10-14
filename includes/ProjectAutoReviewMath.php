@@ -174,8 +174,8 @@ function pa_evaluate(array $ctx)
         if (!empty($ctx['monthly_income_required'])) $incomeDependent = true;
         $noReceiptAllowance = $subsidy && !$incomeDependent;
         if ($missingReceipt && !empty($ctx['monthly_income_required'])) $add('monthly_profit_receipt', '月度利润分成仍需真实实收；单量补助独立按月核验，不会按零收入锁定分成', 'sync');
-        if ($missingReceipt && !$noReceiptAllowance) $add('receipt_missing', $e['matched_sources'] ? '已匹配订单来源，但尚无明确实付字段或已核验收款；比例分成须等实收' : '尚未匹配可信收款流水；售价仅用于预估', 'sync');
-        if ((float)$summary['income'] <= 0 && !$noReceiptAllowance && !($allowNegative && (float)$summary['income'] < 0)) $add('income', '没有可结算净实收，需核对收退款', $missingReceipt ? 'sync' : 'exception');
+        if ($missingReceipt && !$noReceiptAllowance) $add('receipt_missing', $e['matched_sources'] ? '已找到这张订单，但还没有这笔钱的收款记录；按比例算的提成要等收款确认后才能结算' : '还没找到这笔钱的收款记录；现在显示的金额只是按售价估算的预计值', 'sync');
+        if ((float)$summary['income'] <= 0 && !$noReceiptAllowance && !($allowNegative && (float)$summary['income'] < 0)) $add('income', '还没有已确认的收款，暂时无法结算；请财务核对收款和退款', $missingReceipt ? 'sync' : 'exception');
         if (!$missingReceipt && (float)$summary['profit'] < 0 && !$allowNegative && !($noReceiptAllowance && (float)$summary['income'] === 0.0)) $add('negative_profit', '贡献利润为负，需要财务核对成本及适用规则', 'exception');
         if ((float)$summary['service_fee_rate'] > 0 && (float)$o['contract_amount'] <= 0 && (float)$summary['income'] > 0) $add('sale_missing', '按售价计服务费的业务，尚缺有效售价');
         if (!$missingReceipt && $refund > max($receipt, $e['paid_cents'] ?? 0) && !$allowNegative) $add('refund_exceeds', '累计退款超过可核对收款，不能自动结算', 'exception');
@@ -191,7 +191,7 @@ function pa_evaluate(array $ctx)
 function pa_state_meta($state)
 {
     $map = [
-        'wait_sync' => ['等待收款资料同步', 'info'], 'wait_data' => ['待补资料', 'warning'],
+        'wait_sync' => ['等待收款确认', 'info'], 'wait_data' => ['待补资料', 'warning'],
         'wait_finance' => ['等待财务核验', 'info'],
         'exception' => ['异常待财务', 'danger'], 'ready' => ['核对通过·待结算', 'primary'],
         'auto_passed' => ['自动核对通过', 'success'], 'settled' => ['已结算', 'success'],

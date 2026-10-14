@@ -251,8 +251,11 @@ function pa_view(array $row)
     if ($stale) $state = 'queued';
     if ($state === 'queued' && in_array($row['settlement_status'], ['approved', 'locked'], true)) $state = 'settled';
     $reasons = $stale ? [] : (json_decode((string)($row['auto_review_reasons'] ?? ''), true) ?: []);
+    // 已存下来的旧提示文字换成大白话（不改核对规则版本，避免全部订单重新排队）
+    $plainText = ['已匹配订单来源，但尚无明确实付字段或已核验收款；比例分成须等实收' => '已找到这张订单，但还没有这笔钱的收款记录；按比例算的提成要等收款确认后才能结算', '尚未匹配可信收款流水；售价仅用于预估' => '还没找到这笔钱的收款记录；现在显示的金额只是按售价估算的预计值', '没有可结算净实收，需核对收退款' => '还没有已确认的收款，暂时无法结算；请财务核对收款和退款'];
+    foreach ($reasons as $ri => $reasonRow) if (isset($reasonRow['text'], $plainText[$reasonRow['text']])) $reasons[$ri]['text'] = $plainText[$reasonRow['text']];
     [$label, $tone] = pa_state_meta($state);
-    $guidance = $state === 'wait_sync' ? '订单已保存。等待财务导入店铺流水或核验收款，系统匹配后会继续核对，无需重复上传。' : ($state === 'wait_finance' ? '资料已提交，正在等待财务核验。这不是报单失败，无需重复提交；有待补凭证时请在结算单补充。' : '');
+    $guidance = $state === 'wait_sync' ? '订单已经导入成功，不用重新上传。系统还没找到这笔钱的收款记录，所以暂时不能结算。请财务把对应的收款流水（微信 / 对公收款也一样）传到“店铺交易流水”，或在订单里手动登记收款；登记后系统会自动继续核对。' : ($state === 'wait_finance' ? '资料已提交，正在等待财务核验。这不是报单失败，无需重复提交；有待补凭证时请在结算单补充。' : '');
     return ['state' => $state, 'label' => $label, 'tone' => $tone, 'reasons' => $reasons, 'guidance' => $guidance, 'checked_at' => $row['auto_review_checked_at'] ?? null];
 }
 
