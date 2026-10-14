@@ -78,8 +78,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
         if ($date === '' && substr($no, 0, 3) !== 'WX-') {
             $shopHint = trim((string)($_POST['shop'] ?? ''));
-            $matches = array_values(array_filter(ps_shop_order_lookup($no), function ($match) use ($shopHint) { return $match['price'] !== null && ($shopHint === '' || $match['shop'
-    ] === $shopHint); }));
+            $matches = array_values(array_filter(ps_shop_order_lookup($no), function ($match) use ($shopHint) { return $match['price'] !== null && ps_shop_compatible($shopHint, $match['shop']); }));
             if (count($matches) === 1) $date = (string)$matches[0]['date'];
         }
         $parsedDate = DateTimeImmutable::createFromFormat('!Y-m-d', $date);

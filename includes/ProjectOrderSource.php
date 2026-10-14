@@ -111,7 +111,7 @@ function ps_save_customer_intake($orderId, $input, $actor, $allowNoop = false, $
 
 function ps_source_nickname($raw)
 {
-    foreach (['付款昵称','买家付款昵称','买家昵称','买家会员名','买家用户名','买家','会员名','客户昵称'] as $needle) {
+    foreach (['付款昵称','买家付款昵称','买家昵称','买家会员名','买家用户名','买家','会员名','客户昵称','付款账户名称','付款方名称'] as $needle) {
         foreach ($raw as $key => $value) {
             if (strpos((string)$key, '__') === 0 || mb_strpos((string)$key, $needle) === false) continue;
             $value = trim((string)$value);
@@ -138,6 +138,17 @@ function ps_shop_status_rank($status)
     return 1;
 }
 
+/**
+ * 项目订单上写的“店铺”和店铺流水的店铺名是否算同一个来源。订单表里的店铺是人手填的（对公转账 / 对公转款 / 知网龙源对公转账 …），
+ * 流水的店铺固定叫“对公收款”：两边都是“对公”类就算同一个来源，否则流水永远同步不到这些订单。其余店铺仍须完全相同（订单号可能在不同店铺重号）。
+ */
+function ps_shop_compatible($orderShop, $statementShop)
+{
+    $a = trim((string)$orderShop); $b = trim((string)$statementShop);
+    if ($a === '' || $b === '' || $a === $b) return true;
+    return mb_strpos($a, '对公') !== false && mb_strpos($b, '对公') !== false;
+}
+
 /** 店铺流水里订单状态变得更靠后（如交易成功 → 交易关闭）时，同步到同订单号的项目订单的“交易状态”。只前进、不回退。 */
 function ps_sync_project_status_latest($orderNo, $shop, $status)
 {
@@ -147,7 +158,7 @@ function ps_sync_project_status_latest($orderNo, $shop, $status)
     $q->execute([$orderNo]); $o = $q->fetch();
     if (!$o) return false;
     if (psw_is_editor_order($o)) return false;
-    if ($o['shop'] !== '' && $shop !== '' && $o['shop'] !== $shop) return false;
+    if (!ps_shop_compatible($o['shop'], $shop)) return false;
     if ((string)$o['trade_status'] !== '' && ps_shop_status_rank($status) <= ps_shop_status_rank($o['trade_status'])) return false;
     db()->prepare("INSERT INTO project_order_sources (order_id,trade_status,status_source,synced_at) VALUES (?,?, 'shop_upload', NOW()) ON DUPLICATE KEY UPDATE trade_status=VALUES(trade_status),status_source='shop_upload',synced_at=NOW()")->execute([(int)$o['id'], $status]);
     return true;
@@ -162,7 +173,7 @@ function ps_sync_project_from_shop_order($legacyId, $orderNo, $shop, $raw, $pric
     $order = $q->fetch();
     if (!$order || in_array($order['settlement_status'], ['approved','locked'], true)) return false;
     if (psw_is_editor_order($order)) return false;
-    if ($order['shop'] !== '' && $shop !== '' && $order['shop'] !== $shop) return false;
+    if (!ps_shop_compatible($order['shop'], $shop)) return false;
     $source = db()->prepare('SELECT * FROM project_order_sources WHERE order_id=? FOR UPDATE');
     $source->execute([$order['id']]);
     $meta = $source->fetch();
@@ -195,7 +206,7 @@ function ps_sync_existing_shop_order($projectOrderId, $orderNo, $shop)
     $q->execute([$orderNo]);
     $matches = [];
     foreach ($q->fetchAll() as $row) {
-        if ($shop !== '' && $row['shop'] !== $shop) continue;
+        if (!ps_shop_compatible($shop, $row['shop'])) continue;
         $raw = json_decode((string)$row['raw_data'], true);
         if (!is_array($raw) || !array_key_exists('__original_price__', $raw)) continue;
         $matches[$row['shop']] ??= $row + ['parsed_raw' => $raw];

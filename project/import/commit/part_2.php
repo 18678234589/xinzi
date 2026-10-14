@@ -254,6 +254,14 @@
                         $reviewLookup->execute([$reviewEntry[0]['order_no']]);
                         if ($reviewId = (int)$reviewLookup->fetchColumn()) $reviewIds[] = $reviewId;
                     }
+                    // 导入后自动把同订单号的店铺流水（付款昵称 / 交易状态 / 店铺）补进来：流水先上传、订单后导入，也不用再手动补
+                    require_once (dirname((dirname(__DIR__, 1)), 1)) . '/../includes/ProjectOrderSource.php';
+                    foreach ($reviewIds as $syncId) {
+                        try {
+                            $syncRow = $pdo->prepare('SELECT order_no,shop FROM project_orders WHERE id=?'); $syncRow->execute([$syncId]); $syncOrder = $syncRow->fetch();
+                            if ($syncOrder && substr((string)$syncOrder['order_no'], 0, 3) !== 'WX-') { $pdo->beginTransaction(); ps_sync_existing_shop_order($syncId, $syncOrder['order_no'], (string)$syncOrder['shop']); $pdo->commit(); }
+                        } catch (Throwable $syncError) { if ($pdo->inTransaction()) $pdo->rollBack(); error_log('shop_statement_sync_after_import: ' . $syncError->getMessage()); }
+                    }
                     pa_after_save($reviewIds);
                 } catch (Throwable $reviewError) { error_log('auto_review_import_followup: ' . $reviewError->getMessage()); }
                 // Ancillary renewal data cannot roll back or block valid financial orders.

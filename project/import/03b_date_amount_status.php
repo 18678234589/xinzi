@@ -14,7 +14,7 @@
                     }
                     if (!$record['order_date'] && $record['order_no'] !== '' && substr($record['order_no'], 0, 3) !== 'WX-') {
                         $matches = array_values(array_filter(ps_shop_order_lookup($record['split_parent_no'] ?? $record['order_no']), function ($match) use ($row, $lookup) { return
-    $match['price'] !== null && ($lookup($row, 'shop') === '' || $lookup($row, 'shop') === $match['shop']); }));
+    $match['price'] !== null && ps_shop_compatible($lookup($row, 'shop'), $match['shop']); }));
                         if (count($matches) === 1 && !empty($matches[0]['date'])) {
                             $record['order_date'] = ps_import_date($matches[0]['date']);
                             if ($record['order_date']) $record['warning'] .= ($record['warning'] ? '；' : '') . '日期由同号店铺流水带入';
