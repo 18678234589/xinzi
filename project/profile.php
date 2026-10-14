@@ -61,8 +61,9 @@ $csrf = e(ps_csrf_token());
 <?php if (ps_is_management($actor)): ?><div class="alert alert-info">管理职务：<?php echo e($actor['management_title'] ?: '管理'); ?> · 管理范围：<?php echo e(ps_management_company($actor) ? '全公司所有业务' : implode('、', ps_actor_businesses($actor))); ?></div><?php endif; ?>
 <?php if ($error): ?><div class="alert alert-danger"><?php echo e($error); ?></div><?php endif; ?>
 <?php if ($success): ?><div class="alert alert-success"><?php echo e($success); ?></div><?php endif; ?>
-<?php if (isset($_GET['bound'])): ?><div class="alert alert-success">手机号绑定成功。<?php if ($me['role'] === 'governance'): ?>请先修改初始密码，再进入管理层工作台。<?php else: ?><a href="<?php echo BASE_URL; ?>/project/index.php">进入我的项目订单 →</a><?php endif; ?></div><?php endif; ?>
-<?php if (!$needPhone && empty($me['password_changed_at'])): ?><div class="alert alert-warning"><?php echo $me['role'] === 'governance' ? '首次使用管理层工作台，请先把初始密码改为仅自己知道的新密码。' : '你还在使用默认密码，建议现在修改。'; ?></div><?php endif; ?>
+<?php if (isset($_GET['bound'])): ?><div class="alert alert-success">手机号绑定成功。<?php if (auth_staff_needs_password_change($me)): ?>接下来请修改初始密码，即可开始使用。<?php else: ?><a href="<?php echo BASE_URL . e(auth_staff_destination($me)); ?>">进入我的工作台 →</a><?php endif; ?></div><?php endif; ?>
+<?php if (!$needPhone && auth_staff_needs_password_change($me)): ?><div class="alert alert-warning">已经登录成功。为保护你的订单与报酬，请先把初始密码改为仅自己知道的新密码；修改后即可进入工作台。</div><?php endif; ?>
+<?php if (!$needPhone && !auth_staff_needs_password_change($me) && $me['role'] !== 'governance'): ?><a class="btn btn-success mb-3" href="<?php echo BASE_URL . e(auth_staff_destination($me)); ?>">进入我的工作台 →</a><?php endif; ?>
 <?php if ($me['role'] === 'governance' && !empty($me['password_changed_at'])): ?><a class="btn btn-success mb-3" href="<?php echo BASE_URL; ?>/project/governance_ideas.php">进入管理层工作台 →</a><?php endif; ?>
 
 <p><a class="btn btn-outline-success" href="<?php echo BASE_URL; ?>/recovery_phone.php">验证 / 绑定短信找回手机号</a></p>

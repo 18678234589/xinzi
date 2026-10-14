@@ -1,6 +1,13 @@
 <?php
                     $record['project_type'] = ps_import_website_business($selectedBusiness, $lookup($row, 'program_name'), $lookup($row, 'frontend') . '/' . $lookup($row, 'backend'
     ), $allowedBusinesses);
+                    $record['writing'] = null;
+                    if (in_array($selectedBusiness, ['微信代写', '软文代写'], true)
+                        && ($selectedBusiness === '微信代写' || psw_is_member((int)($actor['employee_id'] ?? 0)))) {
+                        $record['writing'] = psw_source_from_row($head, $row, $sheetName);
+                        $record['project_type'] = '微信代写';
+                        $orderKinds = ps_business_order_kinds('微信代写');
+                    }
                     if ($record['project_type'] !== $selectedBusiness) $record['warning'] .= ($record['warning'] ? '；' : '') . '按产品/技术岗位自动归入“' . $record['project_type'
     ] . '”分成方案';
                     $record['order_no'] = ps_order_no_resolve($lookup($row, 'order_no'));
@@ -99,10 +106,31 @@
                     // 每一行是一次独立工作，各算一单：按“域名＋联系微信号＋月份＋同键序号”生成稳定的内部号（EB-…），重传不重复建单；与本月首次备案无关。
                     if ($selectedBusiness === '森动备案' && $record['order_no'] === '' && $record['payment_reference'] === '' && $lookup($row, 'detail:domain_name') !== '') {
                         $ebDate = ps_import_date($lookup($row, 'order_date'));
-                        $ebKey = mb_strtolower(trim($lookup($row, 'detail:domain_name')) . '|' . trim($lookup($row, 'detail:contact_wechat')) . '|' . trim($lookup($row, 'contact_note')) . '|' . substr((string)$ebDate, 0, 7));
+                        $ebDomain = trim($lookup($row, 'detail:domain_name'));
+                        $ebWechat = trim($lookup($row, 'detail:contact_wechat') !== '' ? $lookup($row, 'detail:contact_wechat') : $lookup($row, 'contact_note'));
+                        $ebMonth = substr((string)$ebDate, 0, 7);
+                        $ebKey = mb_strtolower($ebDomain . '|' . $ebWechat . '|' . $ebMonth);
                         $wxSeq['eb|' . $ebKey] = ($wxSeq['eb|' . $ebKey] ?? 0) + 1;
-                        $record['order_no'] = 'EB-' . strtoupper(substr(hash('sha256', '森动备案|' . $ebKey . '|' . $wxSeq['eb|' . $ebKey]), 0, 12));
-                        $record['warning'] .= ($record['warning'] ? '；' : '') . '没有订单号：已按“域名＋联系微信号＋月份”生成内部订单号' . ($wxSeq['eb|' . $ebKey] > 1 ? '（同月同域名第 ' . $wxSeq['eb|' . $ebKey] . ' 次，按独立工作各记一单）' : '');
+                        $seqIndex = $wxSeq['eb|' . $ebKey];
+                        $record['order_no'] = 'EB-' . strtoupper(substr(hash('sha256', '森动备案|' . $ebKey . '|' . $seqIndex), 0, 12));
+                        // 兼容历史不同版本模板（曾把微信号分别放在“联系方式”或“联系微信号”列，或两列同时填写，生成不同 EB 号）：若库里已存在对应的老单号，直接沿用原单号实现同步，不重复建单
+                        $legacyKey1 = mb_strtolower($ebDomain . '||' . $ebWechat . '|' . $ebMonth);
+                        $legacyNo1 = 'EB-' . strtoupper(substr(hash('sha256', '森动备案|' . $legacyKey1 . '|' . $seqIndex), 0, 12));
+                        $legacyKey2 = mb_strtolower($ebDomain . '|' . $ebWechat . '||' . $ebMonth);
+                        $legacyNo2 = 'EB-' . strtoupper(substr(hash('sha256', '森动备案|' . $legacyKey2 . '|' . $seqIndex), 0, 12));
+                        $legacyKey3 = mb_strtolower($ebDomain . '|' . $ebWechat . '|' . $ebWechat . '|' . $ebMonth);
+                        $legacyNo3 = 'EB-' . strtoupper(substr(hash('sha256', '森动备案|' . $legacyKey3 . '|' . $seqIndex), 0, 12));
+                        foreach ([$legacyNo3, $legacyNo2, $legacyNo1] as $candidateNo) {
+                            if ($candidateNo !== $record['order_no']) {
+                                $legacyCheck = db()->prepare("SELECT order_no FROM project_orders WHERE order_no=? AND project_type='森动备案' AND order_kind='二次备案' LIMIT 1");
+                                $legacyCheck->execute([$candidateNo]);
+                                if ($legacyCheck->fetchColumn()) {
+                                    $record['order_no'] = $candidateNo;
+                                    break;
+                                }
+                            }
+                        }
+                        $record['warning'] .= ($record['warning'] ? '；' : '') . '没有订单号：已按“域名＋联系微信号＋月份”生成内部订单号' . ($seqIndex > 1 ? '（同月同域名第 ' . $seqIndex . ' 次，按独立工作各记一单）' : '');
                     }
                     // 微信付款等没有订单号的订单：只要有日期、金额和一个识别信息（付款昵称 / 联系方式 / 客服），就按这些内容生成稳定的内部订单号（WX-…），
                     // 同一张表重复上传得到同一个号，不会重复建单；拿到真实订单号后可在订单页补录。
@@ -112,8 +140,18 @@
     ));
                         if ($wxAmount !== '' && $wxDate !== '' && ($wxNick !== '' || $wxContact !== '' || $wxCs !== '')) {
                             $wxKey = mb_strtolower($selectedBusiness . '|' . $wxDate . '|' . trim((string)$lookup($row, 'shop')) . '|' . $wxNick . '|' . $wxAmount . '|' . $wxCs);
+                            $legacyWxKey = $wxKey;
+                            if (!empty($record['writing'])) $wxKey = mb_strtolower($record['project_type'] . '|' . ps_import_date($wxDate) . '|' . $record['writing']['kind'] . '|'
+                                . trim((string)$lookup($row, 'shop')) . '|' . $wxNick . '|' . number_format((float)$wxAmount, 2, '.', '') . '|' . $wxCs);
                             $wxSeq[$wxKey] = ($wxSeq[$wxKey] ?? 0) + 1;
                             $record['order_no'] = 'WX-' . strtoupper(substr(hash('sha256', 'noorder|' . $wxKey . '|' . $wxSeq[$wxKey]), 0, 24));
+                            if (!empty($record['writing'])) {
+                                $wxSeq['legacy|' . $legacyWxKey] = ($wxSeq['legacy|' . $legacyWxKey] ?? 0) + 1;
+                                $legacyNo = 'WX-' . strtoupper(substr(hash('sha256', 'noorder|' . $legacyWxKey . '|' . $wxSeq['legacy|' . $legacyWxKey]), 0, 24));
+                                $legacyLookup = db()->prepare('SELECT order_no,project_type,order_kind FROM project_orders WHERE order_no=?');
+                                $legacyLookup->execute([$legacyNo]); $legacyOrder = $legacyLookup->fetch();
+                                if ($legacyOrder && $legacyOrder['project_type'] === $record['project_type'] && $legacyOrder['order_kind'] === $record['writing']['kind']) $record['order_no'] = $legacyOrder['order_no'];
+                            }
                             $record['warning'] .= ($record['warning'] ? '；' : '') . '没有订单号（微信付款等）：已按“日期＋店铺＋付款昵称＋金额”生成内部订单号，拿到真实订单号后可在订单页补录'
     ;
                         }
@@ -121,12 +159,26 @@
                     $exists->execute([$record['order_no']]);
                     $existing = $exists->fetch();
                     $record['existing_order_id'] = $existing ? (int)$existing['id'] : 0;
+                    if ($existing && !empty($record['writing']) && $record['writing']['source'] === 'editor'
+                        && in_array($record['writing']['kind'], ['合并单','退款冲减'], true)) {
+                        $record['skip_status'] = '不计对接单量';
+                        throw new RuntimeException('编辑合并/退款行不计单量，不向原单新增计费编辑；已有原单及其财务数据保留');
+                    }
+                    if ($existing && !empty($record['writing']) && $record['writing']['source'] === 'editor'
+                        && in_array(ps_business_normalize($existing['project_type']), ['微信代写', '软文代写'], true)
+                        && (ps_business_normalize($existing['project_type']) === '软文代写' || $existing['order_kind'] !== '编辑对接')) {
+                        $record['join_parent'] = ['id' => (int)$existing['id'], 'project_type' => $existing['project_type']];
+                        $record['join_target'] = ['group' => 'technical', 'role' => '对接编辑'];
+                        $record['warning'] .= ($record['warning'] ? '；' : '') . '编辑对接只加入原单，不改变原接单客服、收入或成本';
+                    }
                     $record['resource_locked'] = false;
                     // 同一订单号客户一次付款、由多位商标客服分别录入：后录入的客服另记自己那份（同业务分单）
                     $coCustomerService = $existing && $selectedBusiness === '商标' && $actor['role'] === 'customer_service' && !$departmentMode && !ps_is_management($actor)
                         && ps_business_normalize($existing['project_type']) === $record['project_type']
                         && !ps_import_order_visible((int)$existing['id'], $actor) && ps_import_group_taken((int)$existing['id'], 'customer_service');
-                    if ($existing && (ps_business_normalize($existing['project_type']) !== $record['project_type'] || $coCustomerService)) {
+                    if ($existing && empty($record['join_parent']) && (ps_business_normalize($existing['project_type']) !== $record['project_type'] || $coCustomerService)) {
+                        if (!empty($record['writing']) && $record['writing']['source'] === 'self' && !ps_import_order_visible((int)$existing['id'], $actor)
+                            && ps_business_normalize($existing['project_type']) === '软文代写') throw new RuntimeException('此订单已由其他客服录为软文代写：若本人负责对接，请标注“编辑对接”；确为自接请由财务核对原单归属，不能按空岗位猜分成');
                         if (!$coCustomerService && ps_import_order_visible((int)$existing['id'], $actor)) { $record['skip_status'] = '已导入过'; throw new RuntimeException('此单已在项目订单中，保留原业务“'
     . $existing['project_type'] . '”和分成规则，不重复建单；改类目请由财务核对'); }
                         if (pos_parent_of((int)$existing['id']) || strpos($record['order_no'], 'WX-') === 0) throw new RuntimeException('该订单号已属于其他业务，请联系财务核对'
@@ -140,7 +192,9 @@
                         }
                         if ($joinSameSale) {
                             $record['join_parent'] = ['id' => (int)$existing['id'], 'project_type' => $existing['project_type']];
-                            $record['join_target'] = poj_join_target((int)$actor['employee_id'], $existing['project_type'], (int)$existing['id'], $actor['role']);
+                            $record['join_target'] = !empty($record['writing']) && $record['writing']['source'] === 'editor'
+                                ? ['group' => 'technical', 'role' => '对接编辑']
+                                : poj_join_target((int)$actor['employee_id'], $existing['project_type'], (int)$existing['id'], $actor['role']);
                             $record['existing_order_id'] = (int)$existing['id'];
                             $record['warning'] .= ($record['warning'] ? '；' : '') . '同一笔销售只记一次：此单已由“' . $existing['project_type'] . '”按相同金额录入，本人将作为“' . $record['join_target']['role'] . '”加入原订单，不另建分单、不重复计金额';
                         } else {

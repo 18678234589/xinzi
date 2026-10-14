@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . '/ProjectSettlement.php';
+require_once __DIR__ . '/ProjectWriting.php';
 
 /**
  * 业务目录。service_fee_rate 是业务默认店铺服务费（按售价），分成规则可按组/岗位覆盖；
@@ -35,7 +36,7 @@ function ps_business_catalog()
         // 二次备案：只按订单数量每单 5 元，无提成、无其他补贴。淘宝 / 二次备案用订单类型区分（见规则中心“森动备案”）。不绑定部门，需财务给账号分配此业务。
         '森动备案' => ['departments' => [], 'resources' => false, 'requires_technical' => false, 'service_fee_rate' => 0, 'order_kinds' => ['备案', '备案-淘宝', '二次备案'], 'kind_required' => true, 'default_kind' => '备案', 'cost_label' => '备案成本', 'import_cost' => true, 'free_shop' => true, 'fields' => ['contact_wechat' => '联系微信号', 'filing_status' => '备案状态', 'auth_code' => '授权码', 'program_name' => '程序', 'domain_name' => '域名', 'vendor' => '接入商']],
         // 微信代写：编辑员自接单（店铺订单每单补助 3 元），部门利润池按月分配（规则中心“部门利润池分配”）。
-        '微信代写' => ['departments' => ['微信代写客服', '微信代写售后', '微信营销部经理'], 'resources' => false, 'requires_technical' => false, 'service_fee_rate' => 0, 'order_kinds' => ['店铺订单', '微信付款'], 'kind_required' => true, 'default_kind' => '店铺订单', 'cost_label' => '写手稿费', 'import_cost' => true, 'free_shop' => true, 'fields' => ['writer_code' => '写手编号', 'writing_volume' => '字数']],
+        '微信代写' => ['departments' => ['微信代写客服', '微信代写售后', '微信营销部经理'], 'resources' => false, 'requires_technical' => false, 'service_fee_rate' => 0, 'order_kinds' => ['店铺订单', '微信付款', '编辑对接', '合并单', '退款冲减'], 'kind_required' => true, 'cost_label' => '写手稿费', 'import_cost' => true, 'free_shop' => true, 'fields' => ['writer_code' => '写手编号', 'writing_volume' => '字数']],
         // 商标部：普通订单 (售价 − 成本 − 1%服务费) × 12% + 3元/单；新客户订单 + 6元/单；同一客服同一客户当月第二单起记“同客户”（照常提成、不计单量）；小额返款订单 3元/单；资料专员与提交专员每件 2.2 元。
         '商标' => ['departments' => ['商标', '商标部'], 'resources' => false, 'requires_technical' => false, 'service_fee_rate' => 0.01, 'order_kinds' => ['普通订单', '新客户', '同客户', '小额返款'], 'kind_required' => true, 'default_kind' => '普通订单', 'cost_label' => '成本', 'import_cost' => true, 'free_shop' => true, 'fields' => ['trademark_service' => '办理事项', 'trademark_name' => '商标名称', 'trademark_number' => '申请号/注册号', 'trademark_classes' => '尼斯类别', 'trademark_count' => '计价件数（商标×类别）', 'trademark_extra_count' => '注册额外小项总数', 'trademark_breakdown' => '混合业务计价明细', 'service_type' => '申报方式', 'trademark_cost_note' => '费用说明', 'trademark_price_note' => '价格异常说明']],
         // 标书（曹双双、王宁兼标书客服）：(售价 − 成本 − 售价 × 3% 服务费) × 10%；成本 = 设计师佣金合计，随表导入。
@@ -215,6 +216,13 @@ function ps_business_import_columns($business)
         $columns['direct_cost2'] = ['我司写手承担写作的写手费用', '写手费用'];
         $columns['unit_marker'] = ['提成'];
         $columns['pay_mode'] = ['模式'];
+    }
+    if (in_array($business, ['微信代写', '软文代写'], true)) {
+        $columns['writing_source'] = ['接单方式', '订单来源', '参与方式'];
+        $columns['writing_channel'] = ['收款方式', '付款方式'];
+        $columns['customer_service'][] = '接单客服';
+        $columns['order_no'][] = '单号';
+        $columns['payment_nickname'][] = '客户昵称微信号';
     }
     // 设计部总表：“序号”列写的是客服，“设计师佣金”列出现即 PPT 表，按“旺旺”识别同一客户
     if ($business === '设计') {
@@ -409,7 +417,7 @@ function ps_business_people_labels($business)
     if ($business === '环境配置') return ['frontend' => '技术', 'backend' => '协作技术'];
     if ($business === '网站模板') return ['frontend' => '模板技术', 'backend' => '技术协作'];
     if ($business === '设计') return ['frontend' => '设计执行', 'backend' => '协作设计'];
-    if ($business === '软文代写') return ['frontend' => '对接编辑', 'backend' => '协作执行'];
+    if (in_array($business, ['软文代写', '微信代写'], true)) return ['frontend' => '对接编辑', 'backend' => '协作执行'];
     if ($business === '商标') return ['frontend' => '资料专员', 'backend' => '提交专员'];
     if ($business === '平面设计') return ['frontend' => '平面设计', 'backend' => '协作设计'];
     if ($business === '标书') return ['frontend' => '标书设计', 'backend' => '协作设计'];

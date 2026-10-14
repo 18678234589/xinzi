@@ -6,6 +6,8 @@ require_once __DIR__ . '/../includes/ProjectIntake.php';
 if ((string)DB_PORT !== '13399' || DB_HOST !== '127.0.0.1') { fwrite(STDERR, "拒绝运行：本测试会提交数据，只能连本地临时库（DB_PORT=13399）\n"); exit(2); }
 
 $pdo = db();
+require_once __DIR__ . '/require_isolated_database.php';
+require_isolated_test_database($pdo);
 $stored = [];
 $check = function ($ok, $label) { if (!$ok) throw new RuntimeException('未通过：' . $label); echo "  [OK] $label\n"; };
 $E = function ($name) use ($pdo) { $q = $pdo->prepare('SELECT id FROM employees WHERE name=? ORDER BY id LIMIT 1'); $q->execute([$name]); return (int)$q->fetchColumn(); };
@@ -105,6 +107,30 @@ try {
     foreach ($pq->fetchAll() as $r) $people[$r['order_no']][] = $r['commission_group'] . ':' . $r['role_name'];
     foreach ($pn as $i => $no) $check(($people[$no] ?? []) === ['technical:项目执行'], '第 ' . ($i + 1) . ' 行只有“项目执行”一条参与人：' . implode(',', $people[$no] ?? ['无']));
     $check(mb_strpos((string)$pvp[2]['warning'], '已按“项目执行”记入') !== false && mb_strpos((string)$pvp[0]['warning'], '已按“项目执行”记入') === false, '只写客服列才提示改记项目执行，两列都是本人不提示');
+    // 专用 Excel 模板：表头全部能被识别；示例行上传自动跳过；“店铺”写微信 / 对公、订单编号留空的备案照常导入
+    require_once __DIR__ . '/../includes/ProjectMiniappTemplate.php';
+    $check(in_array('森动备案', pmt_businesses(), true) && substr(pmt_xlsx('森动备案'), 0, 2) === 'PK', '森动备案有专用 xlsx 模板');
+    $tplHead = pmt_headers('森动备案');
+    $tplMap = ps_business_import_map('森动备案', $tplHead, false);
+    foreach (['order_date', 'shop', 'business', 'payment_nickname', 'order_no', 'contract_amount', 'direct_cost', 'status', 'payment_reference'] as $key) $check(isset($tplMap[$key]), "模板表头可识别：$key");
+    $tplRows = pmt_filing_examples();
+    $tplRows[] = ['日期' => '2026/9/1', '店铺' => '对公', '业务' => '备案', '付款昵称' => 'tplA' . $tag, '售价' => '100', $sk => '已完成'];
+    $tplRows[] = ['日期' => '2026/9/2', '店铺' => '微信', '业务' => '备案', '付款昵称' => 'tplB' . $tag, '售价' => '100', '成本' => '80', $sk => '已完成', '联系微信号' => 'wx_tplB' . $tag];
+    $tplRows[] = ['日期' => '2026/9/3', '业务' => '二次备案', $sk => '已完成', '联系微信号' => 'wx_tplB' . $tag, '域名' => "t$tag-tpl.com"];
+    $tplStream = fopen('php://temp', 'r+');
+    fputcsv($tplStream, $tplHead);
+    foreach ($tplRows as $row) fputcsv($tplStream, array_map(function ($head) use ($row) { return $row[$head] ?? ''; }, $tplHead));
+    rewind($tplStream); $tplCsv = "\xEF\xBB\xBF" . stream_get_contents($tplStream); fclose($tplStream);
+    [$pvt, $impt, $errt] = $importAs($luan, '森动备案', $tplCsv);
+    $check($errt === '' && $impt === 3, '模板示例行自动跳过，真实 3 行（对公 / 微信备案 + 二次备案）全部导入：' . $impt . ' ' . $errt . ' ' . implode('；', array_map(function ($r) { return $r['error'] ?? ''; }, $pvt)));
+    $check(array_column($pvt, 'shop')[0] === '对公' && array_column($pvt, 'shop')[1] === '微信' && array_column($pvt, 'order_kind') === ['备案', '备案', '二次备案'], '店铺列的微信 / 对公原样保留，订单类型按“业务”列');
+    $check(strpos($pvt[0]['order_no'], 'WX-') === 0 && strpos($pvt[1]['order_no'], 'WX-') === 0, '没有订单编号的备案生成内部订单号（WX-…）');
+    $tplNos = array_column($pvt, 'order_no');
+    [$pvtAgain, $imptAgain, $errtAgain] = $importAs($luan, '森动备案', $tplCsv);
+    $check($errtAgain === '' && array_column($pvtAgain, 'order_no') === $tplNos, '标准模板整表重传保持相同内部编号');
+    $tplCount = $pdo->prepare('SELECT COUNT(*) FROM project_orders WHERE order_no IN (?,?,?)');
+    $tplCount->execute($tplNos);
+    $check((int)$tplCount->fetchColumn() === 3, '微信 / 对公 / 二次备案重传不重复建单');
     echo "\n=== 森动备案测试全部通过 ===\n";
 } catch (Throwable $e) {
     fwrite(STDERR, $e->getMessage() . "\n");

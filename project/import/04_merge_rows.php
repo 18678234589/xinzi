@@ -31,6 +31,10 @@
                 $sameAsPrev = $prevShopNick !== null && $prevShopNick === $thisShopNick && $thisShopNick !== '|';
                 $prevShopNick = $thisShopNick;
                 if (empty($mergedRow['base_valid']) || empty($mergedRow['existing_snapshot'])) continue;
+                if (!empty($mergedRow['writing']) && $mergedRow['writing']['source'] === 'editor' && !empty($mergedRow['join_parent'])) {
+                    // 编辑表的原单金额/昵称只作参考，既不裁决售价，也不触发覆盖原销售资料。
+                    continue;
+                }
                 $conflicts = ps_customer_intake_conflicts($mergedRow['existing_snapshot'], $mergedRow);
                 if ($selectedBusiness === '商标' && $actor['role'] === 'technical') $conflicts = array_values(array_intersect($conflicts, ['售价']));
                 $softConflicts = $conflicts;

@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . '/../ProjectAccountRoles.php';
+require_once __DIR__ . '/../AuthStaff.php';
 
 function ps_actor()
 {
@@ -30,6 +31,10 @@ function ps_require_actor()
 {
     $actor = ps_actor();
     if (!$actor) { header('Location: ' . BASE_URL . '/login.php'); exit; }
+    // Known initial passwords must be changed before any business page or API can be used.
+    if ($actor['type'] === 'employee' && auth_staff_needs_password_change($actor) && basename($_SERVER['SCRIPT_NAME'] ?? '') !== 'profile.php' && PHP_SAPI !== 'cli') {
+        header('Location: ' . BASE_URL . auth_staff_destination($actor)); exit;
+    }
     if ($actor['type'] === 'employee' && $actor['role'] === 'governance') {
         $script = basename($_SERVER['SCRIPT_NAME'] ?? '');
         $allowed = ['profile.php', 'governance.php', 'governance_ideas.php', 'governance_election.php', 'governance_rules.php', 'governance_evidence.php', 'payroll.php', 'welfare.php'

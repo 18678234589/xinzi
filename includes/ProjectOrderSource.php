@@ -1,4 +1,5 @@
 <?php
+require_once __DIR__ . '/ProjectWriting.php';
 require_once __DIR__ . '/ProjectSettlement.php';
 
 function ps_source_record($orderId, $priceSource, $nickname, $tradeStatus, $paymentReference = '')
@@ -59,10 +60,11 @@ function ps_save_customer_intake($orderId, $input, $actor, $allowNoop = false, $
 {
     if (!in_array($actor['role'], ['customer_service', 'finance'], true)) throw new RuntimeException('只有客服或财务可补充买家资料');
     $finance = $actor['role'] === 'finance' && !$fillOnly;
-    $q = db()->prepare('SELECT customer_name,shop,contract_amount FROM project_orders WHERE id=? FOR UPDATE');
+    $q = db()->prepare('SELECT customer_name,shop,contract_amount,project_type,order_kind FROM project_orders WHERE id=? FOR UPDATE');
     $q->execute([(int)$orderId]);
     $order = $q->fetch();
     if (!$order) throw new RuntimeException('订单不存在');
+    if (psw_is_editor_order($order) && trim((string)($input['contract_amount'] ?? '')) !== '' && (float)$input['contract_amount'] != 0) throw new RuntimeException('编辑对接记录不计销售收入，原单参考金额请填备注；确为自接请先更正接单方式');
     $q = db()->prepare('SELECT * FROM project_order_sources WHERE order_id=? FOR UPDATE');
     $q->execute([(int)$orderId]);
     $source = $q->fetch();
@@ -141,9 +143,10 @@ function ps_sync_project_status_latest($orderNo, $shop, $status)
 {
     $orderNo = trim((string)$orderNo); $status = mb_substr(trim((string)$status), 0, 100);
     if ($orderNo === '' || $status === '') return false;
-    $q = db()->prepare('SELECT o.id,o.shop,s.trade_status FROM project_orders o LEFT JOIN project_order_sources s ON s.order_id=o.id WHERE o.order_no=? LIMIT 1');
+    $q = db()->prepare('SELECT o.id,o.shop,o.project_type,o.order_kind,s.trade_status FROM project_orders o LEFT JOIN project_order_sources s ON s.order_id=o.id WHERE o.order_no=? LIMIT 1');
     $q->execute([$orderNo]); $o = $q->fetch();
     if (!$o) return false;
+    if (psw_is_editor_order($o)) return false;
     if ($o['shop'] !== '' && $shop !== '' && $o['shop'] !== $shop) return false;
     if ((string)$o['trade_status'] !== '' && ps_shop_status_rank($status) <= ps_shop_status_rank($o['trade_status'])) return false;
     db()->prepare("INSERT INTO project_order_sources (order_id,trade_status,status_source,synced_at) VALUES (?,?, 'shop_upload', NOW()) ON DUPLICATE KEY UPDATE trade_status=VALUES(trade_status),status_source='shop_upload',synced_at=NOW()")->execute([(int)$o['id'], $status]);
@@ -154,10 +157,11 @@ function ps_sync_project_from_shop_order($legacyId, $orderNo, $shop, $raw, $pric
 {
     $orderNo = trim((string)$orderNo);
     if ($orderNo === '' || !is_array($raw) || !empty($raw['__is_refund__'])) return false;
-    $q = db()->prepare("SELECT id,shop,settlement_status,contract_amount FROM project_orders WHERE order_no=? FOR UPDATE");
+    $q = db()->prepare("SELECT id,shop,settlement_status,contract_amount,project_type,order_kind FROM project_orders WHERE order_no=? FOR UPDATE");
     $q->execute([$orderNo]);
     $order = $q->fetch();
     if (!$order || in_array($order['settlement_status'], ['approved','locked'], true)) return false;
+    if (psw_is_editor_order($order)) return false;
     if ($order['shop'] !== '' && $shop !== '' && $order['shop'] !== $shop) return false;
     $source = db()->prepare('SELECT * FROM project_order_sources WHERE order_id=? FOR UPDATE');
     $source->execute([$order['id']]);

@@ -50,7 +50,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (isset($_POST['action']) && $_POST[
                 $validKind = ps_order_kind_valid(ps_business_normalize($order['project_type']), $newKind);
                 if ($validKind !== $order['order_kind']) {
                     $beforeKind = $order['order_kind'];
-                    db()->prepare("UPDATE project_orders SET order_kind=?, row_version=row_version+1 WHERE id=?")->execute([$validKind, $orderId]);
+                    psw_change_kind($orderId, $beforeKind, $validKind, $actor);
                     ps_audit('order', $orderId, 'quick_order_kind', $actor, ['before' => $beforeKind, 'order_kind' => $validKind]);
                     $changes[] = '类型改为「' . $validKind . '」';
                     $order['order_kind'] = $validKind;
@@ -60,6 +60,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (isset($_POST['action']) && $_POST[
 
         // 2. 改成本 (direct_cost)
         if (isset($_POST['direct_cost']) && trim((string)$_POST['direct_cost']) !== '') {
+            if (psw_is_editor_order($order) && (float)$_POST['direct_cost'] != 0) throw new RuntimeException('编辑对接只记录单量，稿费成本请在原销售单录入');
             $costAmount = round((float)$_POST['direct_cost'], 2);
             $costReason = trim((string)($_POST['cost_reason'] ?? '快捷录入成本')) ?: '成本';
 

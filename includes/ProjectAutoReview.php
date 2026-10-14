@@ -262,7 +262,7 @@ function pa_after_save(array $ids, $budgetSeconds = 15)
     if (!pa_storage_available()) return;
     $apply = (bool)ps_setting_get('auto_review_enabled', false);
     $deadline = microtime(true) + (float)$budgetSeconds; // 超出时间预算的订单留给定时核对，上传请求不能被拖到网关超时
-    foreach (array_slice(array_unique(array_map('intval', $ids)), 0, 25) as $id) {
+    foreach (array_slice(array_unique(array_map('intval', $ids)), 0, 500) as $id) {
         if (microtime(true) > $deadline) break;
         try { pa_check_order($id, $apply, true); }
         catch (Throwable $e) { error_log('auto_review_after_save order=' . $id . ' ' . $e->getMessage()); }

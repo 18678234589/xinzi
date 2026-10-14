@@ -20,7 +20,23 @@ function bdr_provider(array $ns)
 
 function bdr_context($domain, array $info=null)
 {
-    $ns=bdr_nameservers($info ?? bd_require_owned($domain));
+    if ($info === null) {
+        $snapshot = function_exists('bc_find') ? bc_find($domain) : null;
+        if ($snapshot) {
+            try {
+                $info = bd_require_owned($domain);
+            } catch (Throwable $e) {
+                $publicNs = dns_public_ns($domain);
+                $info = [];
+                foreach ($publicNs as $i => $h) $info['dns_host' . ($i + 1)] = $h;
+            }
+        } else {
+            $publicNs = dns_public_ns($domain);
+            $info = [];
+            foreach ($publicNs as $i => $h) $info['dns_host' . ($i + 1)] = $h;
+        }
+    }
+    $ns=bdr_nameservers($info);
     $provider=bdr_provider($ns);
     if($provider==='bizcn') return ['provider'=>$provider,'label'=>'商务中国','zone'=>null,'ns'=>$ns];
     if(!isset(DNS_PROVIDERS[$provider])) throw new RuntimeException('当前 NS 暂无法匹配本站支持的解析服务商，请核对 NS 后刷新重试');

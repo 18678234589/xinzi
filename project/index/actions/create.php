@@ -56,6 +56,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $existing->execute([$no]);
         $existingId = (int)$existing->fetchColumn();
         if ($existingId) {
+            if ($projectType === '微信代写' && $orderKind === '编辑对接') {
+                $editorId = $actor['role'] === 'finance' ? (int)($_POST['frontend_id'] ?? 0) : (int)$actor['employee_id'];
+                if ($editorId <= 0 || !psw_is_member($editorId)) throw new RuntimeException('请选择已开通微信代写的对接编辑');
+                db()->beginTransaction();
+                $parent = db()->prepare('SELECT * FROM project_orders WHERE id=? FOR UPDATE'); $parent->execute([$existingId]); $parent = $parent->fetch();
+                if (!$parent || !in_array($parent['project_type'], ['微信代写','软文代写'], true) || $parent['settlement_status'] !== 'draft') throw new RuntimeException('原单是其他业务或已审核，请由财务核对编辑参与');
+                $sales = db()->prepare("SELECT 1 FROM project_participants WHERE order_id=? AND employee_id=? AND commission_group='customer_service'"); $sales->execute([$existingId,$editorId]);
+                if ($sales->fetchColumn()) throw new RuntimeException('本人已是原单接单客服，不能再作为编辑对接重复领补助');
+                require_once (dirname(__DIR__, 2)) . '/../includes/ProjectOrderJoin.php';
+                poj_join_group($existingId,$editorId,'technical','对接编辑',$actor,['reason'=>'手动录入明确选择编辑对接，只加入原单']);
+                db()->commit();
+                header('Location: ' . BASE_URL . '/project/order.php?id=' . $existingId); exit;
+            }
             if ($actor['role'] !== 'finance' && !ps_management_can_business($actor, $projectType)) {
                 $access = db()->prepare('SELECT 1 FROM project_participants WHERE order_id=? AND employee_id=?');
                 $access->execute([$existingId, $actor['employee_id']]);
@@ -113,6 +126,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         require_once (dirname(__DIR__, 2)) . '/../includes/ProjectJointIntake.php';
         $jointIds = ps_joint_customer_ids($_POST['co_customer_service_ids'] ?? [], array_map('intval', array_column($customerServiceChoices, 'id')));
         foreach ($jointIds as $jointId) if (!isset($groups['customer_service'][$jointId])) $groups['customer_service'][$jointId] = ['id' => $jointId, 'role' => '客服'];
+        if ($projectType === '微信代写' && $orderKind === '编辑对接') $groups = psw_people($groups, 'editor', $actor['role'] === 'finance' ? 0 : (int)$actor['employee_id']);
         if (!$groups['technical'] && !$groups['customer_service']) throw new RuntimeException('请至少选择一位客服或技术参与人');
         // 客服与制作人员共用一张订单：客服建单须指定已开通同业务账号的技术，对方登录即可看到并补成本。
         if ($actor['role'] === 'customer_service' && ps_business_requires_technical($projectType) && !$outsourceTemplate) {
@@ -136,6 +150,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
         if ($customer === '' && $paymentNickname !== '') $customer = $paymentNickname;
         $noteParts = [];
+        if ($projectType === '微信代写' && $orderKind === '编辑对接') {
+            if ($contract !== '' && (float)$contract != 0) $noteParts[] = '对接原单参考金额 ¥' . money_plain((float)$contract) . '（不计销售收入）';
+            $contract = '0'; $receipt = '0'; $directCost = '';
+        }
         if ($paymentNickname !== '') $noteParts[] = '付款昵称：' . $paymentNickname;
         if ($contactNote !== '') $noteParts[] = '客户联系方式：' . $contactNote;
         if ($programTemplate) $noteParts[] = '程序套餐：' . $programTemplate['name'] . ' ' . $programTemplate['specification'];
@@ -178,7 +196,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
         ps_audit('order', $id, 'create', $actor, ['order_no' => $no, 'order_kind' => $orderKind, 'program_template_id' => $programTemplate['id'] ?? null, 'domain_template_id' => $domainTemplate
     ['id'] ?? null, 'server_template_id' => $serverTemplate['id'] ?? null, 'receipt_unconfirmed' => $actor['role'] !== 'finance']);
-        ps_sync_existing_shop_order($id, $no, $shop);
+        if (!($projectType === '微信代写' && $orderKind === '编辑对接')) ps_sync_existing_shop_order($id, $no, $shop);
         db()->commit();
         pa_after_save([$id]);
         if ($custPhone !== '' || $custWechat !== '' || $custDomain !== '' || $serverExpiry !== '') {

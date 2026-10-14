@@ -47,12 +47,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = (string)($_POST['action'] ?? '');
     try {
         if ($action === 'reveal') {
-            $q = db()->prepare('SELECT * FROM project_vault_items WHERE id=? AND deleted_at IS NULL');
-            $q->execute([(int)($_POST['id'] ?? 0)]);
-            $item = $q->fetch();
-            if (!$item) $json(['error' => '条目不存在'], 404);
-            ps_audit('vault', (int)$item['id'], (string)($_POST['purpose'] ?? '') === 'copy' ? 'copy' : 'reveal', $actor, ['name' => $item['name']]);
-            $json(['password' => pv_decrypt($item['password_enc']), 'notes' => pv_decrypt($item['notes_enc'])]);
+            $json(pv_item_reveal((int)($_POST['id'] ?? 0), $actor, (string)($_POST['purpose'] ?? '')));
         } elseif ($action === 'parse') {
             $json(pv_parse_paste((string)($_POST['text'] ?? ''), PV_CATEGORIES, $actor));
         } elseif ($action === 'import') {
@@ -74,8 +69,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             header('Location: ' . BASE_URL . '/project/vault.php#item-' . $id); exit;
         } elseif ($action === 'delete') {
             $id = (int)($_POST['id'] ?? 0);
-            db()->prepare('UPDATE project_vault_items SET deleted_at=NOW(),updated_by_type=?,updated_by_id=? WHERE id=? AND deleted_at IS NULL')->execute([$actor['type'], $actor['id'], $id]);
-            ps_audit('vault', $id, 'delete', $actor, []);
+            pv_item_delete($id, $actor);
             $_SESSION['vault_notice'] = '已删除';
             header('Location: ' . BASE_URL . '/project/vault.php'); exit;
         } elseif ($action === 'access' && $canManageAccess) {
@@ -87,20 +81,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             header('Location: ' . BASE_URL . '/project/vault.php#access'); exit;
         } else throw new RuntimeException('操作无效');
     } catch (RuntimeException $e) {
-        if ($ajax) $json(['error' => $e->getMessage()], 400);
-        $error = $e->getMessage();
+        $message = $e instanceof PDOException ? '操作未完成，请联系管理员核查' : $e->getMessage();
+        if ($ajax) $json(['error' => $message], in_array($e->getCode(), [403,404], true) ? $e->getCode() : 400);
+        $error = $message;
     }
 }
 $notice = $_SESSION['vault_notice'] ?? '';
 unset($_SESSION['vault_notice']);
 $search = trim((string)($_GET['q'] ?? ''));
 $category = in_array($_GET['category'] ?? '', PV_CATEGORIES, true) ? $_GET['category'] : '';
-$items = pv_items($search, $category);
+$items = pv_items($search, $category, $actor);
 $counts = [];
-foreach (db()->query('SELECT category,COUNT(*) n FROM project_vault_items WHERE deleted_at IS NULL GROUP BY category')->fetchAll() as $row) $counts[$row['category']] = (int)$row['n'];
+foreach (pv_items('', '', $actor) as $item) $counts[$item['category']] = ($counts[$item['category']] ?? 0) + 1;
 $grouped = [];
 foreach ($items as $item) $grouped[$item['category']][] = $item;
-$logs = db()->query("SELECT l.*,v.name AS item_name FROM project_audit_logs l LEFT JOIN project_vault_items v ON v.id=l.entity_id WHERE l.entity_type='vault' ORDER BY l.id DESC LIMIT 20")->fetchAll();
+$logs = pv_recent_logs($actor);
 $actionLabels = ['reveal' => '查看密码', 'copy' => '复制密码', 'create' => '新增', 'update' => '修改', 'delete' => '删除', 'ai_parse' => 'AI 识别', 'access' => '调整可见人员'];
 if ($canManageAccess) {
     $access = pv_access_list();
@@ -113,12 +108,19 @@ include __DIR__ . '/../includes/header.php';
 <style>
 .vault-secret{font-family:SFMono-Regular,Consolas,monospace;letter-spacing:.5px}
 .vault-cat{scroll-margin-top:80px}
+.vault-cat>summary{list-style:none;cursor:pointer;display:flex;align-items:center;gap:8px;padding:14px 20px;margin:0;border-radius:.4rem}
+.vault-cat>summary::-webkit-details-marker{display:none}
+.vault-cat>summary h5{margin:0;flex:1}.vault-cat>summary .fa-chevron-right{transition:transform .15s;color:#7a8a80;font-size:.8rem}
+.vault-cat[open]>summary .fa-chevron-right{transform:rotate(90deg)}
+.vault-cat[open]>summary{border-bottom:1px solid #eef2ef}
+.vault-fold>summary{cursor:pointer;font-weight:600;color:#33443a;padding:2px 0}
 .vault-table td{vertical-align:middle}
 .vault-table .btn-xs{padding:1px 6px;font-size:.75rem;line-height:1.4}
 .vault-pills .btn{border-radius:999px}
 .vault-preview input,.vault-preview select,.vault-preview textarea{font-size:.8rem}
+.js-notes[data-shown]{display:block;min-width:240px;max-width:560px;max-height:320px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere}
 </style>
-<div class="project-hero mb-3"><div><div class="project-eyebrow">项目合作结算中心 · 管理</div><h2>平台与服务器信息</h2><p>服务器、宝塔、1Panel、MySQL、腾讯云、阿里云、雅云、野草云、商务中国、新网等平台的登录网址与账号密码。密码与备注加密保存，每次查看、复制都会留痕；仅股东、管理层、管理员与服务器维护人员可见。</p></div><div class="project-hero-actions"><button class="btn btn-light" type="button" data-toggle="modal" data-target="#vaultEdit" data-mode="new"><i class="fas fa-plus mr-1"></i>新增</button> <button class="btn btn-warning" type="button" data-toggle="collapse" data-target="#vaultAi"><i class="fas fa-magic mr-1"></i>AI 智能导入</button></div></div>
+<div class="project-hero mb-3"><div><div class="project-eyebrow">项目合作结算中心 · 管理</div><h2>平台与服务器信息</h2><p>服务器、宝塔、1Panel、MySQL、腾讯云、阿里云、雅云、野草云、商务中国、新网等平台的登录网址与账号密码。密码与备注加密保存，每次查看、复制都会留痕；仅指定管理员与服务器维护人员可见。</p></div><div class="project-hero-actions"><button class="btn btn-light" type="button" data-toggle="modal" data-target="#vaultEdit" data-mode="new"><i class="fas fa-plus mr-1"></i>新增</button> <button class="btn btn-warning" type="button" data-toggle="collapse" data-target="#vaultAi"><i class="fas fa-magic mr-1"></i>AI 智能导入</button></div></div>
 <?php if ($error): ?><div class="alert alert-danger"><?php echo e($error); ?></div><?php endif; ?>
 <?php if ($notice): ?><div class="alert alert-success"><?php echo e($notice); ?></div><?php endif; ?>
 
@@ -138,33 +140,34 @@ include __DIR__ . '/../includes/header.php';
 
 <?php if (!$items): ?><div class="card project-form-card"><div class="card-body text-center text-muted py-5"><i class="fas fa-key fa-2x mb-2 d-block"></i><?php echo $counts ? '没有符合条件的条目' : '还没有记录。点右上角“AI 智能导入”，把现有的账号信息整段粘贴进来即可。'; ?></div></div><?php endif; ?>
 <?php foreach ($grouped as $cat => $rows): ?>
-<div class="card project-form-card mb-3 vault-cat" id="cat-<?php echo e(md5($cat)); ?>"><div class="card-body pb-1"><h5 class="mb-2"><?php echo e($cat); ?> <small class="text-muted"><?php echo count($rows); ?> 条</small></h5></div>
+<details class="card project-form-card mb-3 vault-cat" id="cat-<?php echo e(md5($cat)); ?>"<?php echo ($search !== '' || $category !== '' || count($rows) <= 6) ? ' open' : ''; ?>><summary><i class="fas fa-chevron-right"></i><h5><?php echo e($cat); ?> <small class="text-muted"><?php echo count($rows); ?> 条</small></h5><?php if (count($rows) > 6 && $search === '' && $category === ''): ?><small class="text-muted">点击展开</small><?php endif; ?></summary>
 <div class="table-responsive"><table class="table table-hover vault-table mb-0"><thead><tr><th>名称</th><th>登录网址 / 主机</th><th>账号</th><th>密码</th><th>备注</th><th>更新</th><th style="width:110px"></th></tr></thead><tbody>
 <?php foreach ($rows as $item): ?><tr id="item-<?php echo (int)$item['id']; ?>">
-<td><strong><?php echo e($item['name']); ?></strong></td>
+<td><strong><?php echo e($item['name']); ?></strong><?php if (pv_item_is_restricted($item)): ?><div class="small text-muted"><i class="fas fa-lock mr-1"></i>仅指定人员可见</div><?php endif; ?></td>
 <td class="small"><?php if ($item['url'] !== ''): ?><a href="<?php echo e(preg_match('~^https?://~i', $item['url']) ? $item['url'] : 'http://' . $item['url']); ?>" target="_blank" rel="noopener noreferrer"><?php echo e(mb_strimwidth($item['url'], 0, 48, '…')); ?></a><?php endif; ?><?php if ($item['host'] !== ''): ?><div class="text-muted"><?php echo e($item['host']); ?> <button type="button" class="btn btn-link btn-xs p-0 js-copy-text" data-text="<?php echo e($item['host']); ?>">复制</button></div><?php endif; ?></td>
 <td class="small"><?php if ($item['account'] !== ''): ?><span class="vault-secret"><?php echo e($item['account']); ?></span> <button type="button" class="btn btn-outline-secondary btn-xs js-copy-text" data-text="<?php echo e($item['account']); ?>">复制</button><?php endif; ?></td>
 <td class="small text-nowrap"><?php if ($item['password_enc'] !== ''): ?><span class="vault-secret js-secret" data-id="<?php echo (int)$item['id']; ?>">••••••••</span> <button type="button" class="btn btn-outline-primary btn-xs js-reveal" data-id="<?php echo (int)$item['id']; ?>">显示</button> <button type="button" class="btn btn-outline-secondary btn-xs js-copy-secret" data-id="<?php echo (int)$item['id']; ?>">复制</button><?php else: ?><span class="text-muted">—</span><?php endif; ?></td>
 <td class="small"><?php if ($item['notes_enc'] !== ''): ?><span class="text-muted js-notes" data-id="<?php echo (int)$item['id']; ?>">已加密</span> <button type="button" class="btn btn-link btn-xs p-0 js-reveal" data-id="<?php echo (int)$item['id']; ?>">查看</button><?php endif; ?></td>
 <td class="small text-muted text-nowrap"><?php echo e(pv_actor_name($item['updated_by_type'], $item['updated_by_id'])); ?><br><?php echo e(substr($item['updated_at'], 0, 16)); ?></td>
 <td class="text-nowrap"><button type="button" class="btn btn-outline-primary btn-sm" data-toggle="modal" data-target="#vaultEdit" data-mode="edit" data-item="<?php echo e(json_encode(['id' => (int)$item['id'], 'category' => $item['category'], 'name' => $item['name'], 'url' => $item['url'], 'host' => $item['host'], 'account' => $item['account'], 'has_notes' => $item['notes_enc'] !== ''], JSON_UNESCAPED_UNICODE)); ?>">编辑</button>
-<form method="post" class="d-inline" onsubmit="return confirm('确定删除“<?php echo e(addslashes($item['name'])); ?>”？');"><input type="hidden" name="csrf" value="<?php echo e(ps_csrf_token()); ?>"><input type="hidden" name="action" value="delete"><input type="hidden" name="id" value="<?php echo (int)$item['id']; ?>"><button class="btn btn-outline-danger btn-sm">删除</button></form></td>
+<button type="button" class="btn btn-outline-danger btn-sm js-del" data-id="<?php echo (int)$item['id']; ?>" data-name="<?php echo e($item['name']); ?>">删除</button></td>
 </tr><?php endforeach; ?>
-</tbody></table></div></div>
+</tbody></table></div></details>
 <?php endforeach; ?>
 
-<div class="card project-form-card mb-3"><div class="card-body"><h5 class="mb-2"><i class="fas fa-history mr-1 text-muted"></i>最近操作记录</h5>
+<div class="card project-form-card mb-3"><div class="card-body"><details class="vault-fold"><summary><i class="fas fa-history mr-1 text-muted"></i>最近操作记录 <small class="text-muted">点击展开</small></summary><div class="mt-2">
 <?php if (!$logs): ?><p class="text-muted small mb-0">暂无记录</p><?php else: ?><div class="table-responsive"><table class="table table-sm mb-0 small"><tbody><?php foreach ($logs as $log): ?><tr><td class="text-nowrap text-muted"><?php echo e(substr($log['created_at'], 0, 16)); ?></td><td class="text-nowrap"><?php echo e(pv_actor_name($log['actor_type'], $log['actor_id'])); ?></td><td><?php echo e($actionLabels[$log['action']] ?? $log['action']); ?></td><td><?php echo e($log['item_name'] ?? ''); ?></td></tr><?php endforeach; ?></tbody></table></div><?php endif; ?>
-</div></div>
+</div></details></div></div>
 
 <?php if ($canManageAccess): ?>
-<div class="card project-form-card mb-3" id="access"><div class="card-body"><h5><i class="fas fa-user-shield mr-1"></i>可见人员 <small class="text-muted">仅 admin 可调整</small></h5>
+<div class="card project-form-card mb-3" id="access"><div class="card-body"><details class="vault-fold"><summary><i class="fas fa-user-shield mr-1"></i>可见人员 <small class="text-muted">仅 admin 可调整 · 点击展开</small></summary><div class="mt-2">
 <form method="post"><input type="hidden" name="csrf" value="<?php echo e(ps_csrf_token()); ?>"><input type="hidden" name="action" value="access">
 <div class="small text-muted mb-1">管理员账号</div><div class="d-flex flex-wrap mb-3" style="gap:6px 16px"><?php foreach ($accessAdmins as $username): ?><label class="mb-0"><input type="checkbox" name="admins[]" value="<?php echo e($username); ?>" <?php echo in_array($username, $access['admins'], true) ? 'checked' : ''; ?> <?php echo $username === 'admin' ? 'disabled checked' : ''; ?>> <?php echo e($username); ?></label><?php endforeach; ?></div>
 <div class="small text-muted mb-1">合作人员账号</div><div class="d-flex flex-wrap mb-3" style="gap:6px 16px"><?php foreach ($accessPeople as $person): ?><label class="mb-0"><input type="checkbox" name="employees[]" value="<?php echo (int)$person['id']; ?>" <?php echo in_array((int)$person['id'], $access['employees'], true) ? 'checked' : ''; ?>> <?php echo e($person['name']); ?> <small class="text-muted"><?php echo e($person['department']); ?></small></label><?php endforeach; ?></div>
-<button class="btn btn-primary btn-sm">保存可见人员</button></form></div></div>
+<button class="btn btn-primary btn-sm">保存可见人员</button></form></div></details></div></div>
 <?php endif; ?>
 
+<form method="post" id="vaultDelForm" class="d-none"><input type="hidden" name="csrf" value="<?php echo e(ps_csrf_token()); ?>"><input type="hidden" name="action" value="delete"><input type="hidden" name="id" id="vaultDelId" value="0"></form>
 <div class="modal fade" id="vaultEdit" tabindex="-1" role="dialog" aria-labelledby="vaultEditTitle" aria-hidden="true"><div class="modal-dialog" role="document"><form method="post" class="modal-content"><input type="hidden" name="csrf" value="<?php echo e(ps_csrf_token()); ?>"><input type="hidden" name="action" value="save"><input type="hidden" name="id" id="ve_id" value="0">
 <div class="modal-header"><h5 class="modal-title" id="vaultEditTitle">新增平台信息</h5><button type="button" class="close" data-dismiss="modal" aria-label="关闭"><span aria-hidden="true">&times;</span></button></div>
 <div class="modal-body">
@@ -203,10 +206,28 @@ document.addEventListener('DOMContentLoaded', function () {
   document.querySelectorAll('.js-copy-text').forEach(function (b) { b.addEventListener('click', function () { copy(b.dataset.text, b); }); });
   document.querySelectorAll('.js-reveal').forEach(function (b) { b.addEventListener('click', function () {
     var id = b.dataset.id, span = document.querySelector('.js-secret[data-id="' + id + '"]'), notes = document.querySelector('.js-notes[data-id="' + id + '"]');
-    if (span && span.dataset.shown) { span.textContent = '••••••••'; delete span.dataset.shown; b.textContent = '显示'; return; }
-    secret(id).then(function (d) { if (span) { span.textContent = d.password || '（空）'; span.dataset.shown = 1; } if (notes) { notes.textContent = d.notes; notes.classList.remove('text-muted'); notes.style.whiteSpace = 'pre-wrap'; } if (b.textContent === '显示') b.textContent = '隐藏'; }).catch(function (e) { alert(e.message); });
+    var buttons = document.querySelectorAll('.js-reveal[data-id="' + id + '"]');
+    if ((span && span.dataset.shown) || (notes && notes.dataset.shown)) {
+      if (span) { span.textContent = '••••••••'; delete span.dataset.shown; }
+      if (notes) { notes.textContent = '已加密'; delete notes.dataset.shown; notes.classList.add('text-muted'); }
+      buttons.forEach(function (btn) { btn.textContent = btn.closest('td').querySelector('.js-secret') ? '显示' : '查看'; }); return;
+    }
+    secret(id).then(function (d) { if (span) { span.textContent = d.password || '（空）'; span.dataset.shown = 1; } if (notes) { notes.textContent = d.notes; notes.dataset.shown = 1; notes.classList.remove('text-muted'); } buttons.forEach(function (btn) { btn.textContent = btn.closest('td').querySelector('.js-secret') ? '隐藏' : '收起'; }); }).catch(function (e) { alert(e.message); });
   }); });
   document.querySelectorAll('.js-copy-secret').forEach(function (b) { b.addEventListener('click', function () { secret(b.dataset.id, 'copy').then(function (d) { copy(d.password, b); }).catch(function (e) { alert(e.message); }); }); });
+
+  document.querySelectorAll('.js-del').forEach(function (b) { b.addEventListener('click', function () {
+    if (!confirm('确定删除“' + b.dataset.name + '”？')) return;
+    document.getElementById('vaultDelId').value = b.dataset.id; document.getElementById('vaultDelForm').submit();
+  }); });
+  // 从“保存后跳转”的锚点（#item-12 / #access）进来时，自动展开所在的折叠区
+  function openHash() {
+    var el = location.hash ? document.getElementById(location.hash.slice(1)) : null;
+    for (var p = el; p; p = p.parentElement) if (p.tagName === 'DETAILS') p.open = true;
+    if (el) el.querySelectorAll('details.vault-fold').forEach(function (d) { d.open = true; });
+    if (el) el.scrollIntoView({block: 'center'});
+  }
+  openHash(); window.addEventListener('hashchange', openHash);
 
   // 新增 / 编辑
   jQuery('#vaultEdit').on('show.bs.modal', function (ev) {

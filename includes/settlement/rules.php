@@ -19,6 +19,12 @@ function ps_rule_for($group, $projectType, $orderDate, $role = '', $orderKind = 
 {
     static $cache = [];
     if ($projectType === '网站定制') $projectType = 'AI网站定制';
+    // 微信代写的编辑参与同样按对接编辑单量规则计费，不能落到自接客服的店铺补助或利润池。
+    if ($projectType === '微信代写' && $group === 'technical'
+        && ($orderKind === '编辑对接' || in_array('对接编辑', ps_role_keys($role), true))) {
+        $editorKind = in_array($orderKind, ['合并单', '退款冲减'], true) ? $orderKind : '新订单';
+        return ps_rule_for('technical', '软文代写', $orderDate, '对接编辑', $editorKind);
+    }
     $orderKind = ps_role_rule_order_kind($projectType, $group, $role, $orderKind);
     $key = $group . '|' . $projectType . '|' . $orderDate;
     if (!isset($cache[$key])) {

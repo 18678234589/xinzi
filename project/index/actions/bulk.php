@@ -61,7 +61,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['bulk_action'])) {
                     if (!$partQuery->fetchColumn()) throw new RuntimeException('只能修改本人参与的订单');
                 }
                 $validKind = ps_order_kind_valid(ps_business_normalize($row['project_type']), $targetKind);
-                db()->prepare("UPDATE project_orders SET order_kind=?, row_version=row_version+1 WHERE id=?")->execute([$validKind, $orderId]);
+                psw_change_kind($orderId, (string)$row['order_kind'], $validKind, $actor);
                 ps_audit('order', $orderId, 'bulk_set_order_kind', $actor, ['order_kind' => $validKind]);
             } elseif ($bulkAction === 'delete') {
                 // 批量删除传错的订单；规则统一见 includes/ProjectOrderDelete.php（已审核订单：财务 / 售后部的售后业务可删，删前完整备份）

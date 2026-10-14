@@ -15,6 +15,19 @@
                     $existingQuery->execute([$row['order_no']]);
                     $existing = $existingQuery->fetch();
                     if ($existing) {
+                        if (!empty($row['writing']) && $row['writing']['source'] === 'editor' && !empty($row['join_parent'])) {
+                            if ((int)$row['join_parent']['id'] !== (int)$existing['id'] || $existing['settlement_status'] !== 'draft') throw new RuntimeException('第 ' . $row['line'] . ' 行原订单已变化或已审核，请由财务核对新增编辑参与');
+                            $orderId = (int)$existing['id'];
+                            $editors = $actor['role'] === 'finance' ? array_keys($row['people']['technical']) : [(int)$actor['employee_id']];
+                            foreach ($editors as $editorId) {
+                                $sales = $pdo->prepare("SELECT 1 FROM project_participants WHERE order_id=? AND employee_id=? AND commission_group='customer_service'");
+                                $sales->execute([$orderId, (int)$editorId]);
+                                if ($sales->fetchColumn()) throw new RuntimeException('第 ' . $row['line'] . ' 行本人已是原单接单客服，不能再把同一单作为编辑对接重复领补助');
+                                poj_join_group($orderId, (int)$editorId, 'technical', '对接编辑', $actor, ['line'=>$row['line'],'reason'=>'编辑对接只加入原单，不修改销售资料','source_file_id'=>$draftFileId]);
+                            }
+                            $imported++;
+                            continue; // 接单客服、收入、成本、昵称、日期、交付状态全部沿用原单。
+                        }
                         if ((ps_business_normalize($existing['project_type']) !== ($row['project_type'] ?? $selectedBusiness) && (int)($row['join_parent']['id'] ?? 0) !== (int)$existing['id']) || in_array($existing['settlement_status'], ['approved'
     ,'locked'], true)) throw new RuntimeException('第 ' . $row['line'] . ' 行订单状态已变化，请重新预览');
                         if ($departmentMode && !ps_department_import_is_order((int)$existing['id']) && $actor['role'] !== 'finance') throw new RuntimeException('第 ' . $row['line'
@@ -57,7 +70,9 @@
                         $alreadyIn = $pdo->prepare('SELECT 1 FROM project_participants WHERE order_id=? AND employee_id=? LIMIT 1');
                         $alreadyIn->execute([$orderId, (int)$actor['employee_id']]);
                         if (!empty($row['join_parent']) && !$alreadyIn->fetchColumn()) { // 上面补缺失分成组时已把本人记进空着的组，就不再重复加入
-                            $joinTarget = poj_join_target((int)$actor['employee_id'], $existing['project_type'], $orderId, $actor['role']);
+                            $joinTarget = !empty($row['writing']) && $row['writing']['source'] === 'editor'
+                                ? ['group'=>'technical','role'=>'对接编辑']
+                                : poj_join_target((int)$actor['employee_id'], $existing['project_type'], $orderId, $actor['role']);
                             poj_join_group($orderId, (int)$actor['employee_id'], $joinTarget['group'], $joinTarget['role'], $actor, ['line' => $row['line'], 'reason' => '同一笔销售只记一次', 'from_business' => $row['project_type']]);
                         } elseif (!empty($row['join_group']) && $row['join_group'] === 'customer_service') {
                             poj_join_group($orderId, (int)$actor['employee_id'], 'customer_service', (string)($row['join_role'] ?? '客服'), $actor, ['line' => $row['line'], 'reason' => '同一订单多位客服分摊']);
@@ -186,8 +201,8 @@
                     }
                     if (count($row['lines'] ?? []) > 1 && !empty($actor['employee_id'])) { try { require_once (dirname((dirname(__DIR__, 1)), 1)) . '/../includes/dup_feedback.php';
     pd_ask($orderId, $row['order_no'], (int)$actor['employee_id'], $row['lines'], $row['contract_amount']); } catch (Throwable $e) { /* 通知失败不影响导入 */ } }
-                    ps_source_record($orderId, $row['contract_amount'] === '' ? 'missing' : 'manual', $row['payment_nickname'], $row['trade_status'] ?? '', $row['payment_reference'
-    ] ?? '');
+                    $priceSource = ($row['contract_amount'] === '' && !($selectedBusiness === '森动备案' && ($row['order_kind'] ?? '') === '二次备案')) ? 'missing' : 'manual';
+                    ps_source_record($orderId, $priceSource, $row['payment_nickname'], $row['trade_status'] ?? '', $row['payment_reference'] ?? '');
                     $writeBusiness = $row['project_type'] ?? $selectedBusiness;
                     ps_save_business_details($orderId, $writeBusiness, $actor['role'] === 'customer_service' && $writeBusiness === '网站模板' ? ps_business_details($writeBusiness
     , []) : $row['details']);
@@ -233,7 +248,8 @@
                 require_once (dirname((dirname(__DIR__, 1)), 1)) . '/../includes/ProjectAutoReview.php';
                 try {
                     $reviewIds = [];
-                    foreach (array_slice($ready, 0, 25) as $reviewEntry) {
+                    foreach ($ready as $reviewEntry) {
+                        if (!empty($reviewEntry[0]['writing']) && $reviewEntry[0]['writing']['source'] === 'editor' && !empty($reviewEntry[0]['join_parent'])) continue;
                         $reviewLookup = $pdo->prepare('SELECT id FROM project_orders WHERE order_no=?');
                         $reviewLookup->execute([$reviewEntry[0]['order_no']]);
                         if ($reviewId = (int)$reviewLookup->fetchColumn()) $reviewIds[] = $reviewId;

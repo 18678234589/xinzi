@@ -210,10 +210,28 @@
                         $record['warning'] .= ($record['warning'] ? '；' : '') . '表格未写订单类型，已按' . $kindSource . '预选“' . $kindText . '”；可在本行改选，财务也可纠正'
     ;
                     }
+                    if (!empty($record['writing'])) {
+                        $writingKind = $record['writing']['kind'];
+                        if ($writingKind === '') throw new RuntimeException('自接订单未明确淘宝或微信收款，请填写“收款方式”列，或补充店铺；不能默认按淘宝发每单补助');
+                        $writingAmount = str_replace([',', '¥', '￥', ' '], '', $lookup($row, 'contract_amount'));
+                        $writingUnit = $lookup($row, 'unit_marker');
+                        if (is_numeric($writingAmount) && (float)$writingAmount < 0) $writingKind = '退款冲减';
+                        elseif (($writingAmount === '' || (is_numeric($writingAmount) && (float)$writingAmount == 0)) && $writingUnit !== '' && is_numeric($writingUnit) && (float)$writingUnit == 0) $writingKind = '合并单';
+                        $kindText = $writingKind;
+                        $record['warning'] .= ($record['warning'] ? '；' : '') . '已区分接单方式：'
+                            . ($record['writing']['source'] === 'editor' ? '编辑对接（只按对接单量规则，不参与本单自接利润分成）' : pkl_label('微信代写', $writingKind));
+                        if ($record['shop'] === '' && $writingKind === '微信付款') $record['shop'] = '微信';
+                        elseif ($record['shop'] === '' && $writingKind === '店铺订单') $record['shop'] = '淘宝';
+                    }
                     $record['order_kind'] = $kindText;
                     // 森动备案“二次备案”分表只登记已做完的工作（备案售后、迁移、改信息等），没有状态列：按已完成计，不再因状态为空落成“未完成”
-                    if ($selectedBusiness === '森动备案' && $kindText === '二次备案' && !isset($columnMap['status']) && $status === '') {
-                        $record['delivery_status'] = 'finished';
+                    if ($selectedBusiness === '森动备案' && $kindText === '二次备案') {
+                        if (!isset($columnMap['status']) && $status === '') {
+                            $record['delivery_status'] = 'finished';
+                        }
+                        if ($record['contract_amount'] === '') {
+                            $record['contract_amount'] = '0.00';
+                        }
                     }
                     // 部门代录补充：同号原单建单时默认记了类型，表格明确给出拍建站时提示按表格更正。
                     if ($departmentMode && !empty($record['kind_mapped']) && !empty($existing['order_kind']) && $existing['order_kind'] !== $kindText) $record['warning'] .= ($record

@@ -19,7 +19,7 @@ if ($finance && !$canEdit) {
 } else {
     // 未审核订单（可编辑）：客服、技术、财务均可直接更改
     $beforeKind = (string)$order['order_kind'];
-    db()->prepare("UPDATE project_orders SET order_kind=?, row_version=row_version+1 WHERE id=?")->execute([$kind, $id]);
+    psw_change_kind($id, $beforeKind, $kind, $actor);
     if ($finance && !empty($_POST['apply_future'])) {
         $people = db()->prepare('SELECT DISTINCT employee_id FROM project_participants WHERE order_id=?');
         $people->execute([$id]);

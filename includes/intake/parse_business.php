@@ -69,6 +69,9 @@ function ps_import_business_detect($fileRow, $allowedBusinesses, $selectedBusine
         }
     }
     if (count($explicit) === 1) return ['business' => array_key_first($explicit), 'reason' => '表格业务列'];
+    // 同一张微信代写原表常同时有自接与建群分表；不能用建群单的既有软文订单号把整本表改成软文代写。
+    if (psw_is_member($employeeId) && in_array('微信代写', $allowedBusinesses, true)
+        && in_array($selectedBusiness, ['微信代写', '软文代写'], true)) return ['business' => '微信代写', 'reason' => '微信代写账号，逐行区分自接与编辑对接'];
     if ($orderNos) {
         $numbers = array_slice(array_keys($orderNos), 0, 30);
         $q = db()->prepare('SELECT DISTINCT project_type FROM project_orders WHERE order_no IN (' . implode(',', array_fill(0, count($numbers), '?')) . ')');

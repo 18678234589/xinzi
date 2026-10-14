@@ -6,6 +6,8 @@ require_once __DIR__ . '/../includes/ProjectIntake.php';
 require_once __DIR__ . '/../includes/ProjectMonthly.php';
 
 $pdo = db();
+require_once __DIR__ . '/require_isolated_database.php';
+require_isolated_test_database($pdo);
 $pdo->beginTransaction();
 $stored = null;
 $check = function ($ok, $label) { if (!$ok) throw new RuntimeException('未通过：' . $label); echo "  [OK] $label\n"; };
@@ -22,9 +24,9 @@ try {
     }
 
     echo "=== 编辑订单（对接编辑）补助 ===\n";
-    $check((float)ps_rule_for('technical', '软文代写', '2026-08-20', '', '')['per_order_subsidy'] === 2.5, '8 月订单：2.5 元/单（与 8 月汇总表一致）');
-    $check((float)ps_rule_for('technical', '软文代写', '2026-09-05', '', '')['per_order_subsidy'] === 3.0, '9 月起订单：3 元/单（核算标准）');
-    $check((float)ps_rule_for('technical', '软文代写', '2026-09-05', '', '合并单')['per_order_subsidy'] === 0.0, '合并单仍不计补助');
+    $check((float)ps_rule_for('technical', '软文代写', '2026-08-20', '对接编辑', '')['per_order_subsidy'] === 2.5, '8 月对接编辑：2.5 元/单');
+    $check((float)ps_rule_for('technical', '软文代写', '2026-09-05', '对接编辑', '')['per_order_subsidy'] === 2.5, '对接编辑按最新明确口径：2.5 元/单');
+    $check((float)ps_rule_for('technical', '软文代写', '2026-09-05', '对接编辑', '合并单')['per_order_subsidy'] === 0.0, '合并单仍不计补助');
 
     echo "=== 部门利润池与利润奖励 ===\n";
     $finance = ['type' => 'admin', 'id' => (int)$pdo->query('SELECT id FROM admins ORDER BY id LIMIT 1')->fetchColumn(), 'employee_id' => null, 'role' => 'finance'];

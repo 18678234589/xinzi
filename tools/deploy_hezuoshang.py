@@ -9,6 +9,8 @@ import sys
 import tempfile
 import time
 import paramiko
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+from deploy_dependencies import literal_php_requires
 
 HOST, PORT, ROOT = '58.58.97.174', 5024, '/myprograms/hezuoshang'
 DENIED = {'config', 'storage', 'tests', 'tools', 'ops', '.git', '.deploy'}
@@ -72,6 +74,8 @@ def push(client, args):
         raise ValueError('No files in staging directory')
     if any(p not in manifest for p in files):
         raise ValueError('Every deployed path needs a fetch baseline, including new paths')
+    dependencies = {path: literal_php_requires(path, local.read_text(encoding='utf-8-sig'))
+                    for path, local in files.items() if local.suffix == '.php'}
     baseline = {p: manifest[p] for p in files}
     if hashes(client, list(files)) != baseline:
         raise RuntimeError('Remote files changed since fetch; fetch and reconcile again')
@@ -85,13 +89,17 @@ def push(client, args):
         sftp.put(str(local), dest); sftp.chmod(dest, 0o600)
     sftp.close()
     digests = {p: hashlib.sha256(local.read_bytes()).hexdigest() for p, local in files.items()}
-    result = remote(client, 'import pathlib,subprocess,json,hashlib\nstage=pathlib.Path(' + repr(remote_stage) + ')\nfiles=' + repr(digests) + '''
+    result = remote(client, 'import pathlib,subprocess,json,hashlib\nstage=pathlib.Path(' + repr(remote_stage) + ')\nfiles=' + repr(digests) + '\ndependencies=' + repr(dependencies) + '''
+root=pathlib.Path('/myprograms/hezuoshang')
+for source,required in dependencies.items():
+ for dependency in required:
+  assert dependency in files or (root/dependency).is_file(), 'Missing required PHP dependency: '+source+' -> '+dependency
 for path,h in files.items():
  p=stage/path;assert hashlib.sha256(p.read_bytes()).hexdigest()==h
  if p.suffix=='.php':
   r=subprocess.run(['docker','exec','-i','hezuoshang-php','php','-l'],input=p.read_bytes(),capture_output=True)
   assert r.returncode==0,(path,r.stderr.decode(errors='replace'))
-print(json.dumps({'files_checked':len(files),'php_syntax_ok':True}))
+print(json.dumps({'files_checked':len(files),'php_syntax_ok':True,'required_dependencies_ok':True}))
 ''')
     if args.dry_run:
         return {'dry_run': True, **result}

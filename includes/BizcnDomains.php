@@ -4,6 +4,7 @@ require_once __DIR__ . '/ProjectVault.php';
 require_once __DIR__ . '/BizcnDomainValues.php';
 require_once __DIR__ . '/BizcnDnsRecords.php';
 require_once __DIR__ . '/BizcnDomainCatalog.php';
+require_once __DIR__ . '/BizcnDomainAggregator.php';
 
 function bd_config()
 {
@@ -47,17 +48,9 @@ function bd_transport($service,$method,$params)
     return bd_parse($response, $method, [$config['password'], md5($config['password'])]);
 }
 
-function bd_list($search, $page)
+function bd_list($search, $page, $sourceFilter = 'all', $forceRefresh = false)
 {
-    $search = trim((string)$search);
-    if (strlen($search) > 253 || preg_match('/[<>\x00-\x1f]/', $search)) throw new InvalidArgumentException('搜索内容过长或含无效字符');
-    $page = max(1, min(10000, (int)$page));
-    $snapshot = bc_list($search, $page);
-    if ($snapshot !== null) return $snapshot;
-    $args = ['checkname'=>bd_config()['username'], 'domainkey'=>$search, 'domaintype'=>''];
-    $data = bd_call('domainService','getDomainList', ['checkname'=>$args['checkname'], 'limit'=>30, 'offset'=>($page-1)*30, 'domainkey'=>$search, 'domaintype'=>'']);
-    $count = bd_call('domainService','getDomainCount', $args);
-    return ['rows'=>bd_rows($data['domainlist']['domain'] ?? []), 'total'=>(int)($count['count'] ?? 0), 'page'=>$page, 'page_size'=>30, 'updated_at'=>date('Y-m-d H:i:s')];
+    return bda_unified_list($search, $page, $sourceFilter, $forceRefresh);
 }
 
 function bd_require_owned($domain)

@@ -23,7 +23,8 @@ function ps_order_todos($row)
 {
     if (in_array($row['settlement_status'] ?? '', ['approved', 'locked'], true)) return [];
     $todos = [];
-    if (($row['price_source'] ?? 'missing') === 'missing') $todos[] = ['售价待补', 'warning'];
+    $noPriceRequired = ($row['project_type'] ?? '') === '森动备案' && ($row['order_kind'] ?? '') === '二次备案';
+    if (!$noPriceRequired && ($row['price_source'] ?? 'missing') === 'missing') $todos[] = ['售价待补', 'warning'];
     if (($row['domain_mode'] ?? '') === 'pending' && !empty(ps_business_catalog()[ps_business_normalize($row['project_type'])]['resources'])) $todos[] = ['资源待技术确认', 'warning'
     ];
     if (ps_business_requires_technical($row['project_type']) && (int)($row['tech_count'] ?? 1) === 0) $todos[] = ['未指定技术', 'danger'];
@@ -35,7 +36,7 @@ function ps_order_todos($row)
     if ((int)($row['pending_cash'] ?? 0) > 0) $todos[] = ['收退款待审 ' . (int)$row['pending_cash'], 'info'];
     if ((int)($row['pending_delivery_requests'] ?? 0) > 0) $todos[] = ['交付待审', 'warning'];
     if ((int)($row['pending_upgrade_requests'] ?? 0) > 0) $todos[] = ['升级待审', 'primary'];
-    if ((float)($row['receipt_amount'] ?? 0) <= 0) $todos[] = ['实收未确认', 'secondary'];
+    if (!$noPriceRequired && (float)($row['receipt_amount'] ?? 0) <= 0) $todos[] = ['实收未确认', 'secondary'];
     if (($row['delivery_status'] ?? '') !== 'finished') $todos[] = ['交付未完成', 'secondary'];
     return $todos;
 }

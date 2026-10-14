@@ -133,7 +133,7 @@ $nav = function ($href, $icon, $label, $active) {
     <?php if ($project_staff): ?>
     <?php if ($project_staff['role'] === 'vault'): ?>
     <div class="sidebar-project-label">管理</div>
-    <?php echo $nav('/project/vault.php', 'fa-key', '平台与服务器信息', $_rel === 'project/vault.php'); ?>
+    <?php if ($vault_nav): echo $nav('/project/vault.php', 'fa-key', '平台与服务器信息', $_rel === 'project/vault.php'); endif; ?>
     <?php echo $nav('/project/messages.php', 'fa-envelope', '我的站内信' . ($unread_messages ? '（' . $unread_messages . '）' : ''), $_rel === 'project/messages.php'); ?>
     <?php echo $nav('/project/profile.php', 'fa-user-cog', '我的账号', $_rel === 'project/profile.php'); ?>
     <?php elseif ($project_staff['role'] === 'governance'): ?>

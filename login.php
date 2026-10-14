@@ -47,6 +47,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $staffQuery->execute([$username, $username]);
                 $staff = $staffQuery->fetch();
                 if ($staff && password_verify($password, $staff['password_hash'])) {
+                    auth_staff_login_seen($staff['id']);
                     auth_login_succeeded($username);
                     unset($_SESSION['admin_id'], $_SESSION['admin_username']);
                     $_SESSION['project_user_id'] = (int)$staff['id'];
@@ -54,7 +55,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $_SESSION['vault_pw_ok'] = auth_password_is_strong($password);
                     unset($_SESSION['rip_shown']); // 每次登录都重新提醒补录续费资料
                     session_regenerate_id(true);
-                    $destination = !$staff['phone'] ? '/project/profile.php?first=1' : (($staff['role'] === 'governance') ? (empty($staff['password_changed_at']) ? '/project/profile.php?password=1' : '/project/governance_ideas.php') : '/project/index.php');
+                    $destination = auth_staff_destination($staff);
                     header('Location: ' . BASE_URL . $destination);
                     exit;
                 }
@@ -133,7 +134,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             </form>
             <div class="text-center mt-3"><a href="<?php echo BASE_URL; ?>/forgot_password.php">忘记密码？短信找回</a></div>
             <div class="text-center mt-3 text-muted small">
-                管理员或项目合作人员均可使用分配的账户登录；验证码点击可刷新
+                首次使用请用姓名小写拼音账号和初始密码登录，再绑定手机号、修改密码。已改密码的账号使用自己的新密码；验证码点击可刷新。
             </div>
         </div>
     </div>

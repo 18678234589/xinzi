@@ -13,7 +13,14 @@
                 if (empty($row['base_valid'])) { $skipped++; continue; }
                 $line = (int)$row['line'];
                 $pickedKind = trim((string)($kindChoices[$line] ?? ''));
-                if ($pickedKind !== '' && in_array($pickedKind, $commitKinds, true)) $row['order_kind'] = $pickedKind;
+                if ($pickedKind !== '' && in_array($pickedKind, $commitKinds, true)) {
+                    if (!empty($row['writing']) && in_array($pickedKind, ['店铺订单', '微信付款', '编辑对接'], true)) {
+                        if (!empty($row['join_parent']) && $pickedKind !== '编辑对接') throw new RuntimeException('原单的对接行不能直接改成自接，请核对原表接单方式后重新预览');
+                        $row['writing'] = ['source'=>$pickedKind === '编辑对接' ? 'editor' : 'self','kind'=>$pickedKind];
+                        $row['people'] = psw_people($row['people'], $row['writing']['source'], (int)($actor['employee_id'] ?? 0));
+                    }
+                    $row['order_kind'] = $pickedKind;
+                }
                 if (($row['order_kind'] ?? '') === '' && !empty($businessDefinition['kind_required'])) { $skipped++; $kindMissingLines[] = $line % 10000; continue; }
                 if ($actor['role'] !== 'finance' && !$departmentMode && !ps_management_can_business($actor, $selectedBusiness)) {
                     $group = $actor['role'] === 'technical' ? 'technical' : 'customer_service';

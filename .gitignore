@@ -40,3 +40,6 @@ api对接/
 
 # 本地部署与临时脚本
 .deploy/
+scratch/
+harness/
+.agents/

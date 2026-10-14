@@ -1,7 +1,9 @@
 <?php
                     // 技术人员上传时，客服列写了非人名（如“大连”）不拦整行：忽略并提示；客服上传仍严格校验本人姓名
                     $unknownCs = [];
-                    if ($actor['role'] === 'technical' && !$departmentMode) {
+                    if (!empty($record['writing']) && $record['writing']['source'] === 'editor') {
+                        $cs = []; // “接单客服”是原销售方，仅关联原单，不以编辑身份重新导入销售方。
+                    } elseif ($actor['role'] === 'technical' && !$departmentMode) {
                         $cs = ps_import_names_lenient($lookup($row, 'customer_service'), $employeesByName, $selectedBusiness, $unknownCs);
                         foreach ($unknownCs as $unknownCsName) if (ps_import_name_resembles_employee($unknownCsName, $employeesByName)) ps_import_names($lookup($row, 'customer_service'), $employeesByName, $selectedBusiness); // 像合作人员的写法（多半是写错姓名）仍拦截
                         if ($unknownCs) $record['warning'] .= ($record['warning'] ? '；' : '') . '客服列写的“' . implode('、', $unknownCs) . '”不是合作人员，已忽略';
@@ -22,11 +24,19 @@
                         else $record['people']['technical'][$id] = ['id' => $id, 'role' => $peopleLabels['backend'], 'name' => $name];
                     }
                     $record['people'] = ps_import_website_people_roles($record['people'], $record['project_type']);
+                    if (!empty($record['writing'])) {
+                        $record['people'] = psw_people($record['people'], $record['writing']['source'], (int)($actor['employee_id'] ?? 0));
+                        // 没有姓名列的个人对接表也按编辑身份记录，不能用账号的客服角色追加自接提成。
+                        if ($record['writing']['source'] === 'editor' && $actor['role'] !== 'finance' && !$record['people']['technical']) {
+                            $selfId = (int)$actor['employee_id'];
+                            $record['people']['technical'][$selfId] = ['id' => $selfId, 'role' => '对接编辑', 'name' => $actorName ?? '本人'];
+                        }
+                    }
                     if ($selectedBusiness === '森动备案') {
                         [$record['people'], $filingNote] = ps_import_filing_people($record['people'], $peopleLabels['frontend']);
                         if ($filingNote !== '') $record['warning'] .= ($record['warning'] ? '；' : '') . $filingNote;
                     }
-                    if (!empty($record['join_parent'])) { // 同一笔销售：只记本人加入原订单的那一份，不沿用表格里写的其他人
+                    if (!empty($record['join_parent']) && $actor['role'] !== 'finance') { // 同一笔销售：只记本人加入原订单的那一份，不沿用表格里写的其他人
                         $joinSelfId = (int)$actor['employee_id'];
                         $record['people'] = ['technical' => [], 'customer_service' => []];
                         $record['people'][$record['join_target']['group']][$joinSelfId] = ['id' => $joinSelfId, 'role' => $record['join_target']['role'], 'name' => $actorName ?? '本人'];

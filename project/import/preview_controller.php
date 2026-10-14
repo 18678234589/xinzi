@@ -120,6 +120,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 /* split: project/import/03a_order_no_and_split.php */ include (dirname(__DIR__, 1)) . '/import/03a_order_no_and_split.php';
 /* split: project/import/03b_date_amount_status.php */ include (dirname(__DIR__, 1)) . '/import/03b_date_amount_status.php';
 /* split: project/import/03c_people_resources.php */ include (dirname(__DIR__, 1)) . '/import/03c_people_resources.php';
+                    if (!empty($record['writing']) && $record['writing']['source'] === 'editor' && empty($record['join_parent'])) {
+                        $record['writing']['reference_amount'] = $record['contract_amount'];
+                        if (is_numeric($record['contract_amount']) && (float)$record['contract_amount'] != 0) $record['contact_note'] .= ($record['contact_note'] ? '；' : '') . '对接原单参考金额 ¥' . money_plain($record['contract_amount']) . '（不计销售收入）';
+                        $record['contract_amount'] = 0.0;
+                        $record['direct_cost'] = '';
+                        $record['warning'] .= ($record['warning'] ? '；' : '') . '对接原单金额仅作参考，本记录不计销售额或稿费成本，只按编辑对接单量计费';
+                    }
                     if ($selectedBusiness === '商标') {
                         require_once (dirname(__DIR__, 1)) . '/../includes/ProjectTrademarkTemplate.php';
                         $tmChoice = trim((string)($_POST['fix_tm_service'][$record['line']] ?? ''));

@@ -121,6 +121,8 @@ function ps_reclassify_order_kind($orderId, $kind, $actor, $payrollMonth, $apply
         $before = (string)$order['order_kind'];
         if ($before === $kind) throw new RuntimeException('订单类型没有变化');
         $approved = in_array($order['settlement_status'], ['approved', 'locked'], true);
+        if ($approved && $order['project_type'] === '微信代写'
+            && (($before === '编辑对接') !== ($kind === '编辑对接'))) throw new RuntimeException('已审核自接/对接身份不能只改订单类型，请先由财务按参与人调整流程核对');
         if ($approved) {
             if (!preg_match('/^\d{4}-(0[1-9]|1[0-2])$/', (string)$payrollMonth)) throw new RuntimeException('请选择调整计入月份');
             $pdo->prepare('INSERT INTO project_payroll_periods (period) VALUES (?) ON DUPLICATE KEY UPDATE period=period')->execute([$payrollMonth]);
@@ -159,7 +161,7 @@ function ps_reclassify_order_kind($orderId, $kind, $actor, $payrollMonth, $apply
             }
             if ($old) throw new RuntimeException('原快照参与人与当前不一致，请财务核对后再调整');
         }
-        $pdo->prepare('UPDATE project_orders SET order_kind=?,row_version=row_version+1 WHERE id=?')->execute([$kind, (int)$orderId]);
+        psw_change_kind($orderId, $before, $kind, $actor);
         if ($applyFuture) {
             $people = $pdo->prepare('SELECT DISTINCT employee_id FROM project_participants WHERE order_id=?');
             $people->execute([(int)$orderId]);

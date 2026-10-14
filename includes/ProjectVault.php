@@ -53,8 +53,8 @@ function pv_access_list()
     if (is_array($saved) && isset($saved['admins'], $saved['employees'])) return ['admins' => array_values((array)$saved['admins']), 'employees' => array_map('intval', (array)$saved['employees'])];
     $ids = [];
     $q = db()->prepare('SELECT id FROM employees WHERE name=? ORDER BY id');
-    foreach (['张富全', '王桂美', '张光萍', '张欣源', '孙杰', '于洋', '栾鑫'] as $name) { $q->execute([$name]); foreach ($q->fetchAll(PDO::FETCH_COLUMN) as $id) $ids[] = (int)$id; }
-    return ['admins' => ['admin', 'wangguimei', 'zhangfuquan'], 'employees' => $ids];
+    foreach (['张光萍', '孙杰', '于洋', '栾鑫'] as $name) { $q->execute([$name]); foreach ($q->fetchAll(PDO::FETCH_COLUMN) as $id) $ids[] = (int)$id; }
+    return ['admins' => ['admin'], 'employees' => $ids];
 }
 
 function pv_admin_username($adminId)
@@ -69,7 +69,72 @@ function pv_can_access($actor)
     if (!$actor) return false;
     $list = pv_access_list();
     if ($actor['type'] === 'admin') return in_array(pv_admin_username($actor['id']), $list['admins'], true);
-    return in_array((int)$actor['employee_id'], $list['employees'], true);
+    return $actor['type'] === 'employee' && in_array((int)$actor['employee_id'], $list['employees'], true);
+}
+
+/** NULL 继承栏目名单；独立名单只收窄权限，损坏或空名单必须拒绝访问。 */
+function pv_item_is_restricted($item)
+{
+    return array_key_exists('access_json', $item) && $item['access_json'] !== null;
+}
+
+function pv_item_can_access($item, $actor)
+{
+    if (!$item || !pv_can_access($actor)) return false;
+    if (!pv_item_is_restricted($item)) return true;
+    $list = json_decode((string)$item['access_json'], true);
+    if (!is_array($list) || !isset($list['admins'], $list['employees']) || !is_array($list['admins']) || !is_array($list['employees'])) return false;
+    if ($actor['type'] === 'admin') return in_array(pv_admin_username($actor['id']), $list['admins'], true);
+    return $actor['type'] === 'employee' && in_array((int)$actor['employee_id'], array_map('intval', $list['employees']), true);
+}
+
+function pv_item_require($id, $actor)
+{
+    $q = db()->prepare('SELECT * FROM project_vault_items WHERE id=? AND deleted_at IS NULL');
+    $q->execute([(int)$id]);
+    $item = $q->fetch();
+    // 不区分不存在与无权限，避免按编号探测受限服务器。
+    if (!$item || !pv_item_can_access($item, $actor)) throw new RuntimeException('条目不存在或无权访问', 404);
+    return $item;
+}
+
+/** 公共系统日志不泄露受限条目的名称、连接信息或凭据。 */
+function pv_item_audit($item, $action, $actor, $details = [])
+{
+    if (pv_item_is_restricted($item)) $details = ['restricted' => true];
+    ps_audit('vault', (int)$item['id'], $action, $actor, $details);
+}
+
+function pv_item_reveal($id, $actor, $purpose = '')
+{
+    if (!pv_password_ok()) throw new RuntimeException('登录密码未达到安全要求（至少 10 位，含大小写字母），请先修改密码', 403);
+    $item = pv_item_require($id, $actor);
+    pv_item_audit($item, $purpose === 'copy' ? 'copy' : 'reveal', $actor, ['name' => $item['name']]);
+    return ['password' => pv_decrypt($item['password_enc']), 'notes' => pv_decrypt($item['notes_enc'])];
+}
+
+function pv_item_delete($id, $actor)
+{
+    $item = pv_item_require($id, $actor);
+    db()->prepare('UPDATE project_vault_items SET deleted_at=NOW(),updated_by_type=?,updated_by_id=? WHERE id=? AND deleted_at IS NULL')->execute([$actor['type'], $actor['id'], (int)$id]);
+    pv_item_audit($item, 'delete', $actor);
+}
+
+function pv_recent_logs($actor, $limit = 20)
+{
+    if (!pv_can_access($actor)) return [];
+    $items = [];
+    foreach (db()->query('SELECT * FROM project_vault_items')->fetchAll() as $item) $items[(int)$item['id']] = $item;
+    $logs = [];
+    $q = db()->query("SELECT * FROM project_audit_logs WHERE entity_type='vault' ORDER BY id DESC");
+    while ($log = $q->fetch()) {
+        $id = (int)$log['entity_id'];
+        if ($id && (!isset($items[$id]) || !pv_item_can_access($items[$id], $actor))) continue;
+        $log['item_name'] = $id ? $items[$id]['name'] : '';
+        $logs[] = $log;
+        if (count($logs) >= max(1, (int)$limit)) break;
+    }
+    return $logs;
 }
 
 /** 只有 admin 账号可调整可见名单。 */
@@ -78,10 +143,21 @@ function pv_can_manage_access($actor)
     return $actor && $actor['type'] === 'admin' && pv_admin_username($actor['id']) === 'admin';
 }
 
+/** 本次登录用的密码是否达标（登录或改密码时写入会话；旧会话没有记录，按未达标处理）。命令行脚本不经过网页登录，不受此限。 */
+function pv_password_ok()
+{
+    return PHP_SAPI === 'cli' || !empty($_SESSION['vault_pw_ok']);
+}
+
+function pv_password_change_url($actor)
+{
+    return BASE_URL . ($actor && $actor['type'] === 'admin' ? '/project/system.php#my-password' : '/project/profile.php');
+}
+
 function pv_require_access()
 {
     $actor = ps_require_actor();
-    if (!pv_can_access($actor)) { http_response_code(403); exit('此栏目仅股东、管理层、管理员与服务器维护人员可见'); }
+    if (!pv_can_access($actor)) { http_response_code(403); exit('此栏目仅指定管理员与服务器维护人员可见'); }
     return $actor;
 }
 
@@ -143,17 +219,6 @@ function pv_parse_local($text)
         // 没写“账号”标签但紧挨着密码前的单词（如 root password=…）
         if ($item['account'] === '' && $item['password'] !== '' && preg_match('/(?:^|\s)([A-Za-z0-9_.@-]{2,40})\s+(?:密码|password|pwd|pass)/iu', preg_replace('/\s+/u', ' ', $block), $m) && !preg_match('/^(mysql|redis|ftp|ssh)$/i', $m[1])) { $item['account'] = $m[1]; $rest = preg_replace('/(?<!\S)' . preg_quote($m[1], '/') . '(?!\S)/u', ' ', $rest, 1); }
         $rest = trim(preg_replace('/\s+/u', ' ', $rest));
-/** 本次登录用的密码是否达标（登录或改密码时写入会话；旧会话没有记录，按未达标处理）。命令行脚本不经过网页登录，不受此限。 */
-function pv_password_ok()
-{
-    return PHP_SAPI === 'cli' || !empty($_SESSION['vault_pw_ok']);
-}
-
-function pv_password_change_url($actor)
-{
-    return BASE_URL . ($actor && $actor['type'] === 'admin' ? '/project/system.php#my-password' : '/project/profile.php');
-}
-
         // 名称：剩余文字的前几个词；其余作为备注（如安全入口、到期时间）
         $words = $rest === '' ? [] : explode(' ', $rest);
         $nameWords = [];
@@ -215,19 +280,23 @@ function pv_parse_paste($text, array $categories, $actor)
     return ['items' => $out, 'source' => $source, 'note' => $note];
 }
 
-function pv_items($search = '', $category = '')
+function pv_items($search = '', $category = '', $actor = null)
 {
+    if ($actor === null) $actor = ps_actor();
+    if (!pv_can_access($actor)) return [];
     $sql = 'SELECT * FROM project_vault_items WHERE deleted_at IS NULL';
     $params = [];
     if ($category !== '') { $sql .= ' AND category=?'; $params[] = $category; }
-    if ($search !== '') { $sql .= ' AND (name LIKE ? OR url LIKE ? OR host LIKE ? OR account LIKE ?)'; $like = '%' . $search . '%'; array_push($params, $like, $like, $like, $like); }
+    if ($search !== '') { $sql .= ' AND (name LIKE ? OR url LIKE ? OR host LIKE ? OR account LIKE ? OR category LIKE ?)'; $like = '%' . $search . '%'; array_push($params, $like, $like, $like, $like, $like); } // 类别名也能搜（如“商务中国”）
     $q = db()->prepare($sql . ' ORDER BY FIELD(category,' . implode(',', array_fill(0, count(PV_CATEGORIES), '?')) . '), name, id');
     $q->execute(array_merge($params, PV_CATEGORIES));
-    return $q->fetchAll();
+    return array_values(array_filter($q->fetchAll(), function ($item) use ($actor) { return pv_item_can_access($item, $actor); }));
 }
 
 function pv_item_save($data, $actor, $id = 0)
 {
+    if (!pv_can_access($actor)) throw new RuntimeException('无权访问此栏目', 403);
+    $existing = $id ? pv_item_require($id, $actor) : null;
     $category = in_array($data['category'] ?? '', PV_CATEGORIES, true) ? $data['category'] : '其他';
     $name = mb_substr(trim((string)($data['name'] ?? '')), 0, 120);
     $url = mb_substr(trim((string)($data['url'] ?? '')), 0, 500);
@@ -243,7 +312,7 @@ function pv_item_save($data, $actor, $id = 0)
         if (array_key_exists('notes', $data)) { $fields .= ',notes_enc=?'; $params[] = pv_encrypt(trim((string)$data['notes'])); }
         $params[] = (int)$id;
         db()->prepare("UPDATE project_vault_items SET $fields WHERE id=? AND deleted_at IS NULL")->execute($params);
-        ps_audit('vault', (int)$id, 'update', $actor, ['name' => $name, 'category' => $category, 'password_changed' => (string)($data['password'] ?? '') !== '']);
+        pv_item_audit($existing, 'update', $actor, ['name' => $name, 'category' => $category, 'password_changed' => (string)($data['password'] ?? '') !== '']);
         return (int)$id;
     }
     db()->prepare('INSERT INTO project_vault_items (category,name,url,host,account,password_enc,notes_enc,created_by_type,created_by_id,updated_by_type,updated_by_id) VALUES (?,?,?,?,?,?,?,?,?,?,?)')
