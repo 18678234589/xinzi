@@ -27,6 +27,12 @@ tt($h['phone'] === '13812345678' && $h['email'] === 'zhang@example.com', 'phone 
 tt($h['id_card'] === '11010519491231002X' && $h['credit_code'] === '91350100M000100Y43', 'id and credit hints');
 tt(bt_text_hints('号码 110105194912310021')['id_card'] === '', 'invalid id not trusted');
 
+// 域名：第一行的域名；邮箱和网址里的域名不算
+tt(bt_text_hints("wxzhaner.com 无锡洛泰克国际贸易有限公司
+邮箱:1141348795@qq.com")['domain'] === 'wxzhaner.com', 'domain from first line');
+tt(bt_text_hints("公司 邮箱:a@qq.com 网址 https://www.gsxt.gov.cn/x")['domain'] === '', 'email and url domains ignored');
+tt(bt_text_hints("请注册 Example-Shop.CN 谢谢")['domain'] === 'example-shop.cn', 'domain lower-cased');
+
 // 省市
 tt(bt_match_region('山东', '济南', '') === ['山东省', '济南市'], 'short names normalised');
 tt(bt_match_region('', '', '山东省青岛市市南区香港中路1号') === ['山东省', '青岛市'], 'city from address');
@@ -49,6 +55,12 @@ $ai['phone'] = '`rm -rf /` 13711112222';
 list($f3) = bt_merge_fields($ai, bt_text_hints(''), []);
 tt($f3['phone'] === '' || preg_match('/^\+86\.\d+$/D', $f3['phone']), 'phone from AI is always normalised');
 tt(preg_match('/^[A-Za-z0-9 ,.\-#\/&()]*$/D', bt_ascii('<b>中文x</b>', 20)) === 1 && strpos(bt_ascii('<b>', 20), '<') === false, 'english field is ascii only');
+
+// 邮编：按城市默认填入，不细到区县
+list($fz) = bt_merge_fields(['kind' => 'company', 'owner_name' => '无锡洛泰克国际贸易有限公司', 'province' => '江苏省', 'city' => '无锡市', 'address' => '梁溪区扬名街道古运五爱苑'], bt_text_hints(''), []);
+tt($fz['postcode'] === '214000' && $fz['province'] === '江苏省' && $fz['city'] === '无锡市', 'postcode filled from city');
+list($fz, $wz) = bt_merge_fields(['kind' => 'company', 'owner_name' => 'x', 'address' => '无锡市梁溪区某路'], bt_text_hints(''), []);
+tt($fz['city'] === '无锡市' && $fz['postcode'] === '214000' && !in_array('postcode', $wz, true), 'city from address gives postcode, no postcode warning');
 
 // 严格校验
 $good = $f; $good['cert_no'] = '91350100M000100Y43'; $good['phone'] = '13812345678'; $good['email'] = 'a@b.com'; $good['postcode'] = '250000';
@@ -75,7 +87,8 @@ tt(trej(function () use ($dir) { bt_certificate_jpeg(["$dir/tiny.jpg"]); }), 'to
 $files = ['images' => ['tmp_name' => ["$dir/front.jpg"], 'error' => [UPLOAD_ERR_OK]]];
 $aiReply = ['kind' => 'company', 'owner_name' => '济南某某科技有限公司', 'cert_no' => '91350100M000100Y43', 'province' => '山东省', 'city' => '济南市', 'address' => '历下区经十路1号', 'surname' => '张', 'given_name' => '三', 'postcode' => '250000', 'org_e' => 'A Co', 'surname_e' => 'Zhang', 'given_name_e' => 'San', 'province_e' => 'Shandong', 'city_e' => 'Jinan', 'address_e' => 'No.1 Road'];
 $actor = ['type' => 'employee', 'id' => 7];
-$r = bt_action_ai(['text' => '手机 13812345678', '_files' => $files], $actor);
+$r = bt_action_ai(['text' => 'shop.example.com 手机 13812345678', '_files' => $files], $actor);
+tt($r['domain'] === 'shop.example.com', 'domain returned by ai action');
 tt($r['fields']['phone'] === '+86.13812345678' && $r['note'] === '' && $r['images'] === 1, 'ai action fills fields');
 tt(is_array($aiMessages[1]['content']) && $aiMessages[1]['content'][1]['type'] === 'image_url', 'image sent to ai as data url');
 tt(strpos(json_encode($audit), '91350100M000100Y43') === false && strpos(json_encode($audit), '13812345678') === false, 'audit holds no identifiers');

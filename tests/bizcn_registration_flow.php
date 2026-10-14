@@ -53,4 +53,11 @@ $q=br_dispatch('registration_quote',['domain'=>'newcustomer.example.com','templa
 bt(reject(function()use($a){br_dispatch('registration_quote',['domain'=>'ghost.example.com','template_id'=>'not-in-directory'],$a);}), 'unknown subject refused');
 $mockAuth='unpass';bt(reject(function()use($a){br_dispatch('registration_quote',['domain'=>'pending.example.com','template_id'=>'f1'],$a);}), 'unaudited directory subject blocked live');$mockAuth='pass';
 $cfg=br_dispatch('registration_config',[],$a);bt($cfg['directory_count']===2&&$cfg['ready'],'directory alone makes registration ready');
+$pc=br_dispatch('registration_precheck',['domain'=>'wx.example.com','owner'=>'乙主体'],$a);
+bt($pc['domain']['state']==='available'&&$pc['domain']['price_cents']===5800&&$pc['templates'][0]['id']==='f2'&&$pc['templates'][0]['status']==='pass','precheck shows price and ready subject');
+$before=$calls;$mockAuth='cnnicauditing';$pc=br_dispatch('registration_precheck',['domain'=>'','owner'=>'乙主体'],$a);bt($pc['templates'][0]['status']==='cnnicauditing'&&$pc['domain']===null,'precheck shows auditing subject without domain');$mockAuth='pass';
+$pc=br_dispatch('registration_precheck',['domain'=>'new.example.com','owner'=>'没有模板的公司'],$a);bt($pc['templates']===[],'precheck: unknown subject has no template');
+$pc=br_dispatch('registration_precheck',['domain'=>'https://bad','owner'=>''],$a);bt($pc['domain']['state']==='invalid','precheck: invalid domain reported not thrown');
+$mockPremium='true';$pc=br_dispatch('registration_precheck',['domain'=>'vip.example.com','owner'=>''],$a);bt($pc['domain']['premium_blocked']===true,'precheck: premium blocked for staff');$pc=br_dispatch('registration_precheck',['domain'=>'vip.example.com','owner'=>''],$admin);bt($pc['domain']['premium_blocked']===false,'precheck: premium allowed for admin');$mockPremium='false';
+bt($calls===$before,'precheck never buys');
 echo json_encode(['passed'=>$checks,'failed'=>0,'mock_paid_calls'=>$calls,'real_paid_api_calls'=>0],JSON_UNESCAPED_UNICODE)."\n";

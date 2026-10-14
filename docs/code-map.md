@@ -482,11 +482,15 @@
 - 加载：`require_once __DIR__ . '/BizcnDomainAggregator.php';`
 - 加载：`include $file : [];`
 
+## includes/BizcnPostcodes.php (40 行, 10 KB)
+
+- `bt_postcodes` L3–39
+
 ## includes/BizcnRegions.php (40 行, 9.4 KB)
 
 - `bt_regions` L3–39
 
-## includes/BizcnRegistration.php (190 行, 17.7 KB)
+## includes/BizcnRegistration.php (216 行, 19.9 KB)
 
 - `br_template_pass` L5–10
 - `br_price` L11–23
@@ -495,7 +499,7 @@
 - `br_owner_label` L38–41
 - `br_sync_templates_page` L42–49
 - `br_directory_template` L50–55
-- `br_dispatch` L56–189
+- `br_dispatch` L56–215
 - 加载：`require_once __DIR__.'/BizcnRegistrationStore.php';`
 - 加载：`require_once __DIR__.'/BizcnTemplateAi.php';`
 
@@ -517,35 +521,37 @@
 - `br_record_result` L78–93
 - `br_release_unknown` L94–105
 
-## includes/BizcnTemplateAi.php (384 行, 22.8 KB)
+## includes/BizcnTemplateAi.php (397 行, 24 KB)
 
-- `bt_person_cert_types` L9–12
-- `bt_company_cert_types` L13–16
-- `bt_id_card_valid` L20–27
-- `bt_credit_code_valid` L28–36
-- `bt_text_hints` L37–46
-- `bt_city_stem` L50–53
-- `bt_match_region` L54–80
-- `bt_phone` L81–89
-- `bt_ascii` L90–94
-- `bt_ai_prompt` L98–111
-- `bt_ai_extract` L112–117
-- `bt_merge_fields` L123–175
-- `bt_is_upload` L179–182
-- `bt_upload_paths` L183–197
-- `bt_load_image` L198–206
-- `bt_resize_width` L208–217
-- `bt_jpeg` L218–223
-- `bt_ai_blob` L225–233
-- `bt_certificate_jpeg` L235–257
-- `bt_contact` L261–267
-- `bt_validate_fields` L268–304
-- `bt_template_args` L305–320
-- `bt_action_ai` L324–351
-- `bt_action_create` L352–365
-- `bt_action_status` L366–374
-- `bt_action_contact` L375–383
+- `bt_person_cert_types` L10–13
+- `bt_company_cert_types` L14–17
+- `bt_id_card_valid` L21–28
+- `bt_credit_code_valid` L29–37
+- `bt_text_hints` L38–50
+- `bt_city_stem` L54–57
+- `bt_match_region` L58–84
+- `bt_city_postcode` L86–91
+- `bt_phone` L92–100
+- `bt_ascii` L101–105
+- `bt_ai_prompt` L109–122
+- `bt_ai_extract` L123–128
+- `bt_merge_fields` L134–186
+- `bt_is_upload` L190–193
+- `bt_upload_paths` L194–208
+- `bt_load_image` L209–217
+- `bt_resize_width` L219–228
+- `bt_jpeg` L229–234
+- `bt_ai_blob` L236–244
+- `bt_certificate_jpeg` L246–268
+- `bt_contact` L272–278
+- `bt_validate_fields` L279–315
+- `bt_template_args` L316–331
+- `bt_action_ai` L335–364
+- `bt_action_create` L365–378
+- `bt_action_status` L379–387
+- `bt_action_contact` L388–396
 - 加载：`require_once __DIR__ . '/BizcnRegions.php';`
+- 加载：`require_once __DIR__ . '/BizcnPostcodes.php';`
 
 ## includes/DnsProviders.php (369 行, 20.2 KB)
 
@@ -2840,7 +2846,7 @@
 ## project/domain_dns_choices.php (9 行, 1.3 KB)
 
 
-## project/domain_registration_view.php (78 行, 10.5 KB)
+## project/domain_registration_view.php (81 行, 10.7 KB)
 
 - 加载：`include __DIR__.'/domain_dns_choices.php';`
 
@@ -3751,7 +3757,7 @@
 - `fq` L14–14
 - 加载：`require_once __DIR__.'/../includes/BizcnRegistrationStore.php';`
 
-## tests/bizcn_registration_flow.php (57 行, 7 KB)
+## tests/bizcn_registration_flow.php (64 行, 8.3 KB)
 
 - `db` L6–6
 - `bd_config` L7–7
@@ -3763,7 +3769,7 @@
 - 加载：`require __DIR__.'/../includes/BizcnDomainValues.php';`
 - 加载：`require __DIR__.'/../includes/BizcnRegistration.php';`
 
-## tests/bizcn_template_ai.php (113 行, 10.9 KB)
+## tests/bizcn_template_ai.php (126 行, 12.2 KB)
 
 - `tt` L5–5
 - `trej` L6–6
@@ -3774,7 +3780,7 @@
 - `bd_call` L12–12
 - `ps_setting_get` L14–14
 - `ps_setting_set` L15–15
-- `noisy` L63–63
+- `noisy` L75–75
 - 加载：`require __DIR__ . '/../includes/BizcnTemplateAi.php';`
 
 ## tests/custom_site_cs_smoke.php (44 行, 3.6 KB)

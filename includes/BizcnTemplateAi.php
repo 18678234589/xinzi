@@ -5,6 +5,7 @@
  * 不加载应用框架，函数依赖（bd_call、ps_ai_chat、ps_audit 等）由调用方提供，便于离线测试。
  */
 require_once __DIR__ . '/BizcnRegions.php';
+require_once __DIR__ . '/BizcnPostcodes.php';
 
 function bt_person_cert_types()
 {
@@ -37,11 +38,14 @@ function bt_credit_code_valid($code)
 function bt_text_hints($text)
 {
     $text = strtoupper((string)$text);
-    $hints = ['id_card' => '', 'credit_code' => '', 'phone' => '', 'email' => ''];
+    $hints = ['id_card' => '', 'credit_code' => '', 'phone' => '', 'email' => '', 'domain' => ''];
     if (preg_match_all('/(?<![0-9A-Z])[1-9]\d{16}[0-9X](?![0-9A-Z])/', $text, $m)) foreach ($m[0] as $v) if (bt_id_card_valid($v)) { $hints['id_card'] = $v; break; }
     if (preg_match_all('/(?<![0-9A-Z])[0-9A-HJ-NPQRTUWXY]{2}\d{6}[0-9A-HJ-NPQRTUWXY]{10}(?![0-9A-Z])/', $text, $m)) foreach ($m[0] as $v) if (bt_credit_code_valid($v) && !bt_id_card_valid($v)) { $hints['credit_code'] = $v; break; }
     if (preg_match('/(?<!\d)(1[3-9]\d{9})(?!\d)/', $text, $m)) $hints['phone'] = $m[1];
     if (preg_match('/[A-Z0-9._%+\-]+@[A-Z0-9.\-]+\.[A-Z]{2,}/', $text, $m)) $hints['email'] = strtolower($m[0]);
+    // 域名：先去掉邮箱和网址，取第一个形如 name.tld 的词（客户文字里通常第一行就是想注册的域名）。
+    $plain = preg_replace(['~https?://\S+~i', '/[A-Z0-9._%+\-]+@[A-Z0-9.\-]+\.[A-Z]{2,}/'], ' ', $text);
+    if (preg_match('/(?<![A-Z0-9.\-])((?:[A-Z0-9](?:[A-Z0-9\-]{0,61}[A-Z0-9])?\.)+[A-Z]{2,24})(?![A-Z0-9\-])/', $plain, $m)) $hints['domain'] = strtolower($m[1]);
     return $hints;
 }
 
@@ -78,6 +82,13 @@ function bt_match_region($province, $city, $address = '')
     if ($foundCity === '' && $foundProvince !== '' && count($regions[$foundProvince]) === 1) $foundCity = key($regions[$foundProvince]);
     return $foundCity === '' ? [$foundProvince, ''] : [$foundProvince, $foundCity];
 }
+/** 按城市取默认邮编（市区主邮编，不细到区县）；表里没有则返回空。 */
+function bt_city_postcode($province, $city)
+{
+    $table = function_exists('bt_postcodes') ? bt_postcodes() : [];
+    $code = (string)($table[$province][$city] ?? '');
+    return preg_match('/^\d{6}$/D', $code) ? $code : '';
+}
 function bt_phone($value)
 {
     $value = trim((string)$value);
@@ -104,7 +115,7 @@ function bt_ai_prompt()
         . 'cert_type(单位：营业执照填 YYZZ；个人：大陆身份证 SFZ、护照 HZ)、cert_no(证件号码/统一社会信用代码，原样，注意区分数字0与字母O、1与I)、'
         . 'surname(姓)、given_name(名)（单位填法定代表人姓名拆分，没有则填联系人；复姓如欧阳、司马整体算姓）、'
         . 'province(省份，只能从[' . $provinces . ']中选)、city(地级市或直辖市区所在市，如“济南市”)、address(省市之后的详细地址，中文)、postcode(6位邮编)、'
-        . 'phone(手机号或带区号固话)、email(邮箱)、'
+        . 'phone(手机号或带区号固话)、email(邮箱)、domain(客户想注册的域名，如 example.com，没有则空)、'
         . 'org_e(所有者英文：单位用英文名或拼音加 Co., Ltd.，个人用拼音全名)、surname_e(姓的拼音，首字母大写)、given_name_e(名的拼音，首字母大写)、'
         . 'province_e(省份拼音，如 Shandong)、city_e(城市拼音，如 Jinan)、address_e(详细地址英文或拼音，仅字母数字和 , . - #)。'
         . '没有出现的字段给空字符串。';
@@ -158,7 +169,7 @@ function bt_merge_fields(array $ai, array $hints, array $contact)
         'province' => $province,
         'city' => $city,
         'address' => $clean('address', 200),
-        'postcode' => preg_match('/^\d{6}$/D', $clean('postcode', 10)) ? $clean('postcode', 10) : '',
+        'postcode' => bt_city_postcode($province, $city) !== '' ? bt_city_postcode($province, $city) : (preg_match('/^\d{6}$/D', $clean('postcode', 10)) ? $clean('postcode', 10) : ''),
         'phone' => $phone,
         'email' => $email,
         'org_e' => bt_ascii($ai['org_e'] ?? '', 120),
@@ -347,7 +358,9 @@ function bt_action_ai($input, $actor)
     }
     list($fields, $warnings) = bt_merge_fields($ai, $hints, bt_contact());
     ps_audit('domain_template', 0, 'ai_extract', $actor, ['images' => count($paths), 'ai' => $aiNote === '']);
-    return ['fields' => $fields, 'warnings' => $warnings, 'note' => $aiNote, 'images' => count($paths)];
+    $domain = $hints['domain'];
+    if ($domain === '' && preg_match('/^(?:[a-z0-9](?:[a-z0-9\-]{0,61}[a-z0-9])?\.)+[a-z]{2,24}$/D', strtolower(trim((string)($ai['domain'] ?? ''))))) $domain = strtolower(trim((string)$ai['domain']));
+    return ['fields' => $fields, 'warnings' => $warnings, 'note' => $aiNote, 'images' => count($paths), 'domain' => $domain];
 }
 function bt_action_create($input, $actor)
 {

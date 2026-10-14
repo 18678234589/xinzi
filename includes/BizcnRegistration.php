@@ -157,6 +157,32 @@ function br_dispatch($action,$input,$actor)
         ps_audit('domain_registration',0,'template_panel',$actor,['via'=>$domain]);
         return ['url'=>'https://dnsmsn.com/login/domain/doLogin.do?token='.rawurlencode($data['token'])];
     }
+    if($action==='registration_precheck') {
+        // Read-only: domain registrability/price and whether the customer's real-name subject already has a template. Never buys, never creates.
+        $out=['domain'=>null,'templates'=>[],'refreshed'=>false];
+        $raw=trim((string)($input['domain'] ?? ''));
+        if($raw!=='') {
+            try {
+                $domain=bd_domain($raw);$out['domain']=['name'=>$domain,'state'=>'unavailable','message'=>''];
+                if(bc_find($domain)) {$out['domain']['state']='owned';$out['domain']['message']='该域名已在本账户目录中，不要重复注册';}
+                else {$price=br_price($domain);$out['domain']=['name'=>$domain,'state'=>'available','message'=>'','price_cents'=>$price['price_cents'],'premium'=>$price['premium'],'premium_blocked'=>$price['premium'] && !br_admin($actor)];}
+            } catch(InvalidArgumentException $e) {$out['domain']=['name'=>$raw,'state'=>'invalid','message'=>$e->getMessage()];}
+            catch(RuntimeException $e) {$out['domain']['state']='unavailable';$out['domain']['message']=$e->getMessage();}
+        }
+        $owner=trim((string)($input['owner'] ?? ''));
+        if($owner!=='' && mb_strlen($owner)<=200 && !preg_match('/[\x00-\x1f]/',$owner)) {
+            try{br_sync_templates_page($pdo,$account,1,50,$now);$out['refreshed']=true;}catch(Throwable $e){error_log('Bizcn precheck refresh failed: '.get_class($e));}
+            $names=array_values(array_unique([$owner,strtr($owner,['（'=>'(','）'=>')']),strtr($owner,['('=>'（',')'=>'）'])]));
+            $in=implode(',',array_fill(0,count($names),'?'));
+            $q=$pdo->prepare("SELECT template_id id,label,owner_label owner FROM bizcn_registration_templates WHERE provider_account=? AND (owner_label IN ($in) OR label IN ($in)) ORDER BY refreshed_at DESC,template_id LIMIT 3");
+            $q->execute(array_merge([$account],$names,$names));
+            foreach($q->fetchAll(PDO::FETCH_ASSOC) as $t) {
+                try{$st=bd_call('domainTemplateService','queryTemplateAuthStatus',['contid'=>$t['id']]);$t['status']=(string)($st['auditstatus'] ?? '');}catch(Throwable $e){$t['status']='';}
+                $out['templates'][]=$t;
+            }
+        }
+        return $out;
+    }
     if($action==='registration_template_ai')return bt_action_ai($input,$actor);
     if($action==='registration_template_create')return bt_action_create($input,$actor);
     if($action==='registration_template_status')return bt_action_status($input);
