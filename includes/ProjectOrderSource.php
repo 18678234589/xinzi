@@ -146,7 +146,21 @@ function ps_shop_compatible($orderShop, $statementShop)
 {
     $a = trim((string)$orderShop); $b = trim((string)$statementShop);
     if ($a === '' || $b === '' || $a === $b) return true;
-    return mb_strpos($a, '对公') !== false && mb_strpos($b, '对公') !== false;
+    $ca = ps_shop_channel($a);
+    return $ca !== '' && $ca === ps_shop_channel($b);
+}
+
+/**
+ * 收款渠道型“店铺”归类：订单表里写“微信”，流水里的店铺叫“科恒扫码收款”——都是微信扫码收款；“对公转账 / 对公收款 / 知网龙源对公转账”都是对公。
+ * 返回 'wechat' / 'public' / ''（普通店铺，须店铺名完全相同）。
+ */
+function ps_shop_channel($name)
+{
+    $n = trim((string)$name);
+    if ($n === '') return '';
+    if (mb_strpos($n, '对公') !== false) return 'public';
+    if (in_array($n, ['微信', '微信收款', '微信支付', '扫码收款'], true) || mb_strpos($n, '扫码收款') !== false) return 'wechat';
+    return '';
 }
 
 /** 店铺流水里订单状态变得更靠后（如交易成功 → 交易关闭）时，同步到同订单号的项目订单的“交易状态”。只前进、不回退。 */

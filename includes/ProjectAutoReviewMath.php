@@ -15,9 +15,11 @@ function pa_cents($value)
 function pa_payment_evidence(array $sources, $shop, $asof = null)
 {
     $shops = []; $paid = []; $refund = 0; $refs = []; $warnings = []; $referenceOrders = [];
+    if (!function_exists('ps_shop_compatible')) require_once __DIR__ . '/ProjectOrderSource.php';
     foreach ($sources as $source) {
         $sourceShop = trim((string)($source['shop'] ?? ''));
-        if ($shop !== '' && $sourceShop !== $shop) continue;
+        // 订单表里写“微信 / 对公”，流水店铺叫“科恒扫码收款 / 对公收款”：同一收款渠道算同一来源，否则流水对上了也被丢掉
+        if ($shop !== '' && !ps_shop_compatible($shop, $sourceShop)) continue;
         $shops[$sourceShop] = true;
         if (!empty($source['matched_by_reference'])) $referenceOrders[(string)($source['order_no'] ?? $source['id'])] = true;
         $raw = $source['raw'] ?? [];
@@ -37,6 +39,8 @@ function pa_payment_evidence(array $sources, $shop, $asof = null)
             }
         }
         $fields = ['买家实际支付金额', '买家实付金额', '买家实付款', '实付金额', '实际付款金额', '实际支付金额', '支付金额'];
+        // 收款流水账单（科恒扫码收款的“交易金额”、对公收款的“金额”）：仅 shop_statement 且交易成功才认，防普通店铺行误取
+        if (($raw['__financial_source__'] ?? '') === 'shop_statement') array_push($fields, '金额', '交易金额');
         foreach ($raw as $key => $value) {
             $key = preg_replace('/[\s（）()]/u', '', (string)$key);
             $key = preg_replace('/元$/u', '', $key);
