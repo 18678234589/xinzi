@@ -72,8 +72,8 @@
   el('registrationToggle').onclick = function () { var open = el('registrationWorkspace').hidden; el('registrationWorkspace').hidden = !open; this.setAttribute('aria-expanded', String(open)); if (open) history().catch(function (e) { notice(e.message, true); }); };
   el('registrationSearch').onsubmit = function (e) {
     e.preventDefault(); cancelQuote(); busy(el('registrationCheck'), async function () {
-      quote = await api('quote', { domain: el('registrationDomain').value.trim(), template_id: el('registrationTemplate').value, order_no: el('registrationOrderNo').value.trim() }); var q = quote.quote;
-      el('registrationQuote').innerHTML = [['域名', q.domain], ['一年注册价', '¥' + (q.price_cents / 100).toFixed(2) + (q.premium ? ' · 高价域名' : '')], ['实名主体', q.template.owner], ['模板', q.template.label], ['默认 NS', q.ns.join(' / ')], ['有效期', '5分钟，提交时再次核价']].concat(q.order_no ? [['关联订单', q.order_no]] : []).concat(q.template_pending ? [['实名状态', '审核中：域名先注册，实名随后审核通过']] : []).map(function (p) { return '<article><span>' + esc(p[0]) + '</span><strong>' + esc(p[1]) + '</strong></article>'; }).join('');
+      quote = await api('quote', { domain: el('registrationDomain').value.trim(), template_id: el('registrationTemplate').value, term: el('registrationTerm').value, order_no: el('registrationOrderNo').value.trim() }); var q = quote.quote;
+      el('registrationQuote').innerHTML = [['域名', q.domain], ['注册年限', (q.term || 1) + ' 年'], [(q.term || 1) > 1 ? '合计（单年 ¥' + (q.unit_price_cents / 100).toFixed(2) + ' × ' + q.term + '）' : '一年注册价', '¥' + (q.price_cents / 100).toFixed(2) + (q.premium ? ' · 高价域名' : '')], ['实名主体', q.template.owner], ['模板', q.template.label], ['默认 NS', q.ns.join(' / ')], ['有效期', '5分钟，提交时再次核价']].concat(q.order_no ? [['关联订单', q.order_no]] : []).concat(q.template_pending ? [['实名状态', '审核中：域名先注册，实名随后审核通过']] : []).map(function (p) { return '<article><span>' + esc(p[0]) + '</span><strong>' + esc(p[1]) + '</strong></article>'; }).join('');
       el('registrationConfirm').hidden = false; notice('可以注册。请核对以下信息，再确认购买。', false);
     });
   };
@@ -85,11 +85,11 @@
     var tab = window.open('', '_blank'); if (tab) tab.opener = null;
     busy(this, async function () { try { var d = await api('panel'); if (tab) tab.location.href = d.url; else window.location.href = d.url; notice('已打开商务中国官方面板：在「域名管理 > 添加域名模板」创建实名信息，审核通过后回到这里刷新最新实名。', false); } catch (e) { if (tab) tab.close(); throw e; } });
   };
-  el('registrationDomain').oninput = cancelQuote; el('registrationTemplate').onchange = cancelQuote; el('registrationCancel').onclick = cancelQuote;
+  el('registrationDomain').oninput = cancelQuote; el('registrationTemplate').onchange = cancelQuote; el('registrationTerm').onchange = cancelQuote; el('registrationCancel').onclick = cancelQuote;
   el('registrationConfirm').onsubmit = function (e) {
     e.preventDefault(); if (!quote || !el('registrationAck').checked) return;
     var saved = quote, q = saved.quote;
-    if (!window.confirm('确认注册 ' + q.domain + '（1年）\n实名主体：' + q.template.owner + '\n真实扣费：¥' + (q.price_cents / 100).toFixed(2) + '？')) return;
+    if (!window.confirm('确认注册 ' + q.domain + '（' + (q.term || 1) + '年）\n实名主体：' + q.template.owner + '\n真实扣费：¥' + (q.price_cents / 100).toFixed(2) + '？')) return;
     busy(el('registrationBuy'), async function () {
       // Stop repeat purchase UX immediately, including on timeout. The ledger remains authoritative.
       cancelQuote();

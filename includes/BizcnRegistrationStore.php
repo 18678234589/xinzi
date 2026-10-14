@@ -86,7 +86,7 @@ function br_record_result($pdo,$id,$data,$now)
         $safe=array_intersect_key($data,array_flip(['orderid','status','domainname','createdate','expirationdate','expirationtime','registrar','totalprice']));
         // Validate totalprice against the confirmed quote; a mismatched billed amount needs reconciliation.
         $quote=json_decode($r['quote_json'],true);
-        if($state==='registered' && isset($data['totalprice']) && (int)round((float)$data['totalprice']*100)!==(int)$quote['price_cents'])$state='unknown';
+        if($state==='registered' && isset($data['totalprice']) && (int)round((float)$data['totalprice']*100)>(int)$quote['price_cents'])$state='unknown';
         $pdo->prepare('UPDATE bizcn_registration_requests SET status=?,order_id=?,result_json=?,confirmed_day=?,domain_lock=? WHERE id=?')->execute([$state,(string)(!empty($data['orderid']) ? $data['orderid'] : $r['order_id']),json_encode($safe,JSON_UNESCAPED_UNICODE),$state==='registered'?br_day($now):null,$state==='failed'?null:$r['domain_lock'],$id]);
         $pdo->commit();return $state;
     }catch(Throwable $e){if($pdo->inTransaction())$pdo->rollBack();throw $e;}

@@ -12,6 +12,8 @@ function br_template_pass($id,$allowAuditing=false)
     if($status==='unpass')throw new RuntimeException('所选实名模板审核未通过，请核对资料后重新提交实名');
     throw new RuntimeException('所选实名模板尚未审核通过，请在商务中国完成实名');
 }
+/** 可选注册年限（接口文档：1、2、5、10 年）。 */
+function br_terms() { return [1,2,5,10]; }
 function br_price($domain)
 {
     $d=bd_call('domainService','checkPremium',['domainname'=>$domain]);
@@ -119,7 +121,11 @@ function br_dispatch($action,$input,$actor)
         $orderRow=trim((string)($input['order_no'] ?? ''))!=='' ? bo_order_for_actor($pdo,$actor,$input['order_no']) : null;
         $tplStatus=br_template_pass($template['id'],true);$price=br_price($domain);
         if($price['premium'] && !br_admin($actor))throw new RuntimeException('这是高价域名，请由管理员核对后注册');
-        $quote=['domain'=>$domain,'term'=>1,'currency'=>'CNY','template'=>$template,'ns'=>$s['ns'],'revision'=>$s['revision'],'template_pending'=>$tplStatus!=='pass']+($orderRow ? ['order_id'=>(int)$orderRow['id'],'order_no'=>$orderRow['order_no']] : [])+$price;
+        $term=(int)($input['term'] ?? 1);
+        if(!in_array($term,br_terms(),true))throw new InvalidArgumentException('注册年限仅支持 '.implode('、',br_terms()).' 年');
+        if($price['premium'] && $term!==1)throw new RuntimeException('高价域名仅支持注册 1 年，请选择 1 年');
+        $price['unit_price_cents']=$price['price_cents'];$price['price_cents']=$price['price_cents']*$term;
+        $quote=['domain'=>$domain,'term'=>$term,'currency'=>'CNY','template'=>$template,'ns'=>$s['ns'],'revision'=>$s['revision'],'template_pending'=>$tplStatus!=='pass']+($orderRow ? ['order_id'=>(int)$orderRow['id'],'order_no'=>$orderRow['order_no']] : [])+$price;
         return br_quote_save($pdo,$account,$actor,$quote,$now);
     }
     if($action==='registration_submit') {
@@ -130,16 +136,16 @@ function br_dispatch($action,$input,$actor)
             $quote=json_decode($r['quote_json'],true);
             if((int)$r['expires_at']<$now || (int)$quote['revision']!==$s['revision'])throw new RuntimeException('报价已过期，请重新查询');
             br_template_pass($quote['template']['id'],!empty($quote['template_pending']));$fresh=br_price($quote['domain']);
-            if($fresh['price_cents']!==$quote['price_cents'] || $fresh['premium']!==$quote['premium'])throw new RuntimeException('注册商价格已变化，请重新查询报价后确认');
+            if($fresh['price_cents']*max(1,(int)($quote['term'] ?? 1))!==$quote['price_cents'] || $fresh['premium']!==$quote['premium'])throw new RuntimeException('注册商价格已变化，请重新查询报价后确认');
         }
         $r=br_reserve($pdo,$account,$actor,$input['token'],$input['confirm'],$input['ack'],time());
         if(br_mark_started($pdo,$r['id'],time())) {
             $quote=json_decode($r['quote_json'],true);
             try {
-                $d=bd_transport('domainService','addDomainByID',['domainname'=>$quote['domain'],'term'=>1,'dns_host1'=>$quote['ns'][0],'dns_host2'=>$quote['ns'][1],'contid'=>$quote['template']['id'],'agent_orderid'=>(string)$r['id'],'price'=>number_format($quote['price_cents']/100,2,'.','')]);
+                $d=bd_transport('domainService','addDomainByID',['domainname'=>$quote['domain'],'term'=>max(1,(int)($quote['term'] ?? 1)),'dns_host1'=>$quote['ns'][0],'dns_host2'=>$quote['ns'][1],'contid'=>$quote['template']['id'],'agent_orderid'=>(string)$r['id'],'price'=>number_format($quote['price_cents']/100,2,'.','')]);
                 br_record_result($pdo,$r['id'],$d,time());
             }catch(Throwable $e) {error_log('Bizcn registration awaiting reconciliation: request '.(int)$r['id'].' '.get_class($e));}
-            ps_audit('domain_registration',$r['id'],'submitted',$actor,['domain'=>$r['domainname'],'price_cents'=>$quote['price_cents']]);
+            ps_audit('domain_registration',$r['id'],'submitted',$actor,['domain'=>$r['domainname'],'term'=>(int)($quote['term'] ?? 1),'price_cents'=>$quote['price_cents']]);
         }
         $r=br_request($pdo,$account,$actor,$r['id']);br_catalog_registered($r);return br_public($r);
     }

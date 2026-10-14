@@ -280,6 +280,6 @@ include __DIR__ . '/../includes/header.php';
 <script src="<?php echo BASE_URL; ?>/assets/js/domain-dns.js?v=20261012r1" defer></script>
 <script src="<?php echo BASE_URL; ?>/assets/js/domains.js?v=20261014-orders" defer></script>
 <script src="<?php echo BASE_URL; ?>/assets/js/domain-dns-link.js?v=20261012-dnspod" defer></script>
-<script src="<?php echo BASE_URL; ?>/assets/js/domain-registration.js?v=20261014r8" defer></script>
+<script src="<?php echo BASE_URL; ?>/assets/js/domain-registration.js?v=20261014r9" defer></script>
 <script src="<?php echo BASE_URL; ?>/assets/js/domain-template-ai.js?v=20261014r4" defer></script>
 <?php include __DIR__ . '/../includes/footer.php'; ?>
