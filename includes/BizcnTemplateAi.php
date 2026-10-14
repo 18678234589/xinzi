@@ -374,7 +374,7 @@ function bt_action_create($input, $actor)
     $contid = (string)($d['contid'] ?? '');
     if (!preg_match('/^[a-zA-Z0-9_-]{1,100}$/D', $contid)) throw new RuntimeException('商务中国没有返回模板编号。请先到商务中国后台核对是否已生成「' . $f['template_name'] . '」，不要重复提交');
     ps_audit('domain_template', 0, 'create_success', $actor, ['name' => $f['template_name'], 'kind' => $f['kind'], 'contid' => $contid]);
-    return ['contid' => $contid, 'template_name' => $f['template_name'], 'message' => '已提交商务中国实名审核（通常 2–5 个工作日）。通过后在注册区点「刷新最新实名并查找」即可选用。'];
+    return ['contid' => $contid, 'template_name' => $f['template_name'], 'owner_name' => $f['owner_name'], 'message' => '已提交商务中国实名审核（通常十几分钟到 2–5 个工作日）。'];
 }
 function bt_action_status($input)
 {

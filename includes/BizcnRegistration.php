@@ -2,11 +2,14 @@
 require_once __DIR__.'/BizcnRegistrationStore.php';
 require_once __DIR__.'/BizcnTemplateAi.php';
 
-function br_template_pass($id)
+function br_template_pass($id,$allowAuditing=false)
 {
     if(!preg_match('/^[a-zA-Z0-9_-]{1,100}$/D',(string)$id))throw new InvalidArgumentException('实名模板编号不正确');
     $d=bd_call('domainTemplateService','queryTemplateAuthStatus',['contid'=>$id]);
-    if(($d['auditstatus'] ?? '')!=='pass')throw new RuntimeException('所选实名模板尚未审核通过，请在商务中国完成实名');
+    $status=(string)($d['auditstatus'] ?? '');
+    if($status==='pass' || ($allowAuditing && $status==='cnnicauditing'))return $status;
+    if($status==='unpass')throw new RuntimeException('所选实名模板审核未通过，请核对资料后重新提交实名');
+    throw new RuntimeException('所选实名模板尚未审核通过，请在商务中国完成实名');
 }
 function br_price($domain)
 {
@@ -109,9 +112,9 @@ function br_dispatch($action,$input,$actor)
         if(!$template)throw new RuntimeException('请先查找并选择客户的实名主体；新客户请先创建实名信息，审核通过后点“刷新最新实名”');
         if(count($s['ns'])!==2 || $s['daily_limit']===0)throw new RuntimeException('注册暂未开启，请联系管理员配置默认 NS 与每日额度');
         if(bc_find($domain))throw new RuntimeException('该域名已在目录中，请先查看已有域名，不要重复注册');
-        br_template_pass($template['id']);$price=br_price($domain);
+        $tplStatus=br_template_pass($template['id'],true);$price=br_price($domain);
         if($price['premium'] && !br_admin($actor))throw new RuntimeException('这是高价域名，请由管理员核对后注册');
-        $quote=['domain'=>$domain,'term'=>1,'currency'=>'CNY','template'=>$template,'ns'=>$s['ns'],'revision'=>$s['revision']]+$price;
+        $quote=['domain'=>$domain,'term'=>1,'currency'=>'CNY','template'=>$template,'ns'=>$s['ns'],'revision'=>$s['revision'],'template_pending'=>$tplStatus!=='pass']+$price;
         return br_quote_save($pdo,$account,$actor,$quote,$now);
     }
     if($action==='registration_submit') {
@@ -121,7 +124,7 @@ function br_dispatch($action,$input,$actor)
         if($r['status']==='quoted') {
             $quote=json_decode($r['quote_json'],true);
             if((int)$r['expires_at']<$now || (int)$quote['revision']!==$s['revision'])throw new RuntimeException('报价已过期，请重新查询');
-            br_template_pass($quote['template']['id']);$fresh=br_price($quote['domain']);
+            br_template_pass($quote['template']['id'],!empty($quote['template_pending']));$fresh=br_price($quote['domain']);
             if($fresh['price_cents']!==$quote['price_cents'] || $fresh['premium']!==$quote['premium'])throw new RuntimeException('注册商价格已变化，请重新查询报价后确认');
         }
         $r=br_reserve($pdo,$account,$actor,$input['token'],$input['confirm'],$input['ack'],time());
@@ -184,7 +187,13 @@ function br_dispatch($action,$input,$actor)
         return $out;
     }
     if($action==='registration_template_ai')return bt_action_ai($input,$actor);
-    if($action==='registration_template_create')return bt_action_create($input,$actor);
+    if($action==='registration_template_create') {
+        $r=bt_action_create($input,$actor);
+        // Cache the new template right away so it can be selected before the next directory sync (audit-pending templates may not appear on page 1).
+        $save=$pdo->prepare($pdo->getAttribute(PDO::ATTR_DRIVER_NAME)==='sqlite' ? 'INSERT INTO bizcn_registration_templates (provider_account,template_id,label,owner_label,refreshed_at) VALUES (?,?,?,?,?) ON CONFLICT(provider_account,template_id) DO UPDATE SET label=excluded.label,owner_label=excluded.owner_label,refreshed_at=excluded.refreshed_at' : 'INSERT INTO bizcn_registration_templates (provider_account,template_id,label,owner_label,refreshed_at) VALUES (?,?,?,?,?) ON DUPLICATE KEY UPDATE label=VALUES(label),owner_label=VALUES(owner_label),refreshed_at=VALUES(refreshed_at)');
+        try{$save->execute([$account,$r['contid'],mb_substr($r['template_name'],0,120),mb_substr($r['owner_name'],0,200),$now]);}catch(Throwable $e){error_log('Bizcn template cache failed: '.get_class($e));}
+        return $r;
+    }
     if($action==='registration_template_status')return bt_action_status($input);
     if($action==='registration_template_contact')return bt_action_contact($input,$actor);
     if($action==='registration_status') {

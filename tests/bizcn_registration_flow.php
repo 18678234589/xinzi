@@ -10,6 +10,7 @@ function ps_audit(){return;}
 function bd_call($service,$method,$args){
     global $mockPrice,$mockPremium,$mockAuth,$mockResult;
     if($method==='queryTemplateAuthStatus')return ['auditstatus'=>$mockAuth];
+    if($method==='addTemplate')return ['contid'=>'bizcreated001'];
     if($method==='checkPremium')return ['domains'=>['domain'=>['name'=>$args['domainname'],'avail'=>'1','premium'=>$mockPremium,'price'=>$mockPrice]]];
     if($method==='queryDomainOrder')return $mockResult;
     if($method==='getTemplateList')return ['pageno'=>500,'totalresult'=>2,'domaintemplatelist'=>['domaintemplate'=>[['contid'=>'f1','templatename'=>'公司甲','org_m'=>'甲主体'],['contid'=>'f2','templatename'=>'公司乙','org_m'=>'乙主体']]]];
@@ -60,4 +61,18 @@ $pc=br_dispatch('registration_precheck',['domain'=>'new.example.com','owner'=>'�
 $pc=br_dispatch('registration_precheck',['domain'=>'https://bad','owner'=>''],$a);bt($pc['domain']['state']==='invalid','precheck: invalid domain reported not thrown');
 $mockPremium='true';$pc=br_dispatch('registration_precheck',['domain'=>'vip.example.com','owner'=>''],$a);bt($pc['domain']['premium_blocked']===true,'precheck: premium blocked for staff');$pc=br_dispatch('registration_precheck',['domain'=>'vip.example.com','owner'=>''],$admin);bt($pc['domain']['premium_blocked']===false,'precheck: premium allowed for admin');$mockPremium='false';
 bt($calls===$before,'precheck never buys');
+// 实名与注册一起提交：审核中的模板可报价并注册，未通过的不行
+$mockAuth='cnnicauditing';$before=$calls;
+$q=br_dispatch('registration_quote',['domain'=>'together.example.com','template_id'=>'f2'],$a);bt($q['quote']['template_pending']===true&&$calls===$before,'auditing template can be quoted, flagged pending, no purchase');
+$mockResult=['status'=>'1','orderid'=>'pending-order'];$r=br_dispatch('registration_submit',['token'=>$q['token'],'confirm'=>'together.example.com','ack'=>'1'],$a);bt($r['status']==='processing'&&$calls===$before+1,'pending-audit template registration reaches provider once');
+$q=br_dispatch('registration_quote',['domain'=>'together2.example.com','template_id'=>'f2'],$a);$mockAuth='unpass';
+bt(reject(function()use($q,$a){br_dispatch('registration_submit',['token'=>$q['token'],'confirm'=>'together2.example.com','ack'=>'1'],$a);}),'template rejected between quote and submit blocks purchase');bt($calls===$before+1,'no purchase after rejection');
+$mockAuth='pass';$q=br_dispatch('registration_quote',['domain'=>'together3.example.com','template_id'=>'f2'],$a);bt($q['quote']['template_pending']===false,'passed template not flagged');
+// 新建实名后立即可选
+define('BT_TEST_UPLOADS',true);$img=sys_get_temp_dir().'/flow_cert.jpg';$im=imagecreatetruecolor(1600,1000);mt_srand(5);for($i=0;$i<4000;$i++)imagefilledrectangle($im,mt_rand(0,1600),mt_rand(0,1000),mt_rand(0,1600),mt_rand(0,1000),imagecolorallocate($im,mt_rand(0,255),mt_rand(0,255),mt_rand(0,255)));imagejpeg($im,$img,95);
+$fields=['kind'=>'company','cert_type'=>'YYZZ','template_name'=>'新客户公司','owner_name'=>'新客户有限公司','cert_no'=>'91350100M000100Y43','surname'=>'张','given_name'=>'三','province'=>'山东省','city'=>'济南市','address'=>'历下区经十路1号','postcode'=>'250000','phone'=>'13812345678','email'=>'a@b.com','org_e'=>'New Co','surname_e'=>'Zhang','given_name_e'=>'San','province_e'=>'Shandong','city_e'=>'Jinan','address_e'=>'No.1 Road'];
+$cr=br_dispatch('registration_template_create',['fields'=>json_encode($fields,JSON_UNESCAPED_UNICODE),'ack'=>'1','_files'=>['images'=>['tmp_name'=>[$img],'error'=>[0]]]],$a);
+bt($cr['contid']==='bizcreated001','template created via dispatch');
+$found=br_dispatch('registration_find_template',['search'=>'新客户有限公司'],$a);bt(count($found['rows'])===1&&$found['rows'][0]['id']==='bizcreated001','new template cached and findable immediately');
+unlink($img);
 echo json_encode(['passed'=>$checks,'failed'=>0,'mock_paid_calls'=>$calls,'real_paid_api_calls'=>0],JSON_UNESCAPED_UNICODE)."\n";

@@ -77,16 +77,17 @@
     (d.templates || []).forEach(function (t) { if (t.status === 'pass' && !usable) usable = t; if (t.status === 'cnnicauditing' && !pending) pending = t; });
     if (!owner) html += card('warn', '实名主体', '没有识别到公司名 / 姓名，请在下方表单填写。');
     else if (usable) html += card('ok', '实名主体已就绪', esc(usable.owner || usable.label) + ' 已有审核通过的实名模板 <code>' + esc(usable.id) + '</code>，无需再提交实名。');
-    else if (pending) html += card('warn', '实名审核中', esc(pending.owner || pending.label) + ' 的实名模板 <code>' + esc(pending.id) + '</code> 正在审核（2–5 个工作日），通过后再回来粘贴同样的信息即可注册。 <button type="button" class="domain-btn" id="tcStatusBtn" data-id="' + esc(pending.id) + '">查询审核进度</button>');
+    else if (pending) html += card('warn', '实名审核中', esc(pending.owner || pending.label) + ' 的实名模板 <code>' + esc(pending.id) + '</code> 正在审核。可以<b>先注册域名、实名随后审核</b>（与商务中国后台「注册 + 实名一起提交」一致）；是否接受以商务中国返回为准，若失败请先到「注册申请记录」核对。 <button type="button" class="domain-btn" id="tcStatusBtn" data-id="' + esc(pending.id) + '">查询审核进度</button>');
     else html += card('warn', '还没有实名模板', esc(owner) + ' 在商务中国还没有实名模板，需要先提交实名（下方表单已填好，核对后点「核对无误，提交实名审核」）。');
     var actions = '';
-    if (usable && dom && dom.state === 'available' && !dom.premium_blocked) actions += '<button type="button" class="domain-btn" id="tcUse">使用该主体注册 ' + esc(dom.name) + '（查询报价）</button>';
+    var chosen = usable || pending;
+    if (chosen && dom && dom.state === 'available' && !dom.premium_blocked) actions += '<button type="button" class="domain-btn" id="tcUse">' + (usable ? '使用该主体注册 ' : '实名审核中也先注册 ') + esc(dom.name) + '（查询报价）</button>';
     var holder = el('tcChecks'); holder.innerHTML = html + (actions ? '<div class="registration-check-actions">' + actions + '</div>' : '');
     var st = el('tcStatusBtn'); if (st) st.onclick = checkStatus;
     var use = el('tcUse');
     if (use) use.onclick = function () {
       el('registrationDomain').value = dom.name;
-      var sel = el('registrationTemplate'); sel.innerHTML = '<option value="' + esc(usable.id) + '" selected>' + esc((usable.owner || usable.label) + ' · ' + usable.id) + '</option>'; sel.value = usable.id;
+      var sel = el('registrationTemplate'); sel.innerHTML = '<option value="' + esc(chosen.id) + '" selected>' + esc((chosen.owner || chosen.label) + ' · ' + chosen.id) + '</option>'; sel.value = chosen.id;
       el('registrationSearch').scrollIntoView({ behavior: 'smooth', block: 'center' }); el('registrationCheck').click();
     };
     el('tcPrecheck').hidden = false; el('tcDomain').value = domain;
@@ -124,9 +125,11 @@
       var body = new FormData(); body.set('fields', JSON.stringify(f)); body.set('ack', '1'); files.forEach(function (x) { body.append('images[]', x, x.name); });
       var d = await post('template_create', body, 150000);
       var r = el('tcResult'); r.classList.remove('error'); r.hidden = false;
-      r.innerHTML = '<strong>' + esc(d.template_name) + '</strong> 已提交，模板编号 <code>' + esc(d.contid) + '</code>。' + esc(d.message) + ' 审核通过后，把同样的客户信息再粘贴一次，就能直接用该主体注册。 <button type="button" class="domain-btn" id="tcStatusBtn2" data-id="' + esc(d.contid) + '">查询审核进度</button>';
+      r.innerHTML = '<strong>' + esc(d.template_name) + '</strong> 已提交，模板编号 <code>' + esc(d.contid) + '</code>。' + esc(d.message) + ' <button type="button" class="domain-btn" id="tcStatusBtn2" data-id="' + esc(d.contid) + '">查询审核进度</button>';
       el('tcStatusBtn2').onclick = checkStatus; el('tcForm').hidden = true; el('tcFiles').value = ''; files = []; el('tcFileInfo').textContent = '';
       el('registrationTemplateQuery').value = d.contid;
+      // 紧接着预检：域名可注册时直接出现「实名审核中也先注册」按钮，实名与注册一起走。
+      try { note('tcNotice', '实名已提交，正在查询域名…', false); await precheck(el('tcDomain').value.trim(), f.owner_name); note('tcNotice', '实名已提交。域名预检结果见下方，可直接继续注册。', false); } catch (e2) { note('tcNotice', '实名已提交，但域名预检没有成功：' + e2.message, true); }
     } catch (err) { note('tcResult', err.message, true); }
     finally { submitting = false; b.disabled = false; b.textContent = old; }
   };
