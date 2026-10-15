@@ -173,6 +173,7 @@ function ptc_merge_import_details($orderId, &$details, $incoming, $actor)
 /** 财务生成分成前必须有已核对成本；旧的错误默认注册成本也不能直接过关。 */
 function ptc_approval_guard($orderId, $costs)
 {
+    if (ptc_cost_carried_by($orderId)) return; // 同一商标的官费由同组承担订单计入，由那张订单的校验把关。
     [$details, $context] = ptc_order_pricing_data($orderId);
     $templates = ptc_templates();
     $actual = round(array_sum(array_map(function ($c) { return $c['review_status'] === 'approved' ? (float)$c['amount'] : 0; }, $costs)), 2);

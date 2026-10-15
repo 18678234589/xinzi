@@ -41,6 +41,13 @@ function ptc_reconcile_order_cost($orderId, $actor, $origin, $excelCost = null, 
     }
     $plan = ptc_cost_plan(ptc_templates(), $details, $context, $excel > 0 ? $excel : null);
     if ($plan['status'] !== 'ready') return 'unresolved';
+    // 同一客户同一商标同一事项同一天的拆单 / 补款订单只由一张订单承担官费，其余订单的自动成本不保留。
+    [$carrier, $siblings] = ptc_cost_group($orderId, $details, $plan['service']);
+    $dropNote = '商标成本重新核对，原自动成本被替换';
+    if ($carrier && $carrier !== (int)$orderId) {
+        $plan['lines'] = [];
+        $dropNote = '同一商标的成本已由订单 #' . $carrier . ' 承担，本单不重复计入';
+    }
     foreach($rejected as$r)foreach($plan['lines']as$line)if($line['template']&&(int)$r['template_id']===(int)$line['template']['id']&&abs((float)$r['amount']-$line['amount'])<0.004&&abs((float)$r['quantity']-$line['quantity'])<0.004&&preg_match('/^(?:Excel|商标自动|成本修复|补带)/u',(string)$r['reason']))return 'rejected';
     $details['trademark_service'] = $plan['service'];
     if ($excel > 0) $details['trademark_excel_cost'] = $excel;
@@ -89,9 +96,11 @@ function ptc_reconcile_order_cost($orderId, $actor, $origin, $excelCost = null, 
         $changed = true;
     }
     foreach ($managed as $r) if (!isset($used[$r['id']])) {
-        $pdo->prepare("UPDATE project_costs SET review_status='rejected',review_note='商标成本重新核对，原自动成本被替换' WHERE id=?")->execute([(int)$r['id']]);
+        $pdo->prepare("UPDATE project_costs SET review_status='rejected',review_note=? WHERE id=?")->execute([$dropNote, (int)$r['id']]);
         ps_audit('cost', (int)$r['id'], 'replace_trademark_auto_cost', $actor, ['order_id' => (int)$orderId, 'from' => $r, 'origin' => $origin]);
         $changed = true;
     }
+    // 本单是承担订单：同组其余订单此前自动带入的成本一并作废（它们各自重新核对时会发现承担者不是自己）。
+    if ($carrier === (int)$orderId) foreach ($siblings as $siblingId) ptc_reconcile_order_cost($siblingId, $actor, '同商标成本合并');
     return $changed ? ($rows ? 'corrected' : 'added') : 'ok';
 }

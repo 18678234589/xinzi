@@ -46,6 +46,70 @@ function ptc_count_label($count)
     return rtrim(rtrim(number_format((float)$count, 2, '.', ''), '0'), '.');
 }
 
+/** 订单办理事项：已确认的 trademark_service，否则取办理事项文字里唯一明确的一项（还没同步过的订单也能比对）。 */
+function ptc_order_service(array $d)
+{
+    $s = trim((string)($d['trademark_service'] ?? ''));
+    if ($s !== '') return $s;
+    $names = ptc_service_names((string)($d['service_type'] ?? ''));
+    return count($names) === 1 ? $names[0] : '';
+}
+
+/** 客户名去掉“（微信群聊）”之类的括注。 */
+function ptc_customer_base($name)
+{
+    return trim(preg_replace('/[（(].*$/u', '', (string)$name));
+}
+
+/**
+ * 多张订单共用一份标准成本（官费），只有“承担订单”自动带入，其余订单不再带入，避免同一件商标的官费被重复计入。
+ * 属于同一组：① 同一客户、同一商标注册号（商标名里 6 位以上数字）、同一办理事项、同一天（拆单 / 补款，如 400 + 100）；
+ * 或 ② 财务在“商标成本核对”里确认过是同一件商标（订单资料里有相同的 cost_group）。商标名没有注册号的不会自动合并。
+ * 承担订单：已冻结结算的优先，其次售价最高，再取最早建单。
+ * 返回 [承担订单 id, 同组其余订单 id 列表]；没有同组订单返回 [0, []]。
+ */
+function ptc_cost_group($orderId, array $details, $service)
+{
+    $service = trim((string)$service);
+    if (($details['cost_review'] ?? '') === 'separate') return [0, []];
+    $token = trim((string)($details['cost_group'] ?? ''));
+    $hasReg = preg_match('/\d{6,}/', (string)($details['trademark_name'] ?? ''), $m);
+    if (!$token && ($service === '' || !$hasReg)) return [0, []];
+    $me = db()->prepare('SELECT order_date,customer_name FROM project_orders WHERE id=?');
+    $me->execute([(int)$orderId]);
+    $me = $me->fetch();
+    if (!$me) return [0, []];
+    $customer = ptc_customer_base($me['customer_name']);
+    $like = addcslashes($customer, '\\%_') . '%';
+    $q = db()->prepare("SELECT o.id,o.customer_name,o.order_date,o.contract_amount,o.settlement_status,d.details_json FROM project_orders o JOIN project_order_details d ON d.order_id=o.id WHERE o.project_type='商标' AND o.customer_name LIKE ?");
+    $q->execute([$like]);
+    $group = [];
+    foreach ($q->fetchAll() as $r) {
+        $d = json_decode((string)$r['details_json'], true) ?: [];
+        if (($d['cost_review'] ?? '') === 'separate') continue;
+        if (ptc_customer_base($r['customer_name']) !== $customer) continue;
+        if ((int)$r['id'] !== (int)$orderId) {
+            $confirmed = $token && trim((string)($d['cost_group'] ?? '')) === $token;
+            $sameCase = $hasReg && $r['order_date'] === $me['order_date'] && preg_match('/\d{6,}/', (string)($d['trademark_name'] ?? ''), $n) && $n[0] === $m[0] && ptc_order_service($d) === $service;
+            if (!$confirmed && !$sameCase) continue;
+        }
+        $r['frozen'] = in_array($r['settlement_status'], ['approved', 'locked'], true) ? 0 : 1;
+        $group[] = $r;
+    }
+    if (count($group) < 2) return [0, []];
+    usort($group, function ($a, $b) { return [$a['frozen'], -(float)$a['contract_amount'], (int)$a['id']] <=> [$b['frozen'], -(float)$b['contract_amount'], (int)$b['id']]; });
+    $carrier = (int)$group[0]['id'];
+    return [$carrier, array_values(array_filter(array_map(function ($r) { return (int)$r['id']; }, $group), function ($id) use ($carrier) { return $id !== $carrier; }))];
+}
+
+/** 本单的官费是否由同组另一订单承担：是则返回承担订单 id，否则 0。 */
+function ptc_cost_carried_by($orderId)
+{
+    [$details] = ptc_order_pricing_data($orderId);
+    [$carrier] = ptc_cost_group($orderId, $details, ptc_order_service($details));
+    return $carrier && $carrier !== (int)$orderId ? $carrier : 0;
+}
+
 /** 给一张商标订单自动带入服务成本，返回新增条数（0 或 1）。调用方负责事务。 */
 function ptc_apply($orderId, $count, $actor, $origin, $text = '', ?array $templates = null)
 {
@@ -54,6 +118,8 @@ function ptc_apply($orderId, $count, $actor, $origin, $text = '', ?array $templa
     $details['trademark_count'] = $count;
     $plan = ptc_cost_plan($templates ?? ptc_templates(), $details, $storedText . ' ' . $text);
     if ($plan['status'] !== 'ready') return 0;
+    [$carrier] = ptc_cost_group($orderId, $details, $plan['service']);
+    if ($carrier && $carrier !== (int)$orderId) return 0; // 同一商标的官费已由同组另一订单承担
     foreach ($plan['lines'] as $line) ps_intake_add_template_cost($orderId, $line['template'], $actor, '商标自动：' . $origin . '；' . $plan['message'], $line['quantity'], $line['status']);
     return 1;
 }
