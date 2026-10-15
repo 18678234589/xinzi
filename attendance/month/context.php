@@ -9,6 +9,10 @@ $success = '';
 $error = '';
 
 ensureAttendanceTable();
+require_once __DIR__ . '/../../includes/ProjectMonthly.php';
+require_once __DIR__ . '/../../includes/AttendanceHomeWork.php';
+attendance_home_schema();
+if (empty($_SESSION['attendance_csrf'])) $_SESSION['attendance_csrf'] = bin2hex(random_bytes(24));
 
 $year  = (int)($_REQUEST['year'] ?? 0);
 $month = (int)($_REQUEST['month'] ?? 0);
@@ -21,6 +25,8 @@ if ($year <= 0 || $month < 1 || $month > 12) {
 /* split: attendance/month/actions/dispatch.php */ include (dirname(__DIR__, 1)) . '/month/actions/dispatch.php';
 
 // ===== 数据查询 =====
+$period = sprintf('%04d-%02d', $year, $month);
+$homeIds = attendance_home_ids($period);
 $employees = get_employees();
 $records = get_attendances_by_month($year, $month);
 $total = count($records);

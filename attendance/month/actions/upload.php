@@ -190,11 +190,6 @@
                         $empByName = [];
                         foreach ($empList as $e) $empByName[trim($e['name'])] = (int)$e['id'];
 
-                        // 上传前清空该月所有考勤记录，确保上传的数据就是最终数据
-                        db()->prepare("DELETE FROM attendances WHERE year=? AND month=?")->execute([$year, $month]);
-                        // 同步清空该月的待匹配记录（避免重复堆积）
-                        db()->prepare("DELETE FROM attendance_pending WHERE year=? AND month=?")->execute([$year, $month]);
-
                         require_once __DIR__ . '/../../../includes/ProjectMonthly.php';
                         $inserted = 0; $skipped = 0; $notFound = []; $otPeople = [];
                         $ins = db()->prepare("INSERT INTO attendances (employee_id, year, month, work_hours, absent_hours, remark, overtime_days, holiday_overtime_days)
@@ -203,6 +198,12 @@
                         $insPending = db()->prepare("INSERT INTO attendance_pending (employee_name, year, month, work_hours, absent_hours, remark, overtime_days, holiday_overtime_days)
                                                      VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
                         db()->beginTransaction();
+                        attendance_require_draft(sprintf('%04d-%02d', $year, $month));
+                        // 上传前清空该月所有考勤记录，确保上传的数据就是最终数据
+                        db()->prepare("DELETE FROM attendances WHERE year=? AND month=?")->execute([$year, $month]);
+                        // 同步清空该月的待匹配记录（避免重复堆积）
+                        db()->prepare("DELETE FROM attendance_pending WHERE year=? AND month=?")->execute([$year, $month]);
+
                         // 解析天数/小时值，支持 "25+2.5" 这类简单加减表达式（避免被 preg_replace 误拼成 252.5）
                         $parseNum = function($val) {
                             $cleaned = preg_replace('/[^\d.+\-]/', '', trim($val ?? ''));

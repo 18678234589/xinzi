@@ -1,6 +1,8 @@
 <?php
 if (PHP_SAPI !== 'cli') { http_response_code(403); exit; }
 require_once __DIR__ . '/../includes/ProjectMonthly.php';
+require_once __DIR__ . '/../includes/AttendanceHomeWork.php';
+attendance_home_schema();
 $pdo = db();
 $pdo->beginTransaction();
 try {
@@ -27,9 +29,25 @@ try {
     $rows = ps_monthly_results($month, true, ['rules'=>$rules, 'snapshots'=>[], 'inputs'=>[], 'attendance'=>ps_monthly_attendance($month)]);
     $amounts = array_column($rows, 'amount', 'employee_id');
     $check((float)$amounts[$people[0]] === 100.0 && (float)$amounts[$people[1]] === 0.0, '已上传考勤立即自动计入，居家记录排除');
+    $staff = array_map(function ($id) use ($pdo) {
+        $q = $pdo->prepare('SELECT id,name,department FROM employees WHERE id=?');
+        $q->execute([$id]);
+        return $q->fetch();
+    }, $people);
+    $matched = attendance_home_match([['姓名','部门'], [$staff[0]['name'], $staff[0]['department']]], $staff);
+    attendance_home_save($month, $matched, $adminId);
+    $check(ps_monthly_attendance($month)[$people[0]]['work_from_home'], '名单匹配保存后立即参与全勤计算');
+    $rejected = false;
+    try { attendance_home_match([['姓名','部门'], ['不存在', '错误部门']], $staff); } catch (RuntimeException $e) { $rejected = true; }
+    $check($rejected && attendance_home_ids($month) === $matched, '匹配失败不覆盖已保存名单');
+    attendance_home_save($month, [], $adminId);
+    $check(!ps_monthly_attendance($month)[$people[0]]['work_from_home'] && ps_monthly_attendance($month)[$people[1]]['work_from_home'], '取消手工名单恢复计算，保留原考勤居家标记');
     $rule = $rules[0];
     $pdo->prepare('INSERT INTO project_monthly_results (payroll_month,rule_id,rule_name,rule_type,employee_id,amount,paid_separately,detail) VALUES (?,?,?,?,?,?,0,?)')->execute([$month, $rule['id'], $rule['name'], 'attendance_bonus', $rule['employee_id'], 73.21, '锁定快照测试']);
     $pdo->prepare("UPDATE project_payroll_periods SET status='locked' WHERE period=?")->execute([$month]);
+    $rejected = false;
+    try { attendance_home_save($month, [$people[0]], $adminId); } catch (RuntimeException $e) { $rejected = true; }
+    $check($rejected && attendance_home_ids($month) === [], '锁定月份拒绝名单修改');
     $pdo->prepare("DELETE FROM project_monthly_rules WHERE employee_id=? AND rule_type='attendance_bonus'")->execute([$people[1]]);
     $rows = ps_monthly_results($month);
     $check(ps_monthly_ensure_attendance_rules($month, $adminId) === 0 && count($rows) === 1 && (float)$rows[0]['amount'] === 73.21, '锁定月份不补规则，历史金额按快照保持');

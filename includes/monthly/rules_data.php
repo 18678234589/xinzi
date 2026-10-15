@@ -94,6 +94,7 @@ function ps_monthly_snapshot_values($snap)
 /** 当月考勤（原系统考勤表，小时制，8 小时 = 1 天）。 */
 function ps_monthly_attendance($month)
 {
+    require_once __DIR__ . '/../AttendanceHomeWork.php';
     [$year, $mon] = array_map('intval', explode('-', $month));
     $out = [];
     try {
@@ -104,6 +105,10 @@ function ps_monthly_attendance($month)
             'work_from_home' => ps_attendance_work_from_home($row['remark'] ?? '')];
     } catch (PDOException $e) {
         // 未启用考勤模块时按满勤处理
+    }
+    foreach (attendance_home_ids($month) as $id) {
+        if (!isset($out[$id])) $out[$id] = ['work' => 0, 'absent' => 0, 'ot_days' => 0, 'ot_holiday_days' => 0, 'remark' => ''];
+        $out[$id]['work_from_home'] = true;
     }
     return $out;
 }

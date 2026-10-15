@@ -43,6 +43,7 @@
     <div class="alert alert-danger alert-dismissible fade show"><i class="fas fa-exclamation-circle"></i> <?php echo e($error); ?><button type="button" class="close" data-dismiss="alert">&times;</button></div>
 <?php endif; ?>
 
+<?php include __DIR__ . '/home_roster.php'; ?>
 <div class="row">
     <!-- 左侧：上传 + 手动添加 -->
     <div class="col-md-5">
@@ -50,7 +51,7 @@
         <div class="card mb-3">
             <div class="card-header bg-white"><h5 class="mb-0"><i class="fas fa-file-excel text-success"></i> 批量上传考勤表</h5></div>
             <div class="card-body">
-                <form method="post" enctype="multipart/form-data" id="uploadForm">
+                <form method="post" enctype="multipart/form-data" id="uploadForm"><input type="hidden" name="csrf_token" value="<?php echo e($_SESSION['attendance_csrf']); ?>">
                     <input type="hidden" name="action" value="upload">
                     <input type="hidden" name="year" value="<?php echo $year; ?>">
                     <input type="hidden" name="month" value="<?php echo $month; ?>">
@@ -91,7 +92,7 @@
         <div class="card">
             <div class="card-header bg-white"><h5 class="mb-0"><i class="fas fa-hand-pointer text-primary"></i> 手动添加单条</h5></div>
             <div class="card-body">
-                <form method="post">
+                <form method="post"><input type="hidden" name="csrf_token" value="<?php echo e($_SESSION['attendance_csrf']); ?>">
                     <input type="hidden" name="action" value="manual_add">
                     <input type="hidden" name="year" value="<?php echo $year; ?>">
                     <input type="hidden" name="month" value="<?php echo $month; ?>">
@@ -156,7 +157,7 @@
                         <i class="fas fa-inbox fa-2x mb-2 d-block"></i>暂无考勤数据，请上传或手动添加
                     </div>
                 <?php else: ?>
-                <form method="post" id="delForm">
+                <form method="post" id="delForm"><input type="hidden" name="csrf_token" value="<?php echo e($_SESSION['attendance_csrf']); ?>">
                     <input type="hidden" name="action" value="batch_delete">
                     <input type="hidden" name="year" value="<?php echo $year; ?>">
                     <input type="hidden" name="month" value="<?php echo $month; ?>">

@@ -1,9 +1,23 @@
 <?php
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    if (!hash_equals($_SESSION['attendance_csrf'], (string)($_POST['csrf_token'] ?? ''))) {
+        $error = '页面验证已失效，请刷新后重新提交';
+        http_response_code(403);
+        return;
+    }
+    try {
+        attendance_require_draft(sprintf('%04d-%02d', $year, $month));
+    } catch (Throwable $e) {
+        $error = $e->getMessage();
+        return;
+    }
     $action = $_POST['action'] ?? '';
 
+    if ($action === 'home_roster') {
+        include __DIR__ . '/home_roster.php';
+    }
     // 手动添加单条
-    if ($action === 'manual_add') {
+    elseif ($action === 'manual_add') {
         /* split: attendance/month/actions/manual_add.php */ include (dirname(__DIR__, 2)) . '/month/actions/manual_add.php';
     }
     // 单条删除

@@ -44,9 +44,13 @@ function delOne(id){
     if (!confirm('删除该服务时长确认单？')) return;
     var f = document.createElement('form');
     f.method = 'post';
+    var csrf = document.createElement('input');
+    csrf.type = 'hidden'; csrf.name = 'csrf_token';
+    csrf.value = document.querySelector('[name=csrf_token]').value;
     f.style.display = 'none';
     f.innerHTML = '<input type="hidden" name="action" value="delete"><input type="hidden" name="id" value="' + id + '"><input type="hidden" name="year" value="<?php echo $year; ?>"><input type="hidden" name="month" value="<?php
     echo $month; ?>">';
+    f.appendChild(csrf);
     document.body.appendChild(f);
     f.submit();
 }

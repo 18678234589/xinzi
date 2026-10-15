@@ -10,6 +10,8 @@
             $error = '请选择合作人员';
         } else {
             try {
+                db()->beginTransaction();
+                attendance_require_draft(sprintf('%04d-%02d', $year, $month));
                 // 满勤天数 × 8 = 应出勤小时；(满勤-实际出勤) × 8 = 请假小时
                 $wh = $fullDays * 8;
                 $ah = max(0, ($fullDays - $actualDays) * 8);
@@ -17,9 +19,11 @@
                                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                                        ON DUPLICATE KEY UPDATE work_hours=VALUES(work_hours), absent_hours=VALUES(absent_hours), remark=VALUES(remark), overtime_days=VALUES(overtime_days), holiday_overtime_days=VALUES(holiday_overtime_days)");
                 $stmt->execute([$empId, $year, $month, $wh, $ah, $rm, $otNormal, $otHoliday]);
-                $success = '考勤已添加';
-            } catch (PDOException $ex) {
+                ps_monthly_ensure_attendance_rules(sprintf('%04d-%02d', $year, $month), $_SESSION['admin_id']);
+                db()->commit();
+                $success = '考勤已保存，全员全勤奖已自动核算';
+            } catch (Throwable $ex) {
+                if (db()->inTransaction()) db()->rollBack();
                 $error = '添加失败: ' . $ex->getMessage();
             }
         }
-    
