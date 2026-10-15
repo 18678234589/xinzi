@@ -29,12 +29,15 @@ function ps_monthly_metrics()
 
 function ps_monthly_rules_for($month, $includeInactive = false)
 {
-    $sql = 'SELECT * FROM project_monthly_rules WHERE effective_from<=? AND (effective_to IS NULL OR effective_to>=?)' . ($includeInactive ? '' : ' AND is_active=1') . ' ORDER BY id'
+    $sql = 'SELECT r.*,e.department AS employee_department FROM project_monthly_rules r LEFT JOIN employees e ON e.id=r.employee_id WHERE r.effective_from<=? AND (r.effective_to IS NULL OR r.effective_to>=?)' . ($includeInactive ? '' : ' AND r.is_active=1') . ' ORDER BY r.id'
     ;
     $q = db()->prepare($sql);
     $q->execute([$month, $month]);
     $rules = $q->fetchAll();
-    foreach ($rules as $i => $rule) $rules[$i]['params'] = json_decode((string)$rule['params_json'], true) ?: [];
+    foreach ($rules as $i => $rule) {
+        $rules[$i]['params'] = json_decode((string)$rule['params_json'], true) ?: [];
+        if ($rule['rule_type'] === 'attendance_bonus') $rules[$i]['params']['amount'] = ps_attendance_bonus_amount($rule['employee_department'] ?? '');
+    }
     return $rules;
 }
 
@@ -94,15 +97,11 @@ function ps_monthly_attendance($month)
     [$year, $mon] = array_map('intval', explode('-', $month));
     $out = [];
     try {
-        try {
-            $q = db()->prepare('SELECT employee_id,work_hours,absent_hours,overtime_days,holiday_overtime_days FROM attendances WHERE year=? AND month=?');
-            $q->execute([$year, $mon]);
-        } catch (PDOException $columnMissing) { // 延时服务列还没建（考勤页首次打开时自动补建）：按没有延时服务处理
-            $q = db()->prepare('SELECT employee_id,work_hours,absent_hours FROM attendances WHERE year=? AND month=?');
-            $q->execute([$year, $mon]);
-        }
+        $q = db()->prepare('SELECT * FROM attendances WHERE year=? AND month=?');
+        $q->execute([$year, $mon]);
         foreach ($q->fetchAll() as $row) $out[(int)$row['employee_id']] = ['work' => (float)$row['work_hours'], 'absent' => (float)$row['absent_hours'],
-            'ot_days' => (float)($row['overtime_days'] ?? 0), 'ot_holiday_days' => (float)($row['holiday_overtime_days'] ?? 0)];
+            'ot_days' => (float)($row['overtime_days'] ?? 0), 'ot_holiday_days' => (float)($row['holiday_overtime_days'] ?? 0), 'remark' => (string)($row['remark'] ?? ''),
+            'work_from_home' => ps_attendance_work_from_home($row['remark'] ?? '')];
     } catch (PDOException $e) {
         // 未启用考勤模块时按满勤处理
     }
@@ -122,12 +121,69 @@ function ps_monthly_prorate($amount, $attendance)
 }
 
 /**
- * 全勤奖审批建议（仅供财务参考，不自动发放）：请假 <4 小时全额、≥4 小时减半、≥8 小时不发；无考勤记录提示核对。
+ * 全勤奖按部门标准核算；无有效考勤或申请居家办公时不自动发放。
  * 返回 [建议金额, 说明]。
  */
+function ps_attendance_bonus_amount($department)
+{
+    return in_array(trim((string)$department), ['网站客服', '网站客服部'], true) ? 100.0 : 200.0;
+}
+
+function ps_attendance_work_from_home($remark)
+{
+    $home = '(?:在家(?:上班|办公)?|居家(?:办公)?|远程办公|WFH)';
+    $remark = preg_replace('/(?:没有|未|无|非|不)(?:申请)?' . $home . '|' . $home . '\s*[:：]?\s*0(?:\.0+)?\s*天/iu', '', (string)$remark);
+    return preg_match('/' . $home . '/iu', $remark) === 1;
+}
+
+function ps_attendance_row_work_from_home($headers, $row, $nameColumn)
+{
+    foreach ($row as $index => $cell) {
+        if ($index === $nameColumn) continue;
+        $homeColumn = ps_attendance_work_from_home($headers[$index] ?? '');
+        if (ps_attendance_work_from_home($cell) || ($homeColumn && preg_match('/^\d+(?:\.\d+)?\s*(?:天|小时|h|d)?$/iu', trim((string)$cell)) && (float)$cell > 0)
+            || ($homeColumn && in_array(strtolower(trim((string)$cell)), ['是', '有', '已申请', 'yes', 'true', 'y', '√', '✓'], true))) return true;
+    }
+    return false;
+}
+
+/** 财务导入后补齐有考勤但未配置全勤奖的人员；在调用方事务中一起提交。 */
+function ps_monthly_ensure_attendance_rules($month, $adminId)
+{
+    if (!preg_match('/^\d{4}-(?:0[1-9]|1[0-2])$/D', $month)) throw new InvalidArgumentException('月份格式无效');
+    $pdo = db();
+    $ownTransaction = !$pdo->inTransaction();
+    if ($ownTransaction) $pdo->beginTransaction();
+    try {
+        $period = $pdo->prepare('SELECT status FROM project_payroll_periods WHERE period=? FOR UPDATE');
+        $period->execute([$month]);
+        $added = 0;
+        if ($period->fetchColumn() !== 'locked') {
+            [$year, $mon] = array_map('intval', explode('-', $month));
+            // 锁住人员后再查规则，重复/并发导入不会重复新增全勤奖。
+            $people = $pdo->prepare('SELECT e.id,e.name,e.department FROM employees e JOIN attendances a ON a.employee_id=e.id WHERE a.year=? AND a.month=? AND a.work_hours>0 ORDER BY e.id FOR UPDATE');
+            $people->execute([$year, $mon]);
+            $exists = $pdo->prepare("SELECT id FROM project_monthly_rules WHERE employee_id=? AND rule_type='attendance_bonus' AND effective_from<=? AND (effective_to IS NULL OR effective_to>=?) LIMIT 1 FOR UPDATE");
+            $insert = $pdo->prepare('INSERT INTO project_monthly_rules (name,rule_type,scope_business,scope_group,scope_role,employee_id,metric,params_json,effective_from,note,updated_by_admin) VALUES (?,?,?,?,?,?,?,?,?,?,?)');
+            foreach ($people->fetchAll() as $employee) {
+                $exists->execute([(int)$employee['id'], $month, $month]);
+                if ($exists->fetchColumn()) continue;
+                $insert->execute([$employee['name'] . ' 全勤奖（' . $month . '起）', 'attendance_bonus', '*', '*', '*', (int)$employee['id'], 'profit', json_encode(['amount' => ps_attendance_bonus_amount($employee['department'])]), $month, '考勤导入自动配置；网站客服100元，其他部门200元；本月居家办公不发', (int)$adminId > 0 ? (int)$adminId : null]);
+                $added++;
+            }
+        }
+        if ($ownTransaction) $pdo->commit();
+        return $added;
+    } catch (Throwable $e) {
+        if ($ownTransaction && $pdo->inTransaction()) $pdo->rollBack();
+        throw $e;
+    }
+}
+
 function ps_attendance_suggestion($full, $attendance)
 {
-    if (!$attendance) return [0.0, '无考勤记录，请核对'];
+    if (!$attendance || (float)($attendance['work'] ?? 0) <= 0) return [0.0, '无有效考勤记录，请核对'];
+    if (!empty($attendance['work_from_home'])) return [0.0, '本月申请居家办公，不发全勤奖'];
     $hours = (float)$attendance['absent'];
     $text = $hours <= 0 ? '满勤' : '请假 ' . rtrim(rtrim(number_format($hours, 1, '.', ''), '0'), '.') . ' 小时';
     if ($hours < 4) return [(float)$full, $text . ($hours > 0 ? '（<4 小时不扣）' : '')];

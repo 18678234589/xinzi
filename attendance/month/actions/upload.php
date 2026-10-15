@@ -195,6 +195,7 @@
                         // 同步清空该月的待匹配记录（避免重复堆积）
                         db()->prepare("DELETE FROM attendance_pending WHERE year=? AND month=?")->execute([$year, $month]);
 
+                        require_once __DIR__ . '/../../../includes/ProjectMonthly.php';
                         $inserted = 0; $skipped = 0; $notFound = []; $otPeople = [];
                         $ins = db()->prepare("INSERT INTO attendances (employee_id, year, month, work_hours, absent_hours, remark, overtime_days, holiday_overtime_days)
                                               VALUES (?, ?, ?, ?, ?, ?, ?, ?)
@@ -256,6 +257,7 @@
                                 $ah = $idxAbsent !== null ? $parseNum($r[$idxAbsent] ?? '') : 0;
                             }
                             $rm = $idxRemark !== null ? trim($r[$idxRemark] ?? '') : '';
+                            if (ps_attendance_row_work_from_home($firstRow, $r, $idxName) && !ps_attendance_work_from_home($rm)) $rm .= ($rm !== '' ? '；' : '') . '本月申请居家办公';
 
                             $empId = $empByName[$empName] ?? 0;
                             if ($empId <= 0) {
@@ -269,8 +271,10 @@
                             if ($otNormal > 0 || $otHoliday > 0) $otPeople[] = $empName . '：' . ($otHoliday > 0 ? '节假日 ' . $otHoliday . ' 天' . ($otNormal > 0 ? ' + ' : '') : '') . ($otNormal > 0 ? '其他 ' . $otNormal . ' 天' : '');
                             $inserted++;
                         }
+                        $bonusRulesAdded = ps_monthly_ensure_attendance_rules(sprintf('%04d-%02d', $year, $month), $_SESSION['admin_id'] ?? 0);
                         db()->commit();
                         $msg = "导入完成：成功 {$inserted} 条";
+                        $msg .= '，全勤奖按未锁定月份考勤自动核算' . ($bonusRulesAdded ? '（补齐 ' . $bonusRulesAdded . ' 人规则）' : '');
                         if ($skipped > 0) $msg .= "，暂存待匹配 {$skipped} 条（合作人员添加后自动补录）";
                         if (!empty($notFound)) $msg .= "，未匹配合作人员：" . implode('、', array_slice($notFound, 0, 5)) . (count($notFound) > 5 ? ' 等' : '');
                         if ($otPeople) $msg .= '，延时服务 ' . count($otPeople) . ' 人（' . implode('；', array_slice($otPeople, 0, 8)) . (count($otPeople) > 8 ? ' 等' : '') . '）';
@@ -292,4 +296,4 @@
                 $error = '解析失败: ' . $ex->getMessage();
             }
         }
-    
+

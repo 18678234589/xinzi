@@ -143,6 +143,7 @@ function backfill_pending_attendance($employeeId, $employeeName)
         $rows->execute([$employeeName]);
         $pending = $rows->fetchAll();
         if (empty($pending)) return 0;
+        require_once __DIR__ . '/../ProjectMonthly.php';
 
         $ins = db()->prepare("INSERT INTO attendances (employee_id, year, month, work_hours, absent_hours, remark, overtime_days, holiday_overtime_days)
                               VALUES (?, ?, ?, ?, ?, ?, ?, ?)
@@ -154,6 +155,9 @@ function backfill_pending_attendance($employeeId, $employeeName)
             $ins->execute([$employeeId, $p['year'], $p['month'], $p['work_hours'], $p['absent_hours'], $p['remark'], $p['overtime_days'] ?? 0, $p['holiday_overtime_days'] ?? 0]);
             $del->execute([$p['id']]);
             $count++;
+        }
+        foreach (array_unique(array_map(function ($p) { return sprintf('%04d-%02d', $p['year'], $p['month']); }, $pending)) as $payrollMonth) {
+            ps_monthly_ensure_attendance_rules($payrollMonth, $_SESSION['admin_id'] ?? 0);
         }
         db()->commit();
         return $count;

@@ -161,13 +161,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             ps_audit('monthly_rule', $ruleId, 'toggle', $actor, []);
             $success = '月度规则状态已切换';
         } elseif ($action === 'attendance_approve') {
-            // 全勤奖审批：勾选的人按填写金额批准（写入本月填写项），未勾选的不发；已批准的可在下方撤销
+            // 自动核算之外的财务调整；未勾选人员继续按考勤自动计算。
             $period = db()->prepare('SELECT status FROM project_payroll_periods WHERE period=?');
             $period->execute([$month]);
             if ($period->fetchColumn() === 'locked') throw new RuntimeException($month . ' 已锁定，不能再审批全勤奖');
             $ruleQuery = db()->prepare("SELECT id,employee_id FROM project_monthly_rules WHERE id=? AND rule_type='attendance_bonus' AND employee_id IS NOT NULL");
             $save = db()->prepare('INSERT INTO project_monthly_inputs (payroll_month,rule_id,employee_id,value,note,updated_by_admin) VALUES (?,?,?,?,?,?) ON DUPLICATE KEY UPDATE value=VALUES(value),note=VALUES(note),updated_by_admin=VALUES(updated_by_admin)');
             $approved = 0;
+            $attendanceForApproval = ps_monthly_attendance($month);
             $nested = db()->inTransaction();
             if ($nested) db()->exec('SAVEPOINT attendance_approve'); else db()->beginTransaction();
             foreach ((array)($_POST['approve'] ?? []) as $ruleId) {
@@ -176,6 +177,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 if (!$ruleInfo) continue;
                 $value = trim((string)($_POST['amount'][(int)$ruleId] ?? ''));
                 if (!is_numeric($value) || (float)$value < 0 || (float)$value > 100000) throw new RuntimeException('全勤奖金额请填写 0–100000 的数字');
+                if ((float)$value > 0 && !empty($attendanceForApproval[(int)$ruleInfo['employee_id']]['work_from_home'])) throw new RuntimeException('本月申请居家办公的人员不发全勤奖，请核定为 0 元');
                 $save->execute([$month, (int)$ruleInfo['id'], (int)$ruleInfo['employee_id'], round((float)$value, 2), mb_substr(trim((string)($_POST['approve_note'][(int)$ruleId] ?? '')), 0, 200), $actor['id']]);
                 ps_audit('monthly_input', (int)$ruleInfo['id'], 'attendance_approve', $actor, ['month' => $month, 'employee_id' => (int)$ruleInfo['employee_id'], 'value' => (float)$value]);
                 $approved++;
@@ -387,20 +389,20 @@ while (count($tiers) < 7) $tiers[] = ['from' => '', 'rate' => '', 'base' => ''];
 <?php
 $attendanceRules = array_values(array_filter($activeMonthly, function ($r) { return $r['rule_type'] === 'attendance_bonus' && $r['employee_id'] !== null; }));
 $attendanceMonth = ps_monthly_attendance($month);
-$pendingAttendance = count(array_filter($attendanceRules, function ($r) use ($inputs) { return !isset($inputs[(int)$r['id']][(int)$r['employee_id']]); }));
+$pendingAttendance = count(array_filter($attendanceRules, function ($r) use ($inputs, $attendanceMonth) { return !isset($inputs[(int)$r['id']][(int)$r['employee_id']]) && ($attendanceMonth[(int)$r['employee_id']]['work'] ?? 0) <= 0; }));
 ?>
-<?php if ($attendanceRules): ?><div id="attendance-approval" class="card mb-3"><div class="card-header d-flex justify-content-between align-items-center flex-wrap" style="gap:8px"><span>全勤奖审批 · <?php echo e($month); ?>（默认不发，财务批准后才计入）</span><span class="small <?php echo $pendingAttendance ? 'text-danger' : 'text-muted'; ?>"><?php echo $pendingAttendance ? '待审批 ' . $pendingAttendance . ' 人' : '已全部处理'; ?></span></div>
+<?php if ($attendanceRules): ?><div id="attendance-approval" class="card mb-3"><div class="card-header d-flex justify-content-between align-items-center flex-wrap" style="gap:8px"><span>全勤奖自动审核 · <?php echo e($month); ?>（上传后自动核算，财务可调整）</span><span class="small <?php echo $pendingAttendance ? 'text-danger' : 'text-muted'; ?>"><?php echo $pendingAttendance ? '待核对考勤 ' . $pendingAttendance . ' 人' : '已全部处理'; ?></span></div>
 <form method="post"><input type="hidden" name="csrf" value="<?php echo $csrf; ?>"><input type="hidden" name="action" value="attendance_approve"><input type="hidden" name="month" value="<?php echo e($month); ?>">
-<div class="table-responsive"><table class="table table-sm mb-0"><thead><tr><th style="width:36px"><input type="checkbox" id="attendanceAll" aria-label="全选建议发放"></th><th>合作人员</th><th>本月考勤（建议）</th><th class="text-right">批准金额 ¥</th><th>备注</th><th>状态</th></tr></thead><tbody>
+<div class="table-responsive"><table class="table table-sm mb-0"><thead><tr><th style="width:36px"><input type="checkbox" id="attendanceAll" aria-label="全选建议发放"></th><th>合作人员</th><th>本月考勤（建议）</th><th class="text-right">财务调整金额 ¥</th><th>备注</th><th>状态</th></tr></thead><tbody>
 <?php foreach ($attendanceRules as $rule): $eid = (int)$rule['employee_id']; $full = (float)($rule['params']['amount'] ?? 0); [$suggest, $suggestText] = ps_attendance_suggestion($full, $attendanceMonth[$eid] ?? null); $done = $inputs[(int)$rule['id']][$eid] ?? null; ?>
 <tr><td><?php if (!$monthLocked): ?><input type="checkbox" name="approve[]" value="<?php echo (int)$rule['id']; ?>" data-suggest="<?php echo $suggest > 0 ? 1 : 0; ?>" aria-label="批准 <?php echo e($employeeNames[$eid] ?? ''); ?>"><?php endif; ?></td><td><?php echo e($employeeNames[$eid] ?? ('#' . $eid)); ?><div class="small text-muted">全勤奖 ¥<?php echo money($full); ?></div></td><td class="small"><?php echo e($suggestText); ?>；建议 ¥<?php echo money($suggest); ?></td>
 <td class="text-right"><input type="number" name="amount[<?php echo (int)$rule['id']; ?>]" step="0.01" min="0" class="form-control form-control-sm text-right" style="max-width:110px;margin-left:auto" value="<?php echo e($done !== null ? (float)$done['value'] : $suggest); ?>" <?php echo $monthLocked ? 'disabled' : ''; ?>></td><td><input name="approve_note[<?php echo (int)$rule['id']; ?>]" maxlength="200" class="form-control form-control-sm" value="<?php echo e($done['note'] ?? ''); ?>" placeholder="可不填" <?php echo $monthLocked ? 'disabled' : ''; ?>></td>
-<td class="small text-nowrap"><?php if ($done !== null): ?><span class="text-success">已批准 ¥<?php echo money($done['value']); ?></span><?php if (!$monthLocked): ?> <button class="btn btn-link btn-sm p-0 ml-1" form="attendanceRevoke<?php echo (int)$rule['id']; ?>">撤销</button><?php endif; ?><?php else: ?><span class="text-muted">未批准（不发）</span><?php endif; ?></td></tr>
+<td class="small text-nowrap"><?php if (!empty($attendanceMonth[$eid]['work_from_home'])): ?><span class="text-muted">居家办公，不发</span><?php elseif ($done !== null): ?><span class="text-success">财务核定 ¥<?php echo money($done['value']); ?></span><?php if (!$monthLocked): ?> <button class="btn btn-link btn-sm p-0 ml-1" form="attendanceRevoke<?php echo (int)$rule['id']; ?>">撤销调整</button><?php endif; ?><?php elseif (($attendanceMonth[$eid]['work'] ?? 0) > 0): ?><span class="text-success">自动核算 ¥<?php echo money($suggest); ?></span><?php else: ?><span class="text-warning">待核对考勤</span><?php endif; ?></td></tr>
 <?php endforeach; ?>
 </tbody></table></div>
-<?php if (!$monthLocked): ?><div class="card-body d-flex flex-wrap align-items-center" style="gap:10px"><button class="btn btn-success btn-sm" type="submit">批准勾选人员的全勤奖</button><button class="btn btn-outline-secondary btn-sm" type="button" id="attendanceSuggest">勾选考勤建议发放的人</button><small class="text-muted">考勤建议仅供参考：请假 &lt;4 小时全额、≥4 小时减半、≥8 小时不发；没有考勤记录的请核对后再批准。</small></div><?php endif; ?>
+<?php if (!$monthLocked): ?><div class="card-body d-flex flex-wrap align-items-center" style="gap:10px"><button class="btn btn-success btn-sm" type="submit">保存勾选人员的调整金额</button><button class="btn btn-outline-secondary btn-sm" type="button" id="attendanceSuggest">勾选考勤建议发放的人</button><small class="text-muted">网站客服100元，其他部门200元；本月申请居家办公不发。请假 &lt;4 小时全额、≥4 小时减半、≥8 小时不发；无有效考勤记录不自动发放。</small></div><?php endif; ?>
 </form>
-<?php if (!$monthLocked) foreach ($attendanceRules as $rule): if (!isset($inputs[(int)$rule['id']][(int)$rule['employee_id']])) continue; ?><form id="attendanceRevoke<?php echo (int)$rule['id']; ?>" method="post" class="d-none" onsubmit="return confirm('撤销该人员本月全勤奖？');"><input type="hidden" name="csrf" value="<?php echo $csrf; ?>"><input type="hidden" name="action" value="monthly_input_delete"><input type="hidden" name="month" value="<?php echo e($month); ?>"><input type="hidden" name="rule_id" value="<?php echo (int)$rule['id']; ?>"><input type="hidden" name="employee_id" value="<?php echo (int)$rule['employee_id']; ?>"></form><?php endforeach; ?>
+<?php if (!$monthLocked) foreach ($attendanceRules as $rule): if (!isset($inputs[(int)$rule['id']][(int)$rule['employee_id']])) continue; ?><form id="attendanceRevoke<?php echo (int)$rule['id']; ?>" method="post" class="d-none" onsubmit="return confirm('撤销人工调整并恢复按考勤自动核算？');"><input type="hidden" name="csrf" value="<?php echo $csrf; ?>"><input type="hidden" name="action" value="monthly_input_delete"><input type="hidden" name="month" value="<?php echo e($month); ?>"><input type="hidden" name="rule_id" value="<?php echo (int)$rule['id']; ?>"><input type="hidden" name="employee_id" value="<?php echo (int)$rule['employee_id']; ?>"></form><?php endforeach; ?>
 <script>(function(){var all=document.getElementById('attendanceAll'),s=document.getElementById('attendanceSuggest'),boxes=document.querySelectorAll('#attendance-approval input[name="approve[]"]');if(all)all.addEventListener('change',function(){boxes.forEach(function(b){b.checked=all.checked;});});if(s)s.addEventListener('click',function(){boxes.forEach(function(b){b.checked=b.dataset.suggest==='1';});});})();</script>
 </div><?php endif; ?>
 

@@ -194,19 +194,21 @@ function ps_monthly_results($month, $forceLive = false, $context = null)
             if ($rule['employee_id'] === null) continue;
             /* split: includes/monthly/types/attendance_bonus_1.php */ include __DIR__ . '/monthly/types/attendance_bonus_1.php';
 
-            // 全勤奖默认不发：只有财务在规则中心“全勤奖审批”批准（写入本月金额）后才计入；考勤只作为审批建议。
+            if (!empty($attendance[$eid]['work_from_home'])) {
+                $add($eid, $rule, 0, '本月申请居家办公，不发全勤奖', true);
+                continue;
+            }
             if ($override === null) {
-                // 未批准：显示 0 元与考勤建议，让本人和财务都看得到“待财务批准”，而不是看起来漏算
                 [$suggest, $suggestText] = ps_attendance_suggestion((float)($p['amount'] ?? 0), $attendance[$eid] ?? null);
                 if ($forecast) {
                     if (!isset($attendance[$eid])) {
                         $suggest = (float)($p['amount'] ?? 0);
                         $suggestText = '暂无考勤记录，暂按满勤预期';
                     }
-                    $add($eid, $rule, $suggest, '全勤奖预期：' . $suggestText . '；最终以财务批准为准', true);
+                    $add($eid, $rule, $suggest, '全勤奖预期：' . $suggestText . '；最终以实际考勤及居家记录为准', true);
                     continue;
                 }
-                $add($eid, $rule, 0, '待财务批准（本月' . $suggestText . '，建议 ¥' . money_plain($suggest) . '）', true);
+                $add($eid, $rule, $suggest, (($attendance[$eid]['work'] ?? 0) > 0 ? '考勤自动审核：' : '待核对考勤：') . $suggestText, true);
                 continue;
             }
             /* split: includes/monthly/types/attendance_bonus_2.php */ include __DIR__ . '/monthly/types/attendance_bonus_2.php';
