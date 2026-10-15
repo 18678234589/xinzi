@@ -6,12 +6,27 @@ function ps_actor()
 {
     if (isset($_SESSION['admin_id'])) return ['type' => 'admin', 'id' => (int)$_SESSION['admin_id'], 'employee_id' => null, 'role' => 'finance'];
     if (!isset($_SESSION['project_user_id'])) return null;
+    return ps_project_actor((int)$_SESSION['project_user_id']);
+}
+
+function ps_project_actor($id)
+{
     $q = db()->prepare('SELECT * FROM project_users WHERE id=? AND is_active=1');
-    $q->execute([(int)$_SESSION['project_user_id']]);
+    $q->execute([(int)$id]);
     $user = $q->fetch();
     $management = $user && $user['role'] === 'management' ? ps_management_profile($user['id']) : [];
     return $user ? ['type' => 'employee', 'id' => (int)$user['id'], 'employee_id' => (int)$user['employee_id'], 'role' => ps_account_order_role($user['role']), 'account_role' => $user['role'], 'management_scope' => $management['scope'] ?? null, 'management_title' => $management['title'] ?? null, 'username' => $user['username'], 'phone' =>
     $user['phone'] ?? null, 'password_changed_at' => $user['password_changed_at'] ?? null] : null;
+}
+
+/** Server-authenticated delegation; never creates or modifies a browser session. */
+function ps_actor_from_subject($subject)
+{
+    if (!preg_match('/^(admin|project):([1-9][0-9]{0,17})$/D', (string)$subject, $m)) return null;
+    if ($m[1] === 'project') return ps_project_actor((int)$m[2]);
+    $q = db()->prepare('SELECT id FROM admins WHERE id=?');
+    $q->execute([(int)$m[2]]);
+    return $q->fetchColumn() ? ['type'=>'admin', 'id'=>(int)$m[2], 'employee_id'=>null, 'role'=>'finance'] : null;
 }
 
 /** 管理层账号是否被财务分配了业务（有业务才开放订单入口，只能在分配的业务里录单）。 */

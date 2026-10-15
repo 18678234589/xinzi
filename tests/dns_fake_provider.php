@@ -20,10 +20,14 @@ function dns_fake_install(array &$state)
                     return ['RecordList' => array_slice($rows, $body['Offset'], $body['Limit'])];
                 case 'CreateRecord':
                     $id = ++$d['seq'];
-                    $d['records'][$body['Domain']][$id] = ['RecordId' => $id, 'Type' => $body['RecordType'], 'Name' => $body['SubDomain'], 'Value' => $body['Value'], 'TTL' => $body['TTL'], 'MX' => $body['MX'] ?? 0, 'Line' => $body['RecordLine'], 'Status' => 'ENABLE'];
+                    $d['records'][$body['Domain']][$id] = ['RecordId' => $id, 'Type' => $body['RecordType'], 'Name' => $body['SubDomain'], 'Value' => $body['Value'], 'TTL' => $body['TTL'], 'MX' => $body['MX'] ?? 0, 'Line' => $body['RecordLine'], 'Status' => $body['Status'] ?? 'ENABLE'];
                     return ['RecordId' => $id];
                 case 'ModifyRecord':
                     $r = &$d['records'][$body['Domain']][$body['RecordId']]; $r['Type'] = $body['RecordType']; $r['Name'] = $body['SubDomain']; $r['Value'] = $body['Value']; $r['TTL'] = $body['TTL']; $r['MX'] = $body['MX'] ?? 0; $r['Line'] = $body['RecordLine'];
+                    if (isset($body['Status'])) $r['Status'] = $body['Status'];
+                    return ['RecordId' => $body['RecordId']];
+                case 'ModifyRecordStatus':
+                    $d['records'][$body['Domain']][$body['RecordId']]['Status'] = $body['Status'];
                     return ['RecordId' => $body['RecordId']];
                 case 'DeleteRecord': unset($d['records'][$body['Domain']][$body['RecordId']]); return ['RequestId' => 'x'];
             }

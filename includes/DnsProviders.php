@@ -287,6 +287,7 @@ function dns_record_create($provider, $zone, array $rec)
     if ($provider === 'dnspod') {
         $ttl = $rec['ttl'] === 1 ? 600 : $rec['ttl'];
         $body = ['Domain' => $zone['domain'], 'RecordType' => $rec['type'], 'RecordLine' => '默认', 'Value' => dns_dnspod_value($rec['type'], $rec['value']), 'SubDomain' => $rec['name'], 'TTL' => $ttl];
+        if (array_key_exists('enabled', $rec)) $body['Status'] = $rec['enabled'] ? 'ENABLE' : 'DISABLE';
         if ($rec['type'] === 'MX') $body['MX'] = (int)$rec['priority'];
         $r = dns_call('dnspod', 'POST', 'CreateRecord', $body);
         return (string)($r['RecordId'] ?? '');
@@ -300,6 +301,7 @@ function dns_record_update($provider, $zone, $recordId, array $rec, $line = '默
     if ($provider === 'dnspod') {
         $ttl = $rec['ttl'] === 1 ? 600 : $rec['ttl'];
         $body = ['Domain' => $zone['domain'], 'RecordId' => (int)$recordId, 'RecordType' => $rec['type'], 'RecordLine' => $line !== '' ? $line : '默认', 'Value' => dns_dnspod_value($rec['type'], $rec['value']), 'SubDomain' => $rec['name'], 'TTL' => $ttl];
+        if (array_key_exists('enabled', $rec)) $body['Status'] = $rec['enabled'] ? 'ENABLE' : 'DISABLE';
         if ($rec['type'] === 'MX') $body['MX'] = (int)$rec['priority'];
         dns_call('dnspod', 'POST', 'ModifyRecord', $body);
         return;
