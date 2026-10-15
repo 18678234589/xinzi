@@ -132,7 +132,7 @@ function prm_waiting_upload($limit = 400)
         foreach (array_merge([trim($r['order_no'])], $tokens) as $t) {
             try { foreach (ps_shop_order_lookup($t) as $m) { if ($m['shop'] !== '') { $shop = $m['shop']; break 2; } } } catch (Throwable $e) {}
         }
-        $key = $shop !== '' ? $shop : '店铺流水里也没有（多为微信 / 其他渠道订单）';
+        $key = $shop !== '' ? $shop : '店铺流水里还没有这笔订单（可能是更早月份下的单，请财务补传该店铺对应月份的店铺流水）';
         $groups[$key]['rows'][] = $r;
         $groups[$key]['amount'] = ($groups[$key]['amount'] ?? 0) + (float)$r['amount'];
     }
