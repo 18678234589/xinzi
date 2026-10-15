@@ -54,6 +54,7 @@ function ptd_candidates()
         if (count($dates) === 1) $same[] = '同一天下单（' . $dates[0] . '）'; else $diff[] = '下单日期不同（' . implode('、', $dates) . '）';
         if (count($amounts) === 1) $same[] = '售价相同'; else $diff[] = '售价不同';
         $dupe = round(array_sum(array_column($g, 'cost')) - max(array_column($g, 'cost')), 2);
+        if ($dupe <= 0) continue; // 官费为 0 的事项（变更、注销等）没有多计，不必核对
         $out[] = ['key' => sha1($k . '|' . json_encode($g, JSON_UNESCAPED_UNICODE)), 'customer' => $parts[0], 'trademark' => $g[0]['trademark_name'], 'service' => $parts[2], 'orders' => $g, 'dupe' => $dupe, 'same' => $same, 'diff' => $diff,
             'blocked' => (bool)array_filter($g, function ($o) { return $o['frozen']; })];
     }
