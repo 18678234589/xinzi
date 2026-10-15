@@ -47,6 +47,7 @@
     echo money($totals['receipt']); ?></strong></div><div><small>已审核直接成本</small><strong>¥<?php echo money($totals['cost']); ?></strong></div><div class="<?php echo $totals
     ['todo'] ? 'is-alert' : ''; ?>"><small>有待办的订单</small><strong><?php echo $totals['todo']; ?></strong></div></div>
 <?php $isFinance = $actor['role'] === 'finance'; ?>
+<?php if ($isFinance) { require_once __DIR__ . '/../../../includes/ProjectBatchReview.php'; if (($batchReviewPending = pbr_pending_count()) > 0): ?><div class="alert alert-info"><i class="fas fa-clipboard-check mr-1"></i>有 <?php echo (int)$batchReviewPending; ?> 个订单批量审核申请待处理，<a class="alert-link" href="<?php echo BASE_URL; ?>/project/batch_review.php">去抽查审核</a>。</div><?php endif; } ?>
 <?php if ($isFinance && ($corrPendingCount = ps_corr_pending_count()) > 0): ?><div class="alert alert-warning"><i class="fas fa-flag mr-1"></i>有 <?php echo (int)$corrPendingCount
     ; ?> 条分成更正申请待处理，<a class="alert-link" href="<?php echo BASE_URL; ?>/project/corrections.php">点此查看</a>。</div><?php endif; ?>
 <?php if ($canSelectOrders): ?><form method="post" id="bulkForm"><input type="hidden" name="csrf" value="<?php echo e(ps_csrf_token()); ?>"><input type="hidden" name="return_query" value="<?php

@@ -1,0 +1,135 @@
+<?php
+/**
+ * 批量审核申请：合作人员某月还有没审核通过的订单时，在“订单审核申请”页看到每单卡在哪、怎么解决，并向财务提交批量审核申请；
+ * 财务在同一页看到申请（侧栏 / 订单页有待办提示），抽查后一键“全部通过”：对所选订单登记收款（按售价）、标记交付完成并审核生成分成。
+ * 财务的这个动作等同于在订单页手动登记收款 + 审核，全部记审计；“异常”订单默认不勾选，需要单独处理。
+ */
+require_once __DIR__ . '/ProjectSettlement.php';
+require_once __DIR__ . '/ProjectAutoReview.php';
+
+function pbr_ensure()
+{
+    static $done = false;
+    if ($done) return;
+    try { db()->query('SELECT 1 FROM project_batch_reviews LIMIT 0'); $done = true; return; }
+    catch (PDOException $e) { if ((string)$e->getCode() !== '42S02') throw $e; }
+    db()->exec("CREATE TABLE IF NOT EXISTS project_batch_reviews (
+      id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+      employee_id INT NOT NULL, month CHAR(7) NOT NULL,
+      note VARCHAR(500) NOT NULL DEFAULT '',
+      order_count INT NOT NULL DEFAULT 0, amount DECIMAL(14,2) NOT NULL DEFAULT 0,
+      status ENUM('pending','done','rejected') NOT NULL DEFAULT 'pending',
+      handled_by VARCHAR(80) NULL, handled_note VARCHAR(500) NULL, handled_at DATETIME NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      KEY idx_status (status, created_at), KEY idx_emp_month (employee_id, month)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+    $done = true;
+}
+
+/** 某人某月参与的、还没审核通过的订单，附自动核对状态和卡点说明。 */
+function pbr_orders($employeeId, $month)
+{
+    $q = db()->prepare("SELECT o.id,o.order_no,o.order_date,o.project_type,o.order_kind,o.contract_amount,o.receipt_amount,o.refund_amount,o.delivery_status,o.settlement_status,
+        COALESCE(s.payment_nickname,'') nick, a.state review_state, a.reasons_json
+        FROM project_orders o JOIN project_participants p ON p.order_id=o.id LEFT JOIN project_order_sources s ON s.order_id=o.id LEFT JOIN project_auto_reviews a ON a.order_id=o.id
+        WHERE p.employee_id=? AND o.order_date>=? AND o.order_date<? AND o.settlement_status NOT IN ('approved','locked') GROUP BY o.id ORDER BY o.order_date,o.id");
+    $q->execute([(int)$employeeId, $month . '-01', date('Y-m-d', strtotime($month . '-01 +1 month'))]);
+    $rows = $q->fetchAll();
+    foreach ($rows as &$r) {
+        $why = [];
+        if ((float)$r['receipt_amount'] - (float)$r['refund_amount'] <= 0) $why[] = '还没有确认的收款';
+        if ($r['delivery_status'] !== 'finished') $why[] = '还没确认业务已完成';
+        $exception = $r['review_state'] === 'exception';
+        foreach (json_decode((string)$r['reasons_json'], true) ?: [] as $reason) if (($reason['kind'] ?? '') === 'exception') $why[] = (string)$reason['text'];
+        $r['why'] = array_values(array_unique($why));
+        $r['exception'] = $exception;
+    }
+    unset($r);
+    return $rows;
+}
+
+function pbr_submit(array $actor, $month, $note)
+{
+    pbr_ensure();
+    $eid = (int)($actor['employee_id'] ?? 0);
+    if ($eid <= 0 || !preg_match('/^\d{4}-(0[1-9]|1[0-2])$/', (string)$month)) throw new RuntimeException('请选择要申请的月份');
+    $orders = pbr_orders($eid, $month);
+    if (!$orders) throw new RuntimeException('这个月没有需要审核的订单');
+    $sum = round(array_sum(array_column($orders, 'contract_amount')), 2);
+    $note = mb_substr(trim((string)$note), 0, 500);
+    $q = db()->prepare("SELECT id FROM project_batch_reviews WHERE employee_id=? AND month=? AND status='pending'"); $q->execute([$eid, $month]); $id = (int)$q->fetchColumn();
+    if ($id) db()->prepare('UPDATE project_batch_reviews SET note=?,order_count=?,amount=? WHERE id=?')->execute([$note, count($orders), $sum, $id]);
+    else { db()->prepare('INSERT INTO project_batch_reviews (employee_id,month,note,order_count,amount) VALUES (?,?,?,?,?)')->execute([$eid, $month, $note, count($orders), $sum]); $id = (int)db()->lastInsertId(); }
+    ps_audit('batch_review', $id, 'submit', $actor, ['month' => $month, 'orders' => count($orders), 'amount' => $sum]);
+    return $id;
+}
+
+function pbr_pending_count()
+{
+    try { pbr_ensure(); return (int)db()->query("SELECT COUNT(*) FROM project_batch_reviews WHERE status='pending'")->fetchColumn(); }
+    catch (Throwable $e) { return 0; }
+}
+
+/** 财务：对所选订单登记收款（按售价）、标记交付完成、审核生成分成。返回 [通过数, [失败说明...]]。 */
+function pbr_approve(array $actor, $requestId, array $orderIds)
+{
+    if (($actor['role'] ?? '') !== 'finance') throw new RuntimeException('只有财务可以审核');
+    pbr_ensure();
+    $q = db()->prepare("SELECT * FROM project_batch_reviews WHERE id=? AND status='pending'"); $q->execute([(int)$requestId]); $req = $q->fetch();
+    if (!$req) throw new RuntimeException('申请不存在或已处理');
+    $allowed = array_column(pbr_orders((int)$req['employee_id'], $req['month']), null, 'id');
+    $done = 0; $failed = [];
+    foreach (array_slice(array_values(array_unique(array_map('intval', $orderIds))), 0, 300) as $oid) {
+        if (!isset($allowed[$oid])) continue;
+        $o = $allowed[$oid];
+        try {
+            $pdo = db(); $pdo->beginTransaction();
+            $row = $pdo->prepare('SELECT * FROM project_orders WHERE id=? FOR UPDATE'); $row->execute([$oid]); $order = $row->fetch();
+            if (!$order || in_array($order['settlement_status'], ['approved', 'locked'], true)) throw new RuntimeException('已审核');
+            $net = (float)$order['receipt_amount'] - (float)$order['refund_amount'];
+            if ($net <= 0) {
+                if ((float)$order['contract_amount'] <= 0) throw new RuntimeException('没有售价，无法登记收款');
+                $pdo->prepare("INSERT INTO project_cash_movements (order_id,movement_type,amount,note,review_status,submitted_by_type,submitted_by_id,reviewed_by_admin,reviewed_at) VALUES (?,'receipt',?,?,'approved',?,?,?,NOW())")
+                    ->execute([$oid, round((float)$order['contract_amount'], 2), '财务批量审核：抽查后按售价确认收款（申请 #' . (int)$req['id'] . '）', $actor['type'], $actor['id'], $actor['id']]);
+                ps_recalculate_cash($oid);
+            }
+            if ($order['delivery_status'] !== 'finished') {
+                $pdo->prepare("UPDATE project_orders SET delivery_status='finished',row_version=row_version+1 WHERE id=?")->execute([$oid]);
+                $pdo->prepare("UPDATE project_order_requests SET status='approved', reviewer_id=?, reviewed_at=NOW(), review_note='批量审核时自动通过' WHERE order_id=? AND request_type='delivery_completion' AND status='pending'")->execute([$actor['id'], $oid]);
+            }
+            ps_approve_order($oid, $actor, (string)$req['month']);
+            ps_audit('order', $oid, 'batch_review_approve', $actor, ['request' => (int)$req['id'], 'receipt_added' => $net <= 0]);
+            $pdo->commit(); $done++;
+        } catch (Throwable $e) {
+            if (db()->inTransaction()) db()->rollBack();
+            $failed[] = $o['order_no'] . '：' . ($e instanceof PDOException ? '保存失败' : $e->getMessage());
+        }
+    }
+    if (!pbr_orders((int)$req['employee_id'], $req['month'])) {
+        db()->prepare("UPDATE project_batch_reviews SET status='done',handled_by=?,handled_at=NOW(),handled_note=? WHERE id=?")->execute([pbr_name($actor), '已全部审核通过', (int)$req['id']]);
+    }
+    ps_audit('batch_review', (int)$req['id'], 'approve', $actor, ['done' => $done, 'failed' => count($failed)]);
+    try {
+        require_once __DIR__ . '/dup_feedback.php';
+        pd_message((int)$req['employee_id'], $req['month'] . ' 的订单审核有进展', '财务已审核通过 ' . $done . ' 单' . ($failed ? '，另有 ' . count($failed) . ' 单需要单独处理' : '') . '。', '/project/batch_review.php?month=' . $req['month'], 'batch_review:' . (int)$req['id'] . ':' . $done);
+    } catch (Throwable $e) {}
+    return [$done, $failed];
+}
+
+function pbr_reject(array $actor, $requestId, $note)
+{
+    if (($actor['role'] ?? '') !== 'finance') throw new RuntimeException('只有财务可以处理');
+    pbr_ensure();
+    $note = trim((string)$note);
+    if (mb_strlen($note) < 3) throw new RuntimeException('请写明需要对方补充什么');
+    $q = db()->prepare("SELECT * FROM project_batch_reviews WHERE id=? AND status='pending'"); $q->execute([(int)$requestId]); $req = $q->fetch();
+    if (!$req) throw new RuntimeException('申请不存在或已处理');
+    db()->prepare("UPDATE project_batch_reviews SET status='rejected',handled_by=?,handled_at=NOW(),handled_note=? WHERE id=?")->execute([pbr_name($actor), mb_substr($note, 0, 500), (int)$requestId]);
+    ps_audit('batch_review', (int)$requestId, 'reject', $actor, ['note' => $note]);
+    try { require_once __DIR__ . '/dup_feedback.php'; pd_message((int)$req['employee_id'], $req['month'] . ' 的订单审核申请被退回', '财务说明：' . $note, '/project/batch_review.php?month=' . $req['month'], 'batch_review_rej:' . (int)$requestId); } catch (Throwable $e) {}
+}
+
+function pbr_name(array $actor)
+{
+    return ($actor['type'] ?? '') === 'admin' ? (string)db()->query('SELECT username FROM admins WHERE id=' . (int)$actor['id'])->fetchColumn() : 'employee#' . (int)($actor['id'] ?? 0);
+}

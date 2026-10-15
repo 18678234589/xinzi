@@ -425,7 +425,7 @@ if ($employeeId > 0) {
   <td data-label="全勤" class="text-right">¥<?php echo money($row['attendance_bonus']); ?></td>
   <td data-label="项目分成" class="text-right">¥<?php echo money($row['share']); ?><?php if ((int)$row['order_count']): ?><div class="small text-muted"><?php echo (int)$row['order_count']; ?> 条</div><?php endif; ?></td>
   <td data-label="奖励补助" class="text-right">¥<?php echo money($row['other']); ?></td>
-  <td data-label="应结算" class="text-right font-weight-bold">¥<?php echo money($row['amount']); ?><?php if (!empty($row['unreviewed_n'])): ?><div class="small font-weight-normal text-warning" title="没审核的订单不计入应结算；审核通过后才会计入，按营业额落档的还会重新落档"><?php echo (int)$row['unreviewed_n']; ?> 单 ¥<?php echo money($row['unreviewed_amt']); ?> 未审核</div><?php endif; ?></td>
+  <td data-label="应结算" class="text-right font-weight-bold">¥<?php echo money($row['amount']); ?><?php if (!empty($row['unreviewed_n'])): ?><div class="small font-weight-normal"><a class="text-warning" href="<?php echo BASE_URL; ?>/project/batch_review.php" title="没审核的订单不计入应结算；审核通过后才会计入，按营业额落档的还会重新落档。点这里去审核申请"><?php echo (int)$row['unreviewed_n']; ?> 单 ¥<?php echo money($row['unreviewed_amt']); ?> 未审核 ›</a></div><?php endif; ?></td>
   <td data-label="另行支付" class="text-right text-muted"><?php echo $row['separate'] > 0 ? '¥' . money($row['separate']) : '—'; ?></td>
   <td class="text-right"><span class="btn btn-sm btn-outline-primary">明细</span></td>
 </tr><?php endforeach; ?>
