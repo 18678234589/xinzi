@@ -132,9 +132,14 @@ if ($employeeId > 0) {
     $legacyQuery->execute([$month]);
     $legacyByEmployee = [];
     foreach ($legacyQuery->fetchAll() as $row) if (!array_key_exists((int)$row['employee_id'], $legacyByEmployee)) $legacyByEmployee[(int)$row['employee_id']] = $row['net_pay'];
+    // 还没审核的订单不计入应结算（分成按审核快照、月度营业额按已审核收入）：概览里单独提示，避免“有单子却显示最低档”
+    $unreviewedByEmployee = [];
+    $unreviewedQuery = db()->prepare("SELECT p.employee_id, COUNT(DISTINCT o.id) n, COALESCE(SUM(o.contract_amount),0) amt FROM project_orders o JOIN project_participants p ON p.order_id=o.id WHERE o.order_date>=? AND o.order_date<? AND o.settlement_status NOT IN ('approved','locked') GROUP BY p.employee_id");
+    $unreviewedQuery->execute([$month . '-01', date('Y-m-d', strtotime($month . '-01 +1 month'))]);
+    foreach ($unreviewedQuery->fetchAll() as $row) $unreviewedByEmployee[(int)$row['employee_id']] = $row;
     foreach ($employees as $employee) {
         $eid = (int)$employee['id'];
-        $rows[] = ['employee_id' => $eid, 'name' => $employee['name'], 'department' => $employee['department'],
+        $rows[] = ['employee_id' => $eid, 'unreviewed_n' => (int)($unreviewedByEmployee[$eid]['n'] ?? 0), 'unreviewed_amt' => (float)($unreviewedByEmployee[$eid]['amt'] ?? 0), 'name' => $employee['name'], 'department' => $employee['department'],
             'order_count' => (int)($commissionsByEmployee[$eid]['order_count'] ?? 0) + (int)($adjustByEmployee[$eid]['cnt'] ?? 0),
             'amount' => round((float)($commissionsByEmployee[$eid]['amount'] ?? 0) + (float)($adjustByEmployee[$eid]['amount'] ?? 0) + (float)($monthlyByEmployee[$eid] ?? 0), 2),
             'legacy_net_pay' => $legacyByEmployee[$eid] ?? null,
@@ -420,7 +425,7 @@ if ($employeeId > 0) {
   <td data-label="全勤" class="text-right">¥<?php echo money($row['attendance_bonus']); ?></td>
   <td data-label="项目分成" class="text-right">¥<?php echo money($row['share']); ?><?php if ((int)$row['order_count']): ?><div class="small text-muted"><?php echo (int)$row['order_count']; ?> 条</div><?php endif; ?></td>
   <td data-label="奖励补助" class="text-right">¥<?php echo money($row['other']); ?></td>
-  <td data-label="应结算" class="text-right font-weight-bold">¥<?php echo money($row['amount']); ?></td>
+  <td data-label="应结算" class="text-right font-weight-bold">¥<?php echo money($row['amount']); ?><?php if (!empty($row['unreviewed_n'])): ?><div class="small font-weight-normal text-warning" title="没审核的订单不计入应结算；审核通过后才会计入，按营业额落档的还会重新落档"><?php echo (int)$row['unreviewed_n']; ?> 单 ¥<?php echo money($row['unreviewed_amt']); ?> 未审核</div><?php endif; ?></td>
   <td data-label="另行支付" class="text-right text-muted"><?php echo $row['separate'] > 0 ? '¥' . money($row['separate']) : '—'; ?></td>
   <td class="text-right"><span class="btn btn-sm btn-outline-primary">明细</span></td>
 </tr><?php endforeach; ?>

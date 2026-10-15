@@ -153,6 +153,21 @@ function ps_monthly_pick_tier($tiers, $value)
 }
 
 /**
+ * 某人某月参与的、还没审核的订单（月度规则只认已审核订单的收入）：返回 [单数, 售价合计]。
+ * 用来在结算明细里提醒“还有多少钱的订单没审核，没计进营业额”，避免月营业额按 0 落档、却看不出原因。
+ */
+function ps_unreviewed_orders($employeeId, $month, $businesses = null)
+{
+    $sql = "SELECT COUNT(DISTINCT o.id), COALESCE(SUM(o.contract_amount),0) FROM project_orders o JOIN project_participants p ON p.order_id=o.id
+        WHERE p.employee_id=? AND o.order_date>=? AND o.order_date<? AND o.settlement_status NOT IN ('approved','locked')";
+    $params = [(int)$employeeId, $month . '-01', date('Y-m-d', strtotime($month . '-01 +1 month'))];
+    if ($businesses) { $sql .= ' AND o.project_type IN (' . implode(',', array_fill(0, count($businesses), '?')) . ')'; $params = array_merge($params, $businesses); }
+    $q = db()->prepare($sql); $q->execute($params);
+    $r = $q->fetch(PDO::FETCH_NUM);
+    return [(int)$r[0], round((float)$r[1], 2)];
+}
+
+/**
  * 营业额阶梯薪酬（平面设计阎泸琪）：按当月营业额落档（≤ 上限取第一档，超过最高档按最高档），
  * 该档底薪 + 营业额 × 该档比例 + 单量补助（单笔 ≥ 门槛每单 big 元，< 门槛每单 small 元）
  * + 老客户找回订单收入 × returning_rate + 好评率低于 review_min% 扣 review_penalty 元（好评率由财务每月填写，未填不扣）。
