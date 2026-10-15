@@ -1,20 +1,21 @@
 <?php
+require_once __DIR__ . '/../ProjectCommissionRoles.php';
 
 /** 岗位名去掉括号说明后拆分，如“前端（技术）/后端” => ['前端','后端']。 */
-function ps_role_keys($role)
-{
-    $keys = [];
-    foreach (preg_split('/[\/、,，]+/u', (string)$role) as $part) {
-        $part = trim(preg_replace('/[（(][^）)]*[）)]/u', '', $part));
-        if ($part !== '') $keys[] = $part;
-    }
-    return $keys;
-}
 
 /**
  * 按“业务 > 岗位 > 订单类型 > 生效日期”匹配最具体的有效规则。
  * 历史“网站定制”与 AI 网站定制共用同一套版本化规则；同一请求内缓存候选规则。
  */
+
+function ps_software_testing_enabled($employeeId, $business)
+{
+    $q = db()->prepare("SELECT 1 FROM project_employee_roles WHERE employee_id=? AND business_name IN (?, '*') AND commission_group='technical' AND role_name='软件测试' LIMIT 1");
+    $q->execute([(int)$employeeId, ps_business_normalize($business)]);
+    return (bool)$q->fetchColumn();
+}
+
+
 function ps_rule_for($group, $projectType, $orderDate, $role = '', $orderKind = '')
 {
     static $cache = [];
@@ -39,6 +40,8 @@ function ps_rule_for($group, $projectType, $orderDate, $role = '', $orderKind = 
     $bestScore = -1;
     foreach ($cache[$key] as $rule) {
         $ruleRole = (string)($rule['role_name'] ?? '*');
+        // 测试岗只用自己的版本化规则，生效日前不能回落到普通技术提成。
+        if (ps_software_testing_role($role) && !ps_software_testing_role($ruleRole)) continue;
         $ruleKind = (string)($rule['order_kind'] ?? '*');
         $anyRole = in_array($ruleRole, ['*', ''], true);
         $anyKind = in_array($ruleKind, ['*', ''], true);
@@ -56,6 +59,7 @@ function ps_rule_for($group, $projectType, $orderDate, $role = '', $orderKind = 
  */
 function ps_rules_for_person($group, $projectType, $orderDate, $role = '', $orderKind = '')
 {
+    if (in_array('软件测试', ps_role_keys($role), true) && !ps_software_testing_role($role)) return [];
     $roles = ps_role_keys($role);
     if (count($roles) <= 1) {
         $single = ps_rule_for($group, $projectType, $orderDate, $role, $orderKind);
@@ -107,6 +111,8 @@ function money_plain($value)
  */
 function ps_calc_person($rule, $income, $directCost, $contract, $weight, $businessFeeRate, $costNote = '', $feeBase = null)
 {
+    // 测试不占技术组池权重，但独立提成须扣整单成本。
+    if (ps_software_testing_role($rule['role_name'] ?? '')) $weight = 1.0;
     $mode = ($rule['calc_mode'] ?? 'pool') === 'individual' ? 'individual' : 'pool';
     $feeRate = isset($rule['service_fee_rate']) && $rule['service_fee_rate'] !== null && $rule['service_fee_rate'] !== '' ? (float)$rule['service_fee_rate'] : (float)$businessFeeRate
     ;

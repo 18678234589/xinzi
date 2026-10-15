@@ -1,4 +1,5 @@
 <?php
+require_once __DIR__ . '/ProjectCommissionRoles.php';
 /**
  * 补贴规则（叠加规则）：把“每单补贴”从提成规则里拆出来单独配置。
  * 同一参与人在一张订单上只会匹配一条提成规则（业务 > 岗位 > 订单类型最具体者），补贴规则不参与这个竞争，
@@ -29,6 +30,7 @@ function pxr_ensure_column()
 /** 某参与人在这张订单上适用的全部补贴规则（同岗位同类型取最新一版）。 */
 function pxr_for_person($group, $projectType, $orderDate, $role = '', $orderKind = '')
 {
+    if (ps_software_testing_role($role)) return [];
     if (!pxr_supported()) return [];
     static $cache = [];
     if ($projectType === '网站定制') $projectType = 'AI网站定制';

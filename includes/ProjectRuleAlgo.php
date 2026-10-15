@@ -54,6 +54,11 @@ function pra_pct($v) { return rtrim(rtrim(number_format((float)$v * 100, 2, '.',
  */
 function pra_formula(array $rule, $employeeId = 0, $businessFee = 0.0)
 {
+    if (ps_software_testing_role($rule['role_name'] ?? '')) return [
+        'headline' => '(营业额 − 成本) × ' . pra_pct($rule['rate']),
+        'details' => ['营业额按实收减退款，成本按整单已审核实际成本', '独立计提，不占技术组池权重；不另扣店铺服务费、不叠加补贴', '自 ' . $rule['effective_from'] . ' 起按订单日期生效，须在订单中明确指派软件测试', '退款、亏损按同一公式冲减'],
+        'subsidy' => 0.0,
+    ];
     $rate = (float)($rule['rate'] ?? 0);
     $pool = ($rule['calc_mode'] ?? 'pool') !== 'individual';
     $fee = isset($rule['service_fee_rate']) && $rule['service_fee_rate'] !== null && $rule['service_fee_rate'] !== '' ? (float)$rule['service_fee_rate'] : (float)$businessFee;
@@ -125,6 +130,7 @@ function pra_my_algorithms(array $actor)
             $seen = []; $rules = [];
             foreach ($q->fetchAll() as $rule) {
                 $ruleRole = (string)$rule['role_name']; $anyRole = in_array($ruleRole, ['*', ''], true);
+                if (count($keys) === 1 && isset($keys['软件测试']) && !ps_software_testing_role($ruleRole)) continue;
                 if (!$anyRole && !isset($keys[$ruleRole])) continue;
                 $key = $ruleRole . '|' . $rule['order_kind'];
                 if (isset($seen[$key])) continue;

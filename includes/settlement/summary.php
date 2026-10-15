@@ -21,6 +21,7 @@ function ps_summary($order, $costs, $participants)
     }
     $personCost = function ($group, $role, $withPending) use ($phpApproved, $phpAll, $approvedCost, $pendingCost, $order) {
         $base = $withPending ? $approvedCost + $pendingCost : $approvedCost;
+        if (ps_software_testing_role($role)) return [$base, '软件测试按整单实际成本核算'];
         $php = $withPending ? $phpAll : $phpApproved;
         if ($php <= 0) return [$base, ''];
         [$adjusted, $note] = ps_php_cost_for((float)($order['contract_amount'] ?? 0), $group, $role, $php);
@@ -59,10 +60,11 @@ function ps_summary($order, $costs, $participants)
     foreach (['technical', 'customer_service'] as $group) {
         $people = array_values(array_filter($participants, function ($p) use ($group) { return $p['commission_group'] === $group; }));
         $defaultRule = ps_rule_for($group, $order['project_type'], $order['order_date'], '', $orderKind);
-        $weight = array_sum(array_map(function ($p) { return (float)$p['group_weight']; }, $people));
+        $weight = array_sum(array_map(function ($p) { return ps_software_testing_role($p['role_name'] ?? '') ? 0.0 : (float)$p['group_weight']; }, $people));
         $pool = 0.0; $estimatedPool = 0.0; $subsidy = 0.0; $missing = false; $subsidyRule = false;
         foreach ($people as $i => $person) {
             $rules = ps_rules_for_person($group, $order['project_type'], $order['order_date'], $person['role_name'] ?? '', $orderKind);
+            if (ps_software_testing_role($person['role_name'] ?? '') && !ps_software_testing_enabled($person['employee_id'], $order['project_type'])) $rules = [];
             if (in_array((int)($person['employee_id'] ?? 0), $fixedPayIds, true)) {
                 $rules = [['id'=>0,'commission_group'=>$group,'project_type'=>$order['project_type'],'role_name'=>$person['role_name'] ?? '管理','order_kind'=>'*','calc_mode'=>'individual','rate'=>0,'per_order_subsidy'=>0,'note'=>'管理账户仅固定薪酬，不参与逐单分成']];
             }
@@ -180,7 +182,7 @@ function ps_summary($order, $costs, $participants)
                     $subsidyRule = true;
                 }
             }
-            if ($order['project_type'] === '商标' && $group === 'technical') {
+            if ($order['project_type'] === '商标' && $group === 'technical' && !ps_software_testing_role($person['role_name'] ?? '')) {
                 $people[$i]['calc'] = ps_trademark_piece_calc($people[$i]['calc'], $trademarkCount);
                 $people[$i]['estimated_calc'] = ps_trademark_piece_calc($people[$i]['estimated_calc'], $trademarkCount);
             }

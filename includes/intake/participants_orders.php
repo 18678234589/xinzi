@@ -5,7 +5,9 @@ function ps_employee_default_role($employeeId, $business, $group)
 {
     $q = db()->prepare('SELECT role_name FROM project_employee_roles WHERE employee_id=? AND business_name=? AND commission_group=?');
     $q->execute([(int)$employeeId, ps_business_normalize($business), $group]);
-    return $q->fetchColumn() ?: null;
+    $role = $q->fetchColumn();
+    // 测试必须明确指派，普通技术导入不能自动变成测试任务。
+    return ps_software_testing_role($role) ? null : ($role ?: null);
 }
 
 function ps_intake_participants($orderId, $groups, $business = null)
@@ -13,10 +15,11 @@ function ps_intake_participants($orderId, $groups, $business = null)
     $insert = db()->prepare('INSERT INTO project_participants (order_id,employee_id,commission_group,role_name,group_weight) VALUES (?,?,?,?,?)');
     $check = db()->prepare('SELECT 1 FROM employees WHERE id=?');
     $fixedIds = ps_management_fixed_pay_ids();
+    $testingOrder = null;
     foreach ($groups as $group => $people) {
         if (!$people) continue;
         $people = array_values($people);
-        $count = count(array_filter($people, function ($p) use ($fixedIds) { return !in_array((int)$p['id'], $fixedIds, true); }));
+        $count = count(array_filter($people, function ($p) use ($fixedIds) { return !in_array((int)$p['id'], $fixedIds, true) && !ps_software_testing_role($p['role'] ?? ''); }));
         $eligibleIndex = 0;
         $count = max($count, 1);
         $baseWeight = intdiv(1000000, $count);
@@ -24,13 +27,22 @@ function ps_intake_participants($orderId, $groups, $business = null)
             $employeeId = (int)$person['id'];
             $check->execute([$employeeId]);
             if (!$check->fetchColumn()) throw new RuntimeException('参与人不存在，请重新选择');
-            $fixed = in_array($employeeId, $fixedIds, true);
+            $fixed = in_array($employeeId, $fixedIds, true) || ps_software_testing_role($person['role'] ?? '');
             $weight = $fixed ? 0.0 : ($eligibleIndex === $count - 1 ? 1000000 - $baseWeight * ($count - 1) : $baseWeight) / 1000000;
             if (!$fixed) $eligibleIndex++;
             $rawRole = trim((string)($person['role'] ?? ''));
             $isGeneric = ($rawRole === '' || $rawRole === '技术' || $rawRole === '客服');
             $defaultRole = $business !== null ? ps_employee_default_role($employeeId, $business, $group) : null;
             $role = !$isGeneric ? $rawRole : ($defaultRole ?? $rawRole);
+            if (in_array('软件测试', ps_role_keys($role), true)) {
+                if (!ps_software_testing_role($role) || $group !== 'technical') throw new RuntimeException('软件测试必须作为独立技术岗位指派');
+                if ($testingOrder === null) {
+                    $q = db()->prepare('SELECT project_type,order_date,order_kind FROM project_orders WHERE id=?');
+                    $q->execute([(int)$orderId]);
+                    $testingOrder = $q->fetch();
+                }
+                if (!$testingOrder || !ps_software_testing_enabled($employeeId, $testingOrder['project_type']) || !ps_rule_for('technical', $testingOrder['project_type'], $testingOrder['order_date'], '软件测试', $testingOrder['order_kind'])) throw new RuntimeException('测试人员未开通角色，或订单日期未达到规则生效日期');
+            }
             $insert->execute([(int)$orderId, $employeeId, $group, $role, $weight]);
         }
     }

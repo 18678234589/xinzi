@@ -112,7 +112,7 @@ function ps_expected_month($month)
             $warning['cost'] = ($order['domain_mode'] ?? '') === 'pending' || $summary['pending_cost'] > 0;
             $g = $summary['groups'][$person['commission_group']];
             $warning['rule'] = $g['missing_rule'];
-            $warning['weight'] = abs($g['weight'] - 1) > 0.00001 && count($g['people']) > 0;
+            $warning['weight'] = !ps_group_weight_valid($g);
             $warning['refund'] = (int)$order['pending_refunds'] > 0;
             $warnings[$eid][$oid] = $warning;
         }

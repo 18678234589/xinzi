@@ -1,4 +1,5 @@
 <?php
+require_once __DIR__ . '/ProjectCommissionRoles.php';
 /** Deterministic review policy. No database, network, AI or clock side effects. */
 const PA_POLICY_VERSION = '2026-10-15.1';
 const PA_SPOT_CHECK_BUSINESSES = ['设计', 'AI网站定制', '网站模板']; // 不逐单财务审核、改为事后抽查的业务
@@ -162,7 +163,7 @@ function pa_evaluate(array $ctx)
             if (!$group['people']) continue;
             $hasPeople = true;
             if (!empty($group['missing_rule'])) $add('rule_' . $key, '参与人的业务／岗位／订单类型尚未匹配有效分成规则', 'exception');
-            if (abs((float)$group['weight'] - 1.0) > 0.000001) $add('weight_' . $key, '同组参与人分配权重合计必须为 100%', 'exception');
+            if (!ps_group_weight_valid($group)) $add('weight_' . $key, '同组参与人分配权重合计必须为 100%', 'exception');
             if ((float)($group['subsidy'] ?? 0) > 0) $subsidy = true;
             foreach ($group['people'] as $person) {
                 $rule = $person['rule'] ?? [];

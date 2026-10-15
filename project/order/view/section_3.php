@@ -57,7 +57,7 @@
 <?php foreach ($people as $person): if ($actor['role'] !== 'finance' && (int)$person['employee_id'] !== $actor['employee_id']) continue; $snapshotKey = $person['commission_group']
     . ':' . $person['employee_id']; $calcPerson = $personLookup[$snapshotKey] ?? null; $calc = $calcPerson['calc'] ?? null; $snapshot = $snapshotByPerson[$snapshotKey] ?? null; ?><tr><td><?php
     echo e(ps_label('group', $person['commission_group'])); ?></td><td><?php echo e($person['name'] . ' · ' . $person['department']); ?></td><td><?php echo e($person['role_name']
-    ?: '—'); ?></td><td><?php echo money($person['group_weight'] * 100); ?>%</td>
+    ?: '—'); ?></td><td><?php if (ps_software_testing_role($person['role_name'] ?? '')): ?><span class="badge badge-info">独立提成 · 不占组池</span><?php else: ?><?php echo money($person['group_weight'] * 100); ?>%<?php endif; ?></td>
 <td class="small"><?php if (!$canEdit && $snapshot): ?><?php echo e(ps_label('mode', $snapshot['calc_mode'])); ?> · <?php echo money($snapshot['rate'] * 100); ?>%<div class="project-calc-note"><?php
     echo e($snapshot['calc_note']); ?></div><?php elseif ($calc): ?><?php echo e(ps_label('mode', $calc['mode'])); ?> · <?php echo round($calc['rate'] * 100, 4); ?>% · 服务费 <?php
     echo round($calc['fee_rate'] * 100, 2); ?>%<?php if ($calcPerson['rule']['note'] ?? ''): ?><div class="text-muted"><?php echo e($calcPerson['rule']['note']); ?></div><?php endif
@@ -77,6 +77,7 @@
     ; $mk = $person['commission_group'] . ':' . $person['employee_id']; $mp = $personLookup[$mk] ?? null; echo ps_render_calc_modal('calcModal' . (int)$person['id'], $person + ['rule'
     => $mp['rule'] ?? null], $order, $mp['calc'] ?? null, $mp['estimated_calc'] ?? null, $snapshotByPerson[$mk] ?? null, $id, $commissionCorrections, true); endforeach; ?>
 <script><?php /* split: assets/js/project_order_4.js */ include (dirname((dirname(__DIR__, 1)), 1)) . '/../assets/js/project_order_4.js'; ?></script>
+<?php if ($actor['role'] === 'finance' && $canEdit): include __DIR__ . '/software_testing.php'; endif; ?>
 <?php if ($actor['role'] === 'finance' && $canEdit): ?><div class="card-body border-top"><form method="post" class="form-row align-items-end"><input type="hidden" name="csrf" value="<?php
     echo e(ps_csrf_token()); ?>"><input type="hidden" name="action" value="add_participant"><div class="form-group col-md-4"><label>合作人员</label><select name="employee_id" class="form-control" required><option value="">选择合作人员</option><?php
     foreach ($employees as $emp): ?><option value="<?php echo (int)$emp['id']; ?>"><?php echo e($emp['name'] . ' · ' . $emp['department'] . ' · ID ' . $emp['id']); ?></option><?php

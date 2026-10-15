@@ -61,7 +61,7 @@ function ps_approve_order($orderId, $actor, $payrollMonth)
             $hasGroup = true;
             if ($group['missing_rule']) throw new RuntimeException(($label === 'technical' ? '技术' : '客服') . '组有参与人未匹配到项目分成规则（按业务/岗位/订单类型），请先在成本中心配置'
     );
-            if (abs($group['weight'] - 1.0) > 0.000001) throw new RuntimeException(($label === 'technical' ? '技术' : '客服') . '组权重合计必须为100%');
+            if (!ps_group_weight_valid($group)) throw new RuntimeException(($label === 'technical' ? '技术' : '客服') . '组权重合计必须为100%（软件测试独立核算，不占组池权重）');
         }
         if (!$hasGroup) throw new RuntimeException('请先添加技术或客服参与人');
         $insert = $pdo->prepare('INSERT INTO project_commission_snapshots (order_id,employee_id,commission_group,role_name,income_amount,direct_cost,service_fee,contribution_profit,rule_id,calc_mode,rate,group_weight,commission_amount,commission_exact,subsidy_amount,calc_note,payroll_month) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)'
