@@ -119,6 +119,48 @@ function prm_looks_like_order_no($cell)
     return (bool)ps_refund_order_tokens($cell);
 }
 
+const PRM_AUTO_TAG = '【未报单·系统自动】';
+
+/**
+ * 自动结案：退款的订单号格式正常、店铺流水里有这笔订单、项目系统里却没有对应订单，且退款已过 $graceDays 天仍没人录订单——
+ * 没有项目订单就没有分成可扣，系统自动记为“未报单”结案，不再占着待办（退款页不用人再点“标记未报单”）。
+ * 之后订单若补录进来，prm_auto_reopen 会把它重新打开并自动扣减。流水里也没有的（可能是缺流水）不自动结案。
+ */
+function prm_auto_unreported($actor, $graceDays = 14, $limit = 200)
+{
+    if (!function_exists('ps_shop_order_lookup')) require_once __DIR__ . '/ProjectOrderSource.php';
+    $rows = db()->query("SELECT * FROM project_refund_import_rows WHERE review_status='pending' AND order_id IS NULL AND refund_date<=DATE_SUB(CURDATE(), INTERVAL " . (int)$graceDays . " DAY)" . ps_refund_live_sql() . " ORDER BY refund_date,id LIMIT " . max(1, min((int)$limit, 500)))->fetchAll();
+    $done = 0;
+    foreach ($rows as $r) {
+        if (!prm_looks_like_order_no($r['order_no']) || prm_candidates($r['order_no'])) continue;
+        $inFlow = false;
+        foreach (array_merge([trim($r['order_no'])], ps_refund_order_tokens($r['order_no'])) as $t) { try { if (ps_shop_order_lookup($t)) { $inFlow = true; break; } } catch (Throwable $e) {} }
+        if (!$inFlow) continue;
+        $reason = mb_substr(trim($r['reason'] . '；' . PRM_AUTO_TAG . '店铺流水里有该订单，项目系统里没有对应订单（' . $graceDays . ' 天内无人录入），无分成可扣（原写：' . $r['order_no'] . '）；订单补录后会自动重新打开并扣减', '；'), 0, 300);
+        $u = db()->prepare("UPDATE project_refund_import_rows SET reason=?,review_status='approved',reviewed_by_admin=0,reviewed_at=NOW() WHERE id=? AND review_status='pending' AND order_id IS NULL");
+        $u->execute([$reason, (int)$r['id']]);
+        if ($u->rowCount()) { $done++; ps_audit('refund_import', (int)$r['id'], 'auto_unreported', $actor, ['order_no' => $r['order_no'], 'amount' => $r['amount']]); }
+    }
+    return $done;
+}
+
+/** 自动结案过的“未报单”退款，如果对应的项目订单后来录进来了：重新打开（待审、关联订单），由自动扣减接着处理。 */
+function prm_auto_reopen($actor, $limit = 300)
+{
+    if (!function_exists('ps_refund_resolve_order')) require_once __DIR__ . '/ProjectRefundImport.php';
+    $rows = db()->query("SELECT id,order_no,source_payment_reference,reason FROM project_refund_import_rows WHERE review_status='approved' AND order_id IS NULL AND reason LIKE '%" . PRM_AUTO_TAG . "%'" . prt_active_sql() . " ORDER BY id LIMIT " . max(1, min((int)$limit, 500)))->fetchAll();
+    $n = 0;
+    foreach ($rows as $r) {
+        [$order] = ps_refund_resolve_order($r['order_no'], $r['source_payment_reference']);
+        if (!$order) continue;
+        $reason = trim(preg_replace('/；?' . preg_quote(PRM_AUTO_TAG, '/') . '[^；]*(?:；[^；]*)?$/u', '', (string)$r['reason']), '；');
+        $u = db()->prepare("UPDATE project_refund_import_rows SET order_id=?,order_no=?,reason=?,review_status='pending',reviewed_by_admin=NULL,reviewed_at=NULL WHERE id=? AND review_status='approved' AND order_id IS NULL");
+        $u->execute([(int)$order['id'], $order['order_no'], mb_substr($reason, 0, 300), (int)$r['id']]);
+        if ($u->rowCount()) { $n++; ps_audit('refund_import', (int)$r['id'], 'auto_reopen', $actor, ['order_id' => (int)$order['id']]); }
+    }
+    return $n;
+}
+
 /** “等待订单上传”：退款对应的订单号格式正常，只是项目系统里还没有这张订单；按店铺归类，提醒对应业务补传。 */
 function prm_waiting_upload($limit = 400)
 {

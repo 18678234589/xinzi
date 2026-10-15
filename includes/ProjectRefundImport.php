@@ -382,6 +382,8 @@ function ps_refund_auto_apply($limit = 300, $dryRun = false)
         $summary['linked'] = ps_refund_reconcile_pending($system, 500);
         require_once __DIR__ . '/ProjectRefundMatch.php';
         $summary['linked'] += prm_auto_nickname($system, 300); // 写成客户ID、且只对应一张订单的退款
+        $summary['reopened'] = prm_auto_reopen($system, 300);      // 之前自动结案的“未报单”退款，订单后来补录了：重新打开
+        $summary['unreported'] = prm_auto_unreported($system, 14, 200); // 没有项目订单、流水里有、过了 14 天：自动结案
         $shop = prm_shop_refund_sync(false); // 店铺里的售中退款 / 交易关闭
         $summary['shop_applied'] = $shop['applied']; $summary['shop_queued'] = $shop['queued'];
     }
