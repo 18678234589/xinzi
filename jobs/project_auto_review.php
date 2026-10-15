@@ -1,7 +1,7 @@
 <?php
 /** Cron: every 5 minutes; --dry-run is strictly read-only, --refresh records checks only. */
 if (PHP_SAPI !== 'cli') { http_response_code(403); exit('仅命令行'); }
-require_once __DIR__ . '/../includes/ProjectAutoReview.php';
+require_once __DIR__ . '/../includes/ProjectSpotCheck.php';
 $apply = in_array('--apply', $argv, true);
 $refresh = in_array('--refresh', $argv, true);
 $month = ''; $limit = 200;
@@ -19,7 +19,11 @@ try {
     if ($apply || $refresh) {
         if (!(int)$p->query("SELECT GET_LOCK('project_auto_review_job',0)")->fetchColumn()) { echo "{\"busy\":true}\n"; exit; }
     } else $p->exec('START TRANSACTION READ ONLY');
-    try { $out = pa_batch($limit, $apply, $refresh, $month); }
+    try {
+        $out = pa_batch($limit, $apply, $refresh, $month);
+        // 自动结算的免审业务订单，每个业务每月补抽到 5 单交财务抽查（本月和上月）
+        if ($apply) $out['spot_checks_assigned'] = psc_assign(date('Y-m')) + psc_assign(date('Y-m', strtotime('first day of last month')));
+    }
     finally {
         if ($apply || $refresh) $p->query("SELECT RELEASE_LOCK('project_auto_review_job')");
         elseif ($p->inTransaction()) $p->rollBack();

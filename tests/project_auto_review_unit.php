@@ -21,6 +21,15 @@ ar_state('rejected item cost needs correction',function(&$x){$x['items']=[['id'=
 ar_state('standard item pending resource is not finance exception',function(&$x){$x['resource']=['domain_mode'=>'pending'];$x['items']=[['id'=>1,'item_key'=>'ssl:1','item_name'=>'SSL证书','cost_id'=>17,'cost_status'=>'pending']];$x['costs']=[['id'=>17,'category'=>'certificate','amount'=>30,'is_custom'=>0,'reason'=>'商品明细：SSL证书','review_status'=>'pending']];},'wait_data');
 ar_state('two legitimate certificate items are not duplicate costs',function(&$x){$x['items']=[['id'=>1,'item_key'=>'ssl:1','item_name'=>'SSL证书','cost_id'=>17,'cost_status'=>'approved'],['id'=>2,'item_key'=>'ssl:2','item_name'=>'SSL证书','cost_id'=>18,'cost_status'=>'approved']];$x['costs']=[['id'=>17,'category'=>'certificate','amount'=>30,'item_name'=>'域名SSL证书','review_status'=>'approved'],['id'=>18,'category'=>'certificate','amount'=>30,'item_name'=>'域名SSL证书','review_status'=>'approved']];},'ready');
 ar_state('sale is not receipt',function(&$x){$x['order']['receipt_amount']=0;$x['cash']=[];$x['summary']['income']=0;},'wait_sync');
+$spot=function(&$x){$x['order']['project_type']='设计';$x['order']['receipt_amount']=0;$x['order']['contract_amount']=5;$x['cash']=[];$x['summary']['income']=0;};
+$r=ar_state('design order without statement is spot-checked, not blocked',$spot,'ready');
+ar_check('design receipt at sale price',[$r['spot_check'],$r['receipt_to_add_cents']],[true,500]);
+$r=ar_state('design pays less than sale price',function(&$x)use($spot){$spot($x);$x['payment']['paid_cents']=450;},'ready');
+ar_check('design receipt follows paid amount',$r['receipt_to_add_cents'],450);
+ar_state('design without sale price still blocked',function(&$x)use($spot){$spot($x);$x['order']['contract_amount']=0;},'wait_data');
+ar_state('design real exception still blocked',function(&$x)use($spot){$spot($x);$x['pending_refunds']=1;},'exception');
+$r=ar_state('other business unchanged',function(&$x){$x['order']['project_type']='商标';$x['order']['receipt_amount']=0;$x['cash']=[];$x['summary']['income']=0;},'wait_sync');
+ar_check('other business no spot check',$r['spot_check'],false);
 ar_state('ledger mismatch',function(&$x){$x['order']['receipt_amount']=99;},'exception');
 ar_state('unreviewed cash',function(&$x){$x['cash'][]=['review_status'=>'pending'];},'wait_finance');
 ar_state('unreviewed external refund',function(&$x){$x['pending_refunds']=1;},'exception');
@@ -83,7 +92,7 @@ $refundEtm=$paidEtm;$refundEtm['raw']['退款金额']=20;ar_check('ETMLL refund 
 $failed=$source;$failed['raw']['__order_status__']='未支付成功';ar_check('negative success phrase rejected',pa_payment_evidence([$failed],'A')['paid_cents'],null);
 $one=$source;$one['order_no']='one';$one['matched_by_reference']=true;$two=$one;$two['order_no']='two';ar_check('combined payment not guessed',isset(pa_payment_evidence([$one,$two],'A')['warnings']['transaction_ambiguous']),true);
 $etmOne=$paidEtm;$etmOne['raw']['__etmll_id__']=123;$etmTwo=$etmOne;$etmTwo['id']=999;ar_check('API order source key survives warehouse copies',pa_payment_evidence([$etmOne],'A')['references'][0]['source_key'],pa_payment_evidence([$etmTwo],'A')['references'][0]['source_key']);
-foreach(['wait_sync','wait_finance','wait_data','exception','ready','auto_passed','settled','queued'] as $state)ar_check('state label '.$state,count(pa_state_meta($state)),2);
+foreach(['wait_sync','wait_finance','wait_data','exception','ready','auto_passed','spot_check','settled','queued'] as $state)ar_check('state label '.$state,count(pa_state_meta($state)),2);
 $refundLinked=['id'=>991,'order_no'=>'LINKED','shop'=>'A','raw'=>['__financial_source__'=>'shop_statement','__order_status__'=>'交易成功','买家实际支付金额'=>100,'__etmll_observed_refund_cents__'=>2000]];
 ar_check('linked latest refund conflict blocks stale statement',isset(pa_payment_evidence([$refundLinked],'A')['warnings']['linked_refund_conflict']),true);
 $refundLinked['raw']['退款金额']=20;

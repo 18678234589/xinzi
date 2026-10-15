@@ -92,12 +92,12 @@ foreach ($orders as $i => $row) {
     $orders[$i]['todos'] = ps_order_todos($row);
     if ($orders[$i]['auto_review']['reasons']) $orders[$i]['todos'] = array_map(function ($reason) { return [$reason['text'], $reason['kind'] === 'exception' ? 'danger' : 'warning'
     ]; }, $orders[$i]['auto_review']['reasons']);
-    elseif (in_array($orders[$i]['auto_review']['state'], ['ready','auto_passed','settled'], true)) $orders[$i]['todos'] = [];
+    elseif (in_array($orders[$i]['auto_review']['state'], ['ready','auto_passed','spot_check','settled'], true)) $orders[$i]['todos'] = [];
 }
 $reviewCounts = [];
 foreach ($orders as $row) $reviewCounts[$row['auto_review']['state']] = ($reviewCounts[$row['auto_review']['state']] ?? 0) + 1;
 $filterReview = (string)($_GET['check'] ?? '');
-if (in_array($filterReview, ['wait_sync','wait_finance','wait_data','exception','ready','auto_passed','settled','queued'], true)) $orders = array_values(array_filter($orders, function
+if (in_array($filterReview, ['wait_sync','wait_finance','wait_data','exception','ready','auto_passed','spot_check','settled','queued'], true)) $orders = array_values(array_filter($orders, function
     ($row) use ($filterReview) { return $row['auto_review']['state'] === $filterReview; }));
 if ($filterState === 'todo') $orders = array_values(array_filter($orders, function ($row) { return (bool)$row['todos']; }));
 $totals = ['contract' => 0.0, 'receipt' => 0.0, 'cost' => 0.0, 'todo' => 0];

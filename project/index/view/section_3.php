@@ -29,7 +29,7 @@
   <?php if ($deptChoices): ?><div class="col-md-2 mb-2"><label class="small text-muted mb-1" for="filterDepartment">部门</label><select class="form-control" name="filter_department" id="filterDepartment"><option value="">全部部门</option><?php
     foreach ($deptChoices as $deptName): ?><option value="<?php echo e($deptName); ?>" <?php echo $filterDepartment === $deptName ? 'selected' : ''; ?>><?php echo e($deptName); ?></option><?php endforeach; ?></select></div><?php endif; ?>
   <div class="col-md-2 mb-2"><label class="small text-muted mb-1" for="filterCheck">系统核对</label><select class="form-control" id="filterCheck" name="check"><option value="">全部核对状态</option><?php
-    foreach(['wait_sync','wait_finance','wait_data','exception','ready','auto_passed','settled','queued'] as $checkState): $checkMeta=pa_state_meta($checkState); ?><option value="<?php
+    foreach(['wait_sync','wait_finance','wait_data','exception','ready','auto_passed','spot_check','settled','queued'] as $checkState): $checkMeta=pa_state_meta($checkState); ?><option value="<?php
     echo e($checkState); ?>" <?php echo $filterReview===$checkState?'selected':''; ?>><?php echo e($checkMeta[0]); ?>（<?php echo (int)($reviewCounts[$checkState]??0); ?>）</option><?php
     endforeach; ?></select></div>
   <div class="col-md-2 mb-2"><label class="small text-muted mb-1" for="filterState">状态</label><select class="form-control" name="state" id="filterState"><option value="">全部</option><option value="unfinished" <?php

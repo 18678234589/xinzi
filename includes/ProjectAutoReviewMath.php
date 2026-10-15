@@ -1,6 +1,7 @@
 <?php
 /** Deterministic review policy. No database, network, AI or clock side effects. */
-const PA_POLICY_VERSION = '2026-10-08.4';
+const PA_POLICY_VERSION = '2026-10-15.1';
+const PA_SPOT_CHECK_BUSINESSES = ['设计', 'AI网站定制', '网站模板']; // 不逐单财务审核、改为事后抽查的业务
 
 function pa_cents($value)
 {
@@ -184,12 +185,24 @@ function pa_evaluate(array $ctx)
         if ((float)$summary['service_fee_rate'] > 0 && (float)$o['contract_amount'] <= 0 && (float)$summary['income'] > 0) $add('sale_missing', '按售价计服务费的业务，尚缺有效售价');
         if (!$missingReceipt && $refund > max($receipt, $e['paid_cents'] ?? 0) && !$allowNegative) $add('refund_exceeds', '累计退款超过可核对收款，不能自动结算', 'exception');
     }
+    // 免财务审核的业务（设计）：收款流水没对上 / 实付与售价有差异不再卡住结算，系统按实付（没有则按售价）登记收款后直接结算，事后由财务抽查。
+    $spot = !$closed && in_array(ps_business_normalize($o['project_type'] ?? ''), PA_SPOT_CHECK_BUSINESSES, true);
+    $spotReceipt = 0;
+    if ($spot) {
+        foreach (['receipt_missing', 'income', 'payment_sale_variance', 'payment_over_sale', 'receipt_conflict', 'legacy_sale_estimate', 'monthly_profit_receipt'] as $code) unset($reasons[$code]);
+        if ($receipt === 0) {
+            $spotReceipt = $e['paid_cents'] !== null ? $e['paid_cents'] : (int)round((float)$o['contract_amount'] * 100);
+            if ($spotReceipt <= 0) $add('spot_no_sale', '没有售价也没有实付记录，无法登记收款；请补齐售价');
+        }
+        $kinds = array_column($reasons, 'kind');
+        $exception = in_array('exception', $kinds, true); $waitSync = in_array('sync', $kinds, true); $waitFinance = in_array('finance', $kinds, true);
+    }
     $state = $exception ? 'exception' : ($closed ? 'settled' : ($waitFinance ? 'wait_finance' : ($waitSync ? 'wait_sync' : ($reasons ? 'wait_data' : 'ready'))));
     if ($state === 'wait_sync' || $state === 'wait_finance') {
         $priority = $state === 'wait_sync' ? 'sync' : 'finance';
         uasort($reasons, function ($a, $b) use ($priority) { return ($a['kind'] !== $priority) <=> ($b['kind'] !== $priority); });
     }
-    return ['state' => $state, 'reasons' => array_values($reasons), 'can_apply' => !$closed && !$reasons, 'receipt_to_add_cents' => $receipt === 0 && !$reasons && $e['paid_cents'] !== null ? $e['paid_cents'] : 0, 'policy_version' => PA_POLICY_VERSION];
+    return ['state' => $state, 'reasons' => array_values($reasons), 'can_apply' => !$closed && !$reasons, 'receipt_to_add_cents' => $spot ? ($reasons ? 0 : $spotReceipt) : ($receipt === 0 && !$reasons && $e['paid_cents'] !== null ? $e['paid_cents'] : 0), 'spot_check' => $spot, 'policy_version' => PA_POLICY_VERSION];
 }
 
 function pa_state_meta($state)
@@ -198,7 +211,7 @@ function pa_state_meta($state)
         'wait_sync' => ['等待收款确认', 'info'], 'wait_data' => ['待补资料', 'warning'],
         'wait_finance' => ['等待财务核验', 'info'],
         'exception' => ['异常待财务', 'danger'], 'ready' => ['核对通过·待结算', 'primary'],
-        'auto_passed' => ['自动核对通过', 'success'], 'settled' => ['已结算', 'success'],
+        'auto_passed' => ['自动核对通过', 'success'], 'spot_check' => ['待财务抽查', 'warning'], 'settled' => ['已结算', 'success'],
         'queued' => ['等待系统核对', 'secondary'],
     ];
     return $map[$state] ?? $map['queued'];

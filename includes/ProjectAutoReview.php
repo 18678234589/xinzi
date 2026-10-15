@@ -150,9 +150,9 @@ function pa_record(array $ctx, array $result, $applied = false)
     $json = json_encode($evidence, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
     $reasons = json_encode($result['reasons'], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
     $fingerprint = hash('sha256', $json . $reasons . $result['state']);
-    $q = db()->prepare('SELECT fingerprint,applied_at FROM project_auto_reviews WHERE order_id=?'); $q->execute([$ctx['order']['id']]); $old = $q->fetch();
+    $q = db()->prepare('SELECT fingerprint,applied_at,state FROM project_auto_reviews WHERE order_id=?'); $q->execute([$ctx['order']['id']]); $old = $q->fetch();
     $state = $result['state'];
-    if ($state === 'settled' && !empty($old['applied_at'])) $state = 'auto_passed';
+    if ($state === 'settled' && !empty($old['applied_at'])) $state = $old['state'] === 'spot_check' ? 'spot_check' : 'auto_passed';
     db()->prepare('INSERT INTO project_auto_reviews (order_id,state,policy_version,checked_row_version,checked_source_at,fingerprint,reasons_json,evidence_json,checked_at,applied_at) VALUES (?,?,?,?,?,?,?,?,NOW(),?) ON DUPLICATE KEY UPDATE state=VALUES(state),policy_version=VALUES(policy_version),checked_row_version=VALUES(checked_row_version),checked_source_at=VALUES(checked_source_at),fingerprint=VALUES(fingerprint),reasons_json=VALUES(reasons_json),evidence_json=VALUES(evidence_json),checked_at=NOW(),applied_at=COALESCE(VALUES(applied_at),applied_at)')
         ->execute([$ctx['order']['id'], $state, PA_POLICY_VERSION, $ctx['order']['row_version'], $ctx['source']['synced_at'] ?? null, $fingerprint, $reasons, $json, $applied ? date('Y-m-d H:i:s') : null]);
     if (!$old || $old['fingerprint'] !== $fingerprint) {
@@ -189,17 +189,19 @@ function pa_check_order_once($orderId, $apply = false, $persist = false)
     try {
         $ctx = pa_context($orderId, $transaction); $result = pa_evaluate($ctx); $applied = false;
         if ($apply && $result['can_apply']) {
+            $spot = !empty($result['spot_check']);
             if ($result['receipt_to_add_cents'] > 0) {
-                $p->prepare("INSERT INTO project_cash_movements (order_id,movement_type,amount,note,review_status,submitted_by_type,submitted_by_id,reviewed_at) VALUES (?,'receipt',?,'系统核对店铺实付字段确认收款（非售价推算）','approved','system',0,NOW())")
-                    ->execute([$orderId, $result['receipt_to_add_cents'] / 100]);
+                $byPayment = $ctx['payment']['paid_cents'] === $result['receipt_to_add_cents'] && $ctx['payment']['references'];
+                $p->prepare("INSERT INTO project_cash_movements (order_id,movement_type,amount,note,review_status,submitted_by_type,submitted_by_id,reviewed_at) VALUES (?,'receipt',?,?,'approved','system',0,NOW())")
+                    ->execute([$orderId, $result['receipt_to_add_cents'] / 100, $spot ? '免财务审核业务：' . ($byPayment ? '按店铺实付' : '按售价') . '登记收款，待财务抽查' : '系统核对店铺实付字段确认收款（非售价推算）']);
                 $cashId = (int)$p->lastInsertId();
-                $p->prepare("INSERT INTO project_auto_cash_evidence (order_id,movement_type,cash_movement_id,source_order_id,source_key,amount,evidence_hash,created_at) VALUES (?,'receipt',?,?,?,?,?,NOW())")
+                if ($byPayment) $p->prepare("INSERT INTO project_auto_cash_evidence (order_id,movement_type,cash_movement_id,source_order_id,source_key,amount,evidence_hash,created_at) VALUES (?,'receipt',?,?,?,?,?,NOW())")
                     ->execute([$orderId, $cashId, $ctx['payment']['references'][0]['source_order_id'], $ctx['payment']['references'][0]['source_key'], $result['receipt_to_add_cents'] / 100, hash('sha256', json_encode($ctx['payment']))]);
                 ps_recalculate_cash($orderId);
             }
             // Original order month only; locked months never silently roll forward.
             ps_approve_order($orderId, ['type' => 'system', 'id' => 0, 'role' => 'finance'], substr($ctx['order']['order_date'], 0, 7));
-            $ctx = pa_context($orderId, true); $result = pa_evaluate($ctx); $result['state'] = 'auto_passed'; $applied = true;
+            $ctx = pa_context($orderId, true); $result = pa_evaluate($ctx); $result['state'] = $spot ? 'spot_check' : 'auto_passed'; $applied = true;
         }
         if ($transaction) pa_record($ctx, $result, $applied);
         if ($transaction) { if ($nested) $p->exec('RELEASE SAVEPOINT auto_review_order'); else $p->commit(); }
@@ -249,13 +251,13 @@ function pa_view(array $row)
     $state = $row['auto_review_state'] ?? 'queued';
     $stale = isset($row['auto_review_version']) && ((int)$row['auto_review_version'] !== (int)$row['row_version'] || ($row['auto_review_policy'] ?? '') !== PA_POLICY_VERSION || ($row['auto_review_source_at'] ?? null) !== ($row['source_synced_at'] ?? null));
     if ($stale) $state = 'queued';
-    if ($state === 'queued' && in_array($row['settlement_status'], ['approved', 'locked'], true)) $state = 'settled';
+    if ($state === 'queued' && in_array($row['settlement_status'], ['approved', 'locked'], true)) $state = ($row['auto_review_state'] ?? '') === 'spot_check' ? 'spot_check' : 'settled';
     $reasons = $stale ? [] : (json_decode((string)($row['auto_review_reasons'] ?? ''), true) ?: []);
     // 已存下来的旧提示文字换成大白话（不改核对规则版本，避免全部订单重新排队）
     $plainText = ['已匹配订单来源，但尚无明确实付字段或已核验收款；比例分成须等实收' => '已找到这张订单，但还没有这笔钱的收款记录；按比例算的提成要等收款确认后才能结算', '尚未匹配可信收款流水；售价仅用于预估' => '还没找到这笔钱的收款记录；现在显示的金额只是按售价估算的预计值', '没有可结算净实收，需核对收退款' => '还没有已确认的收款，暂时无法结算；请财务核对收款和退款'];
     foreach ($reasons as $ri => $reasonRow) if (isset($reasonRow['text'], $plainText[$reasonRow['text']])) $reasons[$ri]['text'] = $plainText[$reasonRow['text']];
     [$label, $tone] = pa_state_meta($state);
-    $guidance = $state === 'wait_sync' ? '订单已经导入成功，不用重新上传。系统还没找到这笔钱的收款记录，所以暂时不能结算。请财务把对应的收款流水（微信 / 对公收款也一样）传到“店铺交易流水”，或在订单里手动登记收款；登记后系统会自动继续核对。' : ($state === 'wait_finance' ? '资料已提交，正在等待财务核验。这不是报单失败，无需重复提交；有待补凭证时请在结算单补充。' : '');
+    $guidance = $state === 'wait_sync' ? '订单已经导入成功，不用重新上传。系统还没找到这笔钱的收款记录，所以暂时不能结算。请财务把对应的收款流水（微信 / 对公收款也一样）传到“店铺交易流水”，或在订单里手动登记收款；登记后系统会自动继续核对。' : ($state === 'wait_finance' ? '资料已提交，正在等待财务核验。这不是报单失败，无需重复提交；有待补凭证时请在结算单补充。' : ($state === 'spot_check' ? '这类订单不需要财务逐单审核，系统已自动结算并计入报酬；财务会事后抽查，发现问题再调整。' : ''));
     return ['state' => $state, 'label' => $label, 'tone' => $tone, 'reasons' => $reasons, 'guidance' => $guidance, 'checked_at' => $row['auto_review_checked_at'] ?? null];
 }
 
