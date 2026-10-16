@@ -50,6 +50,39 @@ try {
     [$done3, $failed3] = pbr_approve($finance, 0, [$d], $emp, $month);
     $check($done3 === 1 && !$failed3 && $st($d)['settlement_status'] === 'approved', '财务不用申请，直接选员工 + 月份审核通过');
     $check((int)$pdo->query("SELECT COUNT(*) FROM project_costs WHERE order_id=$d AND review_status='approved'")->fetchColumn() === 1, '批量审核时待审核成本一并通过');
+    // 已到账的网站模板单：资源未确认、成本待审、交付未完成，批量审核前自动准备后一次通过
+    $tag2 = 'BRW' . $tag;
+    $pdo->prepare("INSERT INTO project_orders (order_no,customer_name,project_type,order_kind,shop,contract_amount,receipt_amount,order_date,delivery_status,settlement_status,note) VALUES (?,'测试','网站模板','新订单','内部',300,300,'2026-09-12','unfinished','draft','测试')")->execute([$tag2]);
+    $w = (int)$pdo->lastInsertId(); $ids[] = $w;
+    $pdo->prepare("INSERT INTO project_participants (order_id,employee_id,commission_group,role_name,group_weight) VALUES (?,?,'technical','模板技术',1)")->execute([$w, $emp]);
+    $pdo->prepare("INSERT INTO project_order_resources (order_id,source_type,domain_mode) VALUES (?,'manual','pending')")->execute([$w]);
+    $pdo->prepare("INSERT INTO project_costs (order_id,category,item_name,quantity,unit,unit_price,amount,cost_kind,is_custom,reason,review_status) VALUES (?,'outsourcing','外包',1,'项',5,5,'one_time',1,'测试','pending')")->execute([$w]);
+    $pdo->beginTransaction();
+    try { $pdo->prepare("UPDATE project_orders SET delivery_status='finished' WHERE id=?")->execute([$w]); pbr_prepare_order($w, $finance, 1, '财务'); ps_approve_order($w, $finance, $month); $pdo->commit(); $okW = true; } catch (Throwable $ex) { $pdo->rollBack(); $okW = $ex->getMessage(); }
+    $check($okW === true && $st($w)['settlement_status'] === 'approved', '资源未确认+成本待审的已到账网站模板单，准备后可审核通过：' . (is_string($okW) ? $okW : 'ok'));
+    $check($pdo->query("SELECT domain_mode FROM project_order_resources WHERE order_id=$w")->fetchColumn() === 'none', '资源按“无需另计”确认');
+    // 授权审核人员（如网站人事）：只能审指定业务，不含本人参与的订单，不能处理申请、不是管理员账号
+    $pdo->exec('CREATE TABLE IF NOT EXISTS project_batch_review_delegates (employee_id INT NOT NULL, business_name VARCHAR(100) NOT NULL, created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY (employee_id, business_name)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4');
+    $pdo->prepare('INSERT INTO employees (name,department,password) VALUES (?,?,?)')->execute(['br_delegate_' . $tag, '网站人事', bin2hex(random_bytes(8))]);
+    $dele = (int)$pdo->lastInsertId();
+    $deleActor = ['type' => 'employee', 'id' => 999999, 'employee_id' => $dele, 'role' => 'governance'];
+    $check(pbr_scope($deleActor) === null && pbr_scope($mine) === null, '没授权的人没有审核资格');
+    $pdo->prepare('INSERT INTO project_batch_review_delegates (employee_id,business_name) VALUES (?,?)')->execute([$dele, '设计']);
+    $e = $mk('E', 40); $f = $mk('F', 50);
+    $check(count(pbr_orders($emp, $month, pbr_scope($deleActor))) === 0, '授权业务不含这些订单时看不到');
+    $pdo->prepare('INSERT INTO project_batch_review_delegates (employee_id,business_name) VALUES (?,?)')->execute([$dele, '平面设计']);
+    $sc = pbr_scope($deleActor);
+    $check(count(pbr_orders($emp, $month, $sc)) >= 2 && in_array($emp, array_map('intval', array_column(pbr_employees($month, $sc), 'id')), true), '授权业务内的订单和员工可见');
+    $pdo->prepare("INSERT INTO project_participants (order_id,employee_id,commission_group,role_name,group_weight) VALUES (?,?,'technical','设计',1)")->execute([$f, $dele]);
+    $check(!in_array($f, array_map('intval', array_column(pbr_orders($emp, $month, pbr_scope($deleActor)), 'id')), true), '本人参与的订单不能自己审');
+    $threw = false; try { pbr_approve($deleActor, $rid, [$e]); } catch (RuntimeException $ex) { $threw = true; }
+    $check($threw, '授权人员不能处理申请');
+    [$d4, $fl4] = pbr_approve($deleActor, 0, [$e, $f], $emp, $month);
+    $check($d4 === 1 && $st($e)['settlement_status'] === 'approved' && $st($f)['settlement_status'] === 'draft', '授权人员直接审核：能过 1 单，本人参与那单被拒绝');
+    $check((int)$pdo->query("SELECT COUNT(*) FROM project_cash_movements WHERE order_id=$e AND reviewed_by_admin IS NULL AND note LIKE '授权审核人员%'")->fetchColumn() === 1, '收款记录不冒用管理员 ID，注明授权审核人员');
+    $threw = false; try { pbr_reject($deleActor, $rid, '不通过的原因'); } catch (RuntimeException $ex) { $threw = true; }
+    $check($threw, '授权人员不能退回申请');
+    $pdo->exec("DELETE FROM project_participants WHERE employee_id=$dele"); $pdo->exec("DELETE FROM project_batch_review_delegates WHERE employee_id=$dele"); $pdo->exec("DELETE FROM employees WHERE id=$dele");
     echo "全部通过\n";
 } finally {
     require_once __DIR__ . '/../includes/ProjectOrderTrash.php';

@@ -4,6 +4,7 @@ require_once __DIR__ . '/../includes/ProjectBatchReview.php';
 $actor = ps_require_actor();
 pbr_ensure();
 $isFinance = ($actor['role'] ?? '') === 'finance';
+$scope = pbr_scope($actor); $canReview = $scope !== null; // 财务，或被授权审核指定业务的人员（如网站人事）
 if (!$isFinance && empty($actor['employee_id'])) { http_response_code(403); exit('无权限'); }
 $error = ''; $success = ''; $failed = [];
 $month = (string)($_GET['month'] ?? $_POST['month'] ?? date('Y-m', strtotime('first day of last month')));
@@ -29,11 +30,11 @@ if ($isFinance && $reqId) {
     if ($detail) { $detailOrders = pbr_orders((int)$detail['employee_id'], $detail['month']); $month = $detail['month']; }
 }
 $empId = (int)($_GET['emp'] ?? $_POST['emp'] ?? 0); $empList = [];
-if ($isFinance) { // 财务直接选员工 + 月份审核，不用等对方提交申请
-    $empList = pbr_employees($month);
+if ($canReview) { // 财务直接选员工 + 月份审核，不用等对方提交申请
+    $empList = pbr_employees($month, $scope);
     if (!$detail && $empId) {
         $en = db()->prepare('SELECT name FROM employees WHERE id=?'); $en->execute([$empId]); $empName = (string)$en->fetchColumn();
-        $detailOrders = pbr_orders($empId, $month);
+        $detailOrders = pbr_orders($empId, $month, $scope);
         if ($empName !== '') $detail = ['id' => 0, 'employee_id' => $empId, 'emp_name' => $empName, 'month' => $month, 'order_count' => count($detailOrders), 'amount' => array_sum(array_column($detailOrders, 'contract_amount')), 'note' => '', 'status' => 'pending'];
     }
 }
@@ -56,7 +57,7 @@ function pbr_state_badge($row) { [$label, $tone] = pa_state_meta($row['review_st
   <?php if ($error): ?><div class="alert alert-danger"><?php echo e($error); ?></div><?php endif; ?>
   <?php if ($failed): ?><div class="alert alert-warning"><b>这些没能自动通过：</b><ul class="mb-0"><?php foreach ($failed as $f): ?><li><?php echo e($f); ?></li><?php endforeach; ?></ul></div><?php endif; ?>
 
-<?php if ($isFinance && $detail): ?>
+<?php if ($canReview && $detail): ?>
   <div class="card mb-4"><div class="card-header d-flex justify-content-between flex-wrap"><span><?php echo e($detail['emp_name']); ?> · <?php echo e($detail['month']); ?> · 申请 <?php echo (int)$detail['order_count']; ?> 单 ¥<?php echo e(number_format((float)$detail['amount'], 2)); ?></span><a href="<?php echo BASE_URL; ?>/project/batch_review.php">← 返回列表</a></div>
     <?php if ($detail['note'] !== ''): ?><div class="card-body pb-0 small"><b>申请说明：</b><?php echo e($detail['note']); ?></div><?php endif; ?>
     <form method="post"><input type="hidden" name="csrf" value="<?php echo e(ps_csrf_token()); ?>"><input type="hidden" name="id" value="<?php echo (int)$detail['id']; ?>"><input type="hidden" name="month" value="<?php echo e($detail['month']); ?>"><input type="hidden" name="emp" value="<?php echo (int)$detail['employee_id']; ?>">
@@ -77,10 +78,12 @@ function pbr_state_badge($row) { [$label, $tone] = pa_state_meta($row['review_st
   <script>document.getElementById('pbrAll')&&document.getElementById('pbrAll').addEventListener('change',function(){var on=this.checked;document.querySelectorAll('.pbr-pick').forEach(function(c){c.checked=on;});});</script>
 <?php endif; ?>
 
-<?php if ($isFinance): ?>
+<?php if ($canReview): ?>
   <form method="get" class="form-inline mb-3"><label class="mr-2 font-weight-bold text-muted">直接审核</label><input type="month" name="month" value="<?php echo e($month); ?>" class="form-control mr-2" onchange="this.form.emp.value='';this.form.submit()">
     <select name="emp" class="form-control mr-2" onchange="this.form.submit()"><option value="">选择员工（<?php echo count($empList); ?> 人有未通过的订单）</option><?php foreach ($empList as $em): ?><option value="<?php echo (int)$em['id']; ?>" <?php echo $empId === (int)$em['id'] ? 'selected' : ''; ?>><?php echo e($em['name']); ?>（<?php echo (int)$em['n']; ?> 单）</option><?php endforeach; ?></select>
     <noscript><button class="btn btn-outline-secondary">查看</button></noscript><span class="small text-muted">不用等对方提交申请，选人和月份就能直接抽查审核。</span></form>
+<?php endif; ?>
+<?php if ($isFinance): ?>
   <div class="card mb-4"><div class="card-header">全部申请</div><div class="table-responsive"><table class="table table-hover mb-0"><thead class="thead-light"><tr><th>申请人</th><th>月份</th><th>订单</th><th>说明</th><th>状态</th><th></th></tr></thead><tbody>
   <?php foreach ($list as $r): [$lt, $lc] = $st[$r['status']]; ?><tr><td><b><?php echo e($r['emp_name']); ?></b><div class="small text-muted"><?php echo e(substr($r['updated_at'], 0, 16)); ?></div></td><td><?php echo e($r['month']); ?></td>
     <td><?php echo (int)$r['order_count']; ?> 单 · ¥<?php echo e(number_format((float)$r['amount'], 2)); ?></td><td class="small"><?php echo e($r['note'] ?: '—'); ?></td>

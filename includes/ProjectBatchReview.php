@@ -27,13 +27,58 @@ function pbr_ensure()
 }
 
 /** 某人某月参与的、还没审核通过的订单，附自动核对状态和卡点说明。 */
-function pbr_orders($employeeId, $month)
+/**
+ * 批量审核前的准备（调用方持有事务）：财务/授权人员勾选通过即视为认可——
+ * 未确认的资源按“无需另计”确认并同步商品成本、待审核成本一并通过。收款/退款仍须单独审核；SSL 凭证等仍由 ps_approve_order 把关。
+ */
+function pbr_prepare_order($oid, array $actor, $adminId, $who)
+{
+    $pdo = db();
+    $row = $pdo->prepare('SELECT project_type FROM project_orders WHERE id=?'); $row->execute([$oid]);
+    if (!empty(ps_business_catalog()[ps_business_normalize((string)$row->fetchColumn())]['resources'])) {
+        $res = $pdo->prepare('SELECT domain_mode FROM project_order_resources WHERE order_id=?'); $res->execute([$oid]);
+        $mode = $res->fetchColumn();
+        if ($mode === false || $mode === 'pending') {
+            require_once __DIR__ . '/ProjectIntake.php'; poi_ensure();
+            ps_intake_confirm_resources($oid, 'none', 0, 0, $actor);
+            ps_audit('order', $oid, 'confirm_resources', $actor, ['domain_mode' => 'none', 'via' => 'batch_review']);
+        }
+    }
+    $pc = $pdo->prepare("SELECT id FROM project_costs WHERE order_id=? AND review_status='pending'"); $pc->execute([$oid]);
+    foreach ($pc->fetchAll(PDO::FETCH_COLUMN) as $costId) {
+        $pdo->prepare("UPDATE project_costs SET review_status='approved',reviewed_by_admin=?,review_note=? WHERE id=? AND review_status='pending'")->execute([$adminId, $who . '批量审核通过', (int)$costId]);
+        ps_audit('cost', (int)$costId, 'review', $actor, ['decision' => 'approved', 'via' => 'batch_review']);
+    }
+}
+
+/** 授权审核人员（如网站人事）只能审核指定业务、且不含本人参与的订单；财务不受限。 */
+function pbr_scope($actor)
+{
+    if (($actor['role'] ?? '') === 'finance') return ['all' => true];
+    $emp = (int)($actor['employee_id'] ?? 0);
+    if ($emp <= 0) return null;
+    try {
+        $q = db()->prepare('SELECT business_name FROM project_batch_review_delegates WHERE employee_id=?'); $q->execute([$emp]);
+        $biz = $q->fetchAll(PDO::FETCH_COLUMN);
+    } catch (Throwable $e) { return null; }
+    return $biz ? ['businesses' => $biz, 'self' => $emp] : null;
+}
+
+function pbr_scope_sql($scope, &$params)
+{
+    $params = [];
+    if (!$scope || !empty($scope['all'])) return '';
+    $params = array_merge($scope['businesses'], [(int)$scope['self']]);
+    return ' AND o.project_type IN (' . implode(',', array_fill(0, count($scope['businesses']), '?')) . ') AND NOT EXISTS (SELECT 1 FROM project_participants sp WHERE sp.order_id=o.id AND sp.employee_id=?)';
+}
+
+function pbr_orders($employeeId, $month, $scope = null)
 {
     $q = db()->prepare("SELECT o.id,o.order_no,o.order_date,o.project_type,o.order_kind,o.contract_amount,o.receipt_amount,o.refund_amount,o.delivery_status,o.settlement_status,
         COALESCE(s.payment_nickname,'') nick, a.state review_state, a.reasons_json
         FROM project_orders o JOIN project_participants p ON p.order_id=o.id LEFT JOIN project_order_sources s ON s.order_id=o.id LEFT JOIN project_auto_reviews a ON a.order_id=o.id
-        WHERE p.employee_id=? AND o.order_date>=? AND o.order_date<? AND o.settlement_status NOT IN ('approved','locked') GROUP BY o.id ORDER BY o.order_date,o.id");
-    $q->execute([(int)$employeeId, $month . '-01', date('Y-m-d', strtotime($month . '-01 +1 month'))]);
+        WHERE p.employee_id=? AND o.order_date>=? AND o.order_date<? AND o.settlement_status NOT IN ('approved','locked')" . pbr_scope_sql($scope, $extra) . " GROUP BY o.id ORDER BY o.order_date,o.id");
+    $q->execute(array_merge([(int)$employeeId, $month . '-01', date('Y-m-d', strtotime($month . '-01 +1 month'))], $extra));
     $rows = $q->fetchAll();
     foreach ($rows as &$r) {
         $why = [];
@@ -71,18 +116,22 @@ function pbr_pending_count()
 }
 
 /** 有没通过审核订单的员工（某月），供财务直接选人审核。 */
-function pbr_employees($month)
+function pbr_employees($month, $scope = null)
 {
     $q = db()->prepare("SELECT e.id,e.name,COUNT(DISTINCT o.id) n FROM project_orders o JOIN project_participants p ON p.order_id=o.id JOIN employees e ON e.id=p.employee_id
-        WHERE o.order_date>=? AND o.order_date<? AND o.settlement_status NOT IN ('approved','locked') GROUP BY e.id,e.name ORDER BY e.name");
-    $q->execute([$month . '-01', date('Y-m-d', strtotime($month . '-01 +1 month'))]);
+        WHERE o.order_date>=? AND o.order_date<? AND o.settlement_status NOT IN ('approved','locked')" . pbr_scope_sql($scope, $extra) . " GROUP BY e.id,e.name ORDER BY e.name");
+    $q->execute(array_merge([$month . '-01', date('Y-m-d', strtotime($month . '-01 +1 month'))], $extra));
     return $q->fetchAll();
 }
 
 /** 财务：对所选订单登记收款（按售价）、标记交付完成、审核生成分成。返回 [通过数, [失败说明...]]。 */
 function pbr_approve(array $actor, $requestId, array $orderIds, $employeeId = 0, $month = '')
 {
-    if (($actor['role'] ?? '') !== 'finance') throw new RuntimeException('只有财务可以审核');
+    $scope = pbr_scope($actor);
+    if (!$scope) throw new RuntimeException('只有财务或被授权人员可以审核');
+    if (empty($scope['all']) && (int)$requestId > 0) throw new RuntimeException('授权人员请按员工和月份直接审核');
+    $adminId = ($actor['type'] ?? '') === 'admin' ? (int)$actor['id'] : null; // 授权人员不是管理员账号，审核人记在审计里
+    $who = !empty($scope['all']) ? '财务' : '授权审核人员';
     pbr_ensure();
     if ((int)$requestId > 0) {
         $q = db()->prepare("SELECT * FROM project_batch_reviews WHERE id=? AND status='pending'"); $q->execute([(int)$requestId]); $req = $q->fetch();
@@ -91,7 +140,7 @@ function pbr_approve(array $actor, $requestId, array $orderIds, $employeeId = 0,
         if ((int)$employeeId <= 0 || !preg_match('/^\d{4}-(0[1-9]|1[0-2])$/', (string)$month)) throw new RuntimeException('请选择员工和月份');
         $req = ['id' => 0, 'employee_id' => (int)$employeeId, 'month' => (string)$month];
     }
-    $allowed = array_column(pbr_orders((int)$req['employee_id'], $req['month']), null, 'id');
+    $allowed = array_column(pbr_orders((int)$req['employee_id'], $req['month'], $scope), null, 'id');
     $done = 0; $failed = [];
     foreach (array_slice(array_values(array_unique(array_map('intval', $orderIds))), 0, 300) as $oid) {
         if (!isset($allowed[$oid])) continue;
@@ -104,21 +153,16 @@ function pbr_approve(array $actor, $requestId, array $orderIds, $employeeId = 0,
             if ($net <= 0) {
                 if ((float)$order['contract_amount'] <= 0) throw new RuntimeException('没有售价，无法登记收款');
                 $pdo->prepare("INSERT INTO project_cash_movements (order_id,movement_type,amount,note,review_status,submitted_by_type,submitted_by_id,reviewed_by_admin,reviewed_at) VALUES (?,'receipt',?,?,'approved',?,?,?,NOW())")
-                    ->execute([$oid, round((float)$order['contract_amount'], 2), '财务批量审核：抽查后按售价确认收款（申请 #' . (int)$req['id'] . '）', $actor['type'], $actor['id'], $actor['id']]);
+                    ->execute([$oid, round((float)$order['contract_amount'], 2), $who . '批量审核：抽查后按售价确认收款（申请 #' . (int)$req['id'] . '）', $actor['type'], $actor['id'], $adminId]);
                 ps_recalculate_cash($oid);
             }
             if ($order['delivery_status'] !== 'finished') {
                 $pdo->prepare("UPDATE project_orders SET delivery_status='finished',row_version=row_version+1 WHERE id=?")->execute([$oid]);
-                $pdo->prepare("UPDATE project_order_requests SET status='approved', reviewer_id=?, reviewed_at=NOW(), review_note='批量审核时自动通过' WHERE order_id=? AND request_type='delivery_completion' AND status='pending'")->execute([$actor['id'], $oid]);
+                $pdo->prepare("UPDATE project_order_requests SET status='approved', reviewer_id=?, reviewed_at=NOW(), review_note='批量审核时自动通过' WHERE order_id=? AND request_type='delivery_completion' AND status='pending'")->execute([$adminId, $oid]);
             }
-            // 财务勾选通过即视为认可：待审核成本一并通过（收款/退款仍须单独审核）
-            $pc = $pdo->prepare("SELECT id FROM project_costs WHERE order_id=? AND review_status='pending'"); $pc->execute([$oid]);
-            foreach ($pc->fetchAll(PDO::FETCH_COLUMN) as $costId) {
-                $pdo->prepare("UPDATE project_costs SET review_status='approved',reviewed_by_admin=?,review_note='财务批量审核通过' WHERE id=? AND review_status='pending'")->execute([$actor['id'], (int)$costId]);
-                ps_audit('cost', (int)$costId, 'review', $actor, ['decision' => 'approved', 'via' => 'batch_review']);
-            }
+            pbr_prepare_order($oid, $actor, $adminId, $who);
             ps_approve_order($oid, $actor, (string)$req['month']);
-            ps_audit('order', $oid, 'batch_review_approve', $actor, ['request' => (int)$req['id'], 'receipt_added' => $net <= 0]);
+            ps_audit('order', $oid, 'batch_review_approve', $actor, ['request' => (int)$req['id'], 'receipt_added' => $net <= 0, 'delegate' => empty($scope['all'])]);
             $pdo->commit(); $done++;
         } catch (Throwable $e) {
             if (db()->inTransaction()) db()->rollBack();

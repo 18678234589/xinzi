@@ -172,6 +172,17 @@ function prm_flow_entry($cell)
     return null;
 }
 
+/** 按店铺流水的商品标题推测业务类别。网站类标题（建站 / 模板 / 定制）在多个业务里通用，只能给出范围；认不出返回空串。 */
+function prm_title_category($title)
+{
+    $title = (string)$title;
+    if (preg_match('/代写|文章|论文|征文|文案|演讲稿/u', $title)) return '软文代写';
+    if (preg_match('/服务器|ECS|环境配置|PHP\/MySQL/u', $title)) return '环境配置';
+    if (preg_match('/小程序/u', $title)) return '小程序开发';
+    if (preg_match('/网站|建站|模板|wordpress/iu', $title)) return '网站类（网站模板 / AI网站定制 / 网站续费 / 网站修改，同一商品标题无法区分）';
+    return '';
+}
+
 /** “等待订单上传”：退款对应的订单号格式正常，只是项目系统里还没有这张订单；按店铺归类，提醒对应业务补传。 */
 function prm_waiting_upload($limit = 400)
 {

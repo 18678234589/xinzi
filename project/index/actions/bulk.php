@@ -17,7 +17,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['bulk_action'])) {
                 $noQuery = db()->prepare('SELECT order_no FROM project_orders WHERE id=?');
                 $noQuery->execute([$orderId]);
                 $orderNo = (string)$noQuery->fetchColumn();
-                ps_approve_order($orderId, $actor, $payrollMonth);
+                require_once (dirname(__DIR__, 2)) . '/../includes/ProjectBatchReview.php';
+                db()->beginTransaction(); // 准备动作与审核同成败：审核不通过则一并回滚
+                try {
+                    $del = db()->prepare('SELECT delivery_status FROM project_orders WHERE id=? FOR UPDATE'); $del->execute([$orderId]);
+                    if ($del->fetchColumn() === 'unfinished') {
+                        db()->prepare("UPDATE project_orders SET delivery_status='finished',row_version=row_version+1 WHERE id=?")->execute([$orderId]);
+                        db()->prepare("UPDATE project_order_requests SET status='approved', reviewer_id=?, reviewed_at=NOW(), review_note='批量审核时自动通过' WHERE order_id=? AND request_type='delivery_completion' AND status='pending'")->execute([$actor['id'], $orderId]);
+                    }
+                    pbr_prepare_order($orderId, $actor, (int)$actor['id'], '财务');
+                    ps_approve_order($orderId, $actor, $payrollMonth);
+                    db()->commit();
+                } catch (Throwable $prepEx) { if (db()->inTransaction()) db()->rollBack(); throw $prepEx; }
                 $done++;
                 continue;
             }
