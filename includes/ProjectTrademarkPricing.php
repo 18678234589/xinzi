@@ -70,6 +70,19 @@ function ptc_mixed_plan(array $templates, array $details, $text, array $names, $
     return ['status'=>'ready','service'=>implode('+',$labels),'count'=>$sum,'lines'=>$lines,'total'=>max($total,$excel),'message'=>implode(' + ',$labels).'，逐项标准成本 ¥'.money_plain($total).($excel>$total?'，实际成本差额待财务审核':'')];
 }
 
+/** 商标件数校验：必须是 1–1000 的整数。返回具体原因和改法；合格返回空串。填 0 的情况单独说明（0 不算一件）。 */
+function ptc_count_problem($count)
+{
+    $count = trim((string)$count);
+    if ($count === '') return '商标件数没有填写，请在表格“商标个数”列填写至少为 1 的整数后重新上传';
+    if (!is_numeric($count)) return '商标件数“' . mb_substr($count, 0, 20) . '”不是数字，请在表格“商标个数”列填写至少为 1 的整数';
+    $n = (float)$count;
+    if ($n <= 0) return '商标件数不能填 ' . $count . '：一单至少 1 件，请把表格“商标个数”改成大于 0 的整数（如 1）后重新上传；订单页则在“商标件数”填至少 1';
+    if (floor($n) != $n) return '商标件数“' . $count . '”不是整数，不能按小数件计算，请改成整数（最少 1）';
+    if ($n > 1000) return '商标件数“' . $count . '”超过 1000，请核对是否填错（应为商标个数，不是金额或订单号）';
+    return '';
+}
+
 /** 返回明确的报价或需核对原因；额外项目数是整单总数，不再乘商标件数。 */
 function ptc_cost_plan(array $templates, array $details, $context = '', $excelCost = null)
 {
@@ -103,7 +116,7 @@ function ptc_cost_plan(array $templates, array $details, $context = '', $excelCo
     }
     $count = trim((string)($details['trademark_count'] ?? ''));
     if ($count === '') return ['status' => 'incomplete', 'lines' => [], 'service' => $name, 'message' => '请补填商标件数，成本尚未核实'];
-    if (!is_numeric($count) || (float)$count < 1 || (float)$count > 1000 || floor((float)$count) != (float)$count) return $fail('商标件数须为 1–1000 的整数，不能按小数件计算');
+    if ($problem = ptc_count_problem($count)) return $fail($problem);
     $extra = trim((string)($details['trademark_extra_count'] ?? ''));
     $hasExtraText = preg_match('/多选|超(?:出|过)(?:十|10)项|附加项目/u', $context . ' ' . ($details['service_type'] ?? '') . ' ' . $explicit);
     if (preg_match_all('/(\d+)\s*(?:个)?(?:项目|项商品|项)/u', $context . ' ' . $explicit, $itemCounts) && max(array_map('intval', $itemCounts[1])) > 10) $hasExtraText = true;

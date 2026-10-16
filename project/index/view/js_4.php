@@ -42,6 +42,8 @@
     var resources = info.resources;
     document.getElementById('intakeFrontendLabel').textContent = peopleLabels[business.value].frontend;
     document.getElementById('intakeBackendLabel').textContent = peopleLabels[business.value].backend;
+    var testerRow = document.getElementById('intakeTesterRow');
+    if (testerRow) testerRow.hidden = business.value !== 'AI网站定制' && business.value !== '小程序开发';
     document.getElementById('intakeCustomerServiceLabel').textContent = business.value === '网站模板' || business.value === 'AI网站定制' ? '网站客服' : '客服';
     document.getElementById('intakeFooterHint').textContent = '合作人员提交的售价仅作订单申报，实收仍由财务审核。' + (resources ? ' SSL 非标准成本须补凭证后审核。' : ' 如有特殊成本，可在结算单中补录凭证。');
     resourceFields.hidden = !resources || !canEditResources;

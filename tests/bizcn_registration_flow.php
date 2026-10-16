@@ -85,15 +85,24 @@ bt(reject(function()use($staff){br_dispatch('registration_quote',['domain'=>'ord
 bt(reject(function()use($staff){br_dispatch('registration_quote',['domain'=>'ordered3.example.com','template_id'=>'f2','order_no'=>'NOPE'],$staff);}),'unknown order refused at quote');
 try{br_catalog_registered(['status'=>'registered','result_json'=>'{}','confirmed_day'=>'2026-10-14','provider_account'=>'fixture','domainname'=>'ordered.example.com','quote_json'=>json_encode($q['quote'])]);}catch(Throwable $e){}
 bt($p->query("SELECT source FROM bizcn_order_domains WHERE order_id=1 AND domainname='ordered.example.com'")->fetchColumn()==='registration','registered domain auto-bound to its order');
-// 注册年限：1/2/5/10 年，总价=单价×年数，提交按报价年限购买
+// 注册年限：1/2/5/10 年，多年总价=首年价+续费价×(年数-1)，提交按报价年限购买
 $mockPrice='58.00';$mockResult=['status'=>'1','orderid'=>'multi-order'];
 $q5=br_dispatch('registration_quote',['domain'=>'fiveyears.example.com','template_id'=>'f2','term'=>'5'],$a);
-bt($q5['quote']['term']===5&&$q5['quote']['unit_price_cents']===5800&&$q5['quote']['price_cents']===29000,'5-year quote total = unit x years');
+bt($q5['quote']['term']===5&&$q5['quote']['unit_price_cents']===5800&&$q5['quote']['renew_price_cents']===8600&&$q5['quote']['price_cents']===40200,'5-year quote total = 58 + 86 * 4 = 402');
+// 测试 cn 域名首年 29，续费 35
+$mockPrice='35.00';
+$qCn=br_dispatch('registration_quote',['domain'=>'mytest.cn','template_id'=>'f2','term'=>'5'],$a);
+bt($qCn['quote']['unit_price_cents']===2900&&$qCn['quote']['renew_price_cents']===3500&&$qCn['quote']['price_cents']===16900,'5-year .cn quote total = 29 + 35 * 4 = 169');
+// 测试 net 域名首年 93，续费 97
+$mockPrice='93.00';
+$qNet=br_dispatch('registration_quote',['domain'=>'mytest.net','template_id'=>'f2','term'=>'5'],$a);
+bt($qNet['quote']['unit_price_cents']===9300&&$qNet['quote']['renew_price_cents']===9700&&$qNet['quote']['price_cents']===48100,'5-year .net quote total = 93 + 97 * 4 = 481');
+$mockPrice='58.00';
 bt(reject(function()use($a){br_dispatch('registration_quote',['domain'=>'threeyears.example.com','template_id'=>'f2','term'=>'3'],$a);}),'unsupported term refused');
 bt(reject(function()use($a){br_dispatch('registration_quote',['domain'=>'zeroyears.example.com','template_id'=>'f2','term'=>'0'],$a);}),'zero term refused');
 $mockPremium='true';bt(reject(function()use($admin){br_dispatch('registration_quote',['domain'=>'vipmulti.example.com','template_id'=>'f2','term'=>'2'],$admin);}),'premium domain limited to 1 year');$mockPremium='false';
 $before=$calls;$r=br_dispatch('registration_submit',['token'=>$q5['token'],'confirm'=>'fiveyears.example.com','ack'=>'1','term'=>1],$a);
-bt($calls===$before+1&&$purchaseArgs['term']===5&&$purchaseArgs['price']==='290.00','multi-year purchase uses quoted term and total, not posted values');
+bt($calls===$before+1&&$purchaseArgs['term']===5&&$purchaseArgs['price']==='402.00','multi-year purchase uses quoted term and total, not posted values');
 $mockPrice='60.00';$q2=br_dispatch('registration_quote',['domain'=>'twoyears.example.com','template_id'=>'f2','term'=>'2'],$a);$mockPrice='61.00';
 bt(reject(function()use($q2,$a){br_dispatch('registration_submit',['token'=>$q2['token'],'confirm'=>'twoyears.example.com','ack'=>'1'],$a);}),'unit price change blocks multi-year purchase');$mockPrice='58.00';
 echo json_encode(['passed'=>$checks,'failed'=>0,'mock_paid_calls'=>$calls,'real_paid_api_calls'=>0],JSON_UNESCAPED_UNICODE)."\n";

@@ -21,6 +21,12 @@ function e($str)
  * @param array $rawMap raw_data 解析后的关联数组
  * @return string 订单号（未找到返回空串）
  */
+/** 订单号单元格清洗：去掉空白、Excel “文本格式”前缀的英文/中文单引号（'4502…）和零宽字符，否则按订单号精确匹配会落空。 */
+function clean_order_no($v)
+{
+    return preg_replace('/^[\s\'\x{2018}\x{2019}\x{200B}\x{FEFF}]+|[\s\x{200B}\x{FEFF}]+$/u', '', (string)$v);
+}
+
 function extract_order_no($rawMap)
 {
     if (!is_array($rawMap)) return '';
@@ -32,21 +38,21 @@ function extract_order_no($rawMap)
         'order number', 'Order Number', 'orderno', 'orderNo.',
     ];
     foreach ($candidates as $key) {
-        if (isset($rawMap[$key]) && is_string($rawMap[$key]) && trim($rawMap[$key]) !== '') {
-            return trim($rawMap[$key]);
+        if (isset($rawMap[$key]) && is_string($rawMap[$key]) && clean_order_no($rawMap[$key]) !== '') {
+            return clean_order_no($rawMap[$key]);
         }
     }
     // 模糊匹配：含"订单号"/"单号"/"order"/"编号"/"流水"的列
     foreach ($rawMap as $k => $v) {
         if (strpos($k, '__') === 0) continue; // 跳过内部标记字段（含 __dept_modules__ 等数组值）
         if (!is_string($v)) continue;         // 跳过非字符串值（如 __dept_modules__ 数组）
-        if (trim($v) !== '') {
+        if (clean_order_no($v) !== '') {
             if (mb_strpos($k, '订单号') !== false || mb_strpos($k, '单号') !== false
                 || mb_strpos($k, '流水') !== false || mb_strpos($k, '单据') !== false
                 || mb_strpos($k, '编号') !== false
                 || stripos($k, 'order_no') !== false || stripos($k, 'orderid') !== false
                 || stripos($k, 'order no') !== false || stripos($k, 'orderno') !== false) {
-                return trim($v);
+                return clean_order_no($v);
             }
         }
     }

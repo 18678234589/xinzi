@@ -247,7 +247,7 @@ function ps_shop_order_lookup($orderNo)
         $refund = !empty($raw['__is_refund__']) || (float)$row['order_amount'] < 0;
         $status = trim((string)($raw['__order_status__'] ?? ''));
         $shop = (string)$row['shop'];
-        $entry = $byShop[$shop] ?? ['shop' => $shop, 'nickname' => '', 'price' => null, 'status' => '', 'date' => $row['order_date'], 'refund' => false, 'refund_amount' => 0.0, 'source' => ''];
+        $entry = $byShop[$shop] ?? ['shop' => $shop, 'nickname' => '', 'price' => null, 'status' => '', 'date' => $row['order_date'], 'refund' => false, 'refund_amount' => 0.0, 'source' => '', 'title' => ''];
         if ($refund) {
             $entry['refund'] = true;
             $entry['refund_amount'] += abs((float)$row['order_amount']);
@@ -255,6 +255,7 @@ function ps_shop_order_lookup($orderNo)
         } elseif ($entry['price'] === null) {
             $entry['price'] = isset($raw['__original_price__']) && is_numeric($raw['__original_price__']) ? round((float)$raw['__original_price__'], 2) : round((float)$row['order_amount'], 2);
             $entry['nickname'] = ps_source_nickname($raw);
+            $entry['title'] = trim((string)($raw['商品标题'] ?? ''));
             $entry['status'] = $status;
             $entry['date'] = $row['order_date'];
         }

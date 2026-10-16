@@ -104,7 +104,12 @@
     var body = new FormData(); body.set('domain', domain); body.set('owner', owner);
     var d = await post('precheck', body, 90000), html = '', dom = d.domain, usable = null, pending = null;
     if (!domain) html += card('warn', '域名', '没有识别到域名，请在上方填写要注册的域名后点「重新预检」。');
-    else if (dom.state === 'available') html += card(dom.premium_blocked ? 'warn' : 'ok', '域名 ' + esc(dom.name) + ' 可以注册', '一年注册价 <b>' + money(dom.price_cents) + '</b>' + (dom.premium ? '（高价域名' + (dom.premium_blocked ? '，需由管理员注册' : '') + '）' : '') + '。');
+    else if (dom.state === 'available') {
+      var pDesc = '一年注册价 <b>' + money(dom.price_cents) + '</b>';
+      if (dom.renew_price_cents && dom.renew_price_cents !== dom.price_cents) pDesc += '（续费 <b>' + money(dom.renew_price_cents) + '</b>/年）';
+      pDesc += (dom.premium ? '（高价域名' + (dom.premium_blocked ? '，需由管理员注册' : '') + '）' : '') + '。';
+      html += card(dom.premium_blocked ? 'warn' : 'ok', '域名 ' + esc(dom.name) + ' 可以注册', pDesc);
+    }
     else html += card('bad', '域名 ' + esc(dom.name) + (dom.state === 'owned' ? ' 已在本账户中' : ' 暂不能注册'), esc(dom.message || '请更换域名'));
     (d.templates || []).forEach(function (t) { if (t.status === 'pass' && !usable) usable = t; if (t.status === 'cnnicauditing' && !pending) pending = t; });
     if (!owner) html += card('warn', '实名主体', '没有识别到公司名 / 姓名，请在下方表单填写。');

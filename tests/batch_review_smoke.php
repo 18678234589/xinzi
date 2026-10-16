@@ -42,6 +42,14 @@ try {
     $left = count(pbr_orders($emp, $month));
     $check($done2 === 1 && ($left > 0 || $pdo->query("SELECT status FROM project_batch_reviews WHERE id=$rid")->fetchColumn() === 'done'), '剩下的也通过；该月没有未审核订单时申请自动变为已处理（该月还剩 ' . $left . ' 单）');
     $check((int)$pdo->query("SELECT COUNT(*) FROM project_commission_snapshots WHERE order_id=$a")->fetchColumn() === 1, '审核生成了分成快照');
+    $d = $mk('D', 20);
+    $check(in_array($emp, array_map('intval', array_column(pbr_employees($month), 'id')), true), '财务选人列表里有这位员工');
+    $threw = false; try { pbr_approve($finance, 0, [$d]); } catch (RuntimeException $e) { $threw = true; }
+    $check($threw, '直接审核必须选员工和月份');
+    $pdo->prepare("INSERT INTO project_costs (order_id,category,item_name,quantity,unit,unit_price,amount,cost_kind,is_custom,reason,review_status) VALUES (?,'outsourcing','外包',1,'项',5,5,'one_time',1,'测试','pending')")->execute([$d]);
+    [$done3, $failed3] = pbr_approve($finance, 0, [$d], $emp, $month);
+    $check($done3 === 1 && !$failed3 && $st($d)['settlement_status'] === 'approved', '财务不用申请，直接选员工 + 月份审核通过');
+    $check((int)$pdo->query("SELECT COUNT(*) FROM project_costs WHERE order_id=$d AND review_status='approved'")->fetchColumn() === 1, '批量审核时待审核成本一并通过');
     echo "全部通过\n";
 } finally {
     require_once __DIR__ . '/../includes/ProjectOrderTrash.php';

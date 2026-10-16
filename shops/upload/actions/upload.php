@@ -101,7 +101,7 @@
                     foreach ($dataRows as $r0) {
                         if (count(array_filter($r0, fn($v) => trim($v) !== '')) === 0) continue;
                         $raw0 = []; foreach ($normalizedHeaders as $ci0 => $hdr0) $raw0[$hdr0] = $r0[$ci0] ?? '';
-                        $no0 = $idxOrderNo !== null ? trim($r0[$idxOrderNo] ?? '') : '';
+                        $no0 = $idxOrderNo !== null ? clean_order_no($r0[$idxOrderNo] ?? '') : '';
                         if ($no0 === '') $no0 = extract_order_no($raw0);
                         if ($no0 !== '') $prepNos[$no0] = 1;
                     }
@@ -198,7 +198,7 @@
                         // 提取订单号：优先使用检索号列，否则用通用提取
                         $orderNo = '';
                         if ($idxOrderNo !== null) {
-                            $orderNo = trim($row[$idxOrderNo] ?? '');
+                            $orderNo = clean_order_no($row[$idxOrderNo] ?? '');
                         }
                         if ($orderNo === '') {
                             $orderNo = extract_order_no($rawMap);

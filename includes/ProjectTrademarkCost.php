@@ -135,7 +135,9 @@ function ptc_user_add($orderId, $templateId, $quantity, $actor)
     if ($kind === 'other') throw new RuntimeException('此成本项目请由财务录入');
     if ($kind === 'variable' && (float)$template['price'] !== 1.0) throw new RuntimeException('实际金额成本模板单价必须为1元，请财务核对成本中心');
     $quantity = trim((string)$quantity);
-    if (!is_numeric($quantity) || (float)$quantity <= 0 || (float)$quantity > ($kind === 'variable' ? 9999999 : 1000) || ($kind !== 'variable' && floor((float)$quantity) != (float)$quantity)) throw new RuntimeException($kind === 'variable' ? '请填写实际成本金额（大于 0）' : '数量须为 1–1000 的整数');
+    if ($kind === 'variable') {
+        if (!is_numeric($quantity) || (float)$quantity <= 0 || (float)$quantity > 9999999) throw new RuntimeException('请填写实际成本金额（大于 0）');
+    } elseif ($problem = ptc_count_problem($quantity)) throw new RuntimeException($problem);
     $quantity = round((float)$quantity, 2);
     if ($kind === 'service') {
         [$details] = ptc_order_pricing_data($orderId);

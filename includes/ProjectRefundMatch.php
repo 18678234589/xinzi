@@ -161,6 +161,17 @@ function prm_auto_reopen($actor, $limit = 300)
     return $n;
 }
 
+/** 退款表原文对应的店铺流水记录（店铺、买家昵称、商品标题、订单金额等）；流水里没有返回 null。 */
+function prm_flow_entry($cell)
+{
+    if (!function_exists('ps_shop_order_lookup')) require_once __DIR__ . '/ProjectOrderSource.php';
+    if (!function_exists('ps_refund_order_tokens')) require_once __DIR__ . '/ProjectRefundImport.php';
+    foreach (array_merge([trim((string)$cell)], ps_refund_order_tokens($cell)) as $t) {
+        try { foreach (ps_shop_order_lookup($t) as $m) { if ($m['shop'] !== '') return $m; } } catch (Throwable $e) {}
+    }
+    return null;
+}
+
 /** “等待订单上传”：退款对应的订单号格式正常，只是项目系统里还没有这张订单；按店铺归类，提醒对应业务补传。 */
 function prm_waiting_upload($limit = 400)
 {
@@ -169,11 +180,8 @@ function prm_waiting_upload($limit = 400)
     $groups = [];
     foreach ($rows as $r) {
         if (!prm_looks_like_order_no($r['order_no']) || prm_candidates($r['order_no'])) continue;
-        $shop = '';
-        $tokens = ps_refund_order_tokens($r['order_no']);
-        foreach (array_merge([trim($r['order_no'])], $tokens) as $t) {
-            try { foreach (ps_shop_order_lookup($t) as $m) { if ($m['shop'] !== '') { $shop = $m['shop']; break 2; } } } catch (Throwable $e) {}
-        }
+        $flow = prm_flow_entry($r['order_no']);
+        $shop = $flow ? $flow['shop'] : '';
         $key = $shop !== '' ? $shop : '店铺流水里还没有这笔订单（可能是更早月份下的单，请财务补传该店铺对应月份的店铺流水）';
         $groups[$key]['rows'][] = $r;
         $groups[$key]['amount'] = ($groups[$key]['amount'] ?? 0) + (float)$r['amount'];

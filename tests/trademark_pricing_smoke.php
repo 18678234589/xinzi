@@ -39,6 +39,11 @@ try {
     $check(ptc_cost_plan($templates,['trademark_service'=>'续展','trademark_count'=>'2'],'已过期续展')['total']===1350.0,'续展事项另有过期备注时不能漏收宽展费');
     $check(ptc_cost_plan($templates,['trademark_service'=>'注册','trademark_count'=>'1'],'许可备案')['status']==='unresolved','事项与备注矛盾不静默按低价注册');
     $check(ptc_cost_plan($templates,['trademark_service'=>'注册','trademark_count'=>'1.5'])['status']==='unresolved','拒绝小数件数');
+    foreach (['0'=>'不能填 0','0.0'=>'不能填 0.0','-1'=>'不能填 -1','1.5'=>'不是整数','1001'=>'超过 1000','abc'=>'不是数字'] as $bad=>$hint) {
+        $p=ptc_cost_plan($templates,['trademark_service'=>'注册','trademark_count'=>(string)$bad]);
+        $check($p['status']==='unresolved'&&strpos($p['message'],$hint)!==false,"商标件数 $bad 被拒绝并说明原因：$hint");
+    }
+    $check(ptc_count_problem('1')===''&&ptc_count_problem('1000')==='','商标件数 1 和 1000 合格');
     $check(ptc_cost_plan($templates,['trademark_service'=>'注册','trademark_count'=>'2'],'多选项目')['status']==='unresolved','缺少多选项目数不漏算附加费');
     $extra = ptc_cost_plan($templates,['trademark_service'=>'注册','trademark_count'=>'2','trademark_extra_count'=>'3']);
     $check($extra['total']===621.0,'两件注册加整单三个多选项目共621，不重复乘件数');

@@ -51,7 +51,9 @@ if ($actor['role'] === 'finance') {
     if (!$participationOnly) $params[] = $actor['employee_id'];
     // 部门主管：另外能看到本部门成员参与的订单
     list($headSql, $headParams) = $participationOnly ? ['', []] : pdh_order_condition($actor);
-    $where[count($where) - 1] = str_replace('%HEAD%', $headSql !== '' ? ' OR ' . $headSql : '', $where[count($where) - 1]);
+    // 软件测试员：搜索关键字时可搜到 AI网站定制 / 小程序开发 订单，进详情自行加入
+    $testerSql = $keyword !== '' && !$participationOnly && ps_software_tester_can_join($actor['employee_id']) ? " OR o.project_type IN ('AI网站定制','网站定制','小程序开发')" : '';
+    $where[count($where) - 1] = str_replace('%HEAD%', ($headSql !== '' ? ' OR ' . $headSql : '') . $testerSql, $where[count($where) - 1]);
     foreach ($headParams as $hp) $params[] = $hp;
 }
 // 按部门筛选：财务可选全部部门，部门主管可选自己所管的部门；订单上有该部门的成员参与即算

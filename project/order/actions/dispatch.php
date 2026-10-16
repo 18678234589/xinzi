@@ -10,7 +10,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $lock->execute([$id]);
             $currentStatus = $lock->fetchColumn();
             if ($currentStatus === false || in_array($currentStatus, ['approved','locked'], true)) throw new RuntimeException('订单已审核，修改须走调整流程');
-            if (!$finance && $action !== 'claim_backend') {
+            if (!$finance && !in_array($action, ['claim_backend', 'add_software_tester'], true)) {
                 $access = db()->prepare('SELECT 1 FROM project_participants WHERE order_id=? AND employee_id=? LIMIT 1');
                 $access->execute([$id, $actor['employee_id']]);
                 if (!$access->fetchColumn()) throw new RuntimeException('已不再参与此订单，请刷新页面');
@@ -26,6 +26,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             /* split: project/order/actions/participants/add_counterpart.php */ include (dirname(__DIR__, 2)) . '/order/actions/participants/add_counterpart.php';
         } elseif ($action === 'assign_backend') {
             /* split: project/order/actions/participants/assign_backend.php */ include (dirname(__DIR__, 2)) . '/order/actions/participants/assign_backend.php';
+        } elseif ($action === 'add_software_tester') {
+            /* split: project/order/actions/participants/add_software_tester.php */ include (dirname(__DIR__, 2)) . '/order/actions/participants/add_software_tester.php';
         } elseif ($action === 'claim_backend') {
             /* split: project/order/actions/participants/claim_backend.php */ include (dirname(__DIR__, 2)) . '/order/actions/participants/claim_backend.php';
         } elseif ($action === 'save_technical_details') {

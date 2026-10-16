@@ -77,7 +77,7 @@
     ; $mk = $person['commission_group'] . ':' . $person['employee_id']; $mp = $personLookup[$mk] ?? null; echo ps_render_calc_modal('calcModal' . (int)$person['id'], $person + ['rule'
     => $mp['rule'] ?? null], $order, $mp['calc'] ?? null, $mp['estimated_calc'] ?? null, $snapshotByPerson[$mk] ?? null, $id, $commissionCorrections, true); endforeach; ?>
 <script><?php /* split: assets/js/project_order_4.js */ include (dirname((dirname(__DIR__, 1)), 1)) . '/../assets/js/project_order_4.js'; ?></script>
-<?php if ($actor['role'] === 'finance' && $canEdit): include __DIR__ . '/software_testing.php'; endif; ?>
+<?php if ($canEdit && ($actor['role'] === 'finance' || ps_software_testing_pick_business($order['project_type']))): include __DIR__ . '/software_testing.php'; endif; ?>
 <?php if ($actor['role'] === 'finance' && $canEdit): ?><div class="card-body border-top"><form method="post" class="form-row align-items-end"><input type="hidden" name="csrf" value="<?php
     echo e(ps_csrf_token()); ?>"><input type="hidden" name="action" value="add_participant"><div class="form-group col-md-4"><label>合作人员</label><select name="employee_id" class="form-control" required><option value="">选择合作人员</option><?php
     foreach ($employees as $emp): ?><option value="<?php echo (int)$emp['id']; ?>"><?php echo e($emp['name'] . ' · ' . $emp['department'] . ' · ID ' . $emp['id']); ?></option><?php

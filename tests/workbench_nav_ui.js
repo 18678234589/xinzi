@@ -14,4 +14,5 @@ panel.children[0].onload(); assert(loading.hidden && panel.children[0].title.inc
 close.handlers.click(); assert(!panel.classList.contains('open'));
 toggle.handlers.click(); assert.strictEqual(panel.children.length, 1, 'reopening keeps the same chat frame');
 keys.keydown({ key: 'Escape' }); assert(!panel.classList.contains('open'));
-console.log('Workbench panel placement, toggle, frame reuse and closing passed');
+assert.match(html, /href="https:\/\/media\.laibangwo\.com\/\?sso=me"[^>]*target="_blank"/, 'workbench link must open in a new window');
+console.log('Workbench panel placement, toggle, frame reuse, closing and new window link passed');

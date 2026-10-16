@@ -296,7 +296,45 @@
                         $rawDetails['service_term'] = $term;
                         if ($term === '年费') {
                             if ($expiryRaw === '') $record['warning'] .= ($record['warning'] ? '；' : '') . '年费业务没填到期日期：续费提醒按订单日期 +1 年估算，请补填';
-                            if ($renewContact === '' && !preg_match('/1[3-9][0-9]{9}/', $record['contact_note'])) $record['warning'] .= ($record['warning'] ? '；' : '') . '年费业务没填续费联系方式（手机号或微信号），无法短信提醒续费';
+                        }
+                    }
+                    // 代写业务字数与售价防混淆及店铺流水校正防错机制
+                    if (in_array($selectedBusiness, ['软文代写', '微信代写'], true)) {
+                        $wordVal = trim((string)($rawDetails['writing_volume'] ?? ''));
+                        $parsedAmt = is_numeric($record['contract_amount']) ? (float)$record['contract_amount'] : null;
+
+                        // 1. 检查字数与售价是否倒置（例如售价解析成了 600，而字数列解析出 50）
+                        if ($parsedAmt !== null && is_numeric($wordVal) && (float)$wordVal > 0) {
+                            $wNum = (float)$wordVal;
+                            if ($parsedAmt >= 200 && $wNum < $parsedAmt / 2 && ($parsedAmt >= 300 && $wNum <= 200 || in_array((int)$parsedAmt, [200, 300, 400, 500, 600, 800, 1000, 1200, 1500, 2000, 2500, 3000, 4000, 5000, 6000, 8000, 10000], true))) {
+                                $record['contract_amount'] = number_format($wNum, 2, '.', '');
+                                $rawDetails['writing_volume'] = (string)(int)$parsedAmt;
+                                $record['warning'] .= ($record['warning'] ? '；' : '') . '字数（' . (int)$parsedAmt . '）与售价（' . $wNum . '）列倒置，已自动纠正';
+                                $parsedAmt = (float)$record['contract_amount'];
+                            }
+                        }
+
+                        // 2. 结合店铺流水（orders 表）校验与校正：防止把字数当售价
+                        if ($record['order_no'] !== '' && substr($record['order_no'], 0, 3) !== 'WX-') {
+                            $shopMatches = array_values(array_filter(ps_shop_order_lookup($record['split_parent_no'] ?? $record['order_no']), function ($match) use ($row, $lookup) {
+                                return $match['price'] !== null && ps_shop_compatible($lookup($row, 'shop'), $match['shop']);
+                            }));
+                            if (count($shopMatches) === 1 && $shopMatches[0]['price'] !== null && (float)$shopMatches[0]['price'] > 0) {
+                                $storePrice = (float)$shopMatches[0]['price'];
+                                if ($parsedAmt !== null && abs($parsedAmt - $storePrice) > 0.01) {
+                                    if ($parsedAmt >= 200 && ($parsedAmt >= $storePrice * 2.5 || $parsedAmt == (float)$wordVal)) {
+                                        $origAmt = $record['contract_amount'];
+                                        $record['contract_amount'] = number_format($storePrice, 2, '.', '');
+                                        if (empty($rawDetails['writing_volume']) || (float)$rawDetails['writing_volume'] == $storePrice) {
+                                            $rawDetails['writing_volume'] = (string)(int)$parsedAmt;
+                                        }
+                                        $record['warning'] .= ($record['warning'] ? '；' : '') . '售价原为 ¥' . $origAmt . '，与店铺流水实付 ¥' . $record['contract_amount'] . ' 冲突（疑似字数），已自动按真实实付校正';
+                                    }
+                                }
+                                if (empty($record['payment_nickname']) && !empty($shopMatches[0]['nickname'])) {
+                                    $record['payment_nickname'] = $shopMatches[0]['nickname'];
+                                }
+                            }
                         }
                     }
                     $record['details'] = ps_business_details($selectedBusiness, $rawDetails);

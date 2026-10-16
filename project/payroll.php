@@ -3,7 +3,9 @@ require_once __DIR__ . '/../includes/ProjectSettlement.php';
 require_once __DIR__ . '/../includes/ProjectMonthly.php';
 require_once __DIR__ . '/../includes/ProjectPayrollOrderSummary.php';
 require_once __DIR__ . '/../includes/ProjectImportReconciliation.php';
+require_once __DIR__ . '/../includes/ProjectPayrollExtras.php';
 $actor = ps_require_actor();
+ps_payroll_extras_ensure(); // 建表是 DDL，须在事务之前
 $month = (string)($_GET['month'] ?? date('Y-m', strtotime('first day of last month')));
 if (!preg_match('/^\d{4}-(0[1-9]|1[0-2])$/', $month)) $month = date('Y-m', strtotime('first day of last month'));
 $periodError = '';
@@ -12,12 +14,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     ps_require_finance();
     try {
         $action = (string)($_POST['action'] ?? '');
-        if (!in_array($action, ['lock_period', 'save_reconciliation'], true) || ($_POST['period'] ?? '') !== $month) throw new RuntimeException('结算月份无效，请刷新页面');
+        $extraActions = ['save_insurance', 'add_manual_item', 'delete_manual_item'];
+        if (!in_array($action, array_merge(['lock_period', 'save_reconciliation'], $extraActions), true) || ($_POST['period'] ?? '') !== $month) throw new RuntimeException('结算月份无效，请刷新页面');
         db()->beginTransaction();
         db()->prepare('INSERT INTO project_payroll_periods (period) VALUES (?) ON DUPLICATE KEY UPDATE period=period')->execute([$month]);
         $periodLock = db()->prepare('SELECT status FROM project_payroll_periods WHERE period=? FOR UPDATE');
         $periodLock->execute([$month]);
         if ($periodLock->fetchColumn() === 'locked') throw new RuntimeException('该月项目分成已锁定');
+        if (in_array($action, $extraActions, true)) {
+            $extraEmployee = (int)($_POST['employee_id'] ?? 0);
+            ps_payroll_extras_action($action, $month, $extraEmployee, $_POST, $actor);
+            db()->commit();
+            header('Location: ' . BASE_URL . '/project/payroll.php?' . http_build_query(['month' => $month, 'employee_id' => $extraEmployee, 'extras' => 1])); exit;
+        }
         if ($action === 'save_reconciliation') {
             $snapshotId = (int)($_POST['snapshot_id'] ?? 0);
             $amountText = trim((string)($_POST['legacy_amount'] ?? ''));
@@ -50,6 +59,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $pendingQuery->execute([$month]);
         if ((int)$pendingQuery->fetchColumn() > 0) throw new RuntimeException('仍有技术旧分成未核对，不能锁定本月');
         $frozen = ps_monthly_freeze($month); // 锁月时冻结月度规则结果，之后改规则不影响本月
+        $insured = [];
+        foreach (ps_monthly_results($month, true) as $r) if (in_array($r['rule_type'], ['base_fee', 'attendance_bonus'], true) && (float)$r['amount'] > 0 && empty($r['paid_separately'])) $insured[(int)$r['employee_id']] = true;
+        ps_payroll_extras_freeze($month, array_keys($insured), $actor);
         db()->prepare("UPDATE project_payroll_periods SET status='locked',locked_by_admin=?,locked_at=NOW() WHERE period=?")->execute([$actor['id'], $month]);
         ps_audit('period', (int)str_replace('-', '', $month), 'lock', $actor, ['period' => $month, 'monthly_items' => count($frozen)]);
         db()->commit();
@@ -137,11 +149,14 @@ if ($employeeId > 0) {
     $unreviewedQuery = db()->prepare("SELECT p.employee_id, COUNT(DISTINCT o.id) n, COALESCE(SUM(o.contract_amount),0) amt FROM project_orders o JOIN project_participants p ON p.order_id=o.id WHERE o.order_date>=? AND o.order_date<? AND o.settlement_status NOT IN ('approved','locked') GROUP BY p.employee_id");
     $unreviewedQuery->execute([$month . '-01', date('Y-m-d', strtotime($month . '-01 +1 month'))]);
     foreach ($unreviewedQuery->fetchAll() as $row) $unreviewedByEmployee[(int)$row['employee_id']] = $row;
+    $extrasAll = ps_payroll_extras($month);
     foreach ($employees as $employee) {
         $eid = (int)$employee['id'];
+        // 保险只对有固定服务费/全勤奖的人扣（与结算单一致）；手工项一律计入
+        $extraAmount = (float)($extrasAll[$eid]['items_total'] ?? 0) + ((($monthlyBreak[$eid]['base_fee'] ?? 0) > 0 || ($monthlyBreak[$eid]['attendance_bonus'] ?? 0) > 0) ? (float)($extrasAll[$eid]['insurance']['amount'] ?? 0) : 0);
         $rows[] = ['employee_id' => $eid, 'unreviewed_n' => (int)($unreviewedByEmployee[$eid]['n'] ?? 0), 'unreviewed_amt' => (float)($unreviewedByEmployee[$eid]['amt'] ?? 0), 'name' => $employee['name'], 'department' => $employee['department'],
             'order_count' => (int)($commissionsByEmployee[$eid]['order_count'] ?? 0) + (int)($adjustByEmployee[$eid]['cnt'] ?? 0),
-            'amount' => round((float)($commissionsByEmployee[$eid]['amount'] ?? 0) + (float)($adjustByEmployee[$eid]['amount'] ?? 0) + (float)($monthlyByEmployee[$eid] ?? 0), 2),
+            'amount' => round((float)($commissionsByEmployee[$eid]['amount'] ?? 0) + (float)($adjustByEmployee[$eid]['amount'] ?? 0) + (float)($monthlyByEmployee[$eid] ?? 0) + $extraAmount, 2),
             'legacy_net_pay' => $legacyByEmployee[$eid] ?? null,
             'pending_reconciliations' => (int)($commissionsByEmployee[$eid]['pending_reconciliations'] ?? 0),
             'legacy_deduction' => (float)($commissionsByEmployee[$eid]['legacy_deduction'] ?? 0),
@@ -170,6 +185,10 @@ foreach ($monthlyItems as $item) {
     $slip[isset($slip[$item['rule_type']]) ? $item['rule_type'] : 'other'] += (float)$item['amount'];
 }
 $hasFullSlip = $slip['base_fee'] > 0 || $slip['attendance_bonus'] > 0;
+// 扣款与手工项：保险只在整月结算单里扣（原系统已结算的月份其净额已含保险，不重复扣）；手工项一律计入。
+$extras = $employeeId > 0 ? (ps_payroll_extras($month)[$employeeId] ?? null) : null;
+$insuranceCents = $extras && $hasFullSlip ? (int)round($extras['insurance']['amount'] * 100) : 0;
+if ($extras) $totalCents += $insuranceCents + (int)round($extras['items_total'] * 100);
 // 缺少有效考勤时显示待核对，已有考勤自动核算全勤奖。
 $attendancePending = null;
 foreach ($monthlyItems as $item) if ($item['rule_type'] === 'attendance_bonus' && (float)$item['amount'] == 0 && strpos((string)$item['detail'], '待核对考勤') === 0) $attendancePending = $item['detail'];
@@ -388,10 +407,12 @@ if ($employeeId > 0) {
 <div><small>项目分成（逐单）</small><strong>¥<?php echo money($orderShare); ?></strong></div>
 <div><small>月度奖励与补助</small><strong>¥<?php echo money($slip['other']); ?></strong></div>
 <?php if (abs($adjustShare) > 0.004): ?><div><small>售后调整</small><strong>¥<?php echo money($adjustShare); ?></strong></div><?php endif; ?>
+<div><small>个人保险扣除</small><strong class="<?php echo $insuranceCents < 0 ? 'text-danger' : ''; ?>">¥<?php echo money($insuranceCents / 100); ?></strong></div>
+<?php if ($extras && abs($extras['items_total']) > 0.004): ?><div><small>手工项（补助 / 扣款）</small><strong class="<?php echo $extras['items_total'] < 0 ? 'text-danger' : ''; ?>">¥<?php echo money($extras['items_total']); ?></strong></div><?php endif; ?>
 <div class="is-total"><small>应结算金额</small><strong>¥<?php echo money($total); ?></strong></div>
 </div>
 <?php if ($separateTotal > 0): ?><p class="small text-muted mt-2 mb-0">另有法人补助等另行支付 ¥<?php echo money($separateTotal); ?>，不含在应结算金额内。</p><?php endif; ?>
-<p class="small text-muted mt-2 mb-0">应结算金额对应原收入表“应发工资”（扣款、代扣保险等仍按原流程处理）。<?php echo $legacySalary ? '原系统本月另有结算记录 ¥' . money($legacySalary['net_pay']) . '，请勿重复发放。' : ''; ?></p>
+<p class="small text-muted mt-2 mb-0">应结算金额对应原收入表“应发工资”，已含个人保险扣除和下方手工项。<?php echo $legacySalary ? '原系统本月另有结算记录 ¥' . money($legacySalary['net_pay']) . '，请勿重复发放。' : ''; ?></p>
 </div></div>
 <?php elseif ($legacySalary): ?>
 <div class="card mb-3"><div class="card-header">项目报酬试算（旧技术同单分成扣除；客服原绩效叠加）</div><div class="card-body">
@@ -400,6 +421,25 @@ if ($employeeId > 0) {
   <p class="small text-muted mt-2 mb-0">技术同一订单只保留新项目分成：原系统净额 − 财务逐单核实的旧技术分成 + 新技术分成 + 新客服分成。客服原有绩效保留并叠加。原系统金额已含奖扣，上方分项不能再次相加；本页为试算，不改写原结算记录。<?php if ($reconciliation['pending']): ?>尚有 <?php echo (int)$reconciliation['pending']; ?> 条技术分成待核对，暂不提供预计应结算金额。<?php endif; ?></p>
 </div></div>
 <?php else: ?><div class="alert alert-warning">该月原系统项目报酬尚未结算，且规则中心未给此人配置固定服务费，暂不能给出完整应结算金额；项目分成已列在下方。</div><?php endif; ?>
+<?php if ($extras): $canEdit = $actor['role'] === 'finance' && $period['status'] !== 'locked'; $ins = $extras['insurance']; ?>
+<div class="card mb-3" id="payroll-extras"><div class="card-header">扣款与手工项（已计入应结算金额）<?php if (isset($_GET['extras'])): ?> <span class="badge badge-success">已保存</span><?php endif; ?></div><div class="card-body">
+<div class="d-flex flex-wrap justify-content-between align-items-start">
+  <div class="mb-2"><strong>个人保险扣除</strong>：<span class="<?php echo $hasFullSlip && $ins['amount'] < 0 ? 'text-danger' : 'text-muted'; ?>"><?php echo $hasFullSlip ? '−¥' . money(-$ins['amount']) : '本月未计入'; ?></span><?php if ($ins['manual']): ?> <span class="badge badge-warning">手动</span><?php endif; ?>
+    <div class="small text-muted"><?php echo $hasFullSlip ? e($ins['detail']) : '该月已有原系统结算记录，其净额已含保险扣除，这里不重复扣。'; ?></div></div>
+  <?php if ($canEdit && $hasFullSlip): ?><form method="post" class="form-inline mb-2"><input type="hidden" name="csrf" value="<?php echo e(ps_csrf_token()); ?>"><input type="hidden" name="action" value="save_insurance"><input type="hidden" name="period" value="<?php echo e($month); ?>"><input type="hidden" name="employee_id" value="<?php echo (int)$employeeId; ?>">
+    <input name="amount" type="number" min="0" step="0.01" class="form-control form-control-sm mr-2" style="width:120px" placeholder="自动 <?php echo e(money_plain($ins['auto_amount'])); ?>" value="<?php echo $ins['manual'] ? e(money_plain(-$ins['amount'])) : ''; ?>"><input name="note" maxlength="200" class="form-control form-control-sm mr-2" placeholder="备注（可选）"><button class="btn btn-sm btn-outline-primary">保存保险扣除</button></form><?php endif; ?>
+</div>
+<?php if ($canEdit && $hasFullSlip): ?><div class="small text-muted mb-2">金额留空保存 = 恢复系统自动计算；填 0 = 本月不扣保险。</div><?php endif; ?>
+<table class="table table-sm mb-2"><thead><tr><th>手工项</th><th class="text-right">金额</th><th>备注</th><?php if ($canEdit): ?><th></th><?php endif; ?></tr></thead><tbody>
+<?php foreach ($extras['items'] as $item): ?><tr><td><?php echo e($item['label']); ?></td><td class="text-right font-weight-bold <?php echo (float)$item['amount'] < 0 ? 'text-danger' : 'text-success'; ?>"><?php echo ((float)$item['amount'] > 0 ? '+' : '') . '¥' . money($item['amount']); ?></td><td class="small text-muted"><?php echo e($item['note']); ?></td><?php if ($canEdit): ?><td class="text-right"><form method="post" class="d-inline" onsubmit="return confirm('删除该手工项？')"><input type="hidden" name="csrf" value="<?php echo e(ps_csrf_token()); ?>"><input type="hidden" name="action" value="delete_manual_item"><input type="hidden" name="period" value="<?php echo e($month); ?>"><input type="hidden" name="employee_id" value="<?php echo (int)$employeeId; ?>"><input type="hidden" name="item_id" value="<?php echo (int)$item['id']; ?>"><button class="btn btn-sm btn-link text-danger p-0">删除</button></form></td><?php endif; ?></tr><?php endforeach; ?>
+<?php if (!$extras['items']): ?><tr><td colspan="4" class="text-muted">暂无手工项</td></tr><?php endif; ?></tbody></table>
+<?php if ($canEdit): ?><form method="post" class="form-row align-items-end"><input type="hidden" name="csrf" value="<?php echo e(ps_csrf_token()); ?>"><input type="hidden" name="action" value="add_manual_item"><input type="hidden" name="period" value="<?php echo e($month); ?>"><input type="hidden" name="employee_id" value="<?php echo (int)$employeeId; ?>">
+  <div class="form-group col-md-4 mb-2"><label class="small mb-0">项目名称</label><input name="label" maxlength="60" class="form-control form-control-sm" placeholder="如 代理董事长补助" required></div>
+  <div class="form-group col-md-2 mb-2"><label class="small mb-0">金额（正补助 / 负扣款）</label><input name="amount" type="number" step="0.01" class="form-control form-control-sm" required></div>
+  <div class="form-group col-md-4 mb-2"><label class="small mb-0">备注</label><input name="note" maxlength="200" class="form-control form-control-sm"></div>
+  <div class="form-group col-md-2 mb-2"><button class="btn btn-sm btn-primary btn-block">添加手工项</button></div></form><?php endif; ?>
+</div></div>
+<?php endif; ?>
 <div class="card"><div class="card-header">逐单项目分成明细</div><div class="table-responsive"><table class="table table-hover mb-0 project-stack-table"><thead><tr><th>订单</th><th>客户</th><th>组别 / 岗位</th><th class="text-right">收入</th><th class="text-right">直接成本</th><th class="text-right">服务费</th><th class="text-right">计提基数</th><th class="text-right">比例</th><th class="text-right">本人权重</th><th class="text-right">本人项目分成</th><th>旧技术分成核对</th></tr></thead><tbody>
 <?php foreach ($rows as $row): ?><tr><td><a href="<?php echo BASE_URL; ?>/project/order.php?id=<?php echo (int)$row['order_id']; ?>"><?php echo e($row['order_no']); ?></a></td><td><?php echo e($row['customer_name']); ?></td><td><?php echo $row['commission_group'] === 'technical' ? '技术' : '客服'; ?><?php if (($row['role_name'] ?? '') !== ''): ?><div class="small text-muted"><?php echo e($row['role_name']); ?></div><?php endif; ?></td><td class="text-right">¥<?php echo money($row['income_amount']); ?></td><td class="text-right">¥<?php echo money($row['direct_cost']); ?></td><td class="text-right">¥<?php echo money($row['service_fee'] ?? 0); ?></td><td class="text-right">¥<?php echo money($row['contribution_profit']); ?></td><td class="text-right"><?php echo money($row['rate'] * 100); ?>%</td><td class="text-right"><?php echo money($row['group_weight'] * 100); ?>%</td><td class="text-right font-weight-bold">¥<?php echo money($row['commission_amount']); ?><?php if ((float)($row['subsidy_amount'] ?? 0) > 0): ?><div class="small text-muted font-weight-normal">含每单补助 ¥<?php echo money($row['subsidy_amount']); ?></div><?php endif; ?><?php if (($row['calc_note'] ?? '') !== ''): ?><div class="small text-muted font-weight-normal"><?php echo e($row['calc_note']); ?></div><?php endif; ?></td><td><?php if ($row['commission_group'] === 'technical'): ?><?php if ($row['reconciliation_id']): ?>旧分成 ¥<?php echo money($row['legacy_amount']); ?><?php if ($row['legacy_salary_month']): ?>（<?php echo e($row['legacy_salary_month']); ?>）<?php endif; ?><br><small class="text-muted"><?php echo e($row['basis_note']); ?></small><?php else: ?><span class="text-warning">待财务核对</span><?php endif; ?><?php else: ?>客服原绩效叠加<?php endif; ?></td></tr><?php endforeach; ?>
 <?php if (!$rows): ?><tr><td colspan="10" class="text-center text-muted py-4">该月暂无已审核项目分成</td></tr><?php endif; ?></tbody></table></div></div>
@@ -408,7 +448,7 @@ if ($employeeId > 0) {
 <?php if ($actor['role'] === 'finance' && $period['status'] !== 'locked'): foreach ($rows as $row): if ($row['commission_group'] !== 'technical') continue; ?>
 <form method="post" class="card mt-2"><div class="card-body"><div class="font-weight-bold mb-2">旧技术分成核对 · <?php echo e($row['order_no']); ?> · 新分成 ¥<?php echo money($row['commission_amount']); ?></div><input type="hidden" name="csrf" value="<?php echo e(ps_csrf_token()); ?>"><input type="hidden" name="action" value="save_reconciliation"><input type="hidden" name="period" value="<?php echo e($month); ?>"><input type="hidden" name="snapshot_id" value="<?php echo (int)$row['id']; ?>"><div class="form-row"><div class="form-group col-md-2"><label>旧分成金额</label><input name="legacy_amount" type="number" min="0" step="0.01" class="form-control" value="<?php echo $row['reconciliation_id'] ? e($row['legacy_amount']) : ''; ?>" required></div><div class="form-group col-md-2"><label>旧结算月份</label><input name="legacy_salary_month" type="month" class="form-control" value="<?php echo e($row['legacy_salary_month'] ?? ''); ?>"><small class="text-muted">金额大于零时必填</small></div><div class="form-group col-md-6"><label>核对依据／零元原因</label><input name="basis_note" maxlength="500" class="form-control" value="<?php echo e($row['basis_note'] ?? ''); ?>" placeholder="如旧订单号、旧算法明细；或未计入旧系统" required></div><div class="form-group col-md-2 d-flex align-items-end"><button class="btn btn-outline-primary btn-block">保存核对</button></div></div></div></form>
 <?php endforeach; endif; ?>
-<p class="text-muted small mt-3">订单分成按审核快照计算；固定服务费、考勤、客服绩效、保险和其他奖扣沿用原有结算记录。</p>
+<p class="text-muted small mt-3">订单分成按审核快照计算；固定服务费、客服绩效和其他奖扣沿用原有结算记录；保险扣除和手工项见上方“扣款与手工项”。</p>
 <?php else: ?>
 <?php $departments = array_values(array_unique(array_filter(array_column($rows, 'department')))); ?>
 <div class="card"><div class="card-header d-flex justify-content-between align-items-center flex-wrap" style="gap:8px"><span>全员收入概览 · <?php echo e($month); ?></span><span class="small text-muted" id="overviewSummary"></span></div>

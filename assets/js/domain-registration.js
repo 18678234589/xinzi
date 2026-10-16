@@ -73,7 +73,9 @@
   el('registrationSearch').onsubmit = function (e) {
     e.preventDefault(); cancelQuote(); busy(el('registrationCheck'), async function () {
       quote = await api('quote', { domain: el('registrationDomain').value.trim(), template_id: el('registrationTemplate').value, term: el('registrationTerm').value, order_no: el('registrationOrderNo').value.trim() }); var q = quote.quote;
-      el('registrationQuote').innerHTML = [['域名', q.domain], ['注册年限', (q.term || 1) + ' 年'], [(q.term || 1) > 1 ? '合计（单年 ¥' + (q.unit_price_cents / 100).toFixed(2) + ' × ' + q.term + '）' : '一年注册价', '¥' + (q.price_cents / 100).toFixed(2) + (q.premium ? ' · 高价域名' : '')], ['实名主体', q.template.owner], ['模板', q.template.label], ['默认 NS', q.ns.join(' / ')], ['有效期', '5分钟，提交时再次核价']].concat(q.order_no ? [['关联订单', q.order_no]] : []).concat(q.template_pending ? [['实名状态', '审核中：域名先注册，实名随后审核通过']] : []).map(function (p) { return '<article><span>' + esc(p[0]) + '</span><strong>' + esc(p[1]) + '</strong></article>'; }).join('');
+      var t = q.term || 1, renew = q.renew_price_cents != null ? q.renew_price_cents : q.unit_price_cents;
+      var priceLabel = t > 1 ? '合计（首年 ¥' + (q.unit_price_cents / 100).toFixed(2) + ' + 续费 ¥' + (renew / 100).toFixed(2) + ' × ' + (t - 1) + '年）' : '一年注册价';
+      el('registrationQuote').innerHTML = [['域名', q.domain], ['注册年限', t + ' 年'], [priceLabel, '¥' + (q.price_cents / 100).toFixed(2) + (q.premium ? ' · 高价域名' : '')], ['实名主体', q.template.owner], ['模板', q.template.label], ['默认 NS', q.ns.join(' / ')], ['有效期', '5分钟，提交时再次核价']].concat(q.order_no ? [['关联订单', q.order_no]] : []).concat(q.template_pending ? [['实名状态', '审核中：域名先注册，实名随后审核通过']] : []).map(function (p) { return '<article><span>' + esc(p[0]) + '</span><strong>' + esc(p[1]) + '</strong></article>'; }).join('');
       el('registrationConfirm').hidden = false; notice('可以注册。请核对以下信息，再确认购买。', false);
     });
   };

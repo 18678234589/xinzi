@@ -16,7 +16,7 @@ function set(o){p.classList.toggle('open',o);b.classList.toggle('active',o);if(o
 b.addEventListener('click',function(){set(!p.classList.contains('open'));});
 document.getElementById('hn-close').addEventListener('click',function(){set(false);});
 document.addEventListener('keydown',function(e){if(e.key==='Escape'&&p.classList.contains('open'))set(false);});})();</script>
-<a class="btn btn-outline-primary btn-sm mr-2 d-inline-flex align-items-center text-nowrap" href="https://media.laibangwo.com/?sso=me" title="使用当前账号进入自媒体工作台"><i class="fas fa-video mr-1" aria-hidden="true"></i>自媒体工作台</a>
+<a class="btn btn-outline-primary btn-sm mr-2 d-inline-flex align-items-center text-nowrap" href="https://media.laibangwo.com/?sso=me" target="_blank" rel="noopener noreferrer" title="使用当前账号进入自媒体工作台"><i class="fas fa-video mr-1" aria-hidden="true"></i>自媒体工作台</a>
 <?php require_once __DIR__ . '/BizcnDomains.php'; if (bd_can_access(ps_actor())): ?>
 <a class="btn btn-outline-primary btn-sm mr-2 d-inline-flex align-items-center text-nowrap" href="<?php echo BASE_URL; ?>/project/domains.php"><i class="fas fa-globe mr-1" aria-hidden="true"></i>域名管理</a>
 <a class="btn btn-outline-primary btn-sm mr-2 d-inline-flex align-items-center text-nowrap" href="<?php echo BASE_URL; ?>/project/domains.php#register"><i class="fas fa-plus-circle mr-1" aria-hidden="true"></i>注册域名</a>

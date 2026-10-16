@@ -61,10 +61,76 @@ function ps_import_headerless_map($rows, $knownShops, $employeesByName)
     $pick('order_date', function ($v) { return (preg_match('/^\d{1,4}([.\/-]\d{1,2}){1,2}\.?$/', $v) || mb_strpos($v, '月') !== false || (is_numeric($v) && $v > 40000 && $v < 60000
     )) && ps_import_date($v); });
     $pick('contact_note', function ($v) { return pr_import_phone_value($v, true) !== ''; });
-    $pick('contract_amount', function ($v) { return is_numeric(str_replace([',', '¥', '￥'], '', $v)) && (float)str_replace([',', '¥', '￥'], '', $v) < 1000000; }, $map['order_no'
-    ]);
-    $pick('shop', function ($v) use ($knownShops) { foreach ($knownShops as $shop) if ($v === $shop || mb_strpos($shop, $v) !== false || mb_strpos($v, $shop) !== false) return true
-    ; return false; });
+
+    // 写手编号（如 M167, H288, P27, D2945：字母开头后跟 1-5 位数字）
+    foreach ($columns as $i => $values) {
+        if ($values && $free($i) && $share($i, function ($v) { return (bool)preg_match('/^[A-Za-z]\d{1,5}$/', trim($v)); }) >= 0.5) {
+            $map['detail:writer_code'] = $i;
+            break;
+        }
+    }
+
+    // 金额与字数识别：在订单号后寻找纯数值列。
+    // 如果有多列纯数值，必须区分“字数”（整百整千大整数，通常 >= 200）与“售价”（通常较小，几十上百元，或带小数），绝不能盲目把订单号后第一列当金额！
+    $numericCols = [];
+    foreach ($columns as $i => $values) {
+        if ($i > $map['order_no'] && $values && $free($i) && $share($i, function ($v) {
+            $n = str_replace([',', '¥', '￥', ' '], '', $v);
+            return is_numeric($n) && (float)$n < 1000000;
+        }) >= 0.6) {
+            $numericCols[] = $i;
+        }
+    }
+    if (count($numericCols) === 1) {
+        $map['contract_amount'] = $numericCols[0];
+    } elseif (count($numericCols) >= 2) {
+        $colStats = [];
+        foreach ($numericCols as $colIdx) {
+            $nums = [];
+            foreach ($columns[$colIdx] as $v) {
+                $n = str_replace([',', '¥', '￥', ' '], '', $v);
+                if (is_numeric($n)) $nums[] = (float)$n;
+            }
+            sort($nums);
+            $cnt = count($nums);
+            $median = $cnt ? $nums[(int)($cnt / 2)] : 0;
+            $avg = $cnt ? array_sum($nums) / $cnt : 0;
+            $colStats[$colIdx] = ['median' => $median, 'avg' => $avg];
+        }
+        $wordCol = null;
+        $priceCol = null;
+        for ($a = 0; $a < count($numericCols); $a++) {
+            for ($b = $a + 1; $b < count($numericCols); $b++) {
+                $idxA = $numericCols[$a];
+                $idxB = $numericCols[$b];
+                if ($colStats[$idxA]['median'] >= 300 && $colStats[$idxB]['median'] > 0 && $colStats[$idxA]['median'] >= $colStats[$idxB]['median'] * 2.5) {
+                    $wordCol = $idxA;
+                    $priceCol = $idxB;
+                    break 2;
+                } elseif ($colStats[$idxB]['median'] >= 300 && $colStats[$idxA]['median'] > 0 && $colStats[$idxB]['median'] >= $colStats[$idxA]['median'] * 2.5) {
+                    $wordCol = $idxB;
+                    $priceCol = $idxA;
+                    break 2;
+                }
+            }
+        }
+        if ($wordCol !== null && $priceCol !== null) {
+            $map['contract_amount'] = $priceCol;
+            $map['detail:writing_volume'] = $wordCol;
+            foreach ($numericCols as $colIdx) {
+                if ($colIdx !== $wordCol && $colIdx !== $priceCol && $free($colIdx)) {
+                    if ($colStats[$colIdx]['median'] <= $colStats[$priceCol]['median']) {
+                        $map['direct_cost'] = $colIdx;
+                        break;
+                    }
+                }
+            }
+        } else {
+            $map['contract_amount'] = $numericCols[0];
+        }
+    }
+
+    $pick('shop', function ($v) use ($knownShops) { foreach ($knownShops as $shop) if ($v === $shop || mb_strpos($shop, $v) !== false || mb_strpos($v, $shop) !== false) return true; return false; });
     // 网站客服旧表常无表头；产品列是确定标记，不靠 AI 猜整张表的业务。
     $pick('program_name', function ($v) { return (bool)preg_match('/^(php|jsp|森动|博山定制|华梦|大连定制|网站定制)/iu', $v); });
     // 人员列：姓名都在人员名单中；按账号角色区分客服列与技术列，角色不明时先客服后技术
@@ -73,12 +139,10 @@ function ps_import_headerless_map($rows, $knownShops, $employeesByName)
     foreach ($columns as $i => $values) if ($values && $free($i) && $share($i, $isName) >= 0.6) $peopleColumns[] = $i;
     foreach ($peopleColumns as $i) {
         $roles = [];
-        foreach ($columns[$i] as $v) foreach (preg_split('/[,，、\/]+/u', $v) as $n) foreach ($employeesByName[trim($n)] ?? [] as $emp) if (!empty($emp['role'])) $roles[$emp['role'
-    ]] = ($roles[$emp['role']] ?? 0) + 1;
+        foreach ($columns[$i] as $v) foreach (preg_split('/[,，、\/]+/u', $v) as $n) foreach ($employeesByName[trim($n)] ?? [] as $emp) if (!empty($emp['role'])) $roles[$emp['role']] = ($roles[$emp['role']] ?? 0) + 1;
         arsort($roles);
         $role = key($roles);
-        $key = $role === 'technical' ? (isset($map['frontend']) ? 'backend' : 'frontend') : ($role === 'customer_service' && !isset($map['customer_service']) ? 'customer_service' :
-    null);
+        $key = $role === 'technical' ? (isset($map['frontend']) ? 'backend' : 'frontend') : ($role === 'customer_service' && !isset($map['customer_service']) ? 'customer_service' : null);
         if ($key === null) foreach (['customer_service', 'frontend', 'backend'] as $candidate) if (!isset($map[$candidate])) { $key = $candidate; break; }
         if ($key !== null && !isset($map[$key])) $map[$key] = $i;
     }
@@ -88,9 +152,16 @@ function ps_import_headerless_map($rows, $knownShops, $employeesByName)
         if (!empty($columns[$next]) && $free($next) && $share($next, function ($v) { return (bool)preg_match('/^\p{Han}{2,4}$/u', $v); }) >= 0.6) $map['frontend'] = $next;
     }
     $pick('status', function ($v) { return $v !== '' && ps_import_delivery_status($v) !== null; });
-    // 付款昵称：订单号前最近的一个未识别的文字列（淘宝表常见顺序：日期、店铺、付款账号、订单编号）
-    for ($i = $map['order_no'] - 1; $i >= 0; $i--) if ($columns[$i] && $free($i)) { if ($share($i, function ($v) { return !is_numeric($v); }) >= 0.6) $map['payment_nickname'] = $i;
-    break; }
+    // 付款昵称：优先订单号前最近的一个未识别的文字列（淘宝表常见顺序：日期、店铺、付款账号、订单编号）；若无，找订单号与日期之间的文字列
+    for ($i = $map['order_no'] - 1; $i >= 0; $i--) if ($columns[$i] && $free($i)) { if ($share($i, function ($v) { return !is_numeric($v); }) >= 0.6) { $map['payment_nickname'] = $i; break; } }
+    if (!isset($map['payment_nickname']) && isset($map['order_date'])) {
+        for ($i = $map['order_no'] + 1; $i < $map['order_date']; $i++) {
+            if ($columns[$i] && $free($i) && $share($i, function ($v) { return !is_numeric($v) && !preg_match('/^[A-Za-z]\d{1,5}$/', trim($v)); }) >= 0.6) {
+                $map['payment_nickname'] = $i;
+                break;
+            }
+        }
+    }
     if (!isset($map['order_date']) && !isset($map['contract_amount'])) return null;
     return $map;
 }

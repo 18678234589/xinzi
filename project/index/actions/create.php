@@ -161,6 +161,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     ['name'] . ' ' . $domainTemplate['specification'];
         if ($resourceNote !== '') $noteParts[] = '域名/空间说明：' . $resourceNote;
         if ($sslCost !== '' && (float)$sslCost > 0) $noteParts[] = 'SSL 实际成本报备：¥' . $sslCost . '（待技术补充成本凭证）';
+        $testerId = (int)($_POST['software_tester_id'] ?? 0);
+        if ($testerId > 0) {
+            if (!ps_software_testing_pick_business($projectType)) throw new RuntimeException('此业务暂不支持添加软件测试员');
+            if (isset($groups['technical'][$testerId])) throw new RuntimeException('软件测试员不能同时担任本单技术');
+            $groups['technical']['tester'] = ['id' => $testerId, 'role' => '软件测试'];
+        }
         db()->beginTransaction();
         $q = db()->prepare('INSERT INTO project_orders (order_no,customer_name,project_type,order_kind,shop,contract_amount,receipt_amount,order_date,delivery_status,note,created_by_admin) VALUES (?,?,?,?,?,?,0,?,?,?,?)'
     );

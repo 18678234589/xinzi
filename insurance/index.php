@@ -1,39 +1,41 @@
 <?php
 require_once __DIR__ . '/../includes/auth.php';
 require_login();
+require_once __DIR__ . '/../includes/ProjectPayrollExtras.php';
 
 $page_title = '保险管理';
 $success = '';
 $error = '';
 
-// 配置文件路径
+// 旧项目结算页读取的配置文件（尽力同步，写失败不影响新结算）
 $configPath = __DIR__ . '/../config/insurance.php';
 
-// 读取当前配置
-$insuranceConfig = @include $configPath;
-$currentAmount = (float)($insuranceConfig['amount'] ?? 0);
-$updated_at = '';
-if (file_exists($configPath)) {
-    $fmtime = filemtime($configPath);
-    if ($fmtime) $updated_at = date('Y-m-d H:i:s', $fmtime);
-}
+// 保险金额存数据库（不依赖 config/ 目录写权限）
+$insSettings = ps_insurance_settings();
+$currentAmount = $insSettings['personal'];
+$unitAmount = $insSettings['unit'];
+$updated_at = (string)db()->query("SELECT MAX(updated_at) FROM project_payroll_settings WHERE name IN ('insurance_personal','insurance_unit')")->fetchColumn();
 
 // 保存金额
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = $_POST['action'] ?? '';
     if ($action === 'save') {
         $newAmount = round((float)($_POST['amount'] ?? 0), 2);
-        if ($newAmount < 0) {
+        $newUnit = round((float)($_POST['unit_amount'] ?? 0), 2);
+        if ($newAmount < 0 || $newUnit < 0) {
             $error = '保险金额不能为负数';
         } else {
-            $configContent = "<?php\n/**\n * 保险扣除配置\n *\n * amount = 每月保险扣除金额（全员统一）\n * 每年基数变化时，只需修改此金额即可。\n */\nreturn [\n    'amount' => " . var_export($newAmount, true) . ",\n];\n";
-            if (@file_put_contents($configPath, $configContent) !== false) {
-                $currentAmount = $newAmount;
-                $updated_at = date('Y-m-d H:i:s');
-                $success = sprintf('保险金额已更新为 ¥%s，结算时将自动扣除', money($newAmount));
-            } else {
-                $error = '配置文件写入失败，请检查 config/ 目录权限';
-            }
+            ps_insurance_settings_save($newAmount, $newUnit);
+            @file_put_contents($configPath, "<?php
+// 旧项目结算页沿用：个人承担金额（新结算以数据库设置为准）
+return [
+    'amount' => " . var_export($newAmount, true) . ",
+];
+");
+            $currentAmount = $newAmount;
+            $unitAmount = $newUnit;
+            $updated_at = date('Y-m-d H:i:s');
+            $success = sprintf('保险金额已更新：个人 ¥%s，单位 ¥%s', money($newAmount), money($newUnit));
         }
     }
 }
@@ -81,12 +83,20 @@ include __DIR__ . '/../includes/header.php';
                 <form method="post">
                     <input type="hidden" name="action" value="save">
                     <div class="form-group">
-                        <label><i class="fas fa-shield-alt text-info"></i> 每月保险扣除金额</label>
+                        <label><i class="fas fa-shield-alt text-info"></i> 每月个人承担保险金额</label>
                         <div class="input-group">
                             <div class="input-group-prepend"><span class="input-group-text">¥</span></div>
                             <input type="number" name="amount" class="form-control form-control-lg" step="0.01" min="0" value="<?php echo e($currentAmount); ?>" required>
                         </div>
                         <small class="text-muted">全员统一金额，每月项目结算时默认扣除。每年基数变化时，直接在这里修改即可。</small>
+                    </div>
+                    <div class="form-group">
+                        <label><i class="fas fa-building text-info"></i> 每月单位承担保险金额</label>
+                        <div class="input-group">
+                            <div class="input-group-prepend"><span class="input-group-text">¥</span></div>
+                            <input type="number" name="unit_amount" class="form-control" step="0.01" min="0" value="<?php echo e($unitAmount); ?>" required>
+                        </div>
+                        <small class="text-muted">服务暂停超过 3 天时按（个人+单位）合计计算，未填写会算少。</small>
                     </div>
                     <button type="submit" class="btn btn-primary btn-lg btn-block"><i class="fas fa-save"></i> 保存</button>
                 </form>
@@ -105,8 +115,8 @@ include __DIR__ . '/../includes/header.php';
             <div class="card-header bg-white"><h5 class="mb-0"><i class="fas fa-info-circle text-info"></i> 使用说明</h5></div>
             <div class="card-body">
                 <ul class="mb-0">
-                    <li>设置金额后，在<b>项目结算</b>页面会默认勾选"扣除保险"，自动从应结算金额中扣除该金额。</li>
-                    <li>遇到<b>不需要扣保险的合作人员</b>，在结算页面手动取消勾选即可。</li>
+                    <li><b>项目报酬结算单</b>自动扣个人保险：按月扣个人承担金额；服务暂停超过 3 天扣（个人+单位）合计的一半；超过 6 天扣个人+单位全额。</li>
+                    <li>财务可在结算单“扣款与手工项”里<b>手动输入</b>某人当月的保险扣除（填 0 = 不扣，留空 = 恢复自动），也可添加“代理董事长补助”等手工项。</li>
                     <li>每年保险基数变化时，只需在此页面修改金额，所有后续结算自动使用新金额。</li>
                     <li>已结算的历史记录不受影响，保持原扣除金额。</li>
                 </ul>

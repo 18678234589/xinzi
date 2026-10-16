@@ -14,6 +14,31 @@ function br_template_pass($id,$allowAuditing=false)
 }
 /** 可选注册年限（接口文档：1、2、5、10 年）。 */
 function br_terms() { return [1,2,5,10]; }
+function br_tld_rules()
+{
+    return [
+        'com' => ['first_year_cents' => 5800, 'renew_cents' => 8600],
+        'cn'  => ['first_year_cents' => 2900, 'renew_cents' => 3500],
+        'net' => ['first_year_cents' => 9300, 'renew_cents' => 9700],
+    ];
+}
+function br_match_tld_rule($domain)
+{
+    $domain = strtolower(trim((string)$domain));
+    $rules = br_tld_rules();
+    if (preg_match('/\.cn$/', $domain)) return $rules['cn'];
+    if (preg_match('/\.com$/', $domain)) return $rules['com'];
+    if (preg_match('/\.net$/', $domain)) return $rules['net'];
+    return null;
+}
+function br_term_total_cents($priceInfo, $term)
+{
+    $term = max(1, (int)$term);
+    $first = (int)($priceInfo['price_cents'] ?? 0);
+    if ($term === 1 || !empty($priceInfo['premium'])) return $first;
+    $renew = (int)($priceInfo['renew_price_cents'] ?? $first);
+    return $first + $renew * ($term - 1);
+}
 function br_price($domain)
 {
     $d=bd_call('domainService','checkPremium',['domainname'=>$domain]);
@@ -23,7 +48,24 @@ function br_price($domain)
         if((string)($row['avail'] ?? '')!=='1')throw new RuntimeException('该域名暂不可注册，请更换名称');
         if(!isset($row['price']) || !is_numeric($row['price']) || (float)$row['price']<=0 || (float)$row['price']>10000000)throw new RuntimeException('未取得有效注册价格，请联系管理员');
         if(!in_array(strtolower((string)($row['premium'] ?? '')),['true','false'],true))throw new RuntimeException('高价域名状态暂未明确，请稍后再试');
-        return ['price_cents'=>(int)round((float)$row['price']*100),'premium'=>strtolower($row['premium'])==='true'];
+        $isPremium = strtolower((string)$row['premium']) === 'true';
+        $apiCents = (int)round((float)$row['price'] * 100);
+        if ($isPremium) {
+            return ['price_cents' => $apiCents, 'renew_price_cents' => $apiCents, 'api_price_cents' => $apiCents, 'premium' => true];
+        }
+        $rule = br_match_tld_rule($domain);
+        if ($rule) {
+            $firstYear = $rule['first_year_cents'];
+            if (preg_match('/\.cn$/', $domain)) {
+                if ($apiCents !== 3500 && $apiCents !== 2900) $firstYear = max(100, $rule['first_year_cents'] + ($apiCents - 3500));
+            } else if (preg_match('/\.com$/', $domain)) {
+                if ($apiCents !== 5800) $firstYear = $apiCents;
+            } else if (preg_match('/\.net$/', $domain)) {
+                if ($apiCents !== 9300) $firstYear = $apiCents;
+            }
+            return ['price_cents' => $firstYear, 'renew_price_cents' => $rule['renew_cents'], 'api_price_cents' => $apiCents, 'premium' => false];
+        }
+        return ['price_cents' => $apiCents, 'renew_price_cents' => $apiCents, 'api_price_cents' => $apiCents, 'premium' => false];
     }
     throw new RuntimeException('注册商没有返回此域名的可注册性，请稍后再试');
 }
@@ -124,7 +166,7 @@ function br_dispatch($action,$input,$actor)
         $term=(int)($input['term'] ?? 1);
         if(!in_array($term,br_terms(),true))throw new InvalidArgumentException('注册年限仅支持 '.implode('、',br_terms()).' 年');
         if($price['premium'] && $term!==1)throw new RuntimeException('高价域名仅支持注册 1 年，请选择 1 年');
-        $price['unit_price_cents']=$price['price_cents'];$price['price_cents']=$price['price_cents']*$term;
+        $totalCents=br_term_total_cents($price,$term);$price['unit_price_cents']=$price['price_cents'];$price['price_cents']=$totalCents;
         $quote=['domain'=>$domain,'term'=>$term,'currency'=>'CNY','template'=>$template,'ns'=>$s['ns'],'revision'=>$s['revision'],'template_pending'=>$tplStatus!=='pass']+($orderRow ? ['order_id'=>(int)$orderRow['id'],'order_no'=>$orderRow['order_no']] : [])+$price;
         return br_quote_save($pdo,$account,$actor,$quote,$now);
     }
@@ -136,7 +178,8 @@ function br_dispatch($action,$input,$actor)
             $quote=json_decode($r['quote_json'],true);
             if((int)$r['expires_at']<$now || (int)$quote['revision']!==$s['revision'])throw new RuntimeException('报价已过期，请重新查询');
             br_template_pass($quote['template']['id'],!empty($quote['template_pending']));$fresh=br_price($quote['domain']);
-            if($fresh['price_cents']*max(1,(int)($quote['term'] ?? 1))!==$quote['price_cents'] || $fresh['premium']!==$quote['premium'])throw new RuntimeException('注册商价格已变化，请重新查询报价后确认');
+            $freshTotal=br_term_total_cents($fresh,max(1,(int)($quote['term'] ?? 1)));
+            if($freshTotal!==$quote['price_cents'] || $fresh['premium']!==$quote['premium'])throw new RuntimeException('注册商价格已变化，请重新查询报价后确认');
         }
         $r=br_reserve($pdo,$account,$actor,$input['token'],$input['confirm'],$input['ack'],time());
         if(br_mark_started($pdo,$r['id'],time())) {
@@ -179,7 +222,7 @@ function br_dispatch($action,$input,$actor)
             try {
                 $domain=bd_domain($raw);$out['domain']=['name'=>$domain,'state'=>'unavailable','message'=>''];
                 if(bc_find($domain)) {$out['domain']['state']='owned';$out['domain']['message']='该域名已在本账户目录中，不要重复注册';}
-                else {$price=br_price($domain);$out['domain']=['name'=>$domain,'state'=>'available','message'=>'','price_cents'=>$price['price_cents'],'premium'=>$price['premium'],'premium_blocked'=>$price['premium'] && !br_admin($actor)];}
+                else {$price=br_price($domain);$out['domain']=['name'=>$domain,'state'=>'available','message'=>'','price_cents'=>$price['price_cents'],'renew_price_cents'=>$price['renew_price_cents'],'premium'=>$price['premium'],'premium_blocked'=>$price['premium'] && !br_admin($actor)];}
             } catch(InvalidArgumentException $e) {$out['domain']=['name'=>$raw,'state'=>'invalid','message'=>$e->getMessage()];}
             catch(RuntimeException $e) {$out['domain']['state']='unavailable';$out['domain']['message']=$e->getMessage();}
         }

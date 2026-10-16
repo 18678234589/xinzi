@@ -88,7 +88,7 @@ function ptt_prepare_record(&$record, $choice = '', $rawCost = null)
     }
     $variable=in_array($service,['成品商标成本','国际商标成本','法务外包成本'],true);
     $count=trim((string)($details['trademark_count']??''));
-    if((!$variable||$count!=='')&&(!is_numeric($count)||(float)$count<1||(float)$count>1000||floor((float)$count)!=(float)$count))throw new RuntimeException('计价件数须填1–1000整数，不能空白、默认1件或按小数件计费');
+    if((!$variable||$count!=='')&&($problem=ptc_count_problem($count)))throw new RuntimeException('计价件数：'.$problem);
     $classes=trim((string)($details['trademark_classes']??''));
     if($classes!==''){
         $parts=preg_split('/[、,，;；\s]+/u',preg_replace('/第|类/u','',$classes),-1,PREG_SPLIT_NO_EMPTY);

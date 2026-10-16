@@ -131,6 +131,8 @@ function ps_order($id, $actor)
                     $isMissingBackendTech = true;
                 }
             }
+            // 软件测试员可查看并自行加入 AI网站定制 / 小程序开发 订单
+            if (!$isMissingBackendTech && ps_software_testing_pick_business($order['project_type'] ?? '') && ps_software_tester_can_join($actor['employee_id'])) $isMissingBackendTech = true;
             if (!$isMissingBackendTech) { http_response_code(403); exit('无权限查看此订单'); }
         }
     }

@@ -4,6 +4,35 @@ $testersQuery->execute([ps_business_normalize($order['project_type'])]);
 $softwareTesters = $testersQuery->fetchAll();
 $testingRule = ps_rule_for('technical', $order['project_type'], $order['order_date'], '软件测试', $order['order_kind'] ?? '');
 ?>
+<?php if ($actor['role'] !== 'finance'):
+    $orderTesters = array_values(array_filter($people, function ($p) { return ps_software_testing_role($p['role_name'] ?? ''); }));
+    $testerIds = array_map(function ($p) { return (int)$p['employee_id']; }, $orderTesters);
+    $isMine = in_array((int)$actor['employee_id'], $testerIds, true);
+    $canSelfJoin = !$isMine && $testingRule && ps_software_tester_can_join($actor['employee_id']);
+?>
+<div class="card-body border-top" id="software-testing">
+    <h6>软件测试员（可选）</h6>
+    <?php if ($orderTesters): ?><p class="small mb-2">已添加：<?php echo e(implode('、', array_map(function ($p) { return $p['name']; }, $orderTesters))); ?></p><?php endif; ?>
+    <?php if (!$testingRule): ?>
+        <div class="alert alert-info mb-0">该订单日期尚未达到软件测试规则生效日期，暂不能添加。</div>
+    <?php else: ?>
+    <form method="post" class="form-inline">
+        <input type="hidden" name="csrf" value="<?php echo e(ps_csrf_token()); ?>">
+        <input type="hidden" name="action" value="add_software_tester">
+        <?php if ($canSelfJoin): ?>
+            <input type="hidden" name="employee_id" value="<?php echo (int)$actor['employee_id']; ?>">
+            <button class="btn btn-primary" type="submit">添加我为本单软件测试员</button>
+        <?php elseif ($softwareTesters && !$isMine): ?>
+            <label for="software-tester" class="mr-2">软件测试员</label>
+            <select id="software-tester" name="employee_id" class="form-control mr-2" required>
+                <?php foreach ($softwareTesters as $tester): if (in_array((int)$tester['id'], $testerIds, true)) continue; ?><option value="<?php echo (int)$tester['id']; ?>"><?php echo e($tester['name'] . ' · ' . $tester['department']); ?></option><?php endforeach; ?>
+            </select>
+            <button class="btn btn-outline-primary" type="submit">添加软件测试员</button>
+        <?php endif; ?>
+    </form>
+    <?php endif; ?>
+</div>
+<?php return; endif; ?>
 <div class="card-body border-top" id="software-testing">
     <h6>软件测试 · 独立提成</h6>
     <p class="small text-muted">2026年10月1日起，按订单日期生效。提成＝（营业额－成本）×5%；营业额按实收减退款，扣整单已审核实际成本，不另扣店铺服务费、不叠加补贴。测试不占技术组池权重，保留原客服岗位。</p>
