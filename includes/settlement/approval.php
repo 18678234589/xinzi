@@ -49,6 +49,8 @@ function ps_approve_order($orderId, $actor, $payrollMonth)
         $allowsNegative = false;
         foreach ($sum['groups'] as $group) foreach ($group['people'] as $person) if (!empty($person['rule']['allow_negative'])) $allowsNegative = true;
         if ($sum['income'] <= 0 && !$hasSubsidy && !($allowsNegative && $sum['income'] < 0)) throw new RuntimeException('没有可结算的实收收入');
+        // 商标：资料 / 提交专员按件计酬，没有收入也有“补助”，但只有到账且已发货的订单才结算；未到账的不能靠补助规则放行。
+        if (ps_business_normalize($order['project_type']) === '商标' && $sum['income'] <= 0) throw new RuntimeException('商标订单需先确认到账（收款），到账并发货后才结算');
         if ($sum['service_fee_rate'] > 0 && (float)$order['contract_amount'] <= 0 && $sum['income'] > 0) throw new RuntimeException($order['project_type'] . '订单须先核对售价，才能计算 '
     . round($sum['service_fee_rate'] * 100, 2) . '% 店铺服务费');
         $cashPending = $pdo->prepare("SELECT COUNT(*) FROM project_cash_movements WHERE order_id=? AND review_status='pending'");

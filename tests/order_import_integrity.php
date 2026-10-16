@@ -46,8 +46,8 @@ oi_reject('ambiguous existing websites block duplicate creation', function() use
 oi_reject('changed price cannot silently create a new website', function() use($members){psp_import_auto_key($members,2,'950');});
 oi_check('pure profit line is an addon', psp_is_addon_program('纯利润'));
 $p = new PDO('sqlite::memory:'); $p->setAttribute(PDO::ATTR_DEFAULT_FETCH_MODE,PDO::FETCH_ASSOC); $p->setAttribute(PDO::ATTR_ERRMODE,PDO::ERRMODE_EXCEPTION);
-$p->exec('CREATE TABLE project_orders (id INTEGER PRIMARY KEY,project_type TEXT,contract_amount TEXT,receipt_amount TEXT,refund_amount TEXT,settlement_status TEXT,order_date TEXT,created_at TEXT); CREATE TABLE project_participants (order_id INTEGER,employee_id INTEGER); CREATE TABLE project_auto_reviews (order_id INTEGER PRIMARY KEY,state TEXT,reasons_json TEXT); CREATE TABLE project_order_details (order_id INTEGER PRIMARY KEY,details_json TEXT)');
-$insert=$p->prepare('INSERT INTO project_orders VALUES(?,?,?,?,?,?,?,?)');
+$p->exec('CREATE TABLE project_orders (id INTEGER PRIMARY KEY,project_type TEXT,contract_amount TEXT,receipt_amount TEXT,refund_amount TEXT,settlement_status TEXT,order_date TEXT,created_at TEXT,delivery_status TEXT); CREATE TABLE project_participants (order_id INTEGER,employee_id INTEGER); CREATE TABLE project_auto_reviews (order_id INTEGER PRIMARY KEY,state TEXT,reasons_json TEXT); CREATE TABLE project_order_details (order_id INTEGER PRIMARY KEY,details_json TEXT)');
+$insert=$p->prepare('INSERT INTO project_orders(id,project_type,contract_amount,receipt_amount,refund_amount,settlement_status,order_date,created_at) VALUES(?,?,?,?,?,?,?,?)');
 foreach ([
  [1,'网站模板','100.10','100.10','0','approved','2026-09-01','2026-10-08'],
  [2,'网站模板','200.20','0','0','draft','2026-09-30','2026-10-08'],
