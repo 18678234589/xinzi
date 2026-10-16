@@ -26,7 +26,7 @@ try {
     $p = $s['piece'];
     $check($p && $p['unit'] === 2.2 && $p['settled_amount'] === 6.6 && $p['shipped_amount'] === 6.6 && $p['unshipped'] === 26.0 && $p['role'] === '提交专员', '每件 2.2：已结算 ¥6.60，已发货待到账 ¥6.60，未发货不计金额');
     ob_start(); ps_payroll_order_summary_render($s); $html = ob_get_clean();
-    $check(strpos($html, '商标件数') !== false && strpos($html, '32 件') !== false && strpos($html, '未发货 26') !== false && strpos($html, '不结算') !== false && strpos($html, '到账并发货后才结算') !== false, '页面写明到账并发货后才结算，未发货不结算');
+    $check(strpos($html, '商标件数') !== false && strpos($html, '32 件') !== false && strpos($html, '未发货 26') !== false && strpos($html, '不结算') !== false && strpos($html, '到账并发货后才结算') !== false && strpos($html, '已发货待到账 2 · 未发货 1（不核算）') !== false, '页面写明到账并发货后才结算，未发货不结算，订单数也分开列');
     // 未到账的商标单不能靠补助规则被审核放行
     require_once __DIR__ . '/../includes/settlement/approval.php';
     $pdo->prepare("INSERT INTO project_orders (order_no,customer_name,project_type,order_kind,shop,contract_amount,receipt_amount,order_date,delivery_status,settlement_status) VALUES (?,'未到账客户','商标','普通订单','测试',500,0,'2026-09-10','finished','draft')")->execute(['PCS-NP-' . bin2hex(random_bytes(4))]);
