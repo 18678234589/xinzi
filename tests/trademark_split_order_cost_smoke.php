@@ -103,6 +103,27 @@ try {
     $c = $mine('tmc-frozen'); $failed = false;
     try { ptd_decide($c[0]['key'], 'same', $actor); } catch (RuntimeException $e) { $failed = true; }
     $check($c[0]['blocked'] && $failed && count($live($k1)) === 1 && count($live($k2)) === 1, '含已审核订单时不能自动合并，成本保持不变');
+    // 7) 商标主管：收到站内信和提醒，有人核对后消失；有权核对；合作人员看到“官费待核对”。
+    $pdo->prepare("INSERT INTO employees (name,department,password) VALUES ('测试商标主管','商标部','fixture-only')")->execute();
+    $head = (int)$pdo->lastInsertId();
+    $pdo->prepare("INSERT INTO project_dept_heads (department,employee_id) VALUES ('商标',?)")->execute([$head]);
+    $m1 = $makeOrder('tmc-msg', 350, '2026-09-24', '寒洲丰物朔风本味29类'); $m2 = $makeOrder('tmc-msg', 350, '2026-09-24', '寒洲丰物朔风本味29类');
+    ptc_sync_order_cost($m1, $actor, '测试'); ptc_sync_order_cost($m2, $actor, '测试');
+    $unread = function () use ($pdo, $head) { $q = $pdo->prepare("SELECT COUNT(*) FROM project_messages WHERE employee_id=? AND category='trademark_cost'"); $q->execute([$head]); return (int)$q->fetchColumn(); };
+    ptd_sync_messages(ptd_all(true));
+    $mineMsg = $pdo->prepare("SELECT title,body,link FROM project_messages WHERE employee_id=? AND category='trademark_cost' AND title LIKE ?");
+    $mineMsg->execute([$head, '%tmc-msg%']); $msg = $mineMsg->fetch();
+    $check($msg && strpos($msg['body'], '¥450.00') !== false && $msg['link'] === '/project/trademark_costs.php', '商标主管收到站内信，写明多计金额和处理入口');
+    $before = $unread(); ptd_sync_messages(ptd_all(true));
+    $check($unread() === $before, '重复同步不会重复发站内信');
+    $check(ptd_order_group($m1) !== null, '合作人员的订单列表能识别到“官费待核对”');
+    $display = ps_cost_display_state(['id' => $m1, 'project_type' => '商标', 'settlement_status' => 'draft'], $live($m1));
+    $check($display['label'] === '官费待核对' && strpos($display['message'], '无需操作') !== false, '订单页向合作人员说明原因，不需要他们操作');
+    $g = $mine('tmc-msg');
+    ptd_decide($g[0]['key'], 'same', $actor);
+    $mineMsg->execute([$head, '%tmc-msg%']);
+    $check(!$mineMsg->fetch(), '有人核对后，商标主管的这条提醒自动消失');
+    $check(ptd_can_review(['role' => 'finance']) === true && ptd_can_review(['role' => 'customer_service', 'id' => 0]) === false, '财务可核对，普通合作人员不可');
     echo "ALL PASS\n";
 } finally {
     if ($pdo->inTransaction()) $pdo->rollBack();

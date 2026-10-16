@@ -25,6 +25,8 @@ if (!$current_admin && isset($_SESSION['project_user_id'])) {
             $governance_role = $governanceStmt->fetchColumn();
             $governance_nav = (bool)$governance_role;
             $governance_committee_nav = $governance_role === 'committee';
+            // 商标主管 / 财务：先把“商标成本待核对”提醒与站内信对齐，再统计未读（处理后提醒随之消失）
+            try { require_once __DIR__ . '/ProjectTrademarkDupCost.php'; if (ptd_can_review(ps_actor() ?: [])) ptd_count(); } catch (Throwable $e) { /* 不影响页面 */ }
             // 未读站内信：所有合作人员都统计（上传待补全等通知也走站内信）
             { try { $unreadStmt = db()->prepare('SELECT COUNT(*) FROM project_messages WHERE employee_id=? AND read_at IS NULL'); $unreadStmt->execute([(int)$project_staff['employee_id']]); $unread_messages = (int)$unreadStmt->fetchColumn(); } catch (PDOException $e) { $unread_messages = 0; } }
             if ($governance_committee_nav) {
@@ -154,6 +156,7 @@ $nav = function ($href, $icon, $label, $active) {
     <div class="sidebar-project-label">我的工作台</div>
     <?php echo $nav('/project/dashboard.php', 'fa-chart-line', '我的经营看板', $_rel === 'project/dashboard.php'); ?>
     <?php echo $nav('/project/index.php', 'fa-folder-open', '我的项目订单', $is_project_orders); ?>
+    <?php try { if (function_exists('ptd_can_review') && ptd_can_review(ps_actor() ?: [])) { $tmN = ptd_count(); echo $nav('/project/trademark_costs.php', 'fa-copy', '商标成本核对' . ($tmN ? '（' . $tmN . '）' : ''), $_rel === 'project/trademark_costs.php'); } } catch (Throwable $e) { } ?>
     <?php if ($department_upload_nav): echo $nav('/project/import.php?scope=department&business=' . rawurlencode($department_upload_business), 'fa-users', '部门订单上传', $_rel === 'project/import.php' && ($_GET['scope'] ?? $_POST['scope'] ?? '') === 'department'); endif; ?>
     <?php echo $nav('/project/payroll.php', 'fa-wallet', '我的项目报酬', $_rel === 'project/payroll.php'); ?>
     <?php echo $nav('/project/welfare.php', 'fa-heart', '全员福利池', $_rel === 'project/welfare.php'); ?>

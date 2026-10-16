@@ -23,7 +23,11 @@ function ptd_candidates()
     $rows = db()->query("SELECT o.id,o.order_no,o.customer_name,o.order_kind,o.order_date,o.contract_amount,o.settlement_status,d.details_json
         FROM project_orders o JOIN project_order_details d ON d.order_id=o.id
         WHERE o.project_type='商标' AND EXISTS (SELECT 1 FROM project_costs c WHERE c.order_id=o.id AND c.review_status<>'rejected' AND c.unit='件')")->fetchAll();
-    $cost = db()->prepare("SELECT amount,reason,review_status FROM project_costs WHERE order_id=? AND review_status<>'rejected' AND unit='件' ORDER BY id");
+    $costsBy = [];
+    if ($rows) {
+        $ids = implode(',', array_map('intval', array_column($rows, 'id')));
+        foreach (db()->query("SELECT order_id,amount,reason FROM project_costs WHERE order_id IN ($ids) AND review_status<>'rejected' AND unit='件' ORDER BY id")->fetchAll() as $c) $costsBy[(int)$c['order_id']][] = $c;
+    }
     $groups = [];
     foreach ($rows as $r) {
         $d = json_decode((string)$r['details_json'], true) ?: [];
@@ -31,8 +35,7 @@ function ptd_candidates()
         $name = (string)($d['trademark_name'] ?? '');
         $identity = preg_match('/\d{6,}/', $name, $m) ? $m[0] : preg_replace('/[\s\x{3000}]+/u', '', $name);
         if ($service === '' || $identity === '') continue;
-        $cost->execute([(int)$r['id']]);
-        $costs = $cost->fetchAll();
+        $costs = $costsBy[(int)$r['id']] ?? [];
         $r['cost'] = round(array_sum(array_column($costs, 'amount')), 2);
         $r['source'] = ptd_source_text($costs[0]['reason'] ?? '');
         $r['frozen'] = in_array($r['settlement_status'], ['approved', 'locked'], true);
@@ -48,24 +51,88 @@ function ptd_candidates()
         $parts = explode('|', $k);
         $dates = array_unique(array_column($g, 'order_date'));
         $amounts = array_unique(array_map('floatval', array_column($g, 'contract_amount')));
-        $same = ['同一客户', '同一商标' . (preg_match('/^\d{6,}$/', $parts[1]) ? '（注册号 ' . $parts[1] . '）' : '名称'), '同一办理事项（' . $parts[2] . '）'];
+        $hasReg = (bool)preg_match('/^\d{6,}$/', $parts[1]);
+        $same = ['同一客户', '同一商标' . ($hasReg ? '（注册号 ' . $parts[1] . '）' : '名称'), '同一办理事项（' . $parts[2] . '）'];
         $diff = [];
-        if (!preg_match('/^\d{6,}$/', $parts[1])) $diff[] = '缺少商标注册号，仅凭名称无法确认是同一件';
+        if (!$hasReg) $diff[] = '缺少商标注册号，仅凭名称无法确认是同一件';
         if (count($dates) === 1) $same[] = '同一天下单（' . $dates[0] . '）'; else $diff[] = '下单日期不同（' . implode('、', $dates) . '）';
         if (count($amounts) === 1) $same[] = '售价相同'; else $diff[] = '售价不同';
         $dupe = round(array_sum(array_column($g, 'cost')) - max(array_column($g, 'cost')), 2);
         if ($dupe <= 0) continue; // 官费为 0 的事项（变更、注销等）没有多计，不必核对
-        $out[] = ['key' => sha1($k . '|' . json_encode($g, JSON_UNESCAPED_UNICODE)), 'customer' => $parts[0], 'trademark' => $g[0]['trademark_name'], 'service' => $parts[2], 'orders' => $g, 'dupe' => $dupe, 'same' => $same, 'diff' => $diff,
-            'blocked' => (bool)array_filter($g, function ($o) { return $o['frozen']; })];
+        // 建议：同一天（拆单 / 补款最常见）倾向合并；隔了几天多半是各自办理。只是参考，最终由人确认。
+        if (count($dates) === 1) { $advice = 'same'; $why = '同一天、同一客户、同一事项，更像一单拆成了两次付款，建议合并。'; }
+        else { $advice = 'separate'; $why = '下单日期不同，更可能是客户先后办理了不同的案件，建议各自保留；若确认是同一件再合并。'; }
+        $out[] = ['key' => sha1($k . '|' . json_encode($g, JSON_UNESCAPED_UNICODE)), 'msg_key' => sha1($k . '|' . implode(',', array_column($g, 'id'))), 'customer' => $parts[0], 'trademark' => $g[0]['trademark_name'], 'service' => $parts[2], 'orders' => $g, 'dupe' => $dupe, 'same' => $same, 'diff' => $diff,
+            'advice' => $advice, 'advice_text' => $why, 'blocked' => (bool)array_filter($g, function ($o) { return $o['frozen']; })];
     }
     return $out;
 }
 
-/** 待核对组数；任何错误都按 0 处理，不能影响页面顶部。 */
+/** 本次请求内缓存；处理完一组后 $fresh = true 重新计算。 */
+function ptd_all($fresh = false)
+{
+    static $cache = null;
+    if ($cache === null || $fresh) $cache = ptd_candidates();
+    return $cache;
+}
+
+/** 谁能核对：财务，或负责商标业务的主管（管理账号）。 */
+function ptd_can_review($actor)
+{
+    if (!is_array($actor)) return false;
+    if (($actor['role'] ?? '') === 'finance') return true;
+    try { return ps_management_can_business($actor, '商标'); } catch (Throwable $e) { return false; }
+}
+
+/** 订单 id → 所在待核对组（合作人员的订单列表据此提示“待财务核对”）。 */
+function ptd_order_group($orderId)
+{
+    static $map = null;
+    if ($map === null) {
+        $map = [];
+        try { foreach (ptd_all() as $g) foreach ($g['orders'] as $o) $map[(int)$o['id']] = $g; } catch (Throwable $e) { $map = []; }
+    }
+    return $map[(int)$orderId] ?? null;
+}
+
+/** 商标部主管（员工 id）：站内信发给他们。 */
+function ptd_head_employee_ids()
+{
+    try { return array_map('intval', db()->query("SELECT DISTINCT employee_id FROM project_dept_heads WHERE department='商标'")->fetchAll(PDO::FETCH_COLUMN)); }
+    catch (Throwable $e) { return []; }
+}
+
+/** 站内信同步：新出现的待核对组给商标主管发一条；已处理（不再待核对）的组，所有人的这条站内信一并删除，提醒随之消失。 */
+function ptd_sync_messages(array $groups = null)
+{
+    $groups = $groups ?? ptd_all();
+    try {
+        $heads = ptd_head_employee_ids();
+        $keep = [];
+        $ins = db()->prepare("INSERT IGNORE INTO project_messages (employee_id,category,title,body,link,dedupe_key) VALUES (?,'trademark_cost',?,?,?,?)");
+        foreach ($groups as $g) {
+            foreach ($heads as $eid) {
+                $key = 'tmc:' . $g['msg_key'] . ':' . $eid;
+                $keep[] = $key;
+                $ins->execute([$eid, mb_substr('商标成本待核对：' . $g['customer'] . ' · ' . $g['service'], 0, 160),
+                    $g['customer'] . ' 的商标“' . $g['trademark'] . '”（' . $g['service'] . '）有 ' . count($g['orders']) . ' 张订单都带入了官费，合计可能多计 ¥' . number_format($g['dupe'], 2) . "。\n" . $g['advice_text'] . "\n点“去处理”一键确认；有人处理后这条提醒会自动消失。",
+                    '/project/trademark_costs.php', $key]);
+            }
+        }
+        if ($keep) {
+            $marks = implode(',', array_fill(0, count($keep), '?'));
+            db()->prepare("DELETE FROM project_messages WHERE category='trademark_cost' AND dedupe_key NOT IN ($marks)")->execute($keep);
+        } else {
+            db()->exec("DELETE FROM project_messages WHERE category='trademark_cost'");
+        }
+    } catch (Throwable $e) { /* 站内信异常不影响核对 */ }
+}
+
+/** 待核对组数；同时把站内信与待核对列表对齐。任何错误都按 0 处理，不能影响页面顶部。 */
 function ptd_count()
 {
     static $n = null;
-    if ($n === null) { try { $n = count(ptd_candidates()); } catch (Throwable $e) { $n = 0; } }
+    if ($n === null) { try { $groups = ptd_all(); ptd_sync_messages($groups); $n = count($groups); } catch (Throwable $e) { $n = 0; } }
     return $n;
 }
 
@@ -80,7 +147,7 @@ function ptd_decide($groupKey, $decision, $actor)
 {
     if (!in_array($decision, ['same', 'separate'], true)) throw new RuntimeException('操作无效');
     $group = null;
-    foreach (ptd_candidates() as $g) if (hash_equals($g['key'], (string)$groupKey)) { $group = $g; break; }
+    foreach (ptd_all(true) as $g) if (hash_equals($g['key'], (string)$groupKey)) { $group = $g; break; }
     if (!$group) throw new RuntimeException('这组订单已被处理或已变化，请刷新页面');
     if ($decision === 'same' && $group['blocked']) throw new RuntimeException('其中有已审核 / 锁定结算的订单，请先通过“分成更正申请”处理');
     $ids = array_map('intval', array_column($group['orders'], 'id'));
@@ -113,6 +180,7 @@ function ptd_decide($groupKey, $decision, $actor)
             $message = '已合并：官费保留在订单 #' . $carrier . '，其余订单的重复官费已作废（保留记录）';
         }
         if ($own) $pdo->commit();
+        ptd_sync_messages(ptd_all(true)); // 处理完立刻刷新列表，已处理的提醒随之消失
         return $message;
     } catch (Throwable $e) {
         if ($own && $pdo->inTransaction()) $pdo->rollBack();
