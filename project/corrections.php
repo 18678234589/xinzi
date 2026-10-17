@@ -2,7 +2,11 @@
 require_once __DIR__ . '/../includes/ProjectIntake.php';
 require_once __DIR__ . '/../includes/commission_explain.php';
 // 分成更正申请：合作人员在订单“计算过程”弹窗里提交，财务/管理员在此处理；处理结果回复到申请人的站内信。
-$actor = ps_require_finance();
+$actor = ps_require_actor();
+$isFinance = ($actor['role'] ?? '') === 'finance';
+require_once __DIR__ . '/../includes/ProjectDeptHead.php';
+$headDeps = $isFinance ? [] : pdh_departments($actor); // 主管：只处理自己部门合作人员的申请
+if (!$isFinance && !$headDeps) { http_response_code(403); exit('无权限'); }
 $error = '';
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     ps_check_csrf();
@@ -14,16 +18,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 ps_corr_ensure();
 $status = (string)($_GET['status'] ?? 'pending');
 if (!in_array($status, ['pending', 'resolved', 'rejected', 'all'], true)) $status = 'pending';
-$sql = 'SELECT c.*, o.order_no, o.project_type, o.contract_amount, t.name AS target_name FROM project_commission_corrections c LEFT JOIN project_orders o ON o.id=c.order_id LEFT JOIN employees t ON t.id=c.target_employee_id' . ($status === 'all' ? '' : ' WHERE c.status=?') . ' ORDER BY c.id DESC LIMIT 200';
+$sql = 'SELECT c.*, o.order_no, o.project_type, o.contract_amount, t.name AS target_name FROM project_commission_corrections c LEFT JOIN project_orders o ON o.id=c.order_id LEFT JOIN employees t ON t.id=c.target_employee_id' . ' WHERE ' . ($status === 'all' ? '1=1' : 'c.status=?') . ($isFinance ? '' : ' AND t.department IN (' . implode(',', array_fill(0, count($headDeps), '?')) . ')') . ' ORDER BY c.id DESC LIMIT 200';
 $q = db()->prepare($sql);
-$q->execute($status === 'all' ? [] : [$status]);
+$q->execute(array_merge($status === 'all' ? [] : [$status], $isFinance ? [] : $headDeps));
 $rows = $q->fetchAll();
 $badge = ['pending' => '<span class="badge badge-warning">待处理</span>', 'resolved' => '<span class="badge badge-success">已处理</span>', 'rejected' => '<span class="badge badge-secondary">未采纳</span>'];
 $page_title = '分成更正申请';
 include __DIR__ . '/../includes/header.php';
-require_once __DIR__ . '/../includes/correction_tabs.php';
+if ($isFinance) require_once __DIR__ . '/../includes/correction_tabs.php';
 ?>
-<?php pc_tabs('order'); ?>
+<?php if ($isFinance) pc_tabs('order'); ?>
 <div class="d-flex justify-content-between align-items-center flex-wrap mb-3"><h4 class="mb-0">订单分成更正</h4>
   <div class="btn-group btn-group-sm"><?php foreach (['pending' => '待处理', 'resolved' => '已处理', 'rejected' => '未采纳', 'all' => '全部'] as $key => $label): ?><a class="btn btn-outline-secondary<?php echo $status === $key ? ' active' : ''; ?>" href="?status=<?php echo $key; ?>"><?php echo $label; ?></a><?php endforeach; ?></div></div>
 <?php if ($error): ?><div class="alert alert-danger"><?php echo e($error); ?></div><?php endif; ?>

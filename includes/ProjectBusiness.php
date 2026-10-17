@@ -31,6 +31,8 @@ function ps_business_catalog()
         '备案-提成' => ['departments' => ['网站售后备案'], 'resources' => false, 'requires_technical' => false, 'service_fee_rate' => 0, 'order_kinds' => ['备案', '拍链接'], 'kind_required' => true, 'default_kind' => '备案', 'cost_label' => '成本', 'import_cost' => true, 'fields' => []],
         // 网站售后部备案单量表：只有「联系方式 + 域名」两列，按行计单量（每单固定价）；无订单号/日期/金额，
         // 由上传流程按域名+联系方式生成稳定内部单号（BA-…），日期按导入当天记单，状态列决定可否结算。
+        // 督导（吴宁）回购订单表：每行一张回购订单，提成每单 30 元（规则中心“每单补助”，限定指派人员）；表里的“返现”是提成金额，不是售价。
+        '回购订单' => ['departments' => ['督导'], 'resources' => false, 'requires_technical' => false, 'service_fee_rate' => 0, 'order_kinds' => [], 'fields' => []],
         '备案-单量' => ['departments' => ['网站售后备案'], 'resources' => false, 'requires_technical' => false, 'service_fee_rate' => 0, 'order_kinds' => [], 'fields' => ['domain_name' => '域名']],
         // 森动备案（栾鑫）：森动建站系统模板程序的备案。备案：(售价 − 成本) × 20% + 每单 1 元，淘宝下单再 +0.5 元；
         // 二次备案：只按订单数量每单 5 元，无提成、无其他补贴。淘宝 / 二次备案用订单类型区分（见规则中心“森动备案”）。不绑定部门，需财务给账号分配此业务。
@@ -288,6 +290,8 @@ function ps_business_import_columns($business)
         $columns['build_order_marker'] = ['建站订单'];
         $columns['screenshot_marker'] = ['截图'];
     }
+    // 回购订单表的“返现”列写的是每单提成金额，不能当售价（否则会把 30 元当收入）；订单不带售价，提成只走每单补助。
+    if ($business === '回购订单') $columns['contract_amount'] = ['回购售价'];
     // 网站售后部备案单量表（2026-10）：联系方式即客户联系方式；域名由 fields 生成 detail:域名。
     if ($business === '备案-单量') {
         $columns['contact_note'] = array_merge(['联系方式'], $columns['contact_note']);
@@ -357,6 +361,7 @@ function ps_business_import_headers_base($business)
     // 网站售后部备案两表按原表列序输出（原表无状态列，模板补「状态」列由上传时按实际填写）。
     if ($business === '备案-提成') return ['日期', '店铺', '付费旺旺', '订单编号', '售价', '成本', '快递费', '建站订单', '截图', '状态', '备注'];
     if ($business === '备案-单量') return ['联系方式', '域名', '状态'];
+    if ($business === '回购订单') return ['序号', '店铺', '日期', '旺旺号', '订单编号', '截图'];
     // 网站售后部修改表按 2026-10 原表列序输出；原表无状态列，模板补「状态」由上传时按实际填写识别。
     if ($business === '森动备案') return ['日期', '店铺', '业务', '付款昵称', '订单编号', '售价', '成本', '状态(填已完成/未完成)', '联系方式', '客服', '项目执行', '微信交易流水号', '联系微信号', '备案状态', '授权码', '程序', '域名', '接入商'];
     if ($business === '网站修改') return ['店铺', '付款截图', '日期', '订单编号', '价格', '成本', '后台类型', '域名空间', '特殊情况备注', '分单备注金额', '状态'];
@@ -437,3 +442,47 @@ function ps_business_people_labels($business)
     if ($business === '标书') return ['frontend' => '标书设计', 'backend' => '协作设计'];
     return ['frontend' => '项目执行', 'backend' => '协作执行'];
 }
+
+/** 客服、售后人员、冯超（管理层/授权审核）以及技术和财务，均有权限把订单交付状态标注为“已完成”。 */
+function ps_can_mark_delivery_finished(array $actor): bool
+{
+    if (empty($actor)) return false;
+    $role = (string)($actor['role'] ?? '');
+    if ($role === 'finance' || ($actor['type'] ?? '') === 'admin') return true;
+    if (in_array($role, ['customer_service', 'technical', 'aftersales'], true)) return true;
+    $empId = (int)($actor['employee_id'] ?? 0);
+    $username = (string)($actor['username'] ?? '');
+    if ($empId === 71 || $username === 'fengchao') return true;
+    if ($empId > 0) {
+        static $cache = [];
+        if (!isset($cache[$empId])) {
+            try {
+                $q = db()->prepare('SELECT name, department FROM employees WHERE id=?');
+                $q->execute([$empId]);
+                $cache[$empId] = $q->fetch(PDO::FETCH_ASSOC) ?: ['name' => '', 'department' => ''];
+            } catch (Throwable $e) {
+                $cache[$empId] = ['name' => '', 'department' => ''];
+            }
+        }
+        $name = (string)($cache[$empId]['name'] ?? '');
+        $dept = (string)($cache[$empId]['department'] ?? '');
+        if ($name === '冯超') return true;
+        if (mb_strpos($dept, '售后') !== false || mb_strpos($dept, '客服') !== false) return true;
+    }
+    // 检查是否在批量审核委托表中（如被财务授权审核网站类业务的人员）
+    if ($empId > 0) {
+        static $delCache = [];
+        if (!isset($delCache[$empId])) {
+            try {
+                $q = db()->prepare('SELECT 1 FROM project_batch_review_delegates WHERE employee_id=? LIMIT 1');
+                $q->execute([$empId]);
+                $delCache[$empId] = (bool)$q->fetchColumn();
+            } catch (Throwable $e) {
+                $delCache[$empId] = false;
+            }
+        }
+        if ($delCache[$empId]) return true;
+    }
+    return false;
+}
+

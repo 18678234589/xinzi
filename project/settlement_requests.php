@@ -1,0 +1,105 @@
+<?php
+require_once __DIR__ . '/../includes/ProjectSettlementRequest.php';
+require_once __DIR__ . '/../includes/MiniXlsx.php';
+// 结算申请：合作人员在首页报酬表里选订单提交，财务打款后点“已结算”，申请里的订单在库里标注已结算，不能再重复结算。
+$actor = ps_require_finance();
+psr_ensure();
+$error = ''; $success = '';
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    ps_check_csrf();
+    try {
+        $id = (int)($_POST['id'] ?? 0);
+        if (($_POST['do'] ?? '') === 'export') { // 导出批量打款表：只含选中的、无异议的待打款申请
+            $d = psr_export_data((array)($_POST['ids'] ?? []));
+            if (!$d['people']) throw new RuntimeException('选中的申请都有异议，没有可导出的内容；请先处理异议');
+            $pay = [['序号', '姓名', '部门', '工行卡号', '打款金额（元）', '结算月份', '订单数', '申请单号', '备注']];
+            foreach ($d['people'] as $i => $pp) {
+                $pay[] = [$i + 1, $pp['name'], (string)$pp['department'], ['text' => $pp['card']], (float)$pp['amount'], $pp['months'], (int)$pp['orders'], '#' . implode(' #', $pp['requests']), $pp['card'] === '' ? '缺银行卡号，请补充后再打款' : ''];
+            }
+            $pay[] = ['', '合计', '', '', (float)$d['total'], '', array_sum(array_column($d['people'], 'orders')), '', ''];
+            $det = [['姓名', '结算月份', '订单号', '业务', '订单日期', '本月分成（元）', '申请单号']];
+            foreach ($d['orders'] as $o) $det[] = [$o['name'], $o['month'], ['text' => (string)$o['order_no']], (string)$o['project_type'], (string)$o['order_date'], (float)$o['amount'], '#' . $o['request_id']];
+            $bin = mxl_build(['打款清单' => ['rows' => $pay, 'widths' => [6, 12, 14, 26, 16, 14, 8, 14, 28], 'header' => 1], '订单明细' => ['rows' => $det, 'widths' => [12, 12, 26, 14, 12, 16, 12], 'header' => 1]]);
+            ps_audit('settlement_request', 0, 'export', $actor, ['requests' => array_merge(...array_column($d['people'], 'requests')), 'people' => count($d['people']), 'total' => $d['total'], 'held' => count($d['held'])]);
+            header('Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+            header("Content-Disposition: attachment; filename*=UTF-8''" . rawurlencode('批量打款表_' . date('Ymd_His') . '.xlsx'));
+            header('Content-Length: ' . strlen($bin)); header('X-Content-Type-Options: nosniff');
+            echo $bin; exit;
+        }
+        if (($_POST['do'] ?? '') === 'settle_many') {
+            $res = psr_settle_many((array)($_POST['ids'] ?? []), $actor, '批量打款');
+            if (!$res['ok'] && $res['fail']) throw new RuntimeException(implode('；', $res['fail']));
+            $success = '已批量标注结算 ' . $res['ok'] . ' 条，这些订单已记为已结算并通知申请人。' . ($res['fail'] ? '另有 ' . count($res['fail']) . ' 条未处理：' . implode('；', $res['fail']) : '');
+        } elseif (($_POST['do'] ?? '') === 'settle') { psr_settle($id, $actor, (string)($_POST['note'] ?? '')); $success = '已标注结算：申请里的订单已记为已结算，并已通知申请人。'; }
+        elseif (($_POST['do'] ?? '') === 'reject') { psr_reject($id, $actor, (string)($_POST['note'] ?? '')); $success = '已退回，订单已释放，申请人可重新申请。'; }
+        else throw new RuntimeException('操作无效');
+    } catch (Throwable $e) { $error = $e instanceof RuntimeException ? $e->getMessage() : '操作失败，请稍后再试'; }
+}
+$status = (string)($_GET['status'] ?? 'pending');
+if (!in_array($status, ['pending', 'settled', 'rejected', 'all'], true)) $status = 'pending';
+$q = db()->prepare('SELECT r.*,e.name,e.department FROM project_settlement_requests r LEFT JOIN employees e ON e.id=r.employee_id' . ($status === 'all' ? '' : ' WHERE r.status=?') . ' ORDER BY r.id DESC LIMIT 200');
+$q->execute($status === 'all' ? [] : [$status]);
+$rows = $q->fetchAll();
+$counts = db()->query('SELECT status,COUNT(*) FROM project_settlement_requests GROUP BY status')->fetchAll(PDO::FETCH_KEY_PAIR);
+$bank = [];
+try { foreach (db()->query('SELECT employee_id,bank_card FROM project_partner_profiles')->fetchAll() as $b) $bank[(int)$b['employee_id']] = (string)$b['bank_card']; } catch (Throwable $e) {}
+$checks = []; $readyCount = 0; $readyAmount = 0.0;
+foreach ($rows as $r) if ($r['status'] === 'pending') { $checks[$r['id']] = psr_check($r); if ($checks[$r['id']]['ok']) { $readyCount++; $readyAmount += (float)$r['amount']; } }
+$labels = ['pending' => ['待打款', 'warning'], 'settled' => ['已结算', 'success'], 'rejected' => ['已退回', 'secondary']];
+$page_title = '结算申请';
+include __DIR__ . '/../includes/header.php';
+?>
+<div class="container-fluid" style="max-width:1100px">
+  <h2 class="h4 my-3"><i class="fas fa-hand-holding-usd mr-2"></i>结算申请</h2>
+  <p class="text-muted small">合作人员在首页“报酬表”里选择本月已审核的订单提交申请。核对后打款，再点“已结算”：这些订单会标注已结算（按人 + 订单 + 月份只能结算一次），并显示在对方的“已结算”里。</p>
+  <div class="btn-group btn-group-sm mb-3"><?php foreach (['pending' => '待打款', 'settled' => '已结算', 'rejected' => '已退回', 'all' => '全部'] as $k => $v): ?><a class="btn btn-outline-secondary<?php echo $status === $k ? ' active' : ''; ?>" href="?status=<?php echo e($k); ?>"><?php echo e($v); ?><?php if ($k !== 'all' && !empty($counts[$k])): ?> <span class="badge badge-light"><?php echo (int)$counts[$k]; ?></span><?php endif; ?></a><?php endforeach; ?></div>
+  <?php if ($success): ?><div class="alert alert-success"><?php echo e($success); ?></div><?php endif; ?>
+  <?php if ($error): ?><div class="alert alert-danger"><?php echo e($error); ?></div><?php endif; ?>
+  <?php if ($status === 'pending' && $rows): ?>
+  <form method="post" id="batchForm" class="sr-bar"><input type="hidden" name="csrf" value="<?php echo e(ps_csrf_token()); ?>">
+    <label class="mb-0"><input type="checkbox" id="srAll"> 全选无异议的</label>
+    <span class="sr-sum">已选 <b id="srCnt">0</b> 条 · 打款合计 <b id="srAmt">¥0.00</b>　<small class="text-muted">（无异议 <?php echo (int)$readyCount; ?> 条 · ¥<?php echo number_format($readyAmount, 2); ?>）</small></span>
+    <span class="ml-auto"><button name="do" value="export" class="btn btn-sm btn-primary" id="srExport"><i class="fas fa-file-excel mr-1"></i>导出批量打款表</button>
+    <button name="do" value="settle_many" class="btn btn-sm btn-success ml-1" id="srSettle" onclick="return confirm('确认已按打款表全部打款？确认后选中的申请里的订单将标注已结算，不能撤销。');"><i class="fas fa-check-double mr-1"></i>批量已结算</button></span>
+  </form>
+  <style>.sr-bar{position:sticky;top:0;z-index:5;display:flex;flex-wrap:wrap;align-items:center;gap:.8rem;padding:.6rem .9rem;margin-bottom:1rem;border:1px solid #cfe0d6;border-radius:12px;background:rgba(246,250,247,.96);backdrop-filter:blur(6px);box-shadow:0 6px 16px -10px rgba(35,75,61,.4)}.sr-sum b{color:#1f6a52}.sr-card .sr-pick{margin-right:.5rem}.sr-hold{background:#fff6dc;border:1px solid #ecd596;border-radius:8px;padding:.3rem .6rem;font-size:.82rem;color:#7a5010;margin-bottom:.4rem}</style>
+  <?php endif; ?>
+  <?php if (!$rows): ?><div class="text-muted text-center py-5">暂无申请</div><?php endif; ?>
+  <?php foreach ($rows as $r): [$label, $tone] = $labels[$r['status']]; ?>
+  <?php $ck = $checks[$r['id']] ?? null; ?>
+  <div class="card mb-3 sr-card"><div class="card-header d-flex flex-wrap justify-content-between align-items-center">
+    <span><?php if ($ck): ?><input type="checkbox" class="sr-pick" form="batchForm" name="ids[]" value="<?php echo (int)$r['id']; ?>" data-amt="<?php echo e($r['amount']); ?>"<?php echo $ck['ok'] ? '' : ' disabled'; ?>><?php endif; ?><strong><?php echo e($r['name']); ?></strong> <small class="text-muted"><?php echo e($r['department']); ?></small> · <?php echo e($r['payroll_month']); ?> · <?php echo (int)$r['order_count']; ?> 单 · <strong>¥<?php echo number_format((float)$r['amount'], 2); ?></strong></span>
+    <span><span class="badge badge-<?php echo $tone; ?>"><?php echo e($label); ?></span> <small class="text-muted"><?php echo e(substr((string)$r['created_at'], 0, 16)); ?> 申请<?php echo $r['settled_at'] ? ' · ' . e(substr((string)$r['settled_at'], 0, 16)) . ' 结算（' . e($r['handled_by']) . '）' : ''; ?></small></span></div>
+    <div class="card-body py-2">
+      <?php if ($ck && !$ck['ok']): ?><div class="sr-hold"><i class="fas fa-exclamation-triangle mr-1"></i>有异议，暂不可导出：<?php echo e(implode('；', $ck['issues'])); ?></div><?php endif; ?>
+      <?php if ($ck && $ck['ok'] && !$ck['has_card']): ?><div class="sr-hold"><i class="fas fa-id-card mr-1"></i>缺银行卡号：导出的打款表里会标出，请先在首页报酬表里补充。</div><?php endif; ?>
+      <?php if (!empty($bank[(int)$r['employee_id']])): ?><div class="small mb-2">收款卡号：<code><?php echo e(trim(chunk_split($bank[(int)$r['employee_id']], 4, ' '))); ?></code></div><?php endif; ?>
+      <?php if ($r['status'] === 'rejected'): ?><div class="small text-muted">退回原因：<?php echo e($r['note']); ?></div>
+      <?php else: ?><details<?php echo $r['status'] === 'pending' ? ' open' : ''; ?>><summary class="small text-muted" style="cursor:pointer">订单明细（<?php echo (int)$r['order_count']; ?>）</summary>
+        <div class="table-responsive"><table class="table table-sm mb-2"><thead class="thead-light"><tr><th>订单号</th><th>业务</th><th>日期</th><th class="text-right">本月分成</th></tr></thead><tbody>
+        <?php foreach (psr_request_orders($r['id']) as $o): ?><tr><td><?php if (!empty($o['is_monthly']) || (int)$o['order_id'] >= 900000000): ?><span class="badge badge-info mr-1">月度</span><span><?php echo e($o['order_no']); ?></span><?php else: ?><a target="_blank" href="<?php echo BASE_URL; ?>/project/index.php?order_id=<?php echo (int)$o['order_id']; ?>"><?php echo e($o['order_no']); ?></a><?php endif; ?></td><td><?php echo e($o['project_type']); ?></td><td><?php echo e($o['order_date']); ?></td><td class="text-right">¥<?php echo number_format((float)$o['amount'], 2); ?></td></tr><?php endforeach; ?>
+        </tbody></table></div></details><?php endif; ?>
+      <?php if ($r['status'] === 'pending'): ?>
+      <form method="post" class="form-inline mt-2"><input type="hidden" name="csrf" value="<?php echo e(ps_csrf_token()); ?>"><input type="hidden" name="id" value="<?php echo (int)$r['id']; ?>">
+        <input name="note" class="form-control form-control-sm mr-2" style="min-width:240px" maxlength="200" placeholder="备注（退回时必填原因）">
+        <button name="do" value="settle" class="btn btn-sm btn-success mr-2" onclick="return confirm('确认已打款？确认后这些订单将标注已结算，不能撤销。');"><i class="fas fa-check mr-1"></i>已结算</button>
+        <button name="do" value="reject" class="btn btn-sm btn-outline-danger">退回</button></form>
+      <?php endif; ?>
+    </div></div>
+  <?php endforeach; ?>
+</div>
+<script>
+(function () {
+  var picks = [].slice.call(document.querySelectorAll('.sr-pick')), all = document.getElementById('srAll'); if (!all) return;
+  var yuan = function (v) { return '\u00a5' + v.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); };
+  function sum() {
+    var on = picks.filter(function (b) { return b.checked; }), t = on.reduce(function (s, b) { return s + parseFloat(b.getAttribute('data-amt')); }, 0);
+    document.getElementById('srCnt').textContent = on.length; document.getElementById('srAmt').textContent = yuan(t);
+    document.getElementById('srExport').disabled = document.getElementById('srSettle').disabled = !on.length;
+    all.checked = on.length > 0 && on.length === picks.filter(function (b) { return !b.disabled; }).length;
+  }
+  all.addEventListener('change', function () { picks.forEach(function (b) { if (!b.disabled) b.checked = all.checked; }); sum(); });
+  picks.forEach(function (b) { b.addEventListener('change', sum); }); sum();
+})();
+</script>
+<?php include __DIR__ . '/../includes/footer.php'; ?>

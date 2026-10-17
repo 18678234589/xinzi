@@ -37,7 +37,7 @@
     echo $filterState === 'pending_backend' ? 'selected' : ''; ?>>待指定后端</option><option value="pending_delivery" <?php echo $filterState === 'pending_delivery' ? 'selected'
     : ''; ?>>待交付审核</option><option value="pending_upgrade" <?php echo $filterState === 'pending_upgrade' ? 'selected' : ''; ?>>待升级审核</option><option value="todo" <?php
     echo $filterState === 'todo' ? 'selected' : ''; ?>>有待办</option><option value="open" <?php echo $filterState === 'open' ? 'selected' : ''; ?>>未审核</option><option value="approved" <?php
-    echo $filterState === 'approved' ? 'selected' : ''; ?>>已审核</option></select></div>
+    echo $filterState === 'approved' ? 'selected' : ''; ?>>已审核</option><option value="settled" <?php echo $filterState === 'settled' ? 'selected' : ''; ?>>已结算（售后中）</option></select></div>
   <div class="col-md-3 mb-2"><label class="small text-muted mb-1" for="filterQ">搜索（订单号 / 客户 / 付款昵称 / 项目账号）</label><input class="form-control" type="search" name="q" id="filterQ" value="<?php
     echo e($keyword); ?>" placeholder="订单号、客户、账号、IP、备注…"></div>
   <div class="col-md-2 mb-2"><button class="btn btn-outline-primary btn-block">筛选</button></div>
@@ -54,8 +54,9 @@
     echo e(http_build_query(array_intersect_key($_GET, array_flip(['month','date_basis','filter_business','filter_finance','filter_department','state','q','page','employee_id','participating'])))); ?>"><?php endif; ?>
 <div class="card"><div class="card-header d-flex justify-content-between align-items-center flex-wrap" style="gap:8px"><span>订单列表（共 <?php echo (int)$totalOrders; ?> 单<?php
     if ($totalPages > 1): ?>，第 <?php echo (int)$page; ?>/<?php echo (int)$totalPages; ?> 页<?php endif; ?>）</span><?php if ($canSelectOrders && $orders): ?><div class="project-bulk-bar d-flex align-items-center flex-wrap" style="gap:6px"><span class="small text-muted" id="bulkCount">已选 0 单</span><select name="bulk_order_kind" id="bulkOrderKind" class="form-control form-control-sm mr-1" style="width:auto;display:inline-block"><option value="">批量改订单类型...</option><option value="定制">小程序：定制开发（按客户需求开发）</option><option value="新订单">小程序：小程序商城新注册搭建 ｜ 网站模板：模板新建网站</option><option value="续费">小程序：小程序续费（续年费） ｜ 网站模板：网站续费</option><option value="技术服务">小程序：注册公众号、认证等其他服务</option><option value="加购/纯利润">网站模板：加购、补差价（纯利润）</option></select><button class="btn btn-sm btn-outline-primary mr-1" name="bulk_action" value="set_kind" onclick="return confirm('确认把所选订单批量修改为所选订单类型？')"><i class="fas fa-tags mr-1"></i>批量改类型</button><?php
-    if ($isFinance): ?><button class="btn btn-sm btn-outline-success" name="bulk_action" value="receipt" onclick="return confirm('根据收退款证据和规则核对所选订单？只有资料齐全的未结算订单会自动处理，不会按售价登记实收。')">系统核对</button><button class="btn btn-sm btn-outline-success" name="bulk_action" value="finish">标记交付完成</button><input type="month" name="bulk_month" class="form-control form-control-sm" style="width:150px" value="<?php
-    echo e($month); ?>" aria-label="分成归属月份"><button class="btn btn-sm btn-success" name="bulk_action" value="approve" onclick="return confirm('审核所选订单并生成项目分成？已到账的订单会一并：标记交付完成、未确认的资源按“无需另计”确认、待审核成本通过。不满足条件（如没有实收、SSL 凭证未补）的订单会跳过并列出原因。')">批量审核</button><?php
+    if ($isFinance || ps_can_mark_delivery_finished($actor)): ?><button class="btn btn-sm btn-outline-success mr-1" name="bulk_action" value="finish" onclick="return confirm('确认把所选订单标记为交付完成？')"><i class="fas fa-check-circle mr-1"></i>标记交付完成</button><?php
+    endif; ?><?php if ($isFinance): ?><button class="btn btn-sm btn-outline-success mr-1" name="bulk_action" value="receipt" onclick="return confirm('根据收退款证据和规则核对所选订单？只有资料齐全的未结算订单会自动处理，不会按售价登记实收。')">系统核对</button><input type="month" name="bulk_month" class="form-control form-control-sm mr-1" style="width:150px" value="<?php
+    echo e($month); ?>" aria-label="分成归属月份"><button class="btn btn-sm btn-success" name="bulk_action" value="approve" onclick="return confirm('审核所选订单并生成项目分成？未确认的资源按“无需另计”确认、待审核成本一并通过。不满足条件（如没有实收、项目未完成、SSL 凭证未补）的订单会跳过并列出原因；未完成的订单需技术先改为“已完成”。')">批量审核</button><?php
     endif; ?><?php if ($canDeleteOrders): ?><button class="btn btn-sm btn-outline-danger" name="bulk_action" value="delete" onclick="return confirm('删除所选订单？订单会放入“回收站”，30 天内可以还原。已审核的订单只有财务（或售后部删售后业务订单）能删，删除前会自动备份；其余会跳过并列出原因。')">批量删除</button><?php endif; ?> <a class="btn btn-sm btn-outline-secondary" href="<?php echo BASE_URL; ?>/project/trash.php"><i class="fas fa-trash-restore"></i> 回收站</a></div><?php
     endif; ?></div><div class="table-responsive"><table class="table table-hover mb-0 project-order-table">
   <thead><tr><?php if ($canSelectOrders): ?><th style="width:34px"><input type="checkbox" id="bulkAll" aria-label="全选"></th><?php endif; ?><th>订单号 / 付款昵称</th><th>业务</th><th>日期</th><th>参与人</th><th class="text-right">售价</th><th class="text-right">净实收</th><th class="text-right">直接成本</th><th class="text-right">预计分成</th><th>系统核对／待补事项</th><th>结算状态</th><th></th></tr></thead><tbody>
@@ -90,6 +91,7 @@
     >2): ?><div class="small text-muted">另有 <?php echo count($order['todos'])-2; ?> 项，打开结算单查看</div><?php endif; ?></td>
     <td class="text-nowrap">
       <?php echo e(ps_label('settlement', $order['settlement_status'])); ?>
+      <?php if (isset($settledMap[(int)$order['id']])): ?><div><span class="badge badge-info" title="财务已打款并确认结算，不会再重复结算">已结算（售后中）· <?php echo e($settledMap[(int)$order['id']]); ?></span></div><?php endif; ?>
       <div><?php echo $order['delivery_status'] === 'finished' ? '<span class="badge badge-success">已交付完成</span>' : '<span class="badge badge-light border">交付未完成</span>'
     ; ?></div>
     </td>

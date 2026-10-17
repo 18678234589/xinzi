@@ -94,11 +94,17 @@
     ((int)$record['existing_order_id'], (int)$actor['employee_id'], $record['people']['technical'][(int)$actor['employee_id']]['role']) !== null; };
                         if (!empty($record['attach_check']) && empty($record['join_parent']) && ps_import_group_taken((int)$record['existing_order_id'], $group) && !$trademarkRoleOpen()) {
                             // 同一订单多位客服分摊：非商标、原单客服权重均分时，本人作为共同客服加入，不必再交财务核对
-                            if ($group !== 'customer_service' || $selectedBusiness === '商标' || pos_parent_of((int)$record['existing_order_id']) || !poj_group_weights_equal((int)$record['existing_order_id'], $group)) throw new RuntimeException
+                            $backendJoin = $group === 'technical' && ps_import_backend_join_open((int)$record['existing_order_id'], (string)$record['people']['technical'][(int)$actor['employee_id']]['role'], $selectedBusiness);
+                            if ($backendJoin) {
+                                $record['join_group'] = 'backend';
+                                $record['warning'] .= ($record['warning'] ? '；' : '') . '此单已有前端、还没有后端，本人将作为后端加入（前端不变），请核对';
+                            } elseif ($group !== 'customer_service' || $selectedBusiness === '商标' || pos_parent_of((int)$record['existing_order_id']) || !poj_group_weights_equal((int)$record['existing_order_id'], $group)) throw new RuntimeException
     ('该订单号已存在且已有' . ($group === 'technical' ? '对接编辑 / 技术' : '客服') . '，本人尚未被关联；请由财务核对');
-                            $record['join_group'] = $group;
-                            $record['join_role'] = $record['people'][$group][(int)$actor['employee_id']]['role'];
-                            $record['warning'] .= ($record['warning'] ? '；' : '') . '此单已有其他客服，本人将作为共同客服加入，该订单客服分成按人数均分，请核对';
+                            else {
+                                $record['join_group'] = $group;
+                                $record['join_role'] = $record['people'][$group][(int)$actor['employee_id']]['role'];
+                                $record['warning'] .= ($record['warning'] ? '；' : '') . '此单已有其他客服，本人将作为共同客服加入，该订单客服分成按人数均分，请核对';
+                            }
                         }
                     }
                     if (!$existing && $actor['role'] === 'customer_service' && ps_business_requires_technical($selectedBusiness)) {

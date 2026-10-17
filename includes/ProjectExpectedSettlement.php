@@ -69,7 +69,7 @@ function ps_expected_rollup($employeeId, $snapshots, $monthly)
         if ((int)$item['employee_id'] !== (int)$employeeId || !empty($item['paid_separately'])) continue;
         $amount = (float)$item['amount'];
         $type = $item['rule_type'];
-        $bucket = in_array($type, ['base_fee', 'fixed', 'overtime_pay'], true) ? 'fixed_fee'
+        $bucket = in_array($type, ['base_fee', 'fixed', 'overtime_pay', 'perf_rank', 'manual'], true) ? 'fixed_fee'
             : ($type === 'attendance_bonus' ? 'attendance' : 'commission');
         // 营业额阶梯的保底/固定服务费与分成分开，避免保底计入“项目分成”。
         if ($type === 'sales_package' && strpos($item['rule_name'], ' · 底薪') !== false) $bucket = 'fixed_fee';
@@ -124,6 +124,27 @@ function ps_expected_month($month)
     foreach ($q->fetchAll() as $adjustment) $monthly[] = ['employee_id' => (int)$adjustment['employee_id'], 'rule_id' => 0,
         'rule_name' => '跨月分成更正 · ' . $adjustment['order_no'], 'rule_type' => 'adjustment', 'paid_separately' => 0,
         'amount' => (float)$adjustment['amount'], 'detail' => trim((string)$adjustment['reason'] . ((string)($adjustment['calc_note'] ?? '') !== '' ? '｜' . $adjustment['calc_note'] : ''))];
+
+    // 汇入手工核算项（与首页报酬表 pps_sheet 一致：游学/业务提成记入 commission，其余记入 fixed_fee）
+    require_once __DIR__ . '/ProjectPayrollExtras.php';
+    foreach (ps_payroll_extras($month) as $eid => $x) {
+        foreach ($x['items'] as $it) {
+            $amt = (float)$it['amount'];
+            if (abs($amt) < 0.005) continue;
+            $lbl = (string)$it['label'];
+            $isShare = (strpos($lbl, '补单') === false && strpos($lbl, '全勤') === false && preg_match('/分成|提成|游学/u', $lbl));
+            $monthly[] = [
+                'employee_id' => (int)$eid,
+                'rule_id' => (int)($it['id'] ?? 0),
+                'rule_name' => $lbl,
+                'rule_type' => $isShare ? 'extra_share' : 'manual',
+                'paid_separately' => 0,
+                'amount' => $amt,
+                'detail' => (string)($it['note'] ?? '手工核算项')
+            ];
+        }
+    }
+
     return $cache[$month] = ['snapshots' => $snapshots, 'monthly' => $monthly, 'warnings' => $warnings];
 }
 

@@ -56,6 +56,7 @@
                     }
                     $status = $lookup($row, 'status');
                     $record['delivery_status'] = ps_import_delivery_status($status, $selectedBusiness);
+                    if ($selectedBusiness === '回购订单' && $status === '') $record['delivery_status'] = 'finished'; // 回购订单表没有状态列：登记即完成
                     if ($record['delivery_status'] === null && isset($aiStatus[$status])) { $record['delivery_status'] = $aiStatus[$status]; $record['warning'] .= ($record['warning'
     ] ? '；' : '') . '状态“' . $status . '”由 AI 识别为' . ($aiStatus[$status] === 'finished' ? '已完成' : '未完成'); }
                     // “到账情况”列写的是到账金额（如 740）：按已到账处理

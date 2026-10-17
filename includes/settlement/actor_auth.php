@@ -29,17 +29,29 @@ function ps_actor_from_subject($subject)
     return $q->fetchColumn() ? ['type'=>'admin', 'id'=>(int)$m[2], 'employee_id'=>null, 'role'=>'finance'] : null;
 }
 
-/** 管理层账号是否被财务分配了业务（有业务才开放订单入口，只能在分配的业务里录单）。 */
+/** 管理层账号是否被财务分配了业务或授权审核业务（有业务才开放订单入口）。 */
 function ps_governance_has_business($actor)
 {
     static $cache = [];
     $id = (int)($actor['id'] ?? 0);
-    if (!$id) return false;
-    if (!isset($cache[$id])) {
-        try { $q = db()->prepare('SELECT 1 FROM project_user_businesses WHERE user_id=? LIMIT 1'); $q->execute([$id]); $cache[$id] = (bool)$q->fetchColumn(); }
-        catch (Throwable $e) { $cache[$id] = false; }
+    $empId = (int)($actor['employee_id'] ?? 0);
+    if (!$id && !$empId) return false;
+    $cacheKey = $id . ':' . $empId;
+    if (!isset($cache[$cacheKey])) {
+        try {
+            $q = db()->prepare('SELECT 1 FROM project_user_businesses WHERE user_id=? LIMIT 1');
+            $q->execute([$id]);
+            $has = (bool)$q->fetchColumn();
+            if (!$has && $empId > 0) {
+                $q2 = db()->prepare('SELECT 1 FROM project_batch_review_delegates WHERE employee_id=? LIMIT 1');
+                $q2->execute([$empId]);
+                $has = (bool)$q2->fetchColumn();
+            }
+            $cache[$cacheKey] = $has;
+        }
+        catch (Throwable $e) { $cache[$cacheKey] = false; }
     }
-    return $cache[$id];
+    return $cache[$cacheKey];
 }
 
 function ps_require_actor()
@@ -58,11 +70,17 @@ function ps_require_actor()
     ];
         if ($script === 'rules.php' && ($_GET['domain'] ?? $_POST['domain'] ?? '') === 'governance') $allowed[] = 'rules.php';
         if ($script === 'rules.php' && ($_GET['domain'] ?? $_POST['domain'] ?? '') === 'welfare') $allowed[] = 'rules.php';
-        // 被分配了业务的管理层账号（如负责备案的董事长）：开放订单入口，页面内按“技术”身份录单，只能在分配的业务里建单、只能看到自己参与的订单。
+        // 被分配了业务或授权审核业务的管理层账号（如负责备案的董事长、授权审核网站业务的网站人事冯超）：开放订单入口
         if (in_array($script, ['index.php', 'order.php', 'lookup.php', 'proof.php', 'credentials.php', 'ai.php', 'rule_request_api.php', 'import.php', 'files.php', 'import_undo_api.php'
     , 'file_sheet_api.php', 'renewals.php', 'renewal_gaps.php'], true) && ps_governance_has_business($actor)) {
             $allowed[] = $script;
-            $actor['role'] = 'technical'; $actor['governance_orders'] = true;
+            require_once __DIR__ . '/../ProjectBatchReview.php';
+            if (!empty($actor['employee_id']) && function_exists('pbr_scope') && pbr_scope($actor)) {
+                $actor['role'] = 'customer_service';
+            } else {
+                $actor['role'] = 'technical';
+            }
+            $actor['governance_orders'] = true;
         }
         if ($script === 'batch_review.php' && function_exists('pbr_scope') && pbr_scope($actor)) $allowed[] = $script; // 被授权审核订单的管理层人员（如网站人事）
         if (!in_array($script, $allowed, true)) { http_response_code(403); exit('此账号仅可访问管理层事项与本人结算'); }
@@ -121,9 +139,12 @@ function ps_order($id, $actor)
     if (!$order) { http_response_code(404); exit('订单不存在'); }
     if ($actor['role'] !== 'finance' && !ps_management_can_business($actor, $order['project_type'])) {
         require_once __DIR__ . '/../ProjectDeptHead.php';
+        require_once __DIR__ . '/../ProjectBatchReview.php';
+        $delScope = function_exists('pbr_scope') ? pbr_scope($actor) : null;
+        $isDelegated = $delScope && (!empty($delScope['all']) || in_array(ps_business_normalize($order['project_type']), $delScope['businesses'] ?? [], true));
         $access = db()->prepare('SELECT 1 FROM project_participants WHERE order_id=? AND employee_id=? LIMIT 1');
         $access->execute([(int)$id, $actor['employee_id']]);
-        if (!$access->fetchColumn() && !ps_department_import_uploader_access($id, (int)$actor['employee_id']) && !pdh_can_view_order($id, $actor)) {
+        if (!$access->fetchColumn() && !ps_department_import_uploader_access($id, (int)$actor['employee_id']) && !pdh_can_view_order($id, $actor) && !$isDelegated) {
             $isMissingBackendTech = false;
             if ($actor['role'] === 'technical' && in_array(ps_business_normalize($order['project_type'] ?? ''), ['AI网站定制', '网站定制'], true)) {
                 $checkHasBackend = db()->prepare("SELECT 1 FROM project_participants WHERE order_id=? AND commission_group='technical' AND role_name LIKE '%后端%' LIMIT 1");

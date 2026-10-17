@@ -2,9 +2,10 @@
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['bulk_action'])) {
     ps_check_csrf();
     $bulkAction = (string)$_POST['bulk_action'];
-    // 批量删除下放给网站售后部；批量修改类型允许客服、技术和财务；其余批量操作仍仅财务
+    // 批量删除下放给网站售后部；批量修改类型允许客服、技术和财务；标记交付完成允许客服、售后、技术、财务及冯超；其余批量操作仍仅财务
     if ($bulkAction === 'delete') { if (!$canDeleteOrders) { http_response_code(403); exit('无权限'); } }
     elseif ($bulkAction === 'set_kind') { if (!in_array($actor['role'], ['customer_service', 'technical', 'finance'], true)) { http_response_code(403); exit('无权限'); } }
+    elseif ($bulkAction === 'finish') { if (!ps_can_mark_delivery_finished($actor)) { http_response_code(403); exit('无权限'); } }
     elseif ($actor['role'] !== 'finance') { http_response_code(403); exit('无权限'); }
     $ids = array_values(array_unique(array_filter(array_map('intval', (array)($_POST['ids'] ?? [])))));
     $payrollMonth = (string)($_POST['bulk_month'] ?? '');
@@ -20,11 +21,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['bulk_action'])) {
                 require_once (dirname(__DIR__, 2)) . '/../includes/ProjectBatchReview.php';
                 db()->beginTransaction(); // 准备动作与审核同成败：审核不通过则一并回滚
                 try {
-                    $del = db()->prepare('SELECT delivery_status FROM project_orders WHERE id=? FOR UPDATE'); $del->execute([$orderId]);
-                    if ($del->fetchColumn() === 'unfinished') {
-                        db()->prepare("UPDATE project_orders SET delivery_status='finished',row_version=row_version+1 WHERE id=?")->execute([$orderId]);
-                        db()->prepare("UPDATE project_order_requests SET status='approved', reviewer_id=?, reviewed_at=NOW(), review_note='批量审核时自动通过' WHERE order_id=? AND request_type='delivery_completion' AND status='pending'")->execute([$actor['id'], $orderId]);
-                    }
                     pbr_prepare_order($orderId, $actor, (int)$actor['id'], '财务');
                     ps_approve_order($orderId, $actor, $payrollMonth);
                     db()->commit();

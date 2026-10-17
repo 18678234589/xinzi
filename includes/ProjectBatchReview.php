@@ -129,7 +129,7 @@ function pbr_approve(array $actor, $requestId, array $orderIds, $employeeId = 0,
 {
     $scope = pbr_scope($actor);
     if (!$scope) throw new RuntimeException('只有财务或被授权人员可以审核');
-    if (empty($scope['all']) && (int)$requestId > 0) throw new RuntimeException('授权人员请按员工和月份直接审核');
+    // 授权审核人员（如冯超）支持按申请或按员工月份审核，且自动按其业务范围 $scope 过滤
     $adminId = ($actor['type'] ?? '') === 'admin' ? (int)$actor['id'] : null; // 授权人员不是管理员账号，审核人记在审计里
     $who = !empty($scope['all']) ? '财务' : '授权审核人员';
     pbr_ensure();
@@ -156,7 +156,11 @@ function pbr_approve(array $actor, $requestId, array $orderIds, $employeeId = 0,
                     ->execute([$oid, round((float)$order['contract_amount'], 2), $who . '批量审核：抽查后按售价确认收款（申请 #' . (int)$req['id'] . '）', $actor['type'], $actor['id'], $adminId]);
                 ps_recalculate_cash($oid);
             }
+            // 财务、冯超、客服、售后及技术均有权限标注已完成；批量审核时若未完成则自动置为已完成
             if ($order['delivery_status'] !== 'finished') {
+                if (!ps_can_mark_delivery_finished($actor)) {
+                    throw new RuntimeException('项目尚未完成：需由技术、客服、售后或管理层先标注为“已完成”');
+                }
                 $pdo->prepare("UPDATE project_orders SET delivery_status='finished',row_version=row_version+1 WHERE id=?")->execute([$oid]);
                 $pdo->prepare("UPDATE project_order_requests SET status='approved', reviewer_id=?, reviewed_at=NOW(), review_note='批量审核时自动通过' WHERE order_id=? AND request_type='delivery_completion' AND status='pending'")->execute([$adminId, $oid]);
             }

@@ -188,7 +188,9 @@
                         // 预载合作人员名单（按名查ID）
                         $empList = get_employees();
                         $empByName = [];
-                        foreach ($empList as $e) $empByName[trim($e['name'])] = (int)$e['id'];
+                        // 重名时优先挂到有启用账号的那条（否则考勤会落到没有订单的重复记录上，全勤奖永远“待核对”）
+                        $activeEmp = array_flip(array_map('intval', db()->query('SELECT employee_id FROM project_users WHERE is_active=1')->fetchAll(PDO::FETCH_COLUMN)));
+                        foreach ($empList as $e) { $n = trim($e['name']); if (!isset($empByName[$n]) || isset($activeEmp[(int)$e['id']])) $empByName[$n] = (int)$e['id']; }
 
                         require_once __DIR__ . '/../../../includes/ProjectMonthly.php';
                         $inserted = 0; $skipped = 0; $notFound = []; $otPeople = [];

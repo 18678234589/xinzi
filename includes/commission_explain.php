@@ -218,6 +218,18 @@ function ps_corr_submit($orderId, $actor, $targetEmployeeId, $group, $reason, $e
     ps_audit('order', (int)$orderId, 'commission_correction_submit', $actor, ['target_employee_id' => (int)$targetEmployeeId, 'group' => $group, 'reason' => $reason]);
 }
 
+/** 谁能处理：财务 / 管理员；或该合作人员所在部门的主管（project_dept_heads）。 */
+function ps_corr_can_handle($actor, array $row)
+{
+    if (($actor['role'] ?? '') === 'finance') return true;
+    require_once __DIR__ . '/ProjectDeptHead.php';
+    $deps = pdh_departments($actor);
+    if (!$deps) return false;
+    $q = db()->prepare('SELECT department FROM employees WHERE id=?');
+    $q->execute([(int)$row['target_employee_id']]);
+    return in_array((string)$q->fetchColumn(), $deps, true);
+}
+
 function ps_corr_for_order($orderId)
 {
     ps_corr_ensure();
@@ -238,7 +250,6 @@ function ps_corr_pending_count()
 
 function ps_corr_handle($id, $actor, $decision, $note)
 {
-    if (($actor['role'] ?? '') !== 'finance') throw new RuntimeException('仅财务或管理员可处理更正申请');
     if (!in_array($decision, ['resolved', 'rejected'], true)) throw new RuntimeException('处理结果无效');
     ps_corr_ensure();
     $note = trim((string)$note);
@@ -247,6 +258,7 @@ function ps_corr_handle($id, $actor, $decision, $note)
     $q->execute([(int)$id]);
     $row = $q->fetch();
     if (!$row) throw new RuntimeException('申请不存在或已处理');
+    if (!ps_corr_can_handle($actor, $row)) throw new RuntimeException('仅财务、管理员或该合作人员所在部门的主管可处理更正申请');
     db()->prepare('UPDATE project_commission_corrections SET status=?, handler_name=?, handle_note=?, handled_at=NOW() WHERE id=?')
         ->execute([$decision, ps_corr_actor_name($actor), $note, (int)$id]);
     ps_audit('order', (int)$row['order_id'], 'commission_correction_' . $decision, $actor, ['correction_id' => (int)$id, 'note' => $note]);

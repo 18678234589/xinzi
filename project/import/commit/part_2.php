@@ -74,6 +74,8 @@
                                 ? ['group'=>'technical','role'=>'对接编辑']
                                 : poj_join_target((int)$actor['employee_id'], $existing['project_type'], $orderId, $actor['role']);
                             poj_join_group($orderId, (int)$actor['employee_id'], $joinTarget['group'], $joinTarget['role'], $actor, ['line' => $row['line'], 'reason' => '同一笔销售只记一次', 'from_business' => $row['project_type']]);
+                        } elseif (!empty($row['join_group']) && $row['join_group'] === 'backend') {
+                            ps_import_add_backend($orderId, (int)$actor['employee_id'], $actor, ['line' => $row['line'], 'reason' => '导入：表格写本人为后端，订单只有前端']);
                         } elseif (!empty($row['join_group']) && $row['join_group'] === 'customer_service') {
                             poj_join_group($orderId, (int)$actor['employee_id'], 'customer_service', (string)($row['join_role'] ?? '客服'), $actor, ['line' => $row['line'], 'reason' => '同一订单多位客服分摊']);
                         }

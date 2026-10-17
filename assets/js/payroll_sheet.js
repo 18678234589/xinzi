@@ -1,0 +1,163 @@
+/* 首页项目报酬表：异步加载片段、切换月份、按部门筛选并重算合计 */
+(function () {
+  var host = document.getElementById('ppsHost'); if (!host) return;
+  var cols = ['base', 'share', 'bonus', 'mgr', 'lead', 'ins_sub', 'other', 'payable', 'deduct', 'parking', 'reserve', 'unit_ins', 'personal_ins', 'net'];
+  var money = function (v) { return Math.abs(v) < 0.005 ? '—' : v.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); };
+  function load(month) {
+    host.setAttribute('aria-busy', 'true'); host.style.opacity = '.55';
+    fetch(host.getAttribute('data-src') + '?pm=' + encodeURIComponent(month), { credentials: 'same-origin', cache: 'no-store' })
+      .then(function (r) { if (!r.ok) throw new Error(r.status); return r.text(); })
+      .then(function (html) { host.innerHTML = html; })
+      .catch(function () { host.innerHTML = '<section class="pps-card"><div class="pps-empty">项目报酬表加载失败，请刷新页面重试。</div></section>'; })
+      .then(function () { host.style.opacity = ''; host.removeAttribute('aria-busy'); });
+  }
+  host.addEventListener('change', function (ev) { if (ev.target.classList.contains('pps-month')) load(ev.target.value); });
+  host.addEventListener('click', function (ev) {
+    var b = ev.target.closest('.pps-chips button'); if (!b) return;
+    var card = host.querySelector('#ppsCard'), chips = b.parentNode;
+    [].forEach.call(chips.children, function (x) { x.classList.toggle('is-on', x === b); });
+    var dept = b.getAttribute('data-dept'), sum = {}, n = 0;
+    cols.forEach(function (c) { sum[c] = 0; });
+    [].forEach.call(card.querySelectorAll('tbody tr'), function (tr) {
+      var show = dept === '' || tr.getAttribute('data-dept') === dept; tr.hidden = !show; if (!show) return;
+      n++; var tds = tr.querySelectorAll('td.pps-n[data-v]');
+      cols.forEach(function (c, i) { sum[c] += parseFloat(tds[i].getAttribute('data-v')) || 0; });
+    });
+    cols.forEach(function (c) { var th = card.querySelector('th[data-c="' + c + '"]'); if (th) th.textContent = money(sum[c]); });
+    card.querySelector('[data-t="cnt"]').textContent = n + ' 人';
+    card.querySelector('[data-t="count"]').textContent = n;
+    card.querySelector('[data-t="payable"]').textContent = '¥' + money(sum.payable);
+    card.querySelector('[data-t="cut"]').textContent = '¥' + money(sum.payable - sum.net);
+    card.querySelector('[data-t="net"]').textContent = '¥' + money(sum.net);
+  });
+  var yuan = function (v) { return '\u00a5' + Number(v).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); };
+  host.addEventListener('click', function (ev) {
+    var sb = ev.target.closest('.pps-settle');
+    if (sb) {
+      var sd = host.querySelector('#ppsSettle'), sf = sd.querySelector('form'), list = sd.querySelector('[data-f="list"]'), month = sb.getAttribute('data-month');
+      list.innerHTML = '<div class="pps-empty">加载中…</div>'; sf.month.value = month; sd.querySelector('[data-f="stitle"]').textContent = month; sd.querySelector('[data-f="serr"]').hidden = true;
+      sd.showModal();
+      fetch(host.getAttribute('data-src') + '?settle_orders=1&pm=' + encodeURIComponent(month), { credentials: 'same-origin', cache: 'no-store' })
+        .then(function (r) { return r.json(); })
+        .then(function (j) {
+          list.innerHTML = '';
+          (j.orders || []).forEach(function (o) {
+            var row = document.createElement('label'), can = o.state === 'available';
+            row.className = 'pps-orow' + (can ? '' : ' is-off'); row.setAttribute('data-t', o.project_type || ''); row.setAttribute('data-s', (o.order_no + ' ' + (o.project_type || '') + ' ' + (o.customer || '')).toLowerCase());
+            row.innerHTML = '<input type="checkbox" name="order_ids[]" value="' + o.order_id + '" data-amt="' + o.amount + '"' + (can ? '' : ' disabled') + '><span class="no"></span><span class="ty"></span><span class="dt"></span><b class="am">' + yuan(o.amount) + '</b><em></em>';
+            row.querySelector('.no').textContent = o.order_no; row.querySelector('.ty').textContent = o.project_type; row.querySelector('.dt').textContent = o.order_date;
+            row.querySelector('em').textContent = o.state === 'pending' ? '已申请' : (o.state === 'settled' ? '已结算' : (o.state === 'correcting' ? '更正中' : ''));
+            list.appendChild(row);
+          });
+          if (!(j.orders || []).length) list.innerHTML = '<div class="pps-empty">该月份没有已审核的订单</div>';
+          var types = {}; (j.orders || []).forEach(function (o) { var t = o.project_type || '其他'; types[t] = (types[t] || 0) + 1; });
+          var chips = sd.querySelector('[data-f="chips"]'); chips.innerHTML = '<button type="button" class="is-on" data-type="">全部 <b>' + (j.orders || []).length + '</b></button>';
+          Object.keys(types).forEach(function (t) { var b = document.createElement('button'); b.type = 'button'; b.setAttribute('data-type', t); b.innerHTML = '<span></span> <b>' + types[t] + '</b>'; b.firstChild.textContent = t; chips.appendChild(b); });
+          sd.querySelector('[data-f="q"]').value = ''; filterRows(sd);
+          sumUp(sd);
+        }).catch(function () { list.innerHTML = '<div class="pps-empty">加载失败，请重试</div>'; });
+      return;
+    }
+    if (ev.target.matches('[data-f="scancel"]')) { ev.target.closest('dialog').close(); return; }
+    if (ev.target.matches('[data-f="corrtoggle"], [data-f="corrcancel"]')) {
+      var cd = ev.target.closest('dialog'), panel = cd.querySelector('[data-f="corr"]'), open = ev.target.matches('[data-f="corrtoggle"]');
+      panel.hidden = !open; if (open) panel.querySelector('textarea').focus(); return;
+    }
+    if (ev.target.matches('[data-f="corrgo"]')) {
+      var cdlg = ev.target.closest('dialog'), cform = cdlg.querySelector('form'), cerr = cdlg.querySelector('[data-f="serr"]');
+      if (!cform.querySelector('input[name="order_ids[]"]:checked')) { cerr.textContent = '请先勾选算得不对的订单'; cerr.hidden = false; return; }
+      var cfd = new FormData(cform); cfd.set('action', 'request_correction'); ev.target.disabled = true;
+      fetch(host.getAttribute('data-src'), { method: 'POST', credentials: 'same-origin', body: cfd })
+        .then(function (r) { return r.json().catch(function () { return { ok: false, message: '提交失败（' + r.status + '）' }; }); })
+        .then(function (j) { if (j.ok) { cdlg.close(); load(host.querySelector('.pps-month').value); } else { cerr.textContent = j.message || '提交失败'; cerr.hidden = false; } })
+        .catch(function () { cerr.textContent = '网络异常，请重试'; cerr.hidden = false; })
+        .then(function () { ev.target.disabled = false; });
+      return;
+    }
+    var btn = ev.target.closest('.pps-edit');
+    if (btn) {
+      var dlg = host.querySelector('#ppsEdit'), f = dlg.querySelector('form'), pf = JSON.parse(btn.getAttribute('data-profile'));
+      f.employee_id.value = btn.getAttribute('data-id'); f.supervisor.value = pf.supervisor || ''; f.bank_card.value = pf.bank_card || '';
+      f.insurance_company.value = pf.insurance_company || ''; f.reserve_deducted.value = pf.reserve_deducted === null ? '' : pf.reserve_deducted;
+      f.signed.checked = String(pf.signed) === '1';
+      dlg.querySelector('[data-f="title"]').textContent = btn.getAttribute('data-name');
+      dlg.querySelector('[data-f="err"]').hidden = true;
+      var ul = dlg.querySelector('[data-f="items"]'), fi = dlg.querySelector('.pps-itemform'); ul.innerHTML = '';
+      dlg.querySelector('[data-f="month"]').textContent = pf.month || ''; fi.employee_id.value = btn.getAttribute('data-id'); fi.month.value = pf.month || ''; fi.label.value = ''; fi.amount.value = ''; fi.note.value = '';
+      dlg.querySelector('[data-f="itemerr"]').hidden = true;
+      (pf.items || []).forEach(function (it) {
+        var li = document.createElement('li'), a = Number(it.amount);
+        li.innerHTML = '<span></span><b class="' + (a < 0 ? 'neg' : '') + '">' + (a < 0 ? '-' : '+') + Math.abs(a).toFixed(2) + '</b><button type="button" data-del="' + it.id + '" title="删除">&times;</button>';
+        li.firstChild.textContent = it.label + (it.note ? '（' + it.note + '）' : ''); ul.appendChild(li);
+      });
+      dlg.showModal();
+      return;
+    }
+    if (ev.target.matches('[data-f="cancel"]')) ev.target.closest('dialog').close();
+    var del = ev.target.closest('[data-del]');
+    if (del) {
+      var dlg2 = host.querySelector('#ppsEdit'), fi2 = dlg2.querySelector('.pps-itemform'), fd = new FormData();
+      fd.append('csrf', fi2.csrf.value); fd.append('action', 'delete_item'); fd.append('employee_id', fi2.employee_id.value); fd.append('month', fi2.month.value); fd.append('item_id', del.getAttribute('data-del'));
+      post(fd, dlg2.querySelector('[data-f="itemerr"]'));
+    }
+  });
+  function filterRows(sd) {
+    var q = sd.querySelector('[data-f="q"]').value.trim().toLowerCase(), on = sd.querySelector('[data-f="chips"] .is-on'), type = on ? on.getAttribute('data-type') : '';
+    [].forEach.call(sd.querySelectorAll('.pps-orow'), function (r) {
+      var show = (!type || r.getAttribute('data-t') === type) && (!q || r.getAttribute('data-s').indexOf(q) !== -1);
+      r.hidden = !show; if (!show) { var b = r.querySelector('input'); if (b && !b.disabled) b.dataset.hid = '1'; } else { var b2 = r.querySelector('input'); if (b2) delete b2.dataset.hid; }
+    });
+  }
+  function sumUp(sd) {
+    var all = [].slice.call(sd.querySelectorAll('input[name="order_ids[]"]:not(:disabled)')), boxes = all.filter(function (b) { return !b.dataset.hid; }), picked = all.filter(function (b) { return b.checked; });
+    var total = picked.reduce(function (s, b) { return s + parseFloat(b.getAttribute('data-amt') || 0); }, 0);
+    sd.querySelector('[data-f="sum"]').textContent = yuan(total) + '（' + picked.length + ' 单）';
+    sd.querySelector('[data-f="count"]').textContent = '（' + boxes.length + ' 单）';
+    sd.querySelector('[data-f="all"]').checked = boxes.length > 0 && boxes.every(function (b) { return b.checked; });
+  }
+  host.addEventListener('change', function (ev) {
+    var sd = host.querySelector('#ppsSettle'); if (!sd || !sd.contains(ev.target)) return;
+    if (ev.target.matches('[data-f="all"]')) [].forEach.call(sd.querySelectorAll('input[name="order_ids[]"]:not(:disabled)'), function (b) { if (!b.dataset.hid) b.checked = ev.target.checked; });
+    sumUp(sd);
+  });
+  host.addEventListener('input', function (ev) { var sd = host.querySelector('#ppsSettle'); if (sd && ev.target.matches('[data-f="q"]')) { filterRows(sd); sumUp(sd); } });
+  host.addEventListener('click', function (ev) {
+    var chip = ev.target.closest('#ppsSettle [data-type]'); if (!chip) return;
+    var sd = host.querySelector('#ppsSettle');
+    [].forEach.call(sd.querySelectorAll('[data-f="chips"] button'), function (b) { b.classList.toggle('is-on', b === chip); });
+    filterRows(sd); sumUp(sd);
+  });
+  function post(fd, err) {
+    return fetch(host.getAttribute('data-src'), { method: 'POST', credentials: 'same-origin', body: fd })
+      .then(function (r) { return r.json().catch(function () { return { ok: false, message: '保存失败（' + r.status + '）' }; }); })
+      .then(function (j) { if (j.ok) { host.querySelector('#ppsEdit').close(); load(host.querySelector('.pps-month').value); } else { err.textContent = j.message || '保存失败'; err.hidden = false; } })
+      .catch(function () { err.textContent = '网络异常，请重试'; err.hidden = false; });
+  }
+  host.addEventListener('submit', function (ev) {
+    if (ev.target.classList.contains('pps-sform')) {
+      ev.preventDefault();
+      var sdlg = ev.target.closest('dialog'), serr = sdlg.querySelector('[data-f="serr"]');
+      if (!ev.target.querySelector('input[name="order_ids[]"]:checked')) { serr.textContent = '请先勾选要结算的订单（可点“全选”）'; serr.hidden = false; return; }
+      var sbtn = ev.target.querySelector('.is-primary'); sbtn.disabled = true;
+      fetch(host.getAttribute('data-src'), { method: 'POST', credentials: 'same-origin', body: new FormData(ev.target) })
+        .then(function (r) { return r.json().catch(function () { return { ok: false, message: '提交失败（' + r.status + '）' }; }); })
+        .then(function (j) { if (j.ok) { sdlg.close(); load(host.querySelector('.pps-month').value); } else { serr.textContent = j.message || '提交失败'; serr.hidden = false; } })
+        .catch(function () { serr.textContent = '网络异常，请重试'; serr.hidden = false; })
+        .then(function () { sbtn.disabled = false; });
+      return;
+    }
+    if (ev.target.classList.contains('pps-itemform')) { ev.preventDefault(); post(new FormData(ev.target), ev.target.parentNode.querySelector('[data-f="itemerr"]')); return; }
+    var f = ev.target; if (!f.classList.contains('pps-form')) return;
+    ev.preventDefault();
+    var err = f.querySelector('[data-f="err"]'), btn = f.querySelector('.is-primary'); btn.disabled = true;
+    fetch(host.getAttribute('data-src'), { method: 'POST', credentials: 'same-origin', body: new FormData(f) })
+      .then(function (r) { return r.json().catch(function () { return { ok: false, message: '保存失败（' + r.status + '）' }; }); })
+      .then(function (j) {
+        if (j.ok) { f.closest('dialog').close(); load(host.querySelector('.pps-month').value); }
+        else { err.textContent = j.message || '保存失败'; err.hidden = false; }
+      })
+      .catch(function () { err.textContent = '网络异常，请重试'; err.hidden = false; })
+      .then(function () { btn.disabled = false; });
+  });
+  load(host.getAttribute('data-month'));
+})();

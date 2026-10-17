@@ -8,24 +8,8 @@ $order_count  = (int)db()->query("SELECT COUNT(*) FROM orders WHERE COALESCE(is_
 $order_total  = (float)db()->query("SELECT COALESCE(SUM(order_amount),0) FROM orders WHERE COALESCE(is_deleted, 0) = 0")->fetchColumn();
 $salary_count = (int)db()->query("SELECT COUNT(*) FROM salaries")->fetchColumn();
 
-// 各部门人数
-$dept_stats = db()->query("SELECT department, COUNT(*) as cnt, SUM(base_salary) as total_salary FROM employees GROUP BY department ORDER BY department")->fetchAll();
-
 // 店铺列表（含关联订单数）
 $shop_stats = get_shop_list();
-
-// 上月订单情况
-$this_month = date('Y-m', strtotime('-1 month'));
-$stmt = db()->prepare("
-    SELECT e.name, e.department, COUNT(o.id) as order_cnt, COALESCE(SUM(o.order_amount),0) as amount
-    FROM employees e
-    LEFT JOIN orders o ON o.employee_id = e.id AND DATE_FORMAT(o.order_date, '%Y-%m') = ? AND COALESCE(o.is_deleted, 0) = 0
-    GROUP BY e.id
-    ORDER BY amount DESC
-    LIMIT 10
-");
-$stmt->execute([$this_month]);
-$month_orders = $stmt->fetchAll();
 
 // 项目合作待办（项目结算表未迁移时静默跳过）
 $project_todo = null;
@@ -87,30 +71,10 @@ include __DIR__ . '/includes/header.php';
     <a class="dash-action" href="<?php echo BASE_URL; ?>/salaries/settle.php"><i class="fas fa-calculator"></i><span>原系统报酬结算<small>底薪、绩效与考勤</small></span></a>
 </div>
 
+<?php include __DIR__ . '/includes/payroll_sheet_card.php'; // 项目报酬表（替代原部门概览 / 个人订单排行） ?>
+
 <div class="row">
     <div class="col-lg-5">
-        <div class="card mb-3">
-            <div class="card-header d-flex justify-content-between align-items-center"><span><i class="fas fa-sitemap mr-1"></i> 部门概览</span><a href="<?php echo BASE_URL; ?>/departments/index.php" class="btn btn-sm btn-outline-secondary">管理部门</a></div>
-            <?php if ($dept_stats): ?>
-            <div class="table-responsive">
-            <table class="table table-sm mb-0">
-                <thead><tr><th>部门</th><th class="text-right">人数</th><th class="text-right">固定服务费合计</th></tr></thead>
-                <tbody>
-                <?php foreach ($dept_stats as $d): ?>
-                    <tr>
-                        <td><span class="badge badge-info badge-dept"><?php echo e($d['department']); ?></span></td>
-                        <td class="text-right"><?php echo $d['cnt']; ?> 人</td>
-                        <td class="text-right">¥<?php echo money($d['total_salary']); ?></td>
-                    </tr>
-                <?php endforeach; ?>
-                </tbody>
-            </table>
-            </div>
-            <?php else: ?>
-                <div class="card-body"><p class="text-muted text-center py-3 mb-0">暂无部门数据</p></div>
-            <?php endif; ?>
-        </div>
-
         <div class="card mb-3">
             <div class="card-header d-flex justify-content-between align-items-center"><span><i class="fas fa-store mr-1"></i> 店铺概览</span><a href="<?php echo BASE_URL; ?>/shops/index.php" class="btn btn-sm btn-outline-secondary">管理店铺</a></div>
             <?php if ($shop_stats): ?>
@@ -129,31 +93,6 @@ include __DIR__ . '/includes/header.php';
             </div>
             <?php else: ?>
                 <div class="card-body"><p class="text-muted text-center py-3 mb-0">暂无店铺数据，前往 <a href="<?php echo BASE_URL; ?>/shops/index.php">店铺管理</a> 添加</p></div>
-            <?php endif; ?>
-        </div>
-    </div>
-    <div class="col-lg-7">
-        <div class="card mb-3">
-            <div class="card-header"><i class="fas fa-chart-bar mr-1"></i> <?php echo e($this_month); ?> 个人订单排行（前 10）</div>
-            <?php if ($month_orders): ?>
-            <div class="table-responsive">
-            <table class="table table-sm table-hover mb-0">
-                <thead><tr><th>排名</th><th>姓名</th><th>部门</th><th class="text-right">订单数</th><th class="text-right">订单金额</th></tr></thead>
-                <tbody>
-                <?php foreach ($month_orders as $i => $o): ?>
-                    <tr>
-                        <td><span class="dash-rank<?php echo $i < 3 ? ' top' : ''; ?>"><?php echo $i + 1; ?></span></td>
-                        <td><?php echo e($o['name']); ?></td>
-                        <td class="text-muted"><?php echo e($o['department']); ?></td>
-                        <td class="text-right"><?php echo $o['order_cnt']; ?></td>
-                        <td class="text-right font-weight-bold text-success">¥<?php echo money($o['amount']); ?></td>
-                    </tr>
-                <?php endforeach; ?>
-                </tbody>
-            </table>
-            </div>
-            <?php else: ?>
-                <div class="card-body"><p class="text-muted text-center py-3 mb-0">上月暂无订单数据</p></div>
             <?php endif; ?>
         </div>
     </div>

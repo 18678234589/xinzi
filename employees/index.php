@@ -1,6 +1,7 @@
 <?php
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/SalaryCalculator.php';
+require_once __DIR__ . '/../includes/ProjectPartnerProfile.php';
 require_login();
 ensureCsPerfSchema(); // 保证 employees.wangwang 等客服绩效相关字段/表存在
 
@@ -32,6 +33,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $newId = (int)db()->lastInsertId();
                     // 自动补录之前因合作人员不存在而暂存的考勤记录
                     $backfilled = backfill_pending_attendance($newId, $name);
+                    if (isset($_POST['profile_present'])) ppp_save($newId, $_POST, ps_actor()); // 结算资料（仅财务 / 管理员）
                     $success = '合作人员添加成功，默认密码: ' . ($password === '123456' ? '123456' : '已设置');
                     if ($backfilled > 0) $success .= "，已自动补录 {$backfilled} 条考勤记录";
                 } else {
@@ -44,10 +46,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     }
                     // 改名后尝试补录新姓名对应的暂存考勤
                     backfill_pending_attendance($id, $name);
+                    if (isset($_POST['profile_present'])) ppp_save($id, $_POST, ps_actor());
                     $success = '合作人员信息更新成功';
                 }
             } catch (PDOException $ex) {
                 $error = '操作失败: ' . $ex->getMessage();
+            } catch (RuntimeException $ex) {
+                $error = '结算资料未保存：' . $ex->getMessage();
             }
         }
     } elseif ($action === 'delete') {
@@ -84,6 +89,7 @@ $sql .= " ORDER BY department, name";
 $stmt = db()->prepare($sql);
 $stmt->execute($params);
 $employees = $stmt->fetchAll();
+$profiles = ppp_all(); // 结算资料：本页仅管理员（财务）登录可进入
 
 $departments = get_departments();
 
@@ -151,7 +157,7 @@ include __DIR__ . '/../includes/header.php';
                             <a href="<?php echo BASE_URL; ?>/employees/algorithm.php?employee_id=<?php echo $emp['id']; ?>" class="btn btn-sm btn-outline-<?php echo SalaryCalculator::hasCustomAlgorithm($emp['id']) ? 'warning' : 'secondary'; ?>" title="项目报酬算法设置">
                                 <i class="fas fa-code"></i> <?php echo SalaryCalculator::hasCustomAlgorithm($emp['id']) ? '专属算法' : '算法设置'; ?>
                             </a>
-                            <button class="btn btn-sm btn-outline-primary" onclick='editEmp(<?php echo json_encode($emp, JSON_UNESCAPED_UNICODE); ?>)'>
+                            <button class="btn btn-sm btn-outline-primary" onclick='editEmp(<?php echo json_encode($emp + ['profile' => $profiles[(int)$emp['id']] ?? null], JSON_UNESCAPED_UNICODE | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP); ?>)'>
                                 <i class="fas fa-edit"></i> 编辑
                             </button>
                             <form method="post" class="d-inline" onsubmit="return confirm('确定删除该合作人员？相关订单和项目报酬记录也会被删除。')">
@@ -205,6 +211,17 @@ include __DIR__ . '/../includes/header.php';
                         <input type="text" name="wangwang" class="form-control" placeholder="客服旺旺账号，用于客服绩效数据匹配">
                         <small class="text-muted">客服绩效导入时按此账号/姓名自动匹配到合作人员，一人多账号用逗号/空格分隔</small>
                     </div>
+                    <hr><div class="small text-muted mb-2"><i class="fas fa-lock mr-1"></i>结算资料：仅财务和管理员可见、可改，合作人员本人看不到</div>
+                    <input type="hidden" name="profile_present" value="1">
+                    <div class="form-row">
+                        <div class="form-group col-6"><label>主管</label><input type="text" name="supervisor" class="form-control" maxlength="40"></div>
+                        <div class="form-group col-6"><label>买保险公司</label><input type="text" name="insurance_company" class="form-control" maxlength="60"></div>
+                    </div>
+                    <div class="form-group"><label>工行卡号</label><input type="text" name="bank_card" class="form-control" inputmode="numeric" maxlength="32" placeholder="12–25 位数字"></div>
+                    <div class="form-row">
+                        <div class="form-group col-6"><label>已扣除预留金（元）</label><input type="text" name="reserve_deducted" class="form-control" inputmode="decimal" placeholder="留空表示无"></div>
+                        <div class="form-group col-6 d-flex align-items-end"><label class="mb-2"><input type="checkbox" name="signed" value="1"> 已签名确认</label></div>
+                    </div>
                     <input type="hidden" name="base_salary" value="0">
                     <input type="hidden" name="commission_rate" value="0">
                 </div>
@@ -233,6 +250,12 @@ function editEmp(emp) {
     $('#empForm input[name="department"]').val(emp.department);
     $('#empForm input[name="wangwang"]').val(emp.wangwang || '');
     $('#empForm input[name="password"]').val('');
+    var pf = emp.profile || {};
+    $('#empForm input[name="supervisor"]').val(pf.supervisor || '');
+    $('#empForm input[name="insurance_company"]').val(pf.insurance_company || '');
+    $('#empForm input[name="bank_card"]').val(pf.bank_card || '');
+    $('#empForm input[name="reserve_deducted"]').val(pf.reserve_deducted === null || pf.reserve_deducted === undefined ? '' : pf.reserve_deducted);
+    $('#empForm input[name="signed"]').prop('checked', String(pf.signed) === '1');
     $('#modalTitle').text('编辑合作人员 - ' + emp.name);
     $('#empModal').modal('show');
 }

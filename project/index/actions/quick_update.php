@@ -28,14 +28,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (isset($_POST['action']) && $_POST[
             throw new RuntimeException('订单已审核锁定，如需修改请联系财务');
         }
 
-        if (!in_array($actor['role'], ['customer_service', 'technical', 'finance'], true)) {
+        if (!in_array($actor['role'], ['customer_service', 'technical', 'finance'], true) && !ps_can_mark_delivery_finished($actor)) {
             throw new RuntimeException('无权限修改此订单');
         }
 
         if (!$isFinance) {
+            $canFinish = ps_can_mark_delivery_finished($actor);
+            $isOnlyDeliveryStatus = isset($_POST['delivery_status']) && !isset($_POST['direct_cost']) && !isset($_POST['order_kind']) && empty($_POST['customer_phone']) && empty($_POST['customer_wechat']) && empty($_POST['contact_note']) && empty($_POST['server_expiry']);
             $partQ = db()->prepare('SELECT 1 FROM project_participants WHERE order_id=? AND employee_id=? UNION SELECT 1 FROM project_department_uploaders WHERE order_id=? AND employee_id=? LIMIT 1');
             $partQ->execute([$orderId, (int)$actor['employee_id'], $orderId, (int)$actor['employee_id']]);
-            if (!$partQ->fetchColumn() && !pdh_can_view_order($orderId, $actor)) {
+            if (!$partQ->fetchColumn() && !pdh_can_view_order($orderId, $actor) && !($canFinish && $isOnlyDeliveryStatus)) {
                 throw new RuntimeException('只能修改本人参与或录入的订单（部门主管可改本部门成员的订单）');
             }
         }
@@ -131,6 +133,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (isset($_POST['action']) && $_POST[
                 $newNote = $oldNote !== '' ? ($oldNote . '；' . $contactNote) : $contactNote;
                 db()->prepare("UPDATE project_orders SET note=?, row_version=row_version+1 WHERE id=?")->execute([$newNote, $orderId]);
                 $changes[] = '备注已追加';
+            }
+        }
+
+        // 5. 改交付状态 (delivery_status)
+        if (isset($_POST['delivery_status'])) {
+            $newDel = trim((string)$_POST['delivery_status']);
+            if (in_array($newDel, ['finished', 'unfinished'], true) && $newDel !== $order['delivery_status']) {
+                if (!ps_can_mark_delivery_finished($actor)) {
+                    throw new RuntimeException('无权限修改交付状态');
+                }
+                db()->prepare("UPDATE project_orders SET delivery_status=?, row_version=row_version+1 WHERE id=?")->execute([$newDel, $orderId]);
+                if ($newDel === 'finished') {
+                    db()->prepare("UPDATE project_order_requests SET status='approved', reviewer_id=?, reviewed_at=NOW(), review_note='快捷修改标记交付完成时自动通过' WHERE order_id=? AND request_type='delivery_completion' AND status='pending'")
+                        ->execute([$actor['id'], $orderId]);
+                }
+                ps_audit('order', $orderId, 'update_delivery_status', $actor, ['before' => $order['delivery_status'], 'after' => $newDel]);
+                $changes[] = '交付状态改为「' . ($newDel === 'finished' ? '已完成' : '未完成') . '」';
+                $order['delivery_status'] = $newDel;
             }
         }
 

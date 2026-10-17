@@ -101,8 +101,16 @@ try {
     ptc_sync_order_cost($k1, $actor, '测试'); ptc_sync_order_cost($k2, $actor, '测试');
     $pdo->prepare("UPDATE project_orders SET settlement_status='approved' WHERE id IN (?,?)")->execute([$k1, $k2]);
     $c = $mine('tmc-frozen'); $failed = false;
-    try { ptd_decide($c[0]['key'], 'same', $actor); } catch (RuntimeException $e) { $failed = true; }
-    $check($c[0]['blocked'] && $failed && count($live($k1)) === 1 && count($live($k2)) === 1, '含已审核订单时不能自动合并，成本保持不变');
+    try { ptd_decide($c[0]['key'], 'same', ['type' => 'employee', 'id' => 0, 'role' => 'management']); } catch (RuntimeException $e) { $failed = true; }
+    $check($c[0]['blocked'] && $failed && count($live($k1)) === 1 && count($live($k2)) === 1, '含已审核订单时非财务不能合并，成本保持不变');
+    $msg = ptd_decide($c[0]['key'], 'same', $actor);
+    $check(strpos($msg, '已合并') !== false && strpos($msg, '分成快照') !== false && count($live($k1)) + count($live($k2)) === 1 && !$mine('tmc-frozen'), '财务可合并两张都已审核的订单：官费只计一次、快照不动并提示');
+    $m1 = $makeOrder('tmc-half', 350, '2026-09-24', '东篱采菊悠然见南山29类'); $m2 = $makeOrder('tmc-half', 350, '2026-09-24', '东篱采菊悠然见南山29类');
+    ptc_sync_order_cost($m1, $actor, '测试'); ptc_sync_order_cost($m2, $actor, '测试');
+    $pdo->prepare("UPDATE project_orders SET settlement_status='approved' WHERE id=?")->execute([$m1]);
+    $c = $mine('tmc-half');
+    ptd_decide($c[0]['key'], 'same', $actor);
+    $check(count($live($m1)) === 1 && !$live($m2) && !$mine('tmc-half'), '一张已审核一张未审核：官费留在已审核订单，未审核的作废');
     // 7) 商标主管：收到站内信和提醒，有人核对后消失；有权核对；合作人员看到“官费待核对”。
     $pdo->prepare("INSERT INTO employees (name,department,password) VALUES ('测试商标主管','商标部','fixture-only')")->execute();
     $head = (int)$pdo->lastInsertId();

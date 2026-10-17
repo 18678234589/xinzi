@@ -41,7 +41,7 @@ function poi_template($name, $templates, $resourceHint = '')
     $key = preg_replace('/^一年(ssl(?:证书)?)$/u', '1年$1', $key);
     $years = preg_match('/^(\d+)年/u', $key, $m) ? (int)$m[1] : 1;
     $key = preg_replace('/^\d+年/u', '', $key);
-    $aliases = ['青站' => '青站(标准)', 'ssl' => '域名ssl证书', 'ssl证书' => '域名ssl证书', 'ssl证书软件' => 'https加密功能/ssl证书软件'];
+    $aliases = ['青站' => '青站(标准)', 'ssl' => '域名ssl证书', 'ssl证书' => '域名ssl证书', 'ssl证书软件' => 'https加密功能/ssl证书软件', '安全证书' => '域名ssl证书', 'jsp中级' => 'jsp展示中级版', 'jsp高级' => 'jsp展示高级版'];
     $key = $aliases[$key] ?? $key;
     $matches = [];
     foreach ($templates as $t) {
@@ -52,7 +52,9 @@ function poi_template($name, $templates, $resourceHint = '')
     if (count($matches) === 1) return $matches[0];
     $spaceOnly = preg_match('/^(仅空间|空间)$/u', trim($resourceHint));
     $preferred = array_values(array_filter($matches, function ($t) use ($spaceOnly) {
-        return mb_strpos($t['specification'] ?? '', $spaceOnly ? '仅空间' : '空间+域名') !== false;
+        $spec = (string)($t['specification'] ?? '');
+        // 成本中心的规格写法：“1年 空间”（只有空间）/“1年 空间+域名”/“仅空间”（无域名）；只填“空间”时取只有空间的规格
+        return $spaceOnly ? (mb_strpos($spec, '仅空间') !== false || (mb_strpos($spec, '空间') !== false && mb_strpos($spec, '空间+域名') === false)) : mb_strpos($spec, '空间+域名') !== false;
     }));
     return count($preferred) === 1 ? $preferred[0] : null;
 }
@@ -80,14 +82,16 @@ function poi_from_row($name, $sale, $head, $row, $templates, $line, $resourceHin
         if (!preg_match('/^\d+年/u', trim($part)) && !preg_match('/ssl|https/iu',$part)) foreach ($head as $i=>$h) {
             if (!in_array(trim((string)$h),['要求','制作要求','资源备注'],true)) continue;
             $context = strtr((string)($row[$i]??''),['一年'=>'1年','二年'=>'2年','两年'=>'2年','三年'=>'3年','四年'=>'4年','五年'=>'5年']);
-            if (preg_match('/(\d+)年(?:空间|域名|套餐)/u',$context,$ym)) { $lookupName=$ym[1].'年'.$part; break; }
+            if (preg_match('/(\d+)年(?:的)?(?:空间|域名|套餐)/u',$context,$ym)) { $lookupName=$ym[1].'年'.$part; break; }
         }
         $t = poi_template($lookupName, $templates, $resourceHint);
-        // HTTPS 单独出现可能是软件，也可能是证书，只在原表明确成本且唯一吻合时识别。
+        // HTTPS 默认是 SSL 证书；原表明确成本恰好等于软件价（且只吻合一个）时才识别为软件。
         if (!$t && poi_name($part)==='https' && $reported!==null) {
             $matches=array_values(array_filter($templates,function($candidate)use($reported){return in_array($candidate['category'],['certificate','plugin'],true) && preg_match('/ssl|https/iu',$candidate['name']) && abs((float)($candidate['price']??-1)-(float)$reported)<.001;}));
             if (count($matches)===1) $t=$matches[0];
         }
+        // 财务确认：表里写“HTTPS”指 SSL 证书，没有明确成本、或成本与软件不符时按域名 SSL 证书标准成本带入。
+        if (!$t && poi_name($part)==='https') $t = poi_template('域名ssl证书', $templates, $resourceHint);
         $out[] = ['item_name' => mb_substr(trim($part), 0, 255), 'category' => $t['category'] ?? 'other',
             'sale_amount' => count($parts) === 1 ? poi_money($sale) : $amount,
             'reported_cost' => count($parts) === 1 ? $reported : null,

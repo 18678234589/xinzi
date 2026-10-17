@@ -29,6 +29,10 @@ if ($importFileId > 0) {
 if (!$participationOnly && $filterBusiness !== '' && isset($businessCatalog[$filterBusiness])) { $where[] = 'o.project_type=?'; $params[] = $filterBusiness; }
 if ($filterState === 'open') $where[] = "o.settlement_status IN ('draft','review')";
 if ($filterState === 'approved') $where[] = "o.settlement_status IN ('approved','locked')";
+// 已结算（售后中）：财务已打款并确认结算的订单（本人看自己的，财务看全部）；结算申请见 ProjectSettlementRequest.php
+require_once __DIR__ . '/ProjectSettlementRequest.php';
+$settledOwn = ($actor['role'] ?? '') !== 'finance' && (int)($actor['employee_id'] ?? 0) > 0 ? ' AND si.employee_id=' . (int)$actor['employee_id'] : '';
+if ($filterState === 'settled') { psr_ensure(); $where[] = 'EXISTS (SELECT 1 FROM project_settlement_request_items si WHERE si.order_id=o.id AND si.settled_at IS NOT NULL' . $settledOwn . ')'; }
 if ($filterState === 'unfinished') $where[] = "o.delivery_status='unfinished'";
 if ($filterState === 'finished') $where[] = "o.delivery_status='finished'";
 if ($filterState === 'pending_delivery') $where[] = "EXISTS (SELECT 1 FROM project_order_requests por WHERE por.order_id=o.id AND por.request_type='delivery_completion' AND por.status='pending')"
@@ -53,7 +57,14 @@ if ($actor['role'] === 'finance') {
     list($headSql, $headParams) = $participationOnly ? ['', []] : pdh_order_condition($actor);
     // 软件测试员：搜索关键字时可搜到 AI网站定制 / 小程序开发 订单，进详情自行加入
     $testerSql = $keyword !== '' && !$participationOnly && ps_software_tester_can_join($actor['employee_id']) ? " OR o.project_type IN ('AI网站定制','网站定制','小程序开发')" : '';
-    $where[count($where) - 1] = str_replace('%HEAD%', ($headSql !== '' ? ' OR ' . $headSql : '') . $testerSql, $where[count($where) - 1]);
+    // 授权审核人员（如网站人事）：可看到其授权业务的订单
+    $delSql = '';
+    require_once __DIR__ . '/ProjectBatchReview.php';
+    $delScope = function_exists('pbr_scope') ? pbr_scope($actor) : null;
+    if ($delScope && !empty($delScope['businesses']) && !$participationOnly) {
+        $delSql = ' OR o.project_type IN (' . implode(',', array_map(function($b) { return db()->quote($b); }, $delScope['businesses'])) . ')';
+    }
+    $where[count($where) - 1] = str_replace('%HEAD%', ($headSql !== '' ? ' OR ' . $headSql : '') . $testerSql . $delSql, $where[count($where) - 1]);
     foreach ($headParams as $hp) $params[] = $hp;
 }
 // 按部门筛选：财务可选全部部门，部门主管可选自己所管的部门；订单上有该部门的成员参与即算
@@ -118,6 +129,8 @@ $pageOrders = array_slice($orders, ($page - 1) * $perPage, $perPage);
 $pageQuery = function ($p) { return '?' . http_build_query(array_merge($_GET, ['page' => $p])); };
 
 $pageOrderIds = array_map(function ($r) { return (int)$r['id']; }, $pageOrders);
+$settledMap = []; // order_id => 最近一次结算的月份，用于订单行标注“已结算”
+if ($pageOrderIds) { try { psr_ensure(); foreach (db()->query('SELECT si.order_id,MAX(si.payroll_month) m FROM project_settlement_request_items si WHERE si.settled_at IS NOT NULL AND si.order_id IN (' . implode(',', $pageOrderIds) . ')' . $settledOwn . ' GROUP BY si.order_id')->fetchAll(PDO::FETCH_KEY_PAIR) as $sid => $sm) $settledMap[(int)$sid] = $sm; } catch (Throwable $e) {} }
 $pageOrderExtras = [];
 if ($pageOrderIds) {
     $inSql = implode(',', $pageOrderIds);

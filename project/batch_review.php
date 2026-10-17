@@ -25,9 +25,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 $reqId = (int)($_GET['id'] ?? $_POST['id'] ?? 0);
 $detail = null; $detailOrders = [];
-if ($isFinance && $reqId) {
+if ($canReview && $reqId) {
     $q = db()->prepare('SELECT r.*,e.name emp_name FROM project_batch_reviews r LEFT JOIN employees e ON e.id=r.employee_id WHERE r.id=?'); $q->execute([$reqId]); $detail = $q->fetch() ?: null;
-    if ($detail) { $detailOrders = pbr_orders((int)$detail['employee_id'], $detail['month']); $month = $detail['month']; }
+    if ($detail) { $detailOrders = pbr_orders((int)$detail['employee_id'], $detail['month'], $scope); $month = $detail['month']; }
 }
 $empId = (int)($_GET['emp'] ?? $_POST['emp'] ?? 0); $empList = [];
 if ($canReview) { // 财务直接选员工 + 月份审核，不用等对方提交申请
@@ -40,7 +40,7 @@ if ($canReview) { // 财务直接选员工 + 月份审核，不用等对方提�
 }
 $mine = $isFinance ? [] : pbr_orders((int)$actor['employee_id'], $month);
 $list = [];
-if ($isFinance) $list = db()->query("SELECT r.*,e.name emp_name FROM project_batch_reviews r LEFT JOIN employees e ON e.id=r.employee_id ORDER BY FIELD(r.status,'pending','rejected','done'), r.id DESC LIMIT 100")->fetchAll();
+if ($canReview) $list = db()->query("SELECT r.*,e.name emp_name FROM project_batch_reviews r LEFT JOIN employees e ON e.id=r.employee_id ORDER BY FIELD(r.status,'pending','rejected','done'), r.id DESC LIMIT 100")->fetchAll();
 else { $q = db()->prepare('SELECT * FROM project_batch_reviews WHERE employee_id=? ORDER BY id DESC LIMIT 12'); $q->execute([(int)$actor['employee_id']]); $list = $q->fetchAll(); }
 $myOpen = null; foreach ($list as $r) if (!$isFinance && $r['month'] === $month && $r['status'] === 'pending') $myOpen = $r;
 $st = ['pending' => ['待财务处理', 'warning'], 'done' => ['已处理', 'success'], 'rejected' => ['已退回', 'danger']];
@@ -71,7 +71,7 @@ function pbr_state_badge($row) { [$label, $tone] = pa_state_meta($row['review_st
     <?php if (!$detailOrders): ?><tr><td colspan="8" class="text-center text-muted py-4">这个月的订单已经全部审核通过了</td></tr><?php endif; ?>
     </tbody></table></div>
     <?php if ($detailOrders && $detail['status'] === 'pending'): ?><div class="card-body">
-      <button name="do" value="approve" class="btn btn-success" onclick="return confirm('对勾选的订单：按售价登记收款、标记交付完成、待审核成本一并通过，并审核生成分成。确认已抽查？')"><i class="fas fa-check-double mr-1"></i>勾选的全部通过</button>
+      <button name="do" value="approve" class="btn btn-success" onclick="return confirm('对勾选的订单：按售价登记收款、待审核成本一并通过，并审核生成分成（未交付完成的订单将一并标注为已完成）。确认已抽查？')"><i class="fas fa-check-double mr-1"></i>勾选的全部通过</button>
       <span class="small text-muted ml-2">默认勾选没有异常的订单；不想通过的取消勾选即可。</span>
       <?php if ((int)$detail['id'] > 0): ?><hr><div class="form-inline"><input name="note" class="form-control mr-2" style="min-width:260px" placeholder="退回原因（需要对方补充什么）"><button name="do" value="reject" class="btn btn-outline-danger">退回申请</button></div><?php endif; ?>
     </div><?php endif; ?></form></div>
@@ -83,7 +83,7 @@ function pbr_state_badge($row) { [$label, $tone] = pa_state_meta($row['review_st
     <select name="emp" class="form-control mr-2" onchange="this.form.submit()"><option value="">选择员工（<?php echo count($empList); ?> 人有未通过的订单）</option><?php foreach ($empList as $em): ?><option value="<?php echo (int)$em['id']; ?>" <?php echo $empId === (int)$em['id'] ? 'selected' : ''; ?>><?php echo e($em['name']); ?>（<?php echo (int)$em['n']; ?> 单）</option><?php endforeach; ?></select>
     <noscript><button class="btn btn-outline-secondary">查看</button></noscript><span class="small text-muted">不用等对方提交申请，选人和月份就能直接抽查审核。</span></form>
 <?php endif; ?>
-<?php if ($isFinance): ?>
+<?php if ($canReview): ?>
   <div class="card mb-4"><div class="card-header">全部申请</div><div class="table-responsive"><table class="table table-hover mb-0"><thead class="thead-light"><tr><th>申请人</th><th>月份</th><th>订单</th><th>说明</th><th>状态</th><th></th></tr></thead><tbody>
   <?php foreach ($list as $r): [$lt, $lc] = $st[$r['status']]; ?><tr><td><b><?php echo e($r['emp_name']); ?></b><div class="small text-muted"><?php echo e(substr($r['updated_at'], 0, 16)); ?></div></td><td><?php echo e($r['month']); ?></td>
     <td><?php echo (int)$r['order_count']; ?> 单 · ¥<?php echo e(number_format((float)$r['amount'], 2)); ?></td><td class="small"><?php echo e($r['note'] ?: '—'); ?></td>

@@ -33,7 +33,10 @@
     endforeach; ?></select><?php if ($actor['role'] === 'finance'): ?><label class="small mb-0 mr-1"><input type="checkbox" name="apply_future" value="1" checked> 今后同类上传也按此类</label><?php
     endif; ?><button class="btn btn-sm btn-outline-primary">保存类型</button></form><?php else: ?><?php echo e($order['order_kind'] !== '' ? pkl_label($order['project_type'], $order['order_kind']) : '未填'); ?><?php endif; ?><?php endif;
     ?></div></div><div class="col-md-3"><small class="text-muted">状态</small><div><?php echo e(ps_label('settlement', $order['settlement_status'])); ?> / <?php echo $order['delivery_status'
-    ] === 'finished' ? '<span class="text-success font-weight-bold">已交付完成</span>' : '<span class="text-muted">交付未完成</span>'; ?></div></div><div class="col-md-3"><small class="text-muted">负责审核财务</small><div><strong><?php
+    ] === 'finished' ? '<span class="text-success font-weight-bold">已交付完成</span>' : '<span class="text-muted">交付未完成</span>'; ?><?php
+if ($canEdit && ps_can_mark_delivery_finished($actor)): ?>
+<form method="post" class="d-inline ml-2" onsubmit="return confirm('确认将此订单标记为交付<?php echo $order['delivery_status'] === 'finished' ? '未完成' : '已完成'; ?>？')"><input type="hidden" name="csrf" value="<?php echo e(ps_csrf_token()); ?>"><input type="hidden" name="action" value="mark_delivery_finished"><input type="hidden" name="delivery_status" value="<?php echo $order['delivery_status'] === 'finished' ? 'unfinished' : 'finished'; ?>"><button class="btn btn-xs btn-<?php echo $order['delivery_status'] === 'finished' ? 'outline-secondary' : 'success'; ?> py-0 px-2" style="font-size:12px"><?php echo $order['delivery_status'] === 'finished' ? '改回未完成' : '<i class="fas fa-check mr-1"></i>标注已完成'; ?></button></form>
+<?php endif; ?></div></div><div class="col-md-3"><small class="text-muted">负责审核财务</small><div><strong><?php
     echo e($assignedReviewerName); ?></strong><?php if ($canReviewThisBusiness): ?> <span class="badge badge-success">由您负责</span><?php endif; ?></div></div></div>
   <?php if ($actor['role'] === 'finance' && !$canEdit && $orderKinds): ?><form method="post" class="form-inline mt-3 pt-3 border-top" onsubmit="return confirm('确认纠正订单类型？原审核快照保留，分成差额将计入所选未锁定月份。')"><input type="hidden" name="csrf" value="<?php
     echo e(ps_csrf_token()); ?>"><input type="hidden" name="action" value="set_order_kind"><label class="mr-2">纠正已审核订单类型</label><select name="order_kind" class="form-control form-control-sm mr-2" required><?php
@@ -86,8 +89,7 @@
       </div>
       <div class="col-md-5">
         <small class="text-muted d-block mb-1 text-right">负责审核财务：<strong><?php echo e($assignedReviewerName); ?></strong></small>
-        <?php if ($actor['role'] === 'finance'): ?>
-          <?php if ($canReviewThisBusiness): ?>
+        <?php if ($actor['role'] === 'finance' || ps_can_mark_delivery_finished($actor)): ?>
           <form method="post" class="mt-2 bg-light p-2 rounded border">
             <input type="hidden" name="csrf" value="<?php echo e(ps_csrf_token()); ?>">
             <input type="hidden" name="action" value="review_delivery_completion">
@@ -100,9 +102,6 @@
               <button class="btn btn-outline-danger btn-sm" name="decision" value="rejected" onclick="return confirm('确认驳回此交付申请？')"><i class="fas fa-times mr-1"></i>驳回</button>
             </div>
           </form>
-          <?php else: ?>
-          <div class="alert alert-secondary small p-2 mb-0 text-left">该业务指定由 <strong><?php echo e($assignedReviewerName); ?></strong> 审核，您当前无权审核此业务。</div>
-          <?php endif; ?>
         <?php else: ?>
         <div class="badge badge-warning p-2 d-block text-center mt-2">等待财务（<?php echo e($assignedReviewerName); ?>）核对企微群并审核</div>
         <?php endif; ?>
@@ -164,14 +163,17 @@
 </div>
 <?php endif; ?>
 
-<?php if ($actor['role'] === 'finance' && $canEdit): ?>
-<div class="card mb-3"><div class="card-header">销售/财务信息</div><div class="card-body"><form method="post" class="form-row align-items-end">
+<?php if (($actor['role'] === 'finance' || ps_can_mark_delivery_finished($actor)) && $canEdit): ?>
+<div class="card mb-3"><div class="card-header"><?php echo $actor['role'] === 'finance' ? '销售/财务信息' : '交付状态'; ?></div><div class="card-body"><form method="post" class="form-row align-items-end">
 <input type="hidden" name="csrf" value="<?php echo e(ps_csrf_token()); ?>"><input type="hidden" name="action" value="update_order"><input type="hidden" name="row_version" value="<?php
     echo (int)$order['row_version']; ?>">
+<?php if ($actor['role'] === 'finance'): ?>
 <div class="form-group col-md-2"><label>客户</label><input class="form-control" name="customer_name" value="<?php echo e($order['customer_name']); ?>"></div><div class="form-group col-md-2"><label>店铺</label><input class="form-control" name="shop" value="<?php
     echo e($order['shop']); ?>"></div>
 <div class="form-group col-md-2"><label>成交价</label><input type="number" step="0.01" min="0" class="form-control" name="contract_amount" value="<?php echo e($order['contract_amount'
-    ]); ?>"></div><div class="form-group col-md-2"><label>交付</label><select class="form-control" name="delivery_status"><option value="unfinished">未完成</option><option value="finished" <?php
+    ]); ?>"></div>
+<?php endif; ?>
+<div class="form-group col-md-2"><label>交付状态</label><select class="form-control" name="delivery_status"><option value="unfinished">未完成</option><option value="finished" <?php
     echo $order['delivery_status'] === 'finished' ? 'selected' : ''; ?>>已完成</option></select></div><div class="form-group col-md-2"><button class="btn btn-primary btn-block">保存</button></div>
 </form></div></div>
 <?php endif; ?>

@@ -3,6 +3,7 @@
 <?php include (dirname((dirname(__DIR__, 1)), 1)) . '/../includes/renewal_info_popup.php'; ?>
 <?php include (dirname((dirname(__DIR__, 1)), 1)) . '/../includes/finance_taobao_card.php'; ?>
 <?php include (dirname((dirname(__DIR__, 1)), 1)) . '/../includes/rule_algo_card.php'; ?>
+<?php if (($actor['type'] ?? '') !== 'admin') include (dirname((dirname(__DIR__, 1)), 1)) . '/../includes/payroll_sheet_card.php'; // 合作人员首页：本人（管理账号为全部）项目报酬表 ?>
 <?php if ($error): ?><div class="alert alert-danger"><?php echo e($error); ?></div><?php endif; ?>
 <?php if ($createdOrder): ?><div class="alert alert-success d-flex justify-content-between align-items-center flex-wrap"><span><i class="fas fa-check-circle mr-1"></i> 订单 <strong><?php
     echo e($createdOrder['order_no']); ?></strong> 已保存，可以继续录入下一单。</span><a class="btn btn-sm btn-outline-success" href="<?php echo BASE_URL; ?>/project/order.php?id=<?php

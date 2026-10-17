@@ -38,11 +38,9 @@ try {
     try { poi_link_cost($id,$all[2]['id'],$all[1]['cost_id'],$actor); throw new RuntimeException('重复关联未阻止'); }
     catch(RuntimeException $e) { item_check(strpos($e->getMessage(),'不能重复关联')!==false,'不让同一成本重复抵扣'); }
     poi_save($id,poi_from_row('HTTPS',200,[],[],$templates,11),0,$actor);
-    item_check(count(ps_costs($id))===2,'未知HTTPS没有猜成本');
-    poi_save($id,poi_from_row('HTTPS',200,['成本'],[160],$templates,11),0,$actor);
     $https=array_values(array_filter(poi_items($id),function($i){return $i['item_name']==='HTTPS';}))[0];
-    item_check($https['category']==='plugin' && $https['cost_id'],'二次补充明确成本后识别软件并补齐成本');
-    item_check(count(ps_costs($id))===3,'补充只增加缺失软件成本一次');
+    item_check($https['category']==='certificate' && $https['cost_id'] && count(ps_costs($id))===3,'HTTPS 按 SSL 证书带入标准成本');
+    item_check(poi_from_row('HTTPS',200,['成本'],[160],$templates,12)[0]['category']==='plugin','原表成本恰为软件价时识别为软件');
     $pdo->prepare("UPDATE project_orders SET settlement_status='locked' WHERE id=?")->execute([$id]);
     $oldCosts=ps_costs($id);
     poi_save($id,poi_from_row('证书维护说明',0,[],[],$templates,10),0,$actor,true);

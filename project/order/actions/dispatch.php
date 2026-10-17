@@ -10,7 +10,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $lock->execute([$id]);
             $currentStatus = $lock->fetchColumn();
             if ($currentStatus === false || in_array($currentStatus, ['approved','locked'], true)) throw new RuntimeException('订单已审核，修改须走调整流程');
-            if (!$finance && !in_array($action, ['claim_backend', 'add_software_tester'], true)) {
+            $isDeliveryAction = in_array($action, ['mark_delivery_finished', 'review_delivery_completion'], true) && ps_can_mark_delivery_finished($actor);
+            if (!$finance && !$isDeliveryAction && !in_array($action, ['claim_backend', 'add_software_tester'], true)) {
                 $access = db()->prepare('SELECT 1 FROM project_participants WHERE order_id=? AND employee_id=? LIMIT 1');
                 $access->execute([$id, $actor['employee_id']]);
                 if (!$access->fetchColumn()) throw new RuntimeException('已不再参与此订单，请刷新页面');
@@ -56,6 +57,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             /* split: project/order/actions/cost/void_cost.php */ include (dirname(__DIR__, 2)) . '/order/actions/cost/void_cost.php';
         } elseif ($action === 'post_adjustment') {
             /* split: project/order/actions/order_meta/post_adjustment.php */ include (dirname(__DIR__, 2)) . '/order/actions/order_meta/post_adjustment.php';
+        } elseif ($action === 'mark_delivery_finished') {
+            /* split: project/order/actions/delivery_upgrade/mark_delivery_finished.php */ include (dirname(__DIR__, 2)) . '/order/actions/delivery_upgrade/mark_delivery_finished.php';
         } elseif ($action === 'apply_delivery_completion') {
             /* split: project/order/actions/delivery_upgrade/apply_delivery_completion.php */ include (dirname(__DIR__, 2)) . '/order/actions/delivery_upgrade/apply_delivery_completion.php';
         } elseif ($action === 'review_delivery_completion') {
@@ -75,4 +78,3 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         header('Location: ' . BASE_URL . '/project/order.php?id=' . $id . '&saved=1'); exit;
     } catch (Throwable $e) { if (db()->inTransaction()) db()->rollBack(); $error = $e->getMessage(); }
 }
-

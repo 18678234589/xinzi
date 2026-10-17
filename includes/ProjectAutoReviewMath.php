@@ -3,6 +3,7 @@ require_once __DIR__ . '/ProjectCommissionRoles.php';
 /** Deterministic review policy. No database, network, AI or clock side effects. */
 const PA_POLICY_VERSION = '2026-10-15.1';
 const PA_SPOT_CHECK_BUSINESSES = ['设计', 'AI网站定制', '网站模板']; // 不逐单财务审核、改为事后抽查的业务
+const PA_PER_ORDER_BUSINESSES = ['回购订单']; // 提成只有每单固定补助、订单不带售价和收款的业务：不要求收款记录，登记完成后直接结算
 
 function pa_cents($value)
 {
@@ -86,8 +87,10 @@ function pa_evaluate(array $ctx)
     };
     $receipt = (int)round((float)$o['receipt_amount'] * 100);
     foreach ($ctx['items'] ?? [] as $item) {
-        if (empty($item['cost_id']) || $item['cost_status'] === 'rejected' || $item['cost_status'] === null) {
-            $add('item_cost_' . $item['id'], '商品“' . $item['item_name'] . '”尚未关联有效成本，请在结算单确认；收入不会重复计算');
+        if (!empty($item['template_id']) || ((float)($item['reported_cost'] ?? 0) > 0)) {
+            if (empty($item['cost_id']) || $item['cost_status'] === 'rejected' || $item['cost_status'] === null) {
+                $add('item_cost_' . $item['id'], '商品“' . $item['item_name'] . '”尚未关联有效成本，请在结算单确认；收入不会重复计算');
+            }
         }
     }
     $refund = (int)round((float)$o['refund_amount'] * 100);
@@ -195,6 +198,12 @@ function pa_evaluate(array $ctx)
             $spotReceipt = $e['paid_cents'] !== null ? $e['paid_cents'] : (int)round((float)$o['contract_amount'] * 100);
             if ($spotReceipt <= 0) $add('spot_no_sale', '没有售价也没有实付记录，无法登记收款；请补齐售价');
         }
+        $kinds = array_column($reasons, 'kind');
+        $exception = in_array('exception', $kinds, true); $waitSync = in_array('sync', $kinds, true); $waitFinance = in_array('finance', $kinds, true);
+    }
+    // 每单固定补助的业务（回购订单）：只看每单补助，不要求收款 / 实收；其余检查（日期、人员、规则、交付）照常。
+    if (!$closed && in_array(ps_business_normalize($o['project_type'] ?? ''), PA_PER_ORDER_BUSINESSES, true) && !empty($subsidy)) {
+        foreach (['receipt_missing', 'income', 'monthly_profit_receipt', 'sale_for_share'] as $code) unset($reasons[$code]);
         $kinds = array_column($reasons, 'kind');
         $exception = in_array('exception', $kinds, true); $waitSync = in_array('sync', $kinds, true); $waitFinance = in_array('finance', $kinds, true);
     }

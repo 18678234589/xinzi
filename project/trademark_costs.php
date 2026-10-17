@@ -38,15 +38,15 @@ $cssFile = dirname(__DIR__) . '/assets/css/rule_algo.css';
     <div class="tmc-why"><b>原因：</b>这 <?php echo count($g['orders']); ?> 张订单每张都带入了官费，合计比只计一次多出 <b>¥<?php echo e(number_format($g['dupe'], 2)); ?></b>。如果它们其实是同一件商标（例如一单被拆成两次付款），官费只应计一次，多计的会让这些订单的预计分成偏低甚至为负。</div>
     <div class="tmc-tags tmc-same"><small class="text-muted">相同：</small><?php foreach ($g['same'] as $t): ?><span><?php echo e($t); ?></span><?php endforeach; ?></div>
     <?php if ($g['diff']): ?><div class="tmc-tags tmc-diff"><small class="text-muted">不同：</small><?php foreach ($g['diff'] as $t): ?><span><?php echo e($t); ?></span><?php endforeach; ?></div><?php endif; ?>
-    <div class="tmc-advice is-<?php echo e($g['advice']); ?>"><i class="fas fa-lightbulb mr-1"></i><b>建议：</b><?php echo e($g['blocked'] ? '其中有已审核的订单，不能直接合并，请先走“分成更正申请”；如果确认不是同一件，可以选“各自保留”。' : $g['advice_text']); ?></div>
+    <div class="tmc-advice is-<?php echo e($g['advice']); ?>"><i class="fas fa-lightbulb mr-1"></i><b>建议：</b><?php echo e($g['advice_text'] . ($g['blocked'] ? '（其中有已审核订单，合并只作废重复的官费记录，已发分成不自动改。）' : '')); ?></div>
     <table class="tmc-table"><thead><tr><th>订单</th><th>日期</th><th>类型</th><th>售价</th><th>官费</th><th>官费是怎么来的</th></tr></thead><tbody>
     <?php foreach ($g['orders'] as $o): ?><tr><td><a class="ra-link" target="_blank" href="<?php echo BASE_URL; ?>/project/order.php?id=<?php echo (int)$o['id']; ?>"><?php echo e($o['order_no']); ?></a><?php if ($o['frozen']): ?> <small class="text-danger">已审核</small><?php endif; ?></td><td><?php echo e($o['order_date']); ?></td><td><?php echo e($o['order_kind']); ?></td><td>¥<?php echo e(number_format((float)$o['contract_amount'], 2)); ?></td><td>¥<?php echo e(number_format($o['cost'], 2)); ?></td><td><?php echo e($o['source']); ?></td></tr><?php endforeach; ?>
     </tbody></table>
     <div class="tmc-act">
       <form method="post" class="<?php echo $advSame ? 'is-advised' : ''; ?>"><input type="hidden" name="csrf" value="<?php echo e(ps_csrf_token()); ?>"><input type="hidden" name="group" value="<?php echo e($g['key']); ?>"><input type="hidden" name="decision" value="same">
         <strong>是同一件商标，官费只计一次<?php if ($advSame): ?><span class="tmc-tag-adv">建议</span><?php endif; ?></strong>
-        <p><?php if ($g['blocked']): ?>其中有已审核 / 锁定结算的订单，重复官费不能自动作废，请先通过<a href="<?php echo e(BASE_URL . '/project/corrections.php'); ?>">分成更正申请</a>处理。<?php else: ?>官费保留在售价最高的订单上，其余订单的重复官费作废（记录保留，可追溯），预计分成随即重算。<?php endif; ?></p>
-        <button class="ra-btn<?php echo $advSame ? '' : ' ghost'; ?>" type="submit" <?php echo $g['blocked'] ? 'disabled' : ''; ?> onclick="return confirm('确认这几张订单是同一件商标，官费只计一次？');"><i class="fas fa-link"></i> 合并，只计一次</button></form>
+        <p>官费保留在售价最高的订单上（已审核的优先），其余订单的重复官费作废（记录保留，可追溯），未审核订单的预计分成随即重算。<?php if ($g['blocked']): ?><br><b>含已审核订单：</b>分成快照不会自动改动，需要按新成本补发时请走<a href="<?php echo e(BASE_URL . '/project/corrections.php'); ?>">分成更正申请</a>。<?php if (!$isFinance): ?>只有财务可以合并这一组。<?php endif; ?><?php endif; ?></p>
+        <button class="ra-btn<?php echo $advSame ? '' : ' ghost'; ?>" type="submit" <?php echo $g['blocked'] && !$isFinance ? 'disabled' : ''; ?> onclick="return confirm('确认这几张订单是同一件商标，官费只计一次？');"><i class="fas fa-link"></i> 合并，只计一次</button></form>
       <form method="post" class="<?php echo $advSep ? 'is-advised' : ''; ?>"><input type="hidden" name="csrf" value="<?php echo e(ps_csrf_token()); ?>"><input type="hidden" name="group" value="<?php echo e($g['key']); ?>"><input type="hidden" name="decision" value="separate">
         <strong>不是同一件，各自独立<?php if ($advSep): ?><span class="tmc-tag-adv">建议</span><?php endif; ?></strong>
         <p>每张订单保留自己的官费，不做任何改动，这组订单以后不再提醒。适用于同一客户先后办理不同的商标或不同的案件。</p>

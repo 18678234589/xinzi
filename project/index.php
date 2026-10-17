@@ -99,7 +99,7 @@ require_once __DIR__ . '/../includes/ProjectOrderTrash.php';
 pot_ensure(); // 建表放在任何事务之前（DDL 会隐式提交）
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') pot_purge_expired(); // 回收站保留 30 天，过期顺手清除
 $canDeleteOrders = $actor['role'] === 'finance' || $isAfterSalesDept || (isset($deleteAllowEmployeeIds[(int)($actor['employee_id'] ?? 0)])) || in_array($actor['role'], ['customer_service', 'technical'], true); // 客服 / 技术可删本人参与、未审核的订单（规则见 pod_blocker）
-$canSelectOrders = $canDeleteOrders || in_array($actor['role'], ['customer_service', 'technical', 'finance'], true);
+$canSelectOrders = $canDeleteOrders || in_array($actor['role'], ['customer_service', 'technical', 'finance'], true) || ps_can_mark_delivery_finished($actor);
 
 // 单个快捷修改：改类型、改成本、改到期时间、加客户联系方式
 /* split: project/index/actions/quick_update.php */ include __DIR__ . '/index/actions/quick_update.php';

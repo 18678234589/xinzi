@@ -97,6 +97,19 @@
                     }, $raw);
                     $entry['raw'] = $raw; $entry['head'] = $head;
                 }
+                // 回购订单（督导）：每行一张回购订单；表尾还有“单量 / 金额 / 提成 / 基本工资 / 全勤奖”汇总行（没有日期），不能当订单，置空忽略。
+                // 订单编号加 HG- 前缀单独建单：这些号多半已作为店铺订单存在，不加前缀会把她挂进别人的订单、改动对方的分成。
+                if ($selectedBusiness === '回购订单' && $head && $raw) {
+                    $hgDate = array_search('日期', $head, true); $hgNo = array_search('订单编号', $head, true);
+                    if ($hgDate !== false && $hgNo !== false) $entry['raw'] = $raw = array_map(function ($r) use ($hgDate, $hgNo) {
+                        if (!is_array($r)) return $r;
+                        $r = array_values($r);
+                        $no = trim((string)($r[$hgNo] ?? '')); $date = trim((string)($r[$hgDate] ?? ''));
+                        if ($no === '' || $date === '') return array_fill(0, count($r), '');
+                        $r[$hgNo] = 'HG-' . ltrim($no, "'");
+                        return $r;
+                    }, $raw);
+                }
                 // 森动备案：①“二次备案”分表按“2026年N月份”标题分段，每行取该月最后一天为日期（订单号带月份，同域名不同月份不合并）；
                 //   已核算月份及以前的段落不导入。②“备案状态=未备案”且无订单号 / 日期的占位行直接忽略（备案完成后再传）。行号保持不变，忽略的行置空。
                 if ($selectedBusiness === '森动备案' && $head && $raw) {

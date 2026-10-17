@@ -162,3 +162,26 @@ function ps_trademark_fix_row($row, $map)
     }
     return $row;
 }
+
+/** 网站类订单只有前端、还没有后端，而表格里写本人是后端：允许本人作为后端加入（原前端不动）。 */
+function ps_import_backend_join_open($orderId, $role, $business)
+{
+    if (!ps_is_website_order($business) || !in_array('后端', ps_role_keys($role), true)) return false;
+    $q = db()->prepare("SELECT 1 FROM project_participants WHERE order_id=? AND commission_group='technical' AND role_name LIKE '%后端%' LIMIT 1");
+    $q->execute([(int)$orderId]);
+    return !$q->fetchColumn();
+}
+
+/** 与订单页“指定后端同事”一致：前后端各占技术组 50%，已在单上则不重复。 */
+function ps_import_add_backend($orderId, $employeeId, $actor, $context = [])
+{
+    $pdo = db();
+    $q = $pdo->prepare("SELECT 1 FROM project_participants WHERE order_id=? AND employee_id=? AND commission_group='technical'");
+    $q->execute([(int)$orderId, (int)$employeeId]);
+    if ($q->fetchColumn()) return false;
+    $pdo->prepare("UPDATE project_participants SET group_weight=0.5 WHERE order_id=? AND commission_group='technical'")->execute([(int)$orderId]);
+    $pdo->prepare("INSERT INTO project_participants (order_id,employee_id,commission_group,role_name,group_weight) VALUES (?,?,'technical','后端',0.5)")->execute([(int)$orderId, (int)$employeeId]);
+    $pdo->prepare('UPDATE project_orders SET row_version=row_version+1 WHERE id=?')->execute([(int)$orderId]);
+    ps_audit('order', (int)$orderId, 'import_join_backend', $actor, ['employee_id' => (int)$employeeId] + $context);
+    return true;
+}

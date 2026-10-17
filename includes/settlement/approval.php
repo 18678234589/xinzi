@@ -31,8 +31,13 @@ function ps_approve_order($orderId, $actor, $payrollMonth)
         $needsResources = !empty(ps_business_catalog()[ps_business_normalize($order['project_type'])]['resources']);
         if ($needsResources && (!$resource || $resource['domain_mode'] === 'pending')) throw new RuntimeException('资源使用尚未由技术确认，不能生成项目分成');
         require_once (dirname(__DIR__, 1)) . '/ProjectOrderItems.php';
-        foreach (poi_items($orderId) as $item) if (!$item['cost_id'] || $item['cost_status'] !== 'approved') throw new RuntimeException('商品“' . $item['item_name'] . '”成本未完整核对，不能生成项目分成'
-    );
+        foreach (poi_items($orderId) as $item) {
+            if (!empty($item['template_id']) || ((float)($item['reported_cost'] ?? 0) > 0)) {
+                if (!$item['cost_id'] || $item['cost_status'] !== 'approved') {
+                    throw new RuntimeException('商品“' . $item['item_name'] . '”成本未完整核对，不能生成项目分成');
+                }
+            }
+        }
         $sslExpected = (float)($resource['ssl_expected_amount'] ?? 0);
         if ($sslExpected > 0) {
             $sslApprovedCents = 0;
