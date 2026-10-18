@@ -43,4 +43,17 @@ foreach ([['域名', 'abc.com'], ['域名注册', ''], ['域名注册', '域名�
     $it = poi_from_row($n, '100', $head, $row($n, $d), $templates, 1);
     $check(empty($it[0]['template_id']), "不猜：名称“{$n}”域名“{$d}”");
 }
+// 域名来源：模板有下拉列（客户提供 / 我们注册），导入时映射成“无成本 / 按后缀选注册模板”。
+require_once __DIR__ . '/../includes/ProjectMiniappTemplate.php';
+foreach (['网站模板', 'AI网站定制'] as $biz) {
+    $cols = pmt_web_columns($biz); $src = array_values(array_filter($cols, fn($c) => $c[0] === '域名来源'));
+    $check(count($src) === 1 && $src[0][2] === 'list' && $src[0][3] === ['客户提供', '我们注册'] && !array_filter($cols, fn($c) => $c[0] === '域名使用'), "$biz 模板：域名来源下拉（客户提供 / 我们注册）");
+}
+$check(ps_import_domain_mode('客户提供') === 'none' && ps_import_domain_mode('我们注册') === 'template' && ps_import_domain_mode('是') === 'template' && ps_import_domain_mode('否') === 'none' && ps_import_domain_mode('') === '', '域名来源映射；旧的是 / 否仍可用');
+$domainTemplates = ps_intake_templates('domain');
+foreach (['cn' => 35, 'com' => 58, 'net' => 93, 'org' => 85] as $tld => $price) {
+    $sg = ps_intake_domain_suggestion("shop.$tld 空间说明", $domainTemplates);
+    $check($sg && (float)$sg['price'] === (float)$price, "我们注册 + .$tld → 注册价 {$price}，不落到不分后缀的 80");
+}
+$sg = ps_intake_domain_suggestion('abc.com', $domainTemplates, '续费'); $check($sg && (float)$sg['price'] === 86.0, '续费单 .com → 续费价 86');
 echo "domain_cost_smoke 通过\n";

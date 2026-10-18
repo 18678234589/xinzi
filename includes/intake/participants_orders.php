@@ -48,11 +48,14 @@ function ps_intake_participants($orderId, $groups, $business = null)
     }
 }
 
-function ps_intake_domain_suggestion($resourceNote, $templates)
+function ps_intake_domain_suggestion($resourceNote, $templates, $action = '注册')
 {
     $resourceNote = mb_strtolower(trim((string)$resourceNote));
     if (!preg_match('/\.(com|cn|net|org|top|xyz)(?:\b|\/|：|:|，|,|\s|$)/iu', $resourceNote, $match)) return null;
     $suffix = '.' . strtolower($match[1]);
+    // 成本中心按后缀分开的域名模板（注册 / 续费价）优先；没有时再按旧的“含后缀的一年期”规则猜。
+    $byTld = array_values(array_filter($templates, function ($t) use ($suffix, $action) { return mb_strpos($t['name'], '域名 ' . $suffix . '（') === 0 && mb_strpos((string)$t['specification'], $action) === 0; }));
+    if (count($byTld) === 1) return $byTld[0];
     $matches = [];
     foreach ($templates as $template) {
         $label = mb_strtolower($template['name'] . ' ' . $template['specification']);

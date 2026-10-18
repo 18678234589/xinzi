@@ -48,6 +48,8 @@ function ps_preset_cost_templates()
         $rows[] = ['category' => 'domain', 'business_scope' => '', 'name' => $domainName, 'specification' => '注册 首年', 'unit' => '年', 'cost_kind' => 'annual', 'price' => $domainPrice[0], 'supplier_price' => $domainPrice[0]];
         $rows[] = ['category' => 'domain', 'business_scope' => '', 'name' => $domainName, 'specification' => '续费 每年', 'unit' => '年', 'cost_kind' => 'annual', 'price' => $domainPrice[1], 'supplier_price' => $domainPrice[1]];
     }
+    // 凡科注册的 .cn 比商务中国便宜；名称不带“（”，不会被按后缀自动选中，需要时在成本中心下拉里手动选。
+    $rows[] = ['category' => 'domain', 'business_scope' => '', 'name' => '域名 .cn 凡科注册', 'specification' => '注册 首年', 'unit' => '年', 'cost_kind' => 'annual', 'price' => 29, 'supplier_price' => 29];
     $rows[] = ['category' => 'certificate', 'business_scope' => '', 'name' => '域名SSL证书', 'specification' => '1年', 'unit' => '年', 'cost_kind' => 'annual', 'price' => 30, 'supplier_price' => 30];
     $rows[] = ['category' => 'certificate', 'business_scope' => '', 'name' => '泛域名SSL证书', 'specification' => '1年', 'unit' => '年', 'cost_kind' => 'annual', 'price' => 250, 'supplier_price' => 250];
     return $rows;

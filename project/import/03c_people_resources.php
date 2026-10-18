@@ -150,7 +150,7 @@
                     if ($record['domain_mode'] === 'pending' && $resourceSelection && !$record['resource_locked']) $record['warning'] .= ($record['warning'] ? '；' : '') . '表格没有域名列，资源留待技术在结算单确认'
     ;
                     if ($resourceSelection && !$record['resource_locked'] && $record['domain_mode'] === 'template') {
-                        $suggestion = ps_intake_domain_suggestion($record['resource_note'], $domainTemplates);
+                        $suggestion = ps_intake_domain_suggestion(($record['site_key'] ?? '') . ' ' . $record['resource_note'], $domainTemplates, mb_strpos((string)($record['order_kind'] ?? ''), '续费') !== false ? '续费' : '注册');
                         if ($suggestion) $record['domain_template_id'] = (int)$suggestion['id'];
                         else { $record['status'] = '需选择域名模板'; $record['warning'] = '表格只写“是”，未能唯一确认域名规格与周期'; }
                     } elseif ($resourceSelection && !$record['resource_locked'] && $record['domain_mode'] === '') {

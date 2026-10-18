@@ -262,7 +262,7 @@ function ps_business_import_columns($business)
     if (!empty($definition['program'])) $columns['program_name'] = ['程序名称', '程序套餐'];
     if (in_array($business, ['网站模板', 'AI网站定制'], true)) $columns['site_project_key'] = ['网站项目标识', '网站项目名称', '项目网站', '项目域名', '网站域名'];
     if ($definition['resources']) {
-        $columns['domain_used'] = ['域名使用（写是/否）', '域名使用'];
+        $columns['domain_used'] = ['域名使用（写是/否）', '域名使用', '域名来源'];
         $columns['ssl_used'] = ['SSL证书使用（写真实成本）', 'SSL证书使用', 'SSL使用'];
         $columns['resource_note'] = ['填一下域名或者空间', '空间+域名网址', '域名或空间'];
     }
