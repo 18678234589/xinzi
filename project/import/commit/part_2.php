@@ -216,6 +216,7 @@
                     if ($domainTemplate) ps_intake_add_template_cost($orderId, $domainTemplate, $actor, 'Excel 第' . $row['line'] . '行：域名');
                     if ($serverTemplate) ps_intake_add_template_cost($orderId, $serverTemplate, $actor, 'Excel 第' . $row['line'] . '行：服务器');
                     poi_save($orderId, $row['items'] ?? [], (int)$_SESSION['project_import_file'], $actor);
+                    if ($businessDefinition['resources']) ps_intake_ssl_standard_cost($orderId, $row['ssl_used'] ?? null, $actor, 'Excel 第' . $row['line'] . '行：SSL 报备与标准成本一致');
                     // 商标成本按明确办理事项同步；实际成本差额、成品/国际/法务成本须财务审核。
                     if ($writeBusiness === '商标') ptc_sync_order_cost($orderId, $actor, 'Excel 第' . $row['line'] . '行', $row['direct_cost'] ?? '', implode(' ', [$row['details']['trademark_name'] ?? '', $row['details']['service_type'] ?? '', $row['contact_note'] ?? '', $row
     ['business_text'] ?? '', $row['resource_note'] ?? '']));

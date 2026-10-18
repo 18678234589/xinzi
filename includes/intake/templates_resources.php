@@ -129,3 +129,18 @@ function ps_intake_confirm_resources($orderId, $mode, $domainTemplateId, $server
     poi_sync_costs($orderId, $actor);
     return ['domain_template_id' => $domain['id'] ?? null, 'server_template_id' => $server['id'] ?? null, 'program_template_id' => $program['id'] ?? null];
 }
+
+/** 表里报备的 SSL 实际成本恰好等于成本中心“域名SSL证书”标准成本，且订单还没有证书成本时，带入标准成本（待确认）。返回是否新增。 */
+function ps_intake_ssl_standard_cost($orderId, $sslAmount, $actor, $origin)
+{
+    if (!is_numeric($sslAmount) || (float)$sslAmount <= 0) return false;
+    $q = db()->prepare("SELECT * FROM project_cost_templates WHERE is_active=1 AND requires_proof=0 AND category='certificate' AND name='域名SSL证书' AND price_mode='fixed' ORDER BY id DESC LIMIT 1");
+    $q->execute();
+    $tpl = $q->fetch();
+    if (!$tpl || abs((float)$sslAmount - (float)$tpl['price']) > 0.001) return false;
+    $has = db()->prepare("SELECT COUNT(*) FROM project_costs WHERE order_id=? AND category='certificate' AND review_status<>'rejected'");
+    $has->execute([(int)$orderId]);
+    if ((int)$has->fetchColumn()) return false;
+    ps_intake_add_template_cost((int)$orderId, $tpl, $actor, $origin, 1, 'pending');
+    return true;
+}
