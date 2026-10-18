@@ -43,6 +43,11 @@ function ps_preset_cost_templates()
     $rows[] = ['category' => 'outsourcing', 'business_scope' => 'AI网站定制', 'name' => '华梦定制外包', 'specification' => '按售价 80%', 'unit' => '单', 'cost_kind' => 'one_time', 'price' => 80, 'supplier_price' => 80, 'price_mode' => 'percent'];
     $rows[] = ['category' => 'domain', 'business_scope' => '', 'name' => '域名 .com/.cn/.net 首年', 'specification' => '1年', 'unit' => '年', 'cost_kind' => 'annual', 'price' => 80, 'supplier_price' => 80];
     $rows[] = ['category' => 'domain', 'business_scope' => '', 'name' => '域名续费（次年起）', 'specification' => '1年', 'unit' => '年', 'cost_kind' => 'annual', 'price' => 90, 'supplier_price' => 90];
+    // 按后缀分开的域名成本（注册首年 / 续费每年）：技术或售后注册域名、表格里写“域名注册 / 域名续费”时按后缀自动带入。
+    foreach (['域名 .cn（英文）' => [35, 35], '域名 .com（DR101）' => [58, 86], '域名 .net（DR102）' => [93, 97], '域名 .org（DR103）' => [85, 92]] as $domainName => $domainPrice) {
+        $rows[] = ['category' => 'domain', 'business_scope' => '', 'name' => $domainName, 'specification' => '注册 首年', 'unit' => '年', 'cost_kind' => 'annual', 'price' => $domainPrice[0], 'supplier_price' => $domainPrice[0]];
+        $rows[] = ['category' => 'domain', 'business_scope' => '', 'name' => $domainName, 'specification' => '续费 每年', 'unit' => '年', 'cost_kind' => 'annual', 'price' => $domainPrice[1], 'supplier_price' => $domainPrice[1]];
+    }
     $rows[] = ['category' => 'certificate', 'business_scope' => '', 'name' => '域名SSL证书', 'specification' => '1年', 'unit' => '年', 'cost_kind' => 'annual', 'price' => 30, 'supplier_price' => 30];
     $rows[] = ['category' => 'certificate', 'business_scope' => '', 'name' => '泛域名SSL证书', 'specification' => '1年', 'unit' => '年', 'cost_kind' => 'annual', 'price' => 250, 'supplier_price' => 250];
     return $rows;

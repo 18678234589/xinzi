@@ -144,3 +144,30 @@ function ps_intake_ssl_standard_cost($orderId, $sslAmount, $actor, $origin)
     ps_intake_add_template_cost((int)$orderId, $tpl, $actor, $origin, 1, 'pending');
     return true;
 }
+
+/** 域名后缀 → 成本中心域名模板（$action：注册 / 续费）。后缀不在成本中心（.com.cn、.top 等）或没有模板时返回 null。 */
+function ps_domain_cost_template($domain, $action)
+{
+    $domain = strtolower(trim((string)$domain));
+    if (!preg_match('/\.(cn|com|net|org)$/', $domain, $m) || substr($domain, -7) === '.com.cn') return null;
+    $q = db()->prepare("SELECT * FROM project_cost_templates WHERE is_active=1 AND requires_proof=0 AND category='domain' AND name LIKE ? AND specification LIKE ? ORDER BY version DESC, id DESC LIMIT 1");
+    $q->execute(['域名 .' . $m[1] . '（%', $action . '%']);
+    return $q->fetch() ?: null;
+}
+
+/** 系统内注册域名后自动记成本：首年按“注册”价，其余年份按“续费”价；同一域名不重复记，已审核 / 锁定订单不动。返回新增笔数。 */
+function ps_domain_register_cost($orderId, $domain, $term, $actor)
+{
+    $domain = strtolower(trim((string)$domain));
+    $st = db()->prepare('SELECT settlement_status FROM project_orders WHERE id=?');
+    $st->execute([(int)$orderId]);
+    if (!in_array($st->fetchColumn(), ['draft', 'review'], true)) return 0;
+    $reason = '域名注册：' . $domain;
+    $has = db()->prepare("SELECT COUNT(*) FROM project_costs WHERE order_id=? AND reason LIKE ? AND review_status<>'rejected'");
+    $has->execute([(int)$orderId, $reason . '%']);
+    if ((int)$has->fetchColumn() || !($first = ps_domain_cost_template($domain, '注册'))) return 0;
+    ps_intake_add_template_cost((int)$orderId, $first, $actor, $reason . '（首年）');
+    $term = max(1, (int)$term);
+    if ($term > 1 && ($renew = ps_domain_cost_template($domain, '续费'))) { ps_intake_add_template_cost((int)$orderId, $renew, $actor, $reason . '（续费 ' . ($term - 1) . ' 年）', $term - 1); return 2; }
+    return 1;
+}

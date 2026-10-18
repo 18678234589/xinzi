@@ -59,6 +59,19 @@ function poi_template($name, $templates, $resourceHint = '')
     return count($preferred) === 1 ? $preferred[0] : null;
 }
 
+/** “域名注册 / 注册域名 / 域名续费 / 续费域名”：按“域名”列里的域名后缀取成本中心域名模板；只写“域名”、没有域名或后缀不明时不猜。 */
+function poi_domain_template($name, $head, $row)
+{
+    if (!preg_match('/^(?:域名(注册|续费)|(注册|续费)域名)$/u', poi_name($name), $m)) return null;
+    $action = $m[1] !== '' ? $m[1] : $m[2];
+    foreach ($head as $i => $h) {
+        if (preg_replace('/\s+/u', '', (string)$h) !== '域名') continue;
+        $cell = strtolower(trim((string)($row[$i] ?? '')));
+        if (preg_match('/^[a-z0-9][a-z0-9.\-]*\.(?:cn|com|net|org)$/', $cell)) return ps_domain_cost_template($cell, $action);
+    }
+    return null;
+}
+
 /** 一行可有多个商品；没有明确分项售价时不猜价格分配。 */
 function poi_from_row($name, $sale, $head, $row, $templates, $line, $resourceHint = '')
 {
@@ -85,6 +98,7 @@ function poi_from_row($name, $sale, $head, $row, $templates, $line, $resourceHin
             if (preg_match('/(\d+)年(?:的)?(?:空间|域名|套餐)/u',$context,$ym)) { $lookupName=$ym[1].'年'.$part; break; }
         }
         $t = poi_template($lookupName, $templates, $resourceHint);
+        if (!$t) $t = poi_domain_template($part, $head, $row);
         // HTTPS 默认是 SSL 证书；原表明确成本恰好等于软件价（且只吻合一个）时才识别为软件。
         if (!$t && poi_name($part)==='https' && $reported!==null) {
             $matches=array_values(array_filter($templates,function($candidate)use($reported){return in_array($candidate['category'],['certificate','plugin'],true) && preg_match('/ssl|https/iu',$candidate['name']) && abs((float)($candidate['price']??-1)-(float)$reported)<.001;}));
