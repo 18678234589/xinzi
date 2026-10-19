@@ -82,11 +82,11 @@ function pbr_orders($employeeId, $month, $scope = null)
     $rows = $q->fetchAll();
     foreach ($rows as &$r) {
         $why = [];
-        if ((float)$r['receipt_amount'] - (float)$r['refund_amount'] <= 0) $why[] = '还没有确认的收款';
+        if ((float)$r['receipt_amount'] - (float)$r['refund_amount'] <= 0) $why[] = (float)$r['contract_amount'] > 0 ? '还没有确认的收款' : ($r['order_kind'] === '编辑对接' ? '' : '没有售价，需补售价（或确认这是只按每单补助结算的单）');
         if ($r['delivery_status'] !== 'finished') $why[] = '还没确认业务已完成';
         $exception = $r['review_state'] === 'exception';
         foreach (json_decode((string)$r['reasons_json'], true) ?: [] as $reason) if (($reason['kind'] ?? '') === 'exception') $why[] = (string)$reason['text'];
-        $r['why'] = array_values(array_unique($why));
+        $r['why'] = array_values(array_unique(array_filter($why, 'strlen')));
         $r['exception'] = $exception;
     }
     unset($r);
@@ -150,8 +150,8 @@ function pbr_approve(array $actor, $requestId, array $orderIds, $employeeId = 0,
             $row = $pdo->prepare('SELECT * FROM project_orders WHERE id=? FOR UPDATE'); $row->execute([$oid]); $order = $row->fetch();
             if (!$order || in_array($order['settlement_status'], ['approved', 'locked'], true)) throw new RuntimeException('已审核');
             $net = (float)$order['receipt_amount'] - (float)$order['refund_amount'];
-            if ($net <= 0) {
-                if ((float)$order['contract_amount'] <= 0) throw new RuntimeException('没有售价，无法登记收款');
+            // 没有售价的单（如微信代写“编辑对接”：不记销售额，只按每单固定补助结算）不需要登记收款；能不能审核由 ps_approve_order 按规则判断
+            if ($net <= 0 && (float)$order['contract_amount'] > 0) {
                 $pdo->prepare("INSERT INTO project_cash_movements (order_id,movement_type,amount,note,review_status,submitted_by_type,submitted_by_id,reviewed_by_admin,reviewed_at) VALUES (?,'receipt',?,?,'approved',?,?,?,NOW())")
                     ->execute([$oid, round((float)$order['contract_amount'], 2), $who . '批量审核：抽查后按售价确认收款（申请 #' . (int)$req['id'] . '）', $actor['type'], $actor['id'], $adminId]);
                 ps_recalculate_cash($oid);
