@@ -38,6 +38,10 @@
 
 ## 维护与回归
 
+财务“分成更正申请 → 重复订单”（`project/duplicate_orders.php`）按同一业务与规范化订单号查存量重复单，显示保留建议、日期/售价差异及疑似重复分成。确认删除后完整移入订单回收站，30 天内可还原；不同日期/售价、不同参与岗位、关联拆单、锁定或已核算月份的订单需人工处理。顶部铃铛有重复待办时可直达。
+
+新建与上传共用 `ps_order_no_resolve()`，识别旧单的“交易号、付款流水号、订单编号”等前缀；回归见 `tests/duplicate_orders_smoke.php`（仅本地隔离库）。
+
 `php migrations/repair_trademark_pricing.php` 演练校准成本中心并核对未审核订单，事务回滚；`--commit` 保存并把修改前数据存入 `storage/private/maintenance/*.json.php`（PHP防护头、0600权限）。生产修复是实际业务维护，测试仅运行在本地隔离数据库。
 
 回归：`tests/trademark_pricing_smoke.php` 覆盖10种标准服务、别名、多选项目、变量成本、纠正旧成本、重复同步及冻结保护；`tests/trademark_pricing_import_smoke.php` 运行真实预览、补填、补充上传、提交和重复上传流程。

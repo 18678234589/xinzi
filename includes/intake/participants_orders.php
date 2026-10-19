@@ -89,9 +89,9 @@ function ps_order_no_resolve($raw)
     // 只用前缀匹配走 order_no 索引（%…% 会全表扫描）：库里的旧写法是“标签：号码”或“号码 备注”。
     $escaped = str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], $canonical);
     $patterns = [$escaped . '%'];
-    foreach (['订单编号', '订单号', '订单', '单号', '编号'] as $label) foreach (['：', ':'] as $colon) foreach (['', ' '] as $space) $patterns[] = $label . $colon . $space
+    foreach (['订单编号', '订单号', '订单', '单号', '编号', '交易号', '交易单号', '交易流水号', '付款流水号', '流水号', '付款单号', '支付单号', '商户订单号'] as $label) foreach (['：', ':'] as $colon) foreach (['', ' '] as $space) $patterns[] = $label . $colon . $space
     . $escaped . '%';
-    $like = db()->prepare('SELECT order_no FROM project_orders WHERE ' . implode(' OR ', array_fill(0, count($patterns), 'order_no LIKE ?')) . ' ORDER BY id LIMIT 20');
+    $like = db()->prepare('SELECT order_no FROM project_orders WHERE ' . implode(' OR ', array_fill(0, count($patterns), 'order_no LIKE ?')) . ' ORDER BY id');
     $like->execute($patterns);
     foreach ($like->fetchAll(PDO::FETCH_COLUMN) as $stored) if (ps_order_no_canonical($stored) === $canonical) return $stored;
     return $canonical;

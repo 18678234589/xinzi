@@ -55,3 +55,14 @@ function pod_backup($orderId, $orderNo, $actor = null)
     require_once __DIR__ . '/ProjectOrderTrash.php';
     return '回收站#' . pot_trash($orderId, $orderNo, $actor ?: ['type' => 'system', 'id' => 0]);
 }
+
+/** 删除订单本体和全部关联行（与订单列表的删除一致，调用方负责事务、权限和回收站备份）。 */
+function pod_delete_rows($orderId)
+{
+    $pdo = db();
+    $pdo->prepare('DELETE t FROM project_technical_reconciliations t JOIN project_commission_snapshots s ON s.id=t.snapshot_id WHERE s.order_id=?')->execute([(int)$orderId]);
+    foreach (['project_order_items', 'project_commission_snapshots', 'project_commission_adjustments', 'project_cash_movements', 'project_costs', 'project_participants', 'project_order_sources', 'project_order_resources', 'project_order_requests', 'project_order_details'] as $table) {
+        $pdo->prepare('DELETE FROM ' . $table . ' WHERE order_id=?')->execute([(int)$orderId]);
+    }
+    $pdo->prepare('DELETE FROM project_orders WHERE id=?')->execute([(int)$orderId]);
+}
