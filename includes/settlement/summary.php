@@ -1,4 +1,5 @@
 <?php
+require_once __DIR__ . '/../ProjectMiniappDelivery.php';
 
 function ps_summary($order, $costs, $participants)
 {
@@ -36,6 +37,7 @@ function ps_summary($order, $costs, $participants)
         return $calc;
     };
     $orderKind = (string)($order['order_kind'] ?? '');
+    $outsourceCustomer = ps_miniapp_custom_order($order) && in_array('外包吕', [trim((string)($order['customer_name'] ?? '')), trim((string)($order['payment_nickname'] ?? ''))], true);
     // 业务默认店铺服务费按售价计（网站模板/环境配置/小程序 3%），AI 定制默认不扣；分成规则可按组或岗位覆盖。
     $businessFeeRate = ps_business_service_fee_rate($order['project_type']);
     $feeBase = (float)$order['refund_amount'] > 0 ? max(round($contract - (float)$order['refund_amount'], 2), 0.0) : $contract; // 有退款时服务费按退款后的净额计
@@ -59,11 +61,12 @@ function ps_summary($order, $costs, $participants)
     $fixedPayIds = ps_management_fixed_pay_ids();
     foreach (['technical', 'customer_service'] as $group) {
         $people = array_values(array_filter($participants, function ($p) use ($group) { return $p['commission_group'] === $group; }));
-        $defaultRule = ps_rule_for($group, $order['project_type'], $order['order_date'], '', $orderKind);
+        $defaultRule = ps_rule_for($group, $order['project_type'], $order['order_date'], $group === 'customer_service' && $outsourceCustomer ? '外包吕客服' : '', $orderKind);
         $weight = array_sum(array_map(function ($p) { return ps_software_testing_role($p['role_name'] ?? '') ? 0.0 : (float)$p['group_weight']; }, $people));
         $pool = 0.0; $estimatedPool = 0.0; $subsidy = 0.0; $missing = false; $subsidyRule = false;
         foreach ($people as $i => $person) {
             $rules = ps_rules_for_person($group, $order['project_type'], $order['order_date'], $person['role_name'] ?? '', $orderKind);
+            if ($group === 'customer_service' && $outsourceCustomer && $rules && (float)$rules[0]['rate'] > 0) $rules = ps_rules_for_person($group, $order['project_type'], $order['order_date'], '外包吕客服', $orderKind);
             if (ps_software_testing_role($person['role_name'] ?? '') && !ps_software_testing_enabled($person['employee_id'], $order['project_type'])) $rules = [];
             if (in_array((int)($person['employee_id'] ?? 0), $fixedPayIds, true)) {
                 $rules = [['id'=>0,'commission_group'=>$group,'project_type'=>$order['project_type'],'role_name'=>$person['role_name'] ?? '管理','order_kind'=>'*','calc_mode'=>'individual','rate'=>0,'per_order_subsidy'=>0,'note'=>'管理账户仅固定薪酬，不参与逐单分成']];
