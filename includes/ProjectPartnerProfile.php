@@ -5,10 +5,10 @@
  */
 require_once __DIR__ . '/ProjectSettlement.php';
 
-/** 谁能看全部人员的报酬、以及结算资料：财务（管理员登录）和管理层账号。 */
+/** 谁能看全部人员的报酬、以及结算资料：财务（管理员登录）账号。其他人员只能看到自己本人的金额。 */
 function pps_sees_all($actor)
 {
-    return is_array($actor) && (($actor['type'] ?? '') === 'admin' || ($actor['role'] ?? '') === 'finance' || ($actor['account_role'] ?? '') === 'management');
+    return is_array($actor) && (($actor['type'] ?? '') === 'admin' || ($actor['role'] ?? '') === 'finance');
 }
 
 function ppp_can($actor)

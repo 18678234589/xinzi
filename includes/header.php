@@ -124,7 +124,7 @@ $nav = function ($href, $icon, $label, $active) {
 <body class="app-warm<?php echo ($_rel ?? '') === 'project/dashboard.php' ? ' pd-shell' : ''; ?><?php echo !empty($_GET['embed']) ? ' is-embedded' : ''; ?>">
 <nav class="navbar navbar-expand-lg navbar-light fixed-top app-topbar">
     <button class="app-menu-btn d-lg-none" type="button" id="sidebarToggle" aria-label="打开菜单"><i class="fas fa-bars"></i></button>
-    <a class="navbar-brand" href="<?php echo BASE_URL; ?><?php echo ($project_staff['role'] ?? '') === 'governance' ? '/project/governance_ideas.php' : (($project_staff['role'] ?? '') === 'vault' ? '/project/vault.php' : ($project_staff ? '/project/index.php' : '/index.php')); ?>"><span class="app-brand-mark"><i class="fas fa-seedling"></i></span> 项目合作结算中心</a>
+    <a class="navbar-brand" href="<?php echo BASE_URL; ?>/index.php"><span class="app-brand-mark"><i class="fas fa-seedling"></i></span> 项目合作结算中心</a>
     <?php require __DIR__ . '/workbench-nav.php'; ?>
     <div class="ml-auto d-flex align-items-center">
         <?php if ($project_staff || $current_admin) { $bellCount = $project_staff ? (int)$unread_messages : (function () { try { require_once __DIR__ . '/commission_explain.php'; require_once __DIR__ . '/dup_feedback.php'; require_once __DIR__ . '/ProjectCostRequests.php'; require_once __DIR__ . '/ProjectSpotCheck.php'; return psc_pending_count() + ps_corr_pending_count() + (pd_is_dedicated_finance(ps_actor() ?: []) ? pd_answered_count() : 0) + pcr_pending_count(ps_actor() ?: []) + (function () { try { require_once __DIR__ . '/ProjectRuleAlgo.php'; require_once __DIR__ . '/ProjectOrderFix.php'; require_once __DIR__ . '/ProjectTrademarkDupCost.php'; require_once __DIR__ . '/ProjectDuplicateOrders.php'; return pra_pending_count() + pof_pending_count() + ptd_count() + ptd_mismatch_count() + pdo_duplicate_count(); } catch (Throwable $e) { return 0; } })(); } catch (Throwable $e) { return 0; } })(); $tmPending = $current_admin ? ptd_count() : 0; $dupPending = $current_admin ? pdo_duplicate_count() : 0; $bellHref = BASE_URL . ($project_staff ? '/project/messages.php' : ($dupPending ? '/project/duplicate_orders.php' : ($tmPending ? '/project/trademark_costs.php' : '/project/corrections.php'))); ?><a class="app-bell mr-3" href="<?php echo $bellHref; ?>" title="<?php echo $project_staff ? '消息通知' : ($dupPending ? '重复订单待核对（' . $dupPending . '组）：核对后删除多余订单' : ($tmPending ? '商标成本待核对（' . $tmPending . '组）：查看原因并确认处理' : '待处理的更正申请与重复订单号说明')); ?>" aria-label="消息通知"><i class="fas fa-bell"></i><?php if ($bellCount > 0): ?><span class="app-bell-badge"><?php echo $bellCount > 99 ? '99+' : $bellCount; ?></span><?php endif; ?></a><?php } ?>
@@ -140,11 +140,13 @@ $nav = function ($href, $icon, $label, $active) {
     <?php if ($project_staff): ?>
     <?php if ($project_staff['role'] === 'vault'): ?>
     <div class="sidebar-project-label">管理</div>
+    <?php echo $nav('/index.php', 'fa-home', '工作台首页', $is_home); ?>
     <?php if ($vault_nav): echo $nav('/project/vault.php', 'fa-key', '平台与服务器信息', $_rel === 'project/vault.php'); endif; ?>
     <?php echo $nav('/project/messages.php', 'fa-envelope', '我的站内信' . ($unread_messages ? '（' . $unread_messages . '）' : ''), $_rel === 'project/messages.php'); ?>
     <?php echo $nav('/project/profile.php', 'fa-user-cog', '我的账号', $_rel === 'project/profile.php'); ?>
     <?php elseif ($project_staff['role'] === 'governance'): ?>
     <div class="sidebar-project-label">管理层工作台</div>
+    <?php echo $nav('/index.php', 'fa-home', '工作台首页', $is_home); ?>
     <?php if (ps_governance_has_business(['id' => (int)($_SESSION['project_user_id'] ?? 0)])) echo $nav('/project/index.php', 'fa-file-circle-plus', '提交订单 / 我的订单', $_rel === 'project/index.php' || $_rel === 'project/order.php'); ?>
     <?php echo $nav('/project/governance_ideas.php', 'fa-lightbulb', '三天脑洞', $_rel === 'project/governance_ideas.php'); ?>
     <?php echo $nav('/project/messages.php', 'fa-envelope', '我的站内信' . ($unread_messages ? '（' . $unread_messages . '）' : ''), $_rel === 'project/messages.php'); ?>
@@ -159,6 +161,7 @@ $nav = function ($href, $icon, $label, $active) {
     <?php echo $nav('/project/profile.php', 'fa-user-cog', '我的账号', $_rel === 'project/profile.php'); ?>
     <?php else: ?>
     <div class="sidebar-project-label">我的工作台</div>
+    <?php echo $nav('/index.php', 'fa-home', '工作台首页', $is_home); ?>
     <?php echo $nav('/project/dashboard.php', 'fa-chart-line', '我的经营看板', $_rel === 'project/dashboard.php'); ?>
     <?php echo $nav('/project/index.php', 'fa-folder-open', '我的项目订单', $is_project_orders); ?>
     <?php try { if (function_exists('ptd_can_review') && ptd_can_review(ps_actor() ?: [])) { $tmN = ptd_count(); echo $nav('/project/trademark_costs.php', 'fa-copy', '商标成本核对' . ($tmN ? '（' . $tmN . '）' : ''), $_rel === 'project/trademark_costs.php'); } } catch (Throwable $e) { } ?>
