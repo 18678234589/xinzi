@@ -8,7 +8,7 @@
             if (in_array($orderRow['settlement_status'], ['approved', 'locked'], true)) {
                 $sq = db()->prepare('SELECT * FROM project_commission_snapshots WHERE order_id=? AND employee_id=? AND commission_group=? ORDER BY id DESC LIMIT 1');
                 $sq->execute([$id, $tEmp, $tGroup]);
-                if ($snap = $sq->fetch()) { $shown = round((float)$snap['commission_amount'] + (float)$snap['subsidy_amount'], 2); $detail = ['source' => 'snapshot', 'snapshot' =>
+                if ($snap = $sq->fetch()) { $shown = round((float)$snap['commission_amount'], 2); $detail = ['source' => 'snapshot', 'snapshot' =>
     $snap]; }
             } else {
                 $sumNow = ps_summary($orderRow, ps_costs($id), ps_participants($id));

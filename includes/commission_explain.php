@@ -88,9 +88,9 @@ function ps_explain_snapshot_steps(array $s)
     $rows[] = ['③ 服务费', '按规则费率计算', ps_yuan($s['service_fee'])];
     $rows[] = ['④ 比例 / 权重', ($mode === 'individual' ? '个人独立计提' : '组池分摊') . ' · 比例 ' . ps_pct($s['rate']) . ' · 组内权重 ' . ps_pct($s['group_weight']), ps_pct($s['rate'])];
     $rows[] = ['⑤ 计算式', (string)$s['calc_note'], ''];
-    $rows[] = ['⑥ 提成', '按上式计算，分到分位后归集尾差', ps_yuan($s['commission_amount'])];
+    $rows[] = ['⑥ 提成', '按上式计算，分到分位后归集尾差', ps_yuan((float)$s['commission_amount'] - (float)$s['subsidy_amount'])];
     $rows[] = ['⑦ 每单补助', '规则每单固定补助', ps_yuan($s['subsidy_amount'])];
-    $rows[] = ['⑧ 最终核算金额', '提成 + 补助（已入 ' . ($s['payroll_month'] ?: '结算月') . ' 报酬）', ps_yuan($s['commission_amount'] + $s['subsidy_amount'])];
+    $rows[] = ['⑧ 最终核算金额', '提成 + 补助（已入 ' . ($s['payroll_month'] ?: '结算月') . ' 报酬）', ps_yuan($s['commission_amount'])]; // commission_amount 已含每单补助
     return $rows;
 }
 

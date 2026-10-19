@@ -43,7 +43,7 @@ try {
     $lines = function ($month) { $out = []; foreach (ps_monthly_results($month, true) as $r) if (strpos($r['rule_name'], '微信代写部门利润池') === 0) $out[$r['rule_name']][(int)$r['employee_id']] = (float)$r['amount']; return $out; };
     $make('2026-12', 25000);
     $r = $lines('2026-12');
-    $pool = (75000 - 6000) * 0.10;
+    $pool = (75000 - 5000) * 0.10;
     $check(abs(($r['微信代写部门利润池'][$E('姚鹏')] ?? 0) - $pool * 0.13) < 0.01 && abs(($r['微信代写部门利润池'][$E('李雪')] ?? 0) - $pool * 0.13) < 0.01, '部门利润 75000：姚鹏、李雪各拿总提成 ' . $pool . ' × 13% = ' . round($pool * 0.13, 2));
     $check(abs(($r['微信代写部门利润池'][$E('韩菲菲')] ?? 0) - $pool * 0.68 / 3) < 0.01, '编辑按毛利占比分 68%（各 1/3）');
     $bonus = $r['微信代写部门利润池 · 利润奖励'] ?? [];

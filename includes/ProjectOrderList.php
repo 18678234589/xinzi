@@ -187,7 +187,7 @@ if ($approvedIds) {
     $snapQuery = db()->query('SELECT order_id,employee_id,commission_group,commission_amount,subsidy_amount FROM project_commission_snapshots WHERE order_id IN (' . implode(',', $approvedIds
     ) . ')');
     foreach ($snapQuery->fetchAll() as $snap) $snapshotMap[$snap['order_id'] . ':' . $snap['commission_group'] . ':' . $snap['employee_id']] = round((float)$snap['commission_amount'
-    ] + (float)$snap['subsidy_amount'], 2);
+    ], 2); // commission_amount 已含每单补助（审核时 = 分成份额 + 补助），不能再叠加 subsidy_amount，否则列表预计分成会翻倍
 }
 require_once __DIR__ . '/ProjectCostDisplay.php';
 $costDisplayStates = [];

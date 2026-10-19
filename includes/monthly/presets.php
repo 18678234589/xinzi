@@ -33,8 +33,8 @@ function ps_monthly_presets()
         ['name' => '其他业务提成（未接入系统）', 'rule_type' => 'manual', 'scope_business' => '*', 'scope_group' => '*', 'scope_role' => '*', 'employee' => null, 'metric'
     => 'profit', 'params' => [], 'note' => '标书、续费、代写等尚未在项目系统录单的业务提成，由财务每月填写'],
         ['name' => '微信代写部门利润池', 'rule_type' => 'profit_pool', 'scope_business' => '微信代写', 'scope_group' => 'customer_service', 'scope_role' => '*', 'employee'
-    => null, 'metric' => 'profit', 'params' => ['deduction' => 6000, 'rate' => 0.10, 'members_share' => 0.68, 'fixed' => [['name' => '姚鹏', 'share' => 0.13], ['name' => '李雪'
-    , 'share' => 0.13]], 'milestone' => ['from' => 60000, 'step' => 10000, 'amount' => 100, 'cap' => 1300]], 'note' => '《微信代写提成比例汇总》：(四名编辑总利润 − 1000×6) × 10%；姚鹏、李雪各 13%，编辑 68% 按本人利润占比'
+    => null, 'metric' => 'profit', 'params' => ['deduction' => 5000, 'rate' => 0.10, 'members_share' => 0.68, 'fixed' => [['name' => '姚鹏', 'share' => 0.13], ['name' => '李雪'
+    , 'share' => 0.13]], 'milestone' => ['from' => 60000, 'step' => 10000, 'amount' => 100, 'cap' => 1300]], 'note' => '《微信代写提成比例汇总》：(五人（编辑与客服）总利润 − 1000×5) × 10%；姚鹏、李雪各 13%，编辑 68% 按本人利润占比'
     ],
         ['name' => '设计客服绩效固定服务费', 'rule_type' => 'perf_rank', 'scope_business' => '*', 'scope_group' => '*', 'scope_role' => '*', 'employee' => null, 'metric'
     => 'profit', 'params' => [], 'note' => '原系统客服绩效：设计客服多店绩效平均分排名，第 1/2/3 名 850/800/750，按考勤折算'],
