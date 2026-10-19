@@ -17,6 +17,19 @@ function pspr_self_employee($actor)
     return 0;
 }
 
+/** 没有参与当月订单、没有订单分成的固定服务费人员，可由财务代申请。 */
+function pspr_fixed_people($month, $employeeId = 0)
+{
+    if (!preg_match('/^\d{4}-(0[1-9]|1[0-2])$/D',(string)$month) || $month >= date('Y-m')) return [];
+    $q = db()->prepare('SELECT DISTINCT p.employee_id FROM project_participants p JOIN project_orders o ON o.id=p.order_id WHERE o.order_date>=? AND o.order_date<?');
+    $q->execute([$month.'-01',date('Y-m-d',strtotime($month.'-01 +1 month'))]);
+    $hasOrders = array_fill_keys(array_map('intval',$q->fetchAll(PDO::FETCH_COLUMN)),true); $out=[];
+    foreach (pps_sheet($month,(int)$employeeId)['rows'] as $r) {
+        if ($r['base'] > 0 && abs($r['share']) < 0.005 && !$r['pending_n'] && empty($hasOrders[(int)$r['id']])) $out[(int)$r['id']]=$r;
+    }
+    return $out;
+}
+
 function pspr_month($employeeId, $month)
 {
     psr_ensure();
@@ -59,8 +72,10 @@ function pspr_status($employeeId, $month)
 
 function pspr_submit($actor, $month, $expectedAmount = null, $employeeId = 0)
 {
-    $eid = pspr_self_employee($actor);
-    if ($eid <= 0 || ($employeeId && (int)$employeeId !== $eid)) throw new RuntimeException('只能申请本人结算，请检查账号与合作人员绑定');
+    $self = pspr_self_employee($actor);
+    $eid = $employeeId ? (int)$employeeId : $self;
+    $proxy = $eid !== $self;
+    if ($eid <= 0 || ($proxy && ($actor['type'] ?? '') !== 'admin' && ($actor['role'] ?? '') !== 'finance')) throw new RuntimeException('只能申请本人结算，请检查账号与合作人员绑定');
     if (!preg_match('/^\d{4}-(0[1-9]|1[0-2])$/D', (string)$month) || $month >= date('Y-m')) throw new RuntimeException('只能申请往月实结算');
     ppf_ensure();
     pspr_month($eid, $month); // 先初始化依赖表，避免 DDL 隐式提交事务。
@@ -69,15 +84,17 @@ function pspr_submit($actor, $month, $expectedAmount = null, $employeeId = 0)
     try {
         $q = $pdo->prepare('SELECT id FROM employees WHERE id=? FOR UPDATE'); $q->execute([$eid]);
         if (!$q->fetchColumn()) throw new RuntimeException('合作人员不存在');
+        if ($proxy && !isset(pspr_fixed_people($month,$eid)[$eid])) throw new RuntimeException('只能代申请当月无订单、无订单分成的固定服务费人员');
         $m = pspr_status($eid, $month);
         if (!$m['can_apply']) throw new RuntimeException($m['reason']);
+        if ($proxy && $m['pending']) throw new RuntimeException('本月已有待处理申请，请勿重复代申请');
         if ($expectedAmount !== null && (!preg_match('/^\d{1,10}(?:\.\d{1,2})?$/D', (string)$expectedAmount) || abs((float)$expectedAmount - $m['amount']) > 0.004)) throw new RuntimeException('结算金额已变化，请刷新核对后重新申请');
         $pdo->prepare("INSERT INTO project_settlement_requests (employee_id,payroll_month,status,amount,order_count,requested_by_user) VALUES (?,?,'pending',?,1,?)")
             ->execute([$eid, $month, $m['amount'], (int)$actor['id']]);
         $rid = (int)$pdo->lastInsertId();
         $pdo->prepare('INSERT INTO project_settlement_request_items (request_id,employee_id,order_id,payroll_month,amount) VALUES (?,?,?,?,?)')
             ->execute([$rid, $eid, PSPR_NET_ITEM, $month, $m['amount']]);
-        ps_audit('settlement_request', $rid, 'submit_payroll_net', $actor, ['employee_id' => $eid, 'month' => $month, 'net' => $m['net'], 'previously_claimed' => $m['claimed'], 'amount' => $m['amount']]);
+        ps_audit('settlement_request', $rid, 'submit_payroll_net', $actor, ['employee_id' => $eid, 'on_behalf' => $proxy, 'month' => $month, 'net' => $m['net'], 'previously_claimed' => $m['claimed'], 'amount' => $m['amount']]);
         psr_notify_finance($rid, $eid, $month, $m['amount'], 1);
         if ($ownTransaction) $pdo->commit();
         return ['id' => $rid, 'amount' => $m['amount']];
@@ -85,6 +102,22 @@ function pspr_submit($actor, $month, $expectedAmount = null, $employeeId = 0)
         if ($ownTransaction && $pdo->inTransaction()) $pdo->rollBack();
         throw $e;
     }
+}
+
+function pspr_submit_fixed($actor, $month, array $expected)
+{
+    if (($actor['type'] ?? '') !== 'admin' && ($actor['role'] ?? '') !== 'finance') throw new RuntimeException('仅管理员和财务可以代申请');
+    if (!$expected || count($expected)>200) throw new RuntimeException('没有可代申请人员，请刷新页面');
+    foreach ($expected as $eid=>$amount) if (!ctype_digit((string)$eid) || (int)$eid<=0 || !is_scalar($amount) || !preg_match('/^\d{1,10}(?:\.\d{1,2})?$/D',(string)$amount)) throw new RuntimeException('代申请名单或金额无效，请刷新页面');
+    $done=[]; $skipped=[]; $total=0.0;
+    foreach ($expected as $eid=>$amount) {
+        try {
+            if (!isset(pspr_fixed_people($month,(int)$eid)[(int)$eid])) throw new RuntimeException('当月不属于无订单的固定服务费人员');
+            $r=pspr_submit($actor,$month,$amount,(int)$eid); $done[]=$r; $total+=$r['amount'];
+        }
+        catch (RuntimeException $e) { $skipped[]='#'.(int)$eid.'：'.$e->getMessage(); }
+    }
+    return ['done'=>$done,'skipped'=>$skipped,'total'=>round($total,2)];
 }
 
 /** 财务将尚未打款的申请合并为整月实结算；已结算记录及其明细不动。 */
