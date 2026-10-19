@@ -11,7 +11,7 @@ $external = ps_summary($order,[],$people);
 $ai = ps_summary(array_replace($order,['customer_name'=>'AI客户']),[],$people);
 $ext = $external['groups']['customer_service']['people'][0];$normal = $ai['groups']['customer_service']['people'][0];
 miniapp_rate_check('external customer 5%, AI customer 10%', (float)$ext['calc']['rate']===0.05 && (float)$normal['calc']['rate']===0.1 && (float)$ext['estimated_calc']['rate']===0.05);
-miniapp_rate_check('only customer rate changes', $external['groups']['technical']===$ai['groups']['technical'] && $ext['calc']['subsidy']===$normal['calc']['subsidy'] && $ext['calc']['fee']===$normal['calc']['fee']);
+miniapp_rate_check('external customer has 0 subsidy while normal has 10', $external['groups']['technical']===$ai['groups']['technical'] && (float)$ext['calc']['subsidy']===0.0 && (float)$normal['calc']['subsidy']===10.0 && $ext['calc']['fee']===$normal['calc']['fee']);
 $fixed = ps_summary($order,[],[['employee_id'=>33,'commission_group'=>'customer_service','role_name'=>'固定薪酬无提成','group_weight'=>1]]);
 miniapp_rate_check('fixed salary role remains without commission', (float)$fixed['groups']['customer_service']['people'][0]['calc']['rate']===0.0);
 $new = ps_summary(array_replace($order,['order_kind'=>'新订单']),[],$people);

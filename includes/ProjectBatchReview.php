@@ -28,11 +28,45 @@ function pbr_ensure()
 
 /** 某人某月参与的、还没审核通过的订单，附自动核对状态和卡点说明。 */
 /**
+ * 同一付款号拆成多个网站项目（site-xxx）：财务批量通过即视为核对了实收分配——
+ * 各项目按各自售价登记收款（还没有收款的），合计 = 客户付款总额，再记一条“共用付款分配已核对”。
+ * 只对财务生效；店铺实付流水与合计不一致、项目没有售价、或已有对不上的收款时抛错，由财务逐单处理。
+ */
+function pbr_prepare_site_group($oid, array $actor, $adminId, $who)
+{
+    if (($actor['role'] ?? '') !== 'finance') return;
+    require_once __DIR__ . '/ProjectSiteProjects.php';
+    $site = psp_order((int)$oid);
+    if (!$site) return;
+    $root = (int)$site['root_order_id'];
+    $members = psp_members($root, true);
+    if (count($members) < 2) return;
+    $v = psp_verification($root);
+    if ($v && hash_equals((string)$v['allocation_hash'], psp_allocation_hash($members))) return;
+    $pdo = db(); $paid = 0;
+    foreach ($members as $m) {
+        $sale = (int)round((float)$m['contract_amount'] * 100);
+        if ($sale <= 0) throw new RuntimeException('同一付款号下有网站项目没有售价，请先补售价');
+        $paid += $sale;
+        $cash = (int)round((float)$m['receipt_amount'] * 100);
+        if ($cash === $sale) continue;
+        if ($cash !== 0 || (float)$m['refund_amount'] > 0) throw new RuntimeException('同一付款号下有网站项目的收款或退款与售价对不上，请财务逐单核对');
+        $st = $pdo->prepare('SELECT settlement_status FROM project_orders WHERE id=? FOR UPDATE'); $st->execute([(int)$m['order_id']]);
+        if (in_array($st->fetchColumn(), ['approved', 'locked'], true)) throw new RuntimeException('同一付款号下有已审核的网站项目，实收与售价对不上，请财务核对');
+        $pdo->prepare("INSERT INTO project_cash_movements (order_id,movement_type,amount,note,review_status,submitted_by_type,submitted_by_id,reviewed_by_admin,reviewed_at) VALUES (?,'receipt',?,?,'approved',?,?,?,NOW())")
+            ->execute([(int)$m['order_id'], $sale / 100, $who . '批量审核：同一付款号分项目按售价登记收款', $actor['type'], $actor['id'], $adminId]);
+        ps_recalculate_cash((int)$m['order_id']);
+    }
+    psp_verify($root, number_format($paid / 100, 2, '.', ''), $who . '批量审核：同一付款号 ' . count($members) . ' 个网站项目按各自售价分配，合计 ¥' . number_format($paid / 100, 2, '.', ''), $actor);
+}
+
+/**
  * 批量审核前的准备（调用方持有事务）：财务/授权人员勾选通过即视为认可——
  * 未确认的资源按“无需另计”确认并同步商品成本、待审核成本一并通过。收款/退款仍须单独审核；SSL 凭证等仍由 ps_approve_order 把关。
  */
 function pbr_prepare_order($oid, array $actor, $adminId, $who)
 {
+    pbr_prepare_site_group($oid, $actor, $adminId, $who);
     $pdo = db();
     $row = $pdo->prepare('SELECT project_type FROM project_orders WHERE id=?'); $row->execute([$oid]);
     if (!empty(ps_business_catalog()[ps_business_normalize((string)$row->fetchColumn())]['resources'])) {

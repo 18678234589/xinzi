@@ -17,35 +17,40 @@ $other = ['type' => 'employee', 'id' => 999999, 'employee_id' => $eid + 100000, 
 $fin = ['type' => 'admin', 'id' => (int)$pdo->query('SELECT MIN(id) FROM admins')->fetchColumn(), 'employee_id' => null, 'role' => 'finance'];
 ppf_save($fin, $eid, $month, 'green', '测试核对无异议', '', false); // 财务标绿后本人才能申请结算
 $orders = psr_orders($eid, $month);
-$check(count($orders) >= 4 && count(array_filter($orders, function ($o) { return $o['state'] !== 'available'; })) === 0, '本月订单都可申请：' . count($orders));
+$check(count($orders) >= 1 && count(array_filter($orders, function ($o) { return $o['state'] !== 'available'; })) === 0, '本月项目都可申请：' . count($orders));
 $ids = array_column($orders, 'order_id');
 $check($throws(function () use ($fin, $month, $ids) { psr_submit($fin, $month, $ids); }) !== null, '财务账号不能代替本人申请');
 $check($throws(function () use ($actor, $month) { psr_submit($actor, $month, []); }) !== null, '没选订单不能提交');
 $check($throws(function () use ($other, $month, $ids) { psr_submit($other, $month, $ids); }) !== null, '别人不能申请不属于自己的订单');
-$first = array_slice($ids, 0, 2); $sumFirst = round(array_sum(array_map(function ($o) use ($first) { return in_array($o['order_id'], $first) ? $o['amount'] : 0; }, $orders)), 2);
-$rid = psr_submit($actor, $month, $first);
+$home = psr_home_expected($eid, $month);
+$msg = $throws(function () use ($actor, $month, $ids) { psr_submit($actor, $month, array_slice($ids, 0, 1)); });
+$check($msg !== null && mb_strpos($msg, '不一致') !== false || (float)$home['expected'] == 0.0, '按项目分段申请的金额与首页应结算不一致时被拒：' . ($msg ?: '首页余额为 0'));
+// 整月申请：金额 = 首页实结算（扣除其他申请），申请与首页一致
+$r1 = pspr_submit($actor, $month);
+$rid = $r1['id'];
 $req = $pdo->query("SELECT * FROM project_settlement_requests WHERE id=$rid")->fetch();
-$check($req['status'] === 'pending' && (float)$req['amount'] === $sumFirst && (int)$req['order_count'] === 2, "提交成功，金额由服务器重算：{$req['amount']}");
-$check($throws(function () use ($actor, $month, $first) { psr_submit($actor, $month, $first); }) !== null, '同一订单不能重复申请');
-$st = array_column(psr_orders($eid, $month), 'state', 'order_id');
-$check($st[$first[0]] === 'pending' && $st[$ids[2]] === 'available', '已申请的订单显示待打款，其余仍可申请');
+$check($req['status'] === 'pending' && abs((float)$req['amount'] - $home['expected']) < 0.005, "整月申请金额 {$req['amount']} = 首页应结算 {$home['expected']}");
+$chk = psr_check($req);
+$check($chk['ok'], '申请与首页一致，无异议：' . implode('；', $chk['issues']));
+$check($throws(function () use ($actor, $month) { pspr_submit($actor, $month); }) !== null, '同月不能重复申请整月');
 $check(psr_pending_count() >= 1, '财务待处理数 ≥ 1');
-$msg = (int)$pdo->query("SELECT COUNT(*) FROM project_messages WHERE category='settlement' AND dedupe_key LIKE 'settle-req:$rid:%'")->fetchColumn();
-echo "  [INFO] 通知财务站内信 $msg 条\n";
-// 退回释放
+// 申请后首页金额变化 → 申请与首页不一致，被标异议，不能导出 / 批量结算
+$pdo->prepare('UPDATE project_settlement_requests SET amount=amount+20 WHERE id=?')->execute([$rid]);
+$chk = psr_check($pdo->query("SELECT * FROM project_settlement_requests WHERE id=$rid")->fetch());
+$check(!$chk['ok'] && mb_strpos(implode('；', $chk['issues']), '与首页应结算不一致') !== false, '金额与首页不一致被标为异议：' . implode('；', $chk['issues']));
+$d = psr_export_data([$rid]);
+$check(!$d['people'] && count($d['held']) === 1, '有异议的申请不进批量打款表');
+$res = psr_settle_many([$rid], $fin);
+$check($res['ok'] === 0 && count($res['fail']) === 1, '有异议的申请不能批量已结算');
+$pdo->prepare('UPDATE project_settlement_requests SET amount=amount-20 WHERE id=?')->execute([$rid]);
+// 退回后可重新申请
 psr_reject($rid, $fin, '测试退回');
-$st = array_column(psr_orders($eid, $month), 'state', 'order_id');
-$check($st[$first[0]] === 'available', '退回后订单释放，可重新申请');
 $check($throws(function () use ($rid, $fin) { psr_settle($rid, $fin); }) !== null, '已退回的申请不能再点已结算');
-// 重新全选提交 → 已结算
-$rid2 = psr_submit($actor, $month, $ids);
+$rid2 = pspr_submit($actor, $month)['id'];
 psr_settle($rid2, $fin, '测试打款');
-$settled = (int)$pdo->query("SELECT COUNT(*) FROM project_settlement_request_items WHERE request_id=$rid2 AND settled_at IS NOT NULL")->fetchColumn();
-$check($settled === count($ids), '已结算：申请内 ' . $settled . ' 张订单全部标注结算时间');
+$check($pdo->query("SELECT status FROM project_settlement_requests WHERE id=$rid2")->fetchColumn() === 'settled', '财务点已结算');
 $check($throws(function () use ($rid2, $fin) { psr_settle($rid2, $fin); }) !== null, '同一申请不能重复结算');
-$check($throws(function () use ($actor, $month, $ids) { psr_submit($actor, $month, $ids); }) !== null, '已结算订单不能再次申请（避免重复结算）');
-$st = array_column(psr_orders($eid, $month), 'state', 'order_id');
-$check(count(array_unique($st)) === 1 && reset($st) === 'settled', '本月订单全部显示已结算');
+$check($throws(function () use ($actor, $month) { pspr_submit($actor, $month); }) !== null, '已结算的月份不能再次申请（避免重复结算）');
 $check($throws(function () use ($rid2, $fin) { psr_reject($rid2, $fin, '已结算不能退回'); }) !== null, '已结算的申请不能退回');
 // ---- 申请更正：多选订单一起提交，主管和财务都能审核 ----
 require_once __DIR__ . '/../includes/commission_explain.php';

@@ -93,7 +93,13 @@
           <?php else: ?>
             本单未指定独立后端技术。
           <?php endif; ?>
-          如需变更人员或分成，请联系财务通过反审核或调整单处理。
+          <?php if ($actor['role'] === 'finance' && $order['settlement_status'] === 'approved' && $backendChoices): ?>
+          <form method="post" class="form-inline mt-2" onsubmit="return confirm('将撤回本单已生成的分成，指定后端后按原月份重新审核。确认？')">
+            <input type="hidden" name="csrf" value="<?php echo e(ps_csrf_token()); ?>"><input type="hidden" name="action" value="reassign_backend_approved">
+            <select class="form-control form-control-sm mr-2" name="backend_employee_id" required><option value="">选择后端技术同事...</option><?php foreach ($backendChoices as $bEmp): ?><option value="<?php echo (int)$bEmp['id']; ?>"><?php echo e($bEmp['name'] . ' · ' . $bEmp['department']); ?></option><?php endforeach; ?></select>
+            <button class="btn btn-sm btn-outline-info">财务：指定后端并重新核算</button>
+          </form>
+          <?php else: ?>如需变更人员或分成，请联系财务通过反审核或调整单处理。<?php endif; ?>
         <?php else: ?>
           当前账号暂无权变更技术分配。如需指定或更换后端技术，请联系本单技术、客服或财务人员操作。
         <?php endif; ?>

@@ -34,6 +34,6 @@ $check($own['flag']['color'] === 'yellow' && !array_key_exists('ref', $own), '�
 $rs = ppf_reasons($eid, $month, $sheet, 1000);
 $check(is_array($rs) && count($rs) >= 1 && isset($rs[0]['text'], $rs[0]['who']), '差异原因分析：' . count($rs) . ' 条，如“' . $rs[0]['text'] . '”');
 ppf_save($fin, $eid, $month, 'green', '核对无异议', '1000', true);
-$rid = psr_submit($actor, $month, $ids);
+$rid = pspr_submit($actor, $month)['id'];
 $check($rid > 0, '标绿后本人可以申请结算');
 echo "\n=== 结算核对标记测试全部通过 ===\n";

@@ -556,7 +556,7 @@ if ($employeeId > 0) {
   </div>
 </div>
 <script>
-(function () {
+document.addEventListener('DOMContentLoaded', function () {
   var modalEl = document.getElementById('modalSettlementRequests');
   if (!modalEl) return;
   var iframe = document.getElementById('iframeSettlementRequests');
@@ -567,6 +567,12 @@ if ($employeeId > 0) {
   var modalBadge = document.getElementById('modalSettlementBadge');
   var alertBox = document.getElementById('alertSettlementPending');
   var btnOpen = document.getElementById('btnOpenSettlementModal');
+
+  function setLoading(loading) {
+    if (!loader) return;
+    loader.classList.toggle('d-flex', loading);
+    loader.classList.toggle('d-none', !loading);
+  }
 
   function updateBadge(cnt) {
     cnt = parseInt(cnt, 10) || 0;
@@ -598,19 +604,19 @@ if ($employeeId > 0) {
   // 模态框打开时按需加载 iframe
   $('#modalSettlementRequests').on('show.bs.modal', function () {
     if (!iframe.src || iframe.src === 'about:blank' || iframe.getAttribute('data-loaded') !== '1') {
-      loader.style.display = 'flex';
+      setLoading(true);
       iframe.src = iframe.getAttribute('data-src');
       iframe.setAttribute('data-loaded', '1');
     }
   });
 
   iframe.addEventListener('load', function () {
-    if (loader) loader.style.display = 'none';
+    setLoading(false);
   });
 
   if (btnReload) {
     btnReload.addEventListener('click', function () {
-      if (loader) loader.style.display = 'flex';
+      setLoading(true);
       try {
         iframe.contentWindow.location.reload();
       } catch(e) {
@@ -626,11 +632,11 @@ if ($employeeId > 0) {
 
   // 监听 iframe 内部结算打款成功后发来的 postMessage
   window.addEventListener('message', function (ev) {
-    if (ev && ev.data && ev.data.type === 'settlement_updated') {
+    if (ev.origin === window.location.origin && ev.source === iframe.contentWindow && ev.data && ev.data.type === 'settlement_updated') {
       refreshCount();
     }
   });
-})();
+});
 </script>
 <?php endif; ?>
 <?php include __DIR__ . '/../includes/footer.php'; ?>

@@ -71,17 +71,18 @@ function pps_sheet($month, $onlyEmployeeId = 0, $withProfile = false)
     foreach (pps_pending($month, $onlyEmployeeId) as $eid => $v) if (isset($people[$eid])) { $people[$eid]['share'] += $v['amount']; $people[$eid]['pending'] = $v['amount']; $people[$eid]['pending_n'] = $v['n']; }
 
     $settings = ps_insurance_settings();
+    $parkingSettings = $withProfile ? ps_parking_settings($month) : [];
     foreach (ps_payroll_extras($month) as $eid => $x) {
         if (!isset($people[$eid])) continue;
         $p = &$people[$eid];
+        if ($withProfile) $p['parking_setting'] = $parkingSettings[$eid] ?? ['amount' => 0, 'effective_month' => $month];
         foreach ($x['items'] as $item) {
             $amount = (float)$item['amount'];
             $label = (string)$item['label'];
-            if ($amount < 0) {
-                $slot = strpos($label, '车位') !== false ? 'parking' : (strpos($label, '预留') !== false ? 'reserve' : 'deduct');
-                $p[$slot] += -$amount;
-            } else $p[strpos($label, '补单') !== false ? 'base' : (strpos($label, '全勤') !== false ? 'bonus' : (preg_match('/分成|提成|游学|留学/u', $label) ? 'share' : pps_allowance_slot($label)))] += $amount; // 手工录入的“xx业务分成 / 提成”记在项目分成一栏 // 网站客服的“补单提成”在报酬表里记在固定服务费一栏
-            if ($withProfile) $p['items'][] = ['id' => (int)$item['id'], 'label' => $label, 'amount' => $amount, 'note' => (string)$item['note']];
+            $slot = ps_manual_item_slot($label, $amount);
+            if (in_array($slot, ['parking', 'reserve', 'deduct'], true)) $p[$slot] += -$amount;
+            else $p[$slot] += $amount; // 负数的分成 / 提成项直接减项目分成（应发同步减少） // 手工录入的“xx业务分成 / 提成”记在项目分成一栏 // 网站客服的“补单提成”在报酬表里记在固定服务费一栏
+            if ($withProfile) $p['items'][] = ['id' => (int)$item['id'], 'label' => $label, 'amount' => $amount, 'note' => (string)$item['note'], 'automatic' => !empty($item['automatic'])];
             $p['notes'][] = $label . ' ' . ($amount < 0 ? '-' : '+') . '¥' . number_format(abs($amount), 2, '.', '') . ($item['note'] !== '' ? '（' . $item['note'] . '）' : '');
         }
         // 保险只对有固定服务费 / 全勤奖的人扣（与结算单一致）
@@ -95,7 +96,7 @@ function pps_sheet($month, $onlyEmployeeId = 0, $withProfile = false)
     }
     foreach (ps_monthly_attendance($month) as $eid => $a) {
         if (!isset($people[(int)$eid])) continue;
-        $people[(int)$eid]['days'] = round((float)$a['work'] / 8, 2);
+        $people[(int)$eid]['days'] = max(0.0, round(((float)$a['work'] - (float)$a['absent']) / 8, 2));
         $people[(int)$eid]['ot_days'] = round((float)$a['ot_days'] + (float)$a['ot_holiday_days'], 2);
     }
 
@@ -143,8 +144,11 @@ function pps_pending($month, $onlyEmployeeId = 0)
     foreach ($rq->fetchAll() as $r) $ratio[$r['t'] . '|' . $r['g']] = (float)$r['inc'] > 0 ? max(0.0, min(0.9, (float)$r['cost'] / (float)$r['inc'])) : 0.0;
     $out = [];
     foreach ($q->fetchAll() as $order) {
+        // 开发类业务（网站 / 小程序等）没确认已完成的订单不计入预计：完成情况以技术填写 / 财务按汇总表标记为准
+        if ($order['delivery_status'] !== 'finished' && !empty(ps_business_catalog()[ps_business_normalize((string)$order['project_type'])]['requires_technical'])) continue;
         if (strpos((string)$order['trade_status'], '交易关闭') !== false && (float)$order['receipt_amount'] <= 0) continue;
         if (strpos((string)$order['trade_status'], '等待卖家发货') !== false && (float)$order['receipt_amount'] <= 0) continue; // 买家已付款、店铺还没发货：不算预计（9 月核对对表误差更小）
+        if ((float)$order['contract_amount'] <= 0 && (float)$order['receipt_amount'] <= 0) continue;
         $costs = ps_costs($order['id']);
         $sum = ps_summary($order, $costs, ps_participants($order['id']));
         foreach ($sum['groups'] as $groupName => $group) foreach ($group['people'] as $person) {
@@ -158,8 +162,11 @@ function pps_pending($month, $onlyEmployeeId = 0)
                 $newBase = max(0.0, (float)$calc['base'] - ($ratio[$order['project_type'] . '|' . $groupName] ?? 0.0) * $income);
                 $share *= $newBase / (float)$calc['base'];
             }
-            $out[$eid]['amount'] = ($out[$eid]['amount'] ?? 0.0) + $share + (float)$calc['subsidy'];
-            $out[$eid]['n'] = ($out[$eid]['n'] ?? 0) + 1;
+            $est = round($share + (float)$calc['subsidy'], 2);
+            if (abs($est) > 0.005) {
+                $out[$eid]['amount'] = ($out[$eid]['amount'] ?? 0.0) + $est;
+                $out[$eid]['n'] = ($out[$eid]['n'] ?? 0) + 1;
+            }
         }
     }
     foreach ($out as $eid => $v) $out[$eid]['amount'] = round($v['amount'], 2);
@@ -172,6 +179,12 @@ function pps_months()
     $out = [date('Y-m')];
     for ($i = 1; $i <= 6; $i++) $out[] = date('Y-m', strtotime("first day of -$i month"));
     return $out;
+}
+
+/** 报酬表表头（key => 名称）：首页报酬表与看板“整月结算申请”共用。 */
+function pps_heads()
+{
+    return [['days', '到岗天数'], ['base', '固定服务费'], ['share', '项目分成'], ['bonus', '全勤奖'], ['mgr', '经理补助'], ['lead', '组长补助'], ['ins_sub', '保险补助'], ['other', '其他补助 / 延时服务'], ['payable', '应结算'], ['deduct', '扣款'], ['parking', '车位费'], ['reserve', '扣风险预留金'], ['unit_ins', '单位保险'], ['personal_ins', '代扣保险'], ['net', '实结算']];
 }
 
 function pps_cell($v, $class = '')

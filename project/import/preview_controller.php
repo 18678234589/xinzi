@@ -16,8 +16,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 if ($entry['map'] === null) { $sheetReport[$sheetName] = ['used' => false, 'matchable' => false, 'reason' => $entry['reason']]; continue; }
                 $columnMap = $entry['map'];
                 $layoutSignature = ps_ai_signature(array_merge([$selectedBusiness], $head));
-                $preferredKind = $actor['role'] === 'finance' ? '' : ps_import_kind_preference((int)$actor['employee_id'], $selectedBusiness, $layoutSignature);
-                if (!$preferredKind && $actor['role'] !== 'finance') $preferredKind = ps_order_kind_from_role($selectedBusiness, ps_employee_default_role((int)$actor['employee_id']
+                // 设计的订单类型由表格版式决定（有“设计师佣金”列 = PPT，否则图片），不套用“上次确认的类型”：版式相近的图片表 / PPT 表曾因此全被记成 PPT，多扣 40% 设计师成本和 5.5% 服务费。
+                $preferredKind = ($actor['role'] === 'finance' || $selectedBusiness === '设计') ? '' : ps_import_kind_preference((int)$actor['employee_id'], $selectedBusiness, $layoutSignature);
+                if (!$preferredKind && $actor['role'] !== 'finance' && $selectedBusiness !== '设计') $preferredKind = ps_order_kind_from_role($selectedBusiness, ps_employee_default_role((int)$actor['employee_id']
     , $selectedBusiness, $actor['role']) ?? '');
                 // 日期列没有表头（如第一列直接写 260901）：数据大多能识别为日期的空表头列当作日期列
                 if (!isset($columnMap['order_date'])) foreach ($head as $i => $h) {

@@ -27,7 +27,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') { // 保存合作人员结算资料�
             $r = $_POST['action'] === 'sync_payroll'
                 ? pspr_sync_pending($actor, $target, $month, $_POST['expected_amount'] ?? null)
                 : pspr_submit($actor, $month, $_POST['expected_amount'] ?? null, $target);
-            echo json_encode(['ok'=>true] + $r + ['message'=>'整月实结算申请已提交，等待财务打款'],JSON_UNESCAPED_UNICODE);
+            echo json_encode(['ok'=>true] + $r + ['message'=>'整月实结算申请已提交，等待财务审核处理'],JSON_UNESCAPED_UNICODE);
         } catch (RuntimeException $e) { echo json_encode(['ok'=>false,'message'=>$e->getMessage()],JSON_UNESCAPED_UNICODE); }
         catch (Throwable $e) { http_response_code(500); echo json_encode(['ok'=>false,'message'=>'提交失败，请稍后重试'],JSON_UNESCAPED_UNICODE); }
         exit;

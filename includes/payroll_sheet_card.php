@@ -36,10 +36,11 @@ try {
     $ppsLocked = $ppsLock->fetchColumn() === 'locked';
 } catch (Throwable $e) { $pps = null; }
 $ppsT = $pps['totals'] ?? [];
+$ppsDirectors = $ppsAll && ps_director_can($ppsActor) ? ps_director_settings($ppsMonth) : [];
 $ppsDepts = [];
 foreach ($pps['rows'] ?? [] as $r) $ppsDepts[$r['department']] = ($ppsDepts[$r['department']] ?? 0) + 1;
 ksort($ppsDepts);
-$ppsHeads = [['days', '到岗天数'], ['base', '固定服务费'], ['share', '项目分成'], ['bonus', '全勤奖'], ['mgr', '经理补助'], ['lead', '组长补助'], ['ins_sub', '保险补助'], ['other', '其他补助 / 延时服务'], ['payable', '应结算'], ['deduct', '扣款'], ['parking', '车位费'], ['reserve', '扣风险预留金'], ['unit_ins', '单位保险'], ['personal_ins', '代扣保险'], ['net', '实结算']];
+$ppsHeads = pps_heads();
 $ppsFixed = $ppsAll ? pspr_fixed_people($ppsMonth) : [];
 $ppsProxyExpected = []; $ppsProxyNames = []; $ppsProxyTotal = 0.0;
 foreach ($ppsFixed as $eid=>$fixedRow) {
@@ -59,7 +60,7 @@ foreach ($ppsFixed as $eid=>$fixedRow) {
       <span class="pps-state <?php echo !empty($ppsLocked) ? 'is-locked' : 'is-live'; ?>"><i class="fas <?php echo !empty($ppsLocked) ? 'fa-lock' : 'fa-bolt'; ?>"></i> <?php echo !empty($ppsLocked) ? '本月已锁定' : '实时预计，未锁月'; ?></span>
       <select class="pps-month" aria-label="选择月份"><?php foreach (pps_months() as $m): ?><option value="<?php echo e($m); ?>"<?php echo $m === $ppsMonth ? ' selected' : ''; ?>><?php echo e($m); ?></option><?php endforeach; ?></select>
       <?php if ($ppsAll): $okGreen = 0; foreach ($pps['rows'] ?? [] as $gr) if ($gr['diff'] !== null && abs($gr['diff']) <= PPF_TOLERANCE && $gr['flag']['color'] !== 'green') $okGreen++; if ($okGreen > 0): ?><button type="button" class="pps-bulk pps-bulk-green" data-month="<?php echo e($ppsMonth); ?>" data-n="<?php echo $okGreen; ?>" data-token="<?php echo e(ps_csrf_token()); ?>"><i class="fas fa-check-double"></i> 一键标绿（差距≤5%，<?php echo $okGreen; ?> 人）</button><?php endif; endif; ?>
-      <?php if ($ppsMine && ($ppsPast = psr_available_past($ppsMine)) && $ppsPast['n'] > 0): ?><button type="button" class="pps-bulk pps-settle-all" data-n="<?php echo (int)$ppsPast['n']; ?>" data-amt="<?php echo e(number_format($ppsPast['amount'], 2)); ?>" data-token="<?php echo e(ps_csrf_token()); ?>" title="把往月所有已审核、还没申请的订单一次提交；财务还没核对确认的月份会自动跳过"><i class="fas fa-bolt"></i> 一键申请往月全部（<?php echo (int)$ppsPast['n']; ?> 单 ¥<?php echo e(number_format($ppsPast['amount'], 2)); ?>）</button><?php endif; ?>
+      <?php if ($ppsMine && ($ppsPast = psr_available_past($ppsMine)) && $ppsPast['n'] > 0): ?><button type="button" class="pps-bulk pps-settle-all" data-n="<?php echo (int)$ppsPast['n']; ?>" data-amt="<?php echo e(number_format($ppsPast['amount'], 2)); ?>" data-token="<?php echo e(ps_csrf_token()); ?>" title="按首页实结算申请往月报酬，含固定工资、全勤、提成和全部扣减；自动扣除已申请或已结算金额"><i class="fas fa-bolt"></i> 一键申请往月全部（<?php echo (int)$ppsPast['n']; ?> 个月 ¥<?php echo e(number_format($ppsPast['amount'], 2)); ?>）</button><?php endif; ?>
       <?php if ($ppsProxyExpected): ?><form class="payroll-request-form" action="<?php echo e(BASE_URL.'/payroll_sheet.php'); ?>" method="post" data-month="<?php echo e($ppsMonth); ?>" data-amount="<?php echo e(number_format($ppsProxyTotal,2,'.','')); ?>" data-people="<?php echo e(implode("\n",$ppsProxyNames)); ?>">
         <input type="hidden" name="csrf" value="<?php echo e(ps_csrf_token()); ?>"><input type="hidden" name="action" value="request_fixed_payroll"><input type="hidden" name="month" value="<?php echo e($ppsMonth); ?>"><input type="hidden" name="expected_requests" value="<?php echo e(json_encode($ppsProxyExpected,JSON_UNESCAPED_UNICODE)); ?>">
         <button type="submit">一键代申请固定服务费 · <?php echo count($ppsProxyExpected); ?> 人 · ¥<?php echo number_format($ppsProxyTotal,2); ?></button><span class="payroll-request-message" role="status" hidden></span>
@@ -89,6 +90,7 @@ foreach ($ppsFixed as $eid=>$fixedRow) {
       </thead>
       <tbody>
 <?php
+$ppsClaim = $ppsMine ? pspr_month($ppsMine, $ppsMonth) : null; // 已申请 / 已结算的金额，本人行里从实结算扣除显示
 foreach ($pps['rows'] as $i => $r): ?>
         <tr data-dept="<?php echo e($r['department']); ?>">
 <?php if ($ppsMine || $ppsAll): ?>
@@ -104,6 +106,19 @@ foreach ($pps['rows'] as $i => $r): ?>
           <td class="pps-dept"><?php echo e($r['department']); ?></td>
           <td class="pps-n"><?php echo $r['days'] === null ? '<span class="pps-zero">—</span>' : rtrim(rtrim(number_format($r['days'], 2), '0'), '.') . ($r['ot_days'] > 0 ? '<small class="pps-ot"> +' . rtrim(rtrim(number_format($r['ot_days'], 2), '0'), '.') . '</small>' : ''); ?></td>
 <?php foreach ($ppsHeads as [$k, $label]): if ($k === 'days') continue;
+    if ($k === 'other' && isset($ppsDirectors[(int)$r['id']])) {
+        $director = $ppsDirectors[(int)$r['id']];
+        $button = '<button type="button" class="pps-director" data-id="' . (int)$r['id'] . '" data-name="' . e($r['name']) . '" data-amount="' . e($director['amount'] === null ? '' : $director['amount']) . '" title="仅核定本月董事长、董事会补助，不沿用到下月"' . ($ppsLocked ? ' disabled' : '') . '>' . ($director['confirmed'] ? '补助已核定 · 修改' : '补助本月核定') . '</button>';
+        echo str_replace('</td>', $button . '</td>', pps_cell($r['other'])), "\n";
+        continue;
+    }
+    if ($k === 'parking' && $ppsAll) {
+        $parkingButton = '<button type="button" class="pps-parking" data-id="' . (int)$r['id'] . '" data-name="' . e($r['name']) . '" data-amount="' . (float)$r['parking_setting']['amount'] . '" title="设置每月车位费"' . ($ppsLocked ? ' disabled' : '') . '>设置</button>';
+        echo str_replace('</td>', $parkingButton . '</td>', pps_cell($r['parking'], 'pps-cut')), "\n";
+        continue;
+    }
+    if ($k === 'net' && $ppsClaim && (int)$r['id'] === $ppsMine && $ppsClaim['claimed'] != 0) { echo '          ', str_replace('</td>', '<small class="pps-pend" title="已申请 / 已结算的金额自动从实结算里扣除">已申请 −' . number_format($ppsClaim['claimed'], 2) . '<br>可申请 ' . number_format($ppsClaim['amount'], 2) . '</small></td>', pps_cell($r[$k], 'pps-key pps-net')), "
+"; continue; }
     if ($k === 'share' && $r['pending_n'] > 0) { echo '          ', str_replace('</td>', '<small class="pps-pend" title="其中 ' . (int)$r['pending_n'] . ' 单尚未审核，按系统预计分成计入">含待审预计 ' . number_format($r['pending'], 2) . '</small></td>', pps_cell($r['share'])), "
 "; continue; }
     echo '          ', pps_cell($r[$k], in_array($k, ['payable'], true) ? 'pps-key' : ($k === 'net' ? 'pps-key pps-net' : (in_array($k, ['deduct', 'parking', 'reserve', 'unit_ins', 'personal_ins'], true) ? 'pps-cut' : ''))), "\n"; endforeach; ?>
@@ -122,9 +137,9 @@ foreach ($pps['rows'] as $i => $r): ?>
     </table>
   </div>
 <?php if ($ppsMine): $myReqs = psr_requests($ppsMine); ?>
-  <details class="pps-mine"<?php echo $myReqs ? '' : ' hidden'; ?>><summary><i class="fas fa-receipt"></i> 我的结算申请与已结算订单 <b><?php echo count($myReqs); ?></b></summary>
+  <details class="pps-mine"<?php echo $myReqs ? '' : ' hidden'; ?>><summary><i class="fas fa-receipt"></i> 我的结算申请与记录 <b><?php echo count($myReqs); ?></b></summary>
     <?php foreach ($myReqs as $rq): $isDone = $rq['status'] === 'settled'; ?>
-    <div class="pps-req is-<?php echo e($rq['status']); ?>"><div class="pps-req-head"><strong><?php echo e($rq['payroll_month']); ?></strong> · <?php echo (int)$rq['order_count']; ?> 单 · ¥<?php echo number_format((float)$rq['amount'], 2); ?>
+    <div class="pps-req is-<?php echo e($rq['status']); ?>"><div class="pps-req-head"><strong><?php echo e($rq['payroll_month']); ?></strong> · <?php echo (int)$rq['order_count']; ?> 项 · ¥<?php echo number_format((float)$rq['amount'], 2); ?>
       <span class="pps-st <?php echo $isDone ? 'is-done' : ($rq['status'] === 'pending' ? 'is-pending' : 'is-bad'); ?>"><?php echo ['pending' => '待财务打款', 'settled' => '已结算 ' . substr((string)$rq['settled_at'], 0, 10), 'rejected' => '已退回'][$rq['status']]; ?></span><?php if ($rq['status'] === 'rejected'): ?> <small class="text-muted">原因：<?php echo e($rq['note']); ?></small><?php endif; ?></div>
       <?php if ($rq['status'] !== 'rejected'): ?><div class="pps-req-orders"><?php foreach (psr_request_orders($rq['id']) as $ro): ?><span title="<?php echo e($ro['project_type']); ?>"><?php echo e($ro['order_no']); ?> <b><?php echo number_format((float)$ro['amount'], 2); ?></b></span><?php endforeach; ?></div><?php endif; ?></div>
     <?php endforeach; ?></details>
@@ -166,6 +181,27 @@ foreach ($pps['rows'] as $i => $r): ?>
     <p class="pps-hint" data-f="fhint"></p>
     <p class="pps-err" data-f="ferr" hidden></p>
     <div class="pps-actions"><a class="pps-linkbtn" data-f="review" href="#" target="_blank" hidden><i class="fas fa-clipboard-check"></i> 去审核订单</a><button type="button" data-f="fcancel">取消</button><button type="submit" class="is-primary">保存</button></div>
+  </form></dialog>
+  <?php if (ps_director_can($ppsActor)): ?>
+  <dialog class="pps-dialog" id="ppsDirector"><form method="post" class="pps-directorform" autocomplete="off">
+    <h6>董事长 / 董事会补助 · <span data-f="title"></span></h6>
+    <input type="hidden" name="csrf" value="<?php echo e(ps_csrf_token()); ?>"><input type="hidden" name="action" value="save_director"><input type="hidden" name="employee_id"><input type="hidden" name="month">
+    <p class="pps-hint">核定月份：<strong data-f="month"></strong>。仅计入本月“其他补助”，下月须重新填写；填0表示本月不发。此栏金额还可能包含其他补助与超时补贴。</p>
+    <label>本月核定金额（元）<input name="amount" type="number" min="0" max="9999999.99" step="0.01" required></label>
+    <label>核定备注（选填）<input name="note" maxlength="160" placeholder="例如：本月董事会核定结果"></label>
+    <p class="pps-hint">原工资表导入金额可重新核定。金额变动后需重新核对整月实结算。</p>
+    <p class="pps-err" data-f="err" role="alert" hidden></p>
+    <div class="pps-actions"><button type="button" data-director-cancel>取消</button><button type="submit" class="is-primary">保存本月核定金额</button></div>
+  </form></dialog>
+  <?php endif; ?>
+  <dialog class="pps-dialog" id="ppsParking"><form method="post" class="pps-form pps-parkingform" autocomplete="off">
+    <h6>每月车位费 · <span data-f="title"></span></h6>
+    <input type="hidden" name="csrf" value="<?php echo e(ps_csrf_token()); ?>"><input type="hidden" name="action" value="save_parking"><input type="hidden" name="employee_id"><input type="hidden" name="month">
+    <p class="pps-hint">从 <strong data-f="month"></strong> 起每月自动扣减，修改后持续沿用。已锁定月份不变。</p>
+    <label>每月扣款金额（元）<input name="amount" type="number" min="0" max="9999999.99" step="0.01" value="100" required></label>
+    <p class="pps-hint">通常为100元；填0或点击“取消车位费”停止从本月起扣款。</p>
+    <p class="pps-err" data-f="err" role="alert" hidden></p>
+    <div class="pps-actions"><button type="button" data-f="cancel">返回</button><button type="submit" data-parking-stop formnovalidate>取消车位费</button><button type="submit" class="is-primary">保存并按月扣减</button></div>
   </form></dialog>
   <dialog class="pps-dialog" id="ppsEdit"><form method="post" class="pps-form" autocomplete="off">
     <h6>编辑结算资料 · <span data-f="title"></span></h6>

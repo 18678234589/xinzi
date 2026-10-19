@@ -134,7 +134,7 @@ function ps_expected_month($month)
             $amt = (float)$it['amount'];
             if (abs($amt) < 0.005) continue;
             $lbl = (string)$it['label'];
-            $isShare = (strpos($lbl, '补单') === false && strpos($lbl, '全勤') === false && preg_match('/分成|提成|游学/u', $lbl));
+            $isShare = ps_manual_item_slot($lbl, $amt) === 'share';
             $monthly[] = [
                 'employee_id' => (int)$eid,
                 'rule_id' => (int)($it['id'] ?? 0),

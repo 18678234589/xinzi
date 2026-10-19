@@ -161,7 +161,14 @@ function pspr_sync_pending($actor, $employeeId, $month, $expectedAmount)
         $netItem = $paidNet ? PSPR_NET_ITEM + $keep : PSPR_NET_ITEM;
         if (!pspr_is_net_item($netItem)) throw new RuntimeException('补差额申请编号超出范围，请联系管理员');
         $pdo->prepare('INSERT INTO project_settlement_request_items (request_id,employee_id,order_id,payroll_month,amount) VALUES (?,?,?,?,?)')->execute([$keep,$eid,$netItem,$month,$amount]);
-        if ($resetReview) $pdo->prepare("UPDATE project_payroll_flags SET color='yellow',reason=?,set_by=? WHERE employee_id=? AND payroll_month=?")->execute(['整月申请金额已更新，请按最新实结算重新核对。原备注已存入审计记录。','finance:'.(int)$actor['id'],$eid,$month]);
+        $refNet = $flag && $flag['ref_net'] !== null && $flag['ref_net'] !== '' ? (float)$flag['ref_net'] : null;
+        $diff = ppf_diff($m['net'], $refNet);
+        $withinTolerance = ($diff !== null && abs($diff) <= PPF_TOLERANCE);
+        if ($resetReview && !$withinTolerance) {
+            $pdo->prepare("UPDATE project_payroll_flags SET color='yellow',reason=?,set_by=? WHERE employee_id=? AND payroll_month=?")->execute(['整月申请金额已更新，请按最新实结算重新核对。原备注已存入审计记录。','finance:'.(int)$actor['id'],$eid,$month]);
+        } elseif ($withinTolerance && ($flag['color'] ?? '') !== 'green') {
+            $pdo->prepare("UPDATE project_payroll_flags SET color='green',reason=?,set_by=? WHERE employee_id=? AND payroll_month=?")->execute(['与对照表差距在 5% 以内，核对无异议','finance:'.(int)$actor['id'],$eid,$month]);
+        }
         ps_audit('settlement_request',$keep,'sync_payroll_net',$actor,['employee_id'=>$eid,'month'=>$month,'before'=>['requests'=>$pending,'items'=>$items,'flag'=>$flag],'net'=>$m['net'],'paid'=>$paid,'amount'=>$amount,'review_reset'=>$resetReview]);
         if ($own) $pdo->commit();
         return ['id'=>$keep,'amount'=>$amount];

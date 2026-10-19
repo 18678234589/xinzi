@@ -57,6 +57,7 @@ function pbr_state_badge($row) { [$label, $tone] = pa_state_meta($row['review_st
   <?php if ($error): ?><div class="alert alert-danger"><?php echo e($error); ?></div><?php endif; ?>
   <?php if ($failed): ?><div class="alert alert-warning"><b>这些没能自动通过：</b><ul class="mb-0"><?php foreach ($failed as $f): ?><li><?php echo e($f); ?></li><?php endforeach; ?></ul></div><?php endif; ?>
 
+<?php if ($isFinance): ?><p class="small"><a href="<?php echo BASE_URL; ?>/project/completion_sync.php"><i class="fas fa-file-upload mr-1"></i>上传订单汇总表，按“到账情况”标记已完成 / 未完成</a></p><?php endif; ?>
 <?php if ($canReview && $detail): ?>
   <div class="card mb-4"><div class="card-header d-flex justify-content-between flex-wrap"><span><?php echo e($detail['emp_name']); ?> · <?php echo e($detail['month']); ?> · 申请 <?php echo (int)$detail['order_count']; ?> 单 ¥<?php echo e(number_format((float)$detail['amount'], 2)); ?></span><a href="<?php echo BASE_URL; ?>/project/batch_review.php">← 返回列表</a></div>
     <?php if ($detail['note'] !== ''): ?><div class="card-body pb-0 small"><b>申请说明：</b><?php echo e($detail['note']); ?></div><?php endif; ?>

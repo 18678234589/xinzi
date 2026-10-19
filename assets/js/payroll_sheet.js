@@ -3,16 +3,16 @@
   var host = document.getElementById('ppsHost'); if (!host) return;
   var cols = ['base', 'share', 'bonus', 'mgr', 'lead', 'ins_sub', 'other', 'payable', 'deduct', 'parking', 'reserve', 'unit_ins', 'personal_ins', 'net'];
   var money = function (v) { return Math.abs(v) < 0.005 ? '—' : v.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); };
-  function load(month) {
+  function load(month, message) {
     host.setAttribute('aria-busy', 'true'); host.style.opacity = '.55';
     fetch(host.getAttribute('data-src') + '?pm=' + encodeURIComponent(month), { credentials: 'same-origin', cache: 'no-store' })
       .then(function (r) { if (!r.ok) throw new Error(r.status); return r.text(); })
-      .then(function (html) { host.innerHTML = html; })
+      .then(function (html) { host.innerHTML = html; if (message) { var status = document.createElement('p'); status.className = 'pps-save-status'; status.setAttribute('role', 'status'); status.textContent = message; host.prepend(status); } })
       .catch(function () { host.innerHTML = '<section class="pps-card"><div class="pps-empty">项目报酬表加载失败，请刷新页面重试。</div></section>'; })
       .then(function () { host.style.opacity = ''; host.removeAttribute('aria-busy'); });
   }
-  host.addEventListener('payroll-request-submitted', function (ev) { load(ev.detail.month); });
   host.addEventListener('change', function (ev) { if (ev.target.classList.contains('pps-month')) load(ev.target.value); });
+  host.addEventListener('payroll-request-submitted', function (ev) { load(ev.detail.month, ev.detail.message); });
   host.addEventListener('click', function (ev) {
     var b = ev.target.closest('.pps-chips button'); if (!b) return;
     var card = host.querySelector('#ppsCard'), chips = b.parentNode;
@@ -43,13 +43,13 @@
   host.addEventListener('click', function (ev) {
     var sa = ev.target.closest('.pps-settle-all');
     if (sa) {
-      if (!confirm('把往月所有已审核、还没申请的订单一次提交结算（' + sa.getAttribute('data-n') + ' 单，¥' + sa.getAttribute('data-amt') + '）？\n财务还没核对确认的月份会自动跳过。')) return;
+      if (!confirm('按首页实结算申请往月报酬（' + sa.getAttribute('data-n') + ' 个月，¥' + sa.getAttribute('data-amt') + '）？\n金额包含固定工资、全勤、提成和全部扣减，已申请或已结算的金额会自动扣除。')) return;
       var sfd = new FormData(); sfd.append('csrf', sa.getAttribute('data-token')); sfd.append('action', 'request_settle_all'); sa.disabled = true;
       fetch(host.getAttribute('data-src'), { method: 'POST', credentials: 'same-origin', body: sfd })
         .then(function (r) { return r.json().catch(function () { return { ok: false, message: '提交失败（' + r.status + '）' }; }); })
         .then(function (j) {
           if (!j.ok) { alert(j.message || '提交失败'); return; }
-          var msg = (j.done || []).length ? '已提交：' + j.done.map(function (d) { return d[0] + ' ' + d[1] + ' 单'; }).join('、') + '。' : '没有提交任何月份。';
+          var msg = (j.done || []).length ? '已提交：' + j.done.map(function (d) { return d[0] + ' ' + yuan(d[1]); }).join('、') + '。' : '没有提交任何月份。';
           if ((j.skipped || []).length) msg += '\n未提交：' + j.skipped.map(function (d) { return d[0] + '（' + d[1] + '）'; }).join('；');
           alert(msg); load(host.querySelector('.pps-month').value);
         })
@@ -147,7 +147,7 @@
       dlg.querySelector('[data-f="itemerr"]').hidden = true;
       (pf.items || []).forEach(function (it) {
         var li = document.createElement('li'), a = Number(it.amount);
-        li.innerHTML = '<span></span><b class="' + (a < 0 ? 'neg' : '') + '">' + (a < 0 ? '-' : '+') + Math.abs(a).toFixed(2) + '</b><button type="button" data-del="' + it.id + '" title="删除">&times;</button>';
+        li.innerHTML = '<span></span><b class="' + (a < 0 ? 'neg' : '') + '">' + (a < 0 ? '-' : '+') + Math.abs(a).toFixed(2) + '</b>' + (it.automatic ? '<small>每月自动</small>' : '<button type="button" data-del="' + it.id + '" title="删除">&times;</button>');
         li.firstChild.textContent = it.label + (it.note ? '（' + it.note + '）' : ''); ul.appendChild(li);
       });
       dlg.showModal();
@@ -219,7 +219,7 @@
       return;
     }
     if (ev.target.classList.contains('pps-itemform')) { ev.preventDefault(); post(new FormData(ev.target), ev.target.parentNode.querySelector('[data-f="itemerr"]')); return; }
-    var f = ev.target; if (!f.classList.contains('pps-form')) return;
+    var f = ev.target; if (!f.classList.contains('pps-form') || f.classList.contains('pps-parkingform')) return;
     ev.preventDefault();
     var err = f.querySelector('[data-f="err"]'), btn = f.querySelector('.is-primary'); btn.disabled = true;
     fetch(host.getAttribute('data-src'), { method: 'POST', credentials: 'same-origin', body: new FormData(f) })
@@ -230,6 +230,56 @@
       })
       .catch(function () { err.textContent = '网络异常，请重试'; err.hidden = false; })
       .then(function () { btn.disabled = false; });
+  });
+  host.addEventListener('click', function (ev) {
+    var b = ev.target.closest('.pps-parking'); if (!b) return;
+    var dlg = host.querySelector('#ppsParking'), f = dlg.querySelector('form'), month = host.querySelector('.pps-month').value;
+    f.employee_id.value = b.getAttribute('data-id'); f.month.value = month;
+    f.amount.value = b.getAttribute('data-amount');
+    dlg.querySelector('[data-f="title"]').textContent = b.getAttribute('data-name');
+    dlg.querySelector('[data-f="month"]').textContent = month;
+    dlg.querySelector('[data-f="err"]').hidden = true;
+    dlg.showModal();
+  });
+  host.addEventListener('submit', function (ev) {
+    if (!ev.target.classList.contains('pps-parkingform')) return;
+    ev.preventDefault();
+    var f = ev.target, dlg = f.closest('dialog'), err = dlg.querySelector('[data-f="err"]'), fd = new FormData(f), buttons = f.querySelectorAll('button');
+    if (ev.submitter && ev.submitter.hasAttribute('data-parking-stop')) fd.set('amount', '0');
+    err.hidden = true; buttons.forEach(function (b) { b.disabled = true; });
+    fetch(host.getAttribute('data-src'), { method: 'POST', credentials: 'same-origin', body: fd })
+      .then(function (r) { return r.json().catch(function () { return { ok: false, message: '保存失败（' + r.status + '）' }; }); })
+      .then(function (j) {
+        if (!j.ok) { err.textContent = j.message || '保存失败'; err.hidden = false; return; }
+        dlg.close(); load(f.month.value, Number(fd.get('amount')) === 0 ? '车位费已取消，自' + f.month.value + '起不再自动扣减。' : '已保存：自' + f.month.value + '起每月自动扣车位费' + Number(fd.get('amount')).toFixed(2) + '元。');
+      })
+      .catch(function () { err.textContent = '网络异常，请重试'; err.hidden = false; })
+      .then(function () { buttons.forEach(function (b) { b.disabled = false; }); });
+  });
+  host.addEventListener('click', function (ev) {
+    if (ev.target.closest('[data-director-cancel]')) { ev.target.closest('dialog').close(); return; }
+    var b = ev.target.closest('.pps-director'); if (!b) return;
+    var dlg = host.querySelector('#ppsDirector'), f = dlg.querySelector('form'), month = host.querySelector('.pps-month').value;
+    f.employee_id.value = b.getAttribute('data-id'); f.month.value = month;
+    f.amount.value = b.getAttribute('data-amount'); f.note.value = '';
+    dlg.querySelector('[data-f="title"]').textContent = b.getAttribute('data-name');
+    dlg.querySelector('[data-f="month"]').textContent = month;
+    dlg.querySelector('[data-f="err"]').hidden = true;
+    dlg.showModal(); f.amount.focus();
+  });
+  host.addEventListener('submit', function (ev) {
+    if (!ev.target.classList.contains('pps-directorform')) return;
+    ev.preventDefault();
+    var f = ev.target, dlg = f.closest('dialog'), err = dlg.querySelector('[data-f="err"]'), buttons = f.querySelectorAll('button');
+    err.hidden = true; buttons.forEach(function (b) { b.disabled = true; });
+    fetch(host.getAttribute('data-src'), { method: 'POST', credentials: 'same-origin', body: new FormData(f) })
+      .then(function (r) { return r.json().catch(function () { return { ok: false, message: '保存失败（' + r.status + '）' }; }); })
+      .then(function (j) {
+        if (!j.ok) { err.textContent = j.message || '保存失败'; err.hidden = false; return; }
+        dlg.close(); load(f.month.value, '已保存' + f.month.value + '董事长/董事会补助核定金额 ' + yuan(f.amount.value) + '，仅本月生效。');
+      })
+      .catch(function () { err.textContent = '网络异常，请重试'; err.hidden = false; })
+      .then(function () { buttons.forEach(function (b) { b.disabled = false; }); });
   });
   load(host.getAttribute('data-month'));
 })();

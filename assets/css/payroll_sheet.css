@@ -44,6 +44,7 @@
 @keyframes ppsShine{to{background-position:-200% 0}}
 .pps-card-no{font-family:Consolas,"SF Mono",monospace;color:#44574d;letter-spacing:.02em}
 .pps-sign{text-align:center}.pps-ok{color:#1f6a52;font-weight:700}
+.pps-parking,.pps-director{display:block;margin:.2rem 0 0 auto;border:1px solid #c7ced9;border-radius:5px;padding:1px 7px;background:#fff;color:#46546b;font-size:11px;cursor:pointer}.pps-parking:disabled,.pps-director:disabled{opacity:.45;cursor:default}.pps-save-status{padding:.7rem 1rem;border-radius:8px;background:#eef2f8;color:#35445e}
 .pps-edit{border:0;background:transparent;color:#a9b5ad;padding:0 .25rem;margin-left:.2rem;cursor:pointer;opacity:0;transition:opacity .15s}
 .pps-addcom{border:1px solid #cfe0d6;background:#f3f9f5;color:#2f6a52;border-radius:999px;padding:0 .5rem;margin-left:.3rem;font-size:.72rem;cursor:pointer}.pps-addcom:hover{background:#e3f2e9}
 .pps-table tbody tr:hover .pps-edit,.pps-edit:focus{opacity:1;color:#2f6a52}
@@ -98,3 +99,5 @@
 .pps-fform textarea{border:1px solid #d7e0d3;border-radius:9px;padding:.5rem .65rem;font-size:.88rem;resize:vertical}
 .pps-bulk{border:0;border-radius:999px;padding:.3rem .9rem;background:#2f6a52;color:#fff;font-size:.82rem;font-weight:600;cursor:pointer;box-shadow:0 4px 10px rgba(47,106,82,.25)}.pps-bulk:disabled{opacity:.6}
 .pps-orow .no{display:grid;line-height:1.35}.pps-orow .no .nk{font-family:inherit;color:#7a877f;font-size:.74rem}
+.pps-mini{margin:.6rem 0 0;max-height:none;border:1px solid #e1e9e4;border-radius:12px}.pps-mini .pps-table{min-width:1400px}.pps-mini thead th{top:auto;position:static}
+.pps-recon{display:flex;flex-wrap:wrap;align-items:center;gap:.5rem;margin:.7rem 0;padding:.55rem .9rem;border-radius:12px;background:#f7f9f4;border:1px solid #e7ebe3;font-size:.86rem;color:#44574d}.pps-recon i{font-style:normal;color:#9aa69f}.pps-recon b{color:#234b3d;font-variant-numeric:tabular-nums}.pps-recon .is-claimed b{color:#b4572e}.pps-recon .is-left{padding:.1rem .7rem;border-radius:999px;background:#e3f3ea}.pps-recon .is-left b{color:#1f6a52;font-size:1rem}

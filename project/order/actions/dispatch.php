@@ -4,7 +4,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     try {
         $action = (string)($_POST['action'] ?? '');
         $finance = $actor['role'] === 'finance';
-        if (!in_array($action, ['approve_order', 'post_adjustment', 'set_order_kind', 'submit_commission_correction'], true)) {
+        if (!in_array($action, ['approve_order', 'post_adjustment', 'set_order_kind', 'submit_commission_correction', 'reassign_backend_approved'], true)) {
             db()->beginTransaction();
             $lock = db()->prepare('SELECT settlement_status FROM project_orders WHERE id=? FOR UPDATE');
             $lock->execute([$id]);
@@ -27,6 +27,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             /* split: project/order/actions/participants/add_counterpart.php */ include (dirname(__DIR__, 2)) . '/order/actions/participants/add_counterpart.php';
         } elseif ($action === 'assign_backend') {
             /* split: project/order/actions/participants/assign_backend.php */ include (dirname(__DIR__, 2)) . '/order/actions/participants/assign_backend.php';
+        } elseif ($action === 'reassign_backend_approved') {
+            /* split: project/order/actions/participants/reassign_backend_approved.php */ include (dirname(__DIR__, 2)) . '/order/actions/participants/reassign_backend_approved.php';
         } elseif ($action === 'add_software_tester') {
             /* split: project/order/actions/participants/add_software_tester.php */ include (dirname(__DIR__, 2)) . '/order/actions/participants/add_software_tester.php';
         } elseif ($action === 'claim_backend') {

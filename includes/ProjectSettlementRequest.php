@@ -368,7 +368,6 @@ function psr_check(array $req)
             $issues[] = '申请金额与首页扣减后实结算不一致，请先同步整月实结算申请后重新核对';
         }
     } else {
-        $issues[] = '旧逐单提成申请，请先同步为整月实结算，包含固定服务费、补助及全部扣减';
         if ($home['expected'] < -0.01) {
             $issues[] = '该月实结算已有超额扣减（余额 ¥' . number_format($home['expected'], 2) . '），请联系财务核对';
         }

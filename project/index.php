@@ -20,9 +20,8 @@ $businessCatalog = ps_business_catalog();
 $allowedBusinesses = ps_actor_businesses($actor);
 $departmentImportBusiness = '';
 foreach (['网站续费', '网站修改'] as $candidate) if (ps_department_import_allowed($actor, $candidate)) { $departmentImportBusiness = $candidate; break; }
-// 只有固定报酬、不录订单的合作人员（如售后退款部）：直接进入“我的项目报酬”
-if ($actor['role'] !== 'finance' && !$allowedBusinesses && !$participationOnly && !pdh_departments($actor) && $_SERVER['REQUEST_METHOD'] !== 'POST') { header('Location: ' . BASE_URL . '/project/payroll.php');
-    exit; }
+// 只有固定报酬、不录订单的合作人员（如售后退款部）：不再跳走，首页只显示“我的项目报酬表”和结算申请入口（不显示订单录入 / 列表）
+$payrollOnly = $actor['role'] !== 'finance' && !$allowedBusinesses && !$participationOnly && !pdh_departments($actor) && $_SERVER['REQUEST_METHOD'] !== 'POST';
 $selectedBusiness = ps_business_choice($actor, (string)($_POST['project_type'] ?? $_GET['business'] ?? ''));
 $roleDefaultKinds = [];
 if ($actor['role'] !== 'finance') foreach ($allowedBusinesses as $businessName) {
@@ -109,4 +108,13 @@ $canSelectOrders = $canDeleteOrders || in_array($actor['role'], ['customer_servi
 /* split: project/index/actions/create.php */ include __DIR__ . '/index/actions/create.php';
 /* split: includes/ProjectOrderList.php */ include __DIR__ . '/../includes/ProjectOrderList.php';
 if (PHP_SAPI === 'cli' && !empty($GLOBALS['project_order_list_cli'])) return;
+if ($payrollOnly) { // 只有固定报酬的人员：首页 = 本人项目报酬表 + 结算申请入口
+    $page_title = '工作台首页';
+    include __DIR__ . '/../includes/header.php';
+    echo '<div class="project-intake-page"><div class="project-hero mb-3"><div><div class="project-eyebrow">项目合作结算中心</div><h2>' . e($display_name) . '，你好</h2><p>这里是你的项目报酬：财务核对通过（标绿）后，可以在“结算”一列提交整月结算申请；也可以在 <a href="' . BASE_URL . '/project/dashboard.php">我的经营看板</a> 里提交。</p></div></div>';
+    include __DIR__ . '/../includes/payroll_sheet_card.php';
+    echo '<p class="small text-muted">查看明细与扣减项： <a href="' . BASE_URL . '/project/payroll.php">我的项目报酬</a></p></div>';
+    include __DIR__ . '/../includes/footer.php';
+    exit;
+}
 /* split: project/index/view.php */ include __DIR__ . '/index/view.php';

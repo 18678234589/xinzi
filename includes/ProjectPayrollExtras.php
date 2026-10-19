@@ -6,6 +6,9 @@
  * - 手工项：每人每月任意名称和金额（正数补助、负数扣款），如“代理董事长补助”。
  * 保险金额配置存数据库（不依赖 config/ 目录写权限）；未设置时回退旧 config/insurance.php 的 amount。
  */
+require_once __DIR__ . '/ProjectPayrollParking.php';
+require_once __DIR__ . '/ProjectPayrollDirector.php';
+
 function ps_payroll_extras_ensure()
 {
     static $done = false;
@@ -16,7 +19,31 @@ function ps_payroll_extras_ensure()
         kind ENUM('insurance','other') NOT NULL DEFAULT 'other', label VARCHAR(60) NOT NULL, amount DECIMAL(12,2) NOT NULL,
         note VARCHAR(200) NOT NULL DEFAULT '', created_by_admin INT NULL, created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
         KEY idx_employee_month (employee_id, payroll_month)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+    ps_parking_ensure();
     $done = true;
+}
+
+/**
+ * 手工项记入哪一栏（报酬表 / 结算申请 / 预期结算共用，保证加减口径一致）：
+ * 车位→parking、预留→reserve；含“扣/罚/借/预支/垫/保险”的负数→deduct（只减实发）；
+ * 其余按名称：补单→base、全勤→bonus、分成/提成/游学/留学→share、经理→mgr、组长→lead、保险→ins_sub，否则 other；
+ * 负数名称不含以上关键字（如“小程序”）时视为扣项目分成 → share，使应发与实发同步减少。
+ */
+function ps_manual_item_slot($label, $amount)
+{
+    $label = (string)$label;
+    if ($amount < 0) {
+        if (strpos($label, '车位') !== false) return 'parking';
+        if (strpos($label, '预留') !== false) return 'reserve';
+        if (preg_match('/扣|罚|借|预支|垫|保险/u', $label)) return 'deduct';
+    }
+    if (strpos($label, '补单') !== false) return 'base';
+    if (strpos($label, '全勤') !== false) return 'bonus';
+    if (preg_match('/分成|提成|游学|留学/u', $label)) return 'share';
+    if (strpos($label, '经理') !== false) return 'mgr';
+    if (strpos($label, '组长') !== false) return 'lead';
+    if (strpos($label, '保险') !== false) return 'ins_sub';
+    return $amount < 0 ? 'share' : 'other';
 }
 
 /** 保险金额：personal 个人承担（每月），unit 单位承担（每月）。 */
@@ -63,6 +90,7 @@ function ps_payroll_extras($month)
         if ($r['kind'] === 'insurance') $overrides[(int)$r['employee_id']] = $r;
         else $items[(int)$r['employee_id']][] = $r;
     }
+    $items = ps_parking_items($month, $items);
     $out = [];
     $exempt = []; // 个人资料里标了“免代扣保险”（已退休等）的人：永远不扣
     try { $exempt = array_flip(array_map('intval', db()->query('SELECT employee_id FROM project_partner_profiles WHERE no_insurance=1')->fetchAll(PDO::FETCH_COLUMN))); } catch (Throwable $e) {}
@@ -101,6 +129,7 @@ function ps_payroll_extras_action($action, $month, $employeeId, $post, $actor)
         ps_audit('payroll_manual', $employeeId, 'save_insurance', $actor, ['month' => $month, 'amount' => $text, 'note' => $note]);
     } elseif ($action === 'add_manual_item') {
         $label = trim((string)($post['label'] ?? ''));
+        if ($label === PS_DIRECTOR_LABEL) throw new RuntimeException('董事补助请从首页“补助本月核定”入口填写');
         $text = trim((string)($post['amount'] ?? ''));
         if ($label === '' || mb_strlen($label) > 60) throw new RuntimeException('请填写不超过60字的项目名称');
         if (!preg_match('/^-?\d{1,9}(?:\.\d{1,2})?$/', $text) || (float)$text == 0.0) throw new RuntimeException('金额须为非零数字（正数补助、负数扣款），最多两位小数');
@@ -109,6 +138,9 @@ function ps_payroll_extras_action($action, $month, $employeeId, $post, $actor)
         ps_audit('payroll_manual', (int)db()->lastInsertId(), 'add', $actor, ['employee_id' => $employeeId, 'month' => $month, 'label' => $label, 'amount' => $text, 'note' => $note]);
     } else { // delete_manual_item
         $id = (int)($post['item_id'] ?? 0);
+        $item = db()->prepare('SELECT label FROM project_payroll_manual_items WHERE id=? AND employee_id=? AND payroll_month=?');
+        $item->execute([$id, $employeeId, $month]);
+        if ($item->fetchColumn() === PS_DIRECTOR_LABEL) throw new RuntimeException('取消董事补助请在“补助本月核定”入口将金额填0');
         $del = db()->prepare("DELETE FROM project_payroll_manual_items WHERE id=? AND employee_id=? AND payroll_month=? AND kind='other'");
         $del->execute([$id, $employeeId, $month]);
         if (!$del->rowCount()) throw new RuntimeException('手工项不存在');
@@ -123,6 +155,7 @@ function ps_payroll_extras_freeze($month, $insuredIds, $actor)
     $has->execute([$month]);
     $done = array_flip(array_map('intval', $has->fetchAll(PDO::FETCH_COLUMN)));
     $extras = ps_payroll_extras($month);
+    ps_parking_freeze($month, $extras, $actor);
     $ins = db()->prepare("INSERT INTO project_payroll_manual_items (employee_id,payroll_month,kind,label,amount,note,created_by_admin) VALUES (?,?,'insurance','个人保险扣除',?,'锁月固化',?)");
     foreach ($insuredIds as $eid) {
         if (isset($done[(int)$eid]) || !isset($extras[(int)$eid])) continue;

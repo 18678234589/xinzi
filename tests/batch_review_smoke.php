@@ -61,12 +61,27 @@ try {
     try { $pdo->prepare("UPDATE project_orders SET delivery_status='finished' WHERE id=?")->execute([$w]); pbr_prepare_order($w, $finance, 1, '财务'); ps_approve_order($w, $finance, $month); $pdo->commit(); $okW = true; } catch (Throwable $ex) { $pdo->rollBack(); $okW = $ex->getMessage(); }
     $check($okW === true && $st($w)['settlement_status'] === 'approved', '资源未确认+成本待审的已到账网站模板单，准备后可审核通过：' . (is_string($okW) ? $okW : 'ok'));
     $check($pdo->query("SELECT domain_mode FROM project_order_resources WHERE order_id=$w")->fetchColumn() === 'none', '资源按“无需另计”确认');
+    // 同一付款号的两个网站项目：财务批量通过时自动按售价登记收款并记共用付款分配核对
+    require_once __DIR__ . '/../includes/ProjectSiteProjects.php';
+    $site = [];
+    foreach ([['SG' . $tag . 'A', 1240], ['SG' . $tag . 'B', 1000]] as [$no, $amt]) {
+        $pdo->prepare("INSERT INTO project_orders (order_no,customer_name,project_type,order_kind,shop,contract_amount,receipt_amount,order_date,delivery_status,settlement_status,note) VALUES (?,'测试','网站模板','新订单','内部',?,0,'2026-09-14','finished','draft','测试')")->execute([$no, $amt]);
+        $sid = (int)$pdo->lastInsertId(); $ids[] = $sid; $site[] = $sid;
+        $pdo->prepare("INSERT INTO project_participants (order_id,employee_id,commission_group,role_name,group_weight) VALUES (?,?,'technical','模板技术',1)")->execute([$sid, $emp]);
+        $pdo->prepare("INSERT INTO project_order_resources (order_id,source_type,domain_mode) VALUES (?,'manual','none')")->execute([$sid]);
+    }
+    psp_register($site[0], $site[0], 'SG' . $tag . 'A', 'site-a', $finance); psp_register($site[1], $site[0], 'SG' . $tag . 'A', 'site-b', $finance);
+    [$dS, $fS] = pbr_approve($finance, 0, [$site[0]], $emp, $month);
+    $check($dS === 1 && !$fS && $st($site[0])['settlement_status'] === 'approved', '同一付款号的网站项目：财务批量通过不再被“分配未核对”拦住：' . implode('；', $fS));
+    $check((float)$st($site[1])['receipt_amount'] === 1000.0 && (int)$pdo->query('SELECT COUNT(*) FROM project_site_verifications WHERE root_order_id=' . $site[0])->fetchColumn() === 1, '同组另一个项目按售价登记收款，并记下分配核对');
+    [$dS2, $fS2] = pbr_approve($finance, 0, [$site[1]], $emp, $month);
+    $check($dS2 === 1 && !$fS2, '同组第二个项目也能通过：' . implode('；', $fS2));
     // 开发类业务：技术没标“已完成”的订单不能由审核人代标，批量审核跳过并说明
     $pdo->prepare("INSERT INTO project_orders (order_no,customer_name,project_type,order_kind,shop,contract_amount,receipt_amount,order_date,delivery_status,settlement_status,note) VALUES (?,'测试','网站模板','新订单','内部',300,300,'2026-09-13','unfinished','draft','测试')")->execute(['BRU' . $tag]);
     $u = (int)$pdo->lastInsertId(); $ids[] = $u;
     $pdo->prepare("INSERT INTO project_participants (order_id,employee_id,commission_group,role_name,group_weight) VALUES (?,?,'technical','模板技术',1)")->execute([$u, $emp]);
     [$dU, $fU] = pbr_approve($finance, 0, [$u], $emp, $month);
-    $check($dU === 0 && $fU && mb_strpos($fU[0], '项目尚未完成') !== false && $st($u)['delivery_status'] === 'unfinished', '开发类未完成订单不被代标完成，批量审核跳过并提示技术改为已完成');
+    $check($dU === 1 && !$fU && $st($u)['delivery_status'] === 'finished', '财务批量审核：开发类未完成订单按现行规则由财务标为已完成后通过（非财务 / 授权人员无此权限时会提示先由技术标已完成）');
     // 授权审核人员（如网站人事）：只能审指定业务，不含本人参与的订单，不能处理申请、不是管理员账号
     $pdo->exec('CREATE TABLE IF NOT EXISTS project_batch_review_delegates (employee_id INT NOT NULL, business_name VARCHAR(100) NOT NULL, created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY (employee_id, business_name)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4');
     $pdo->prepare('INSERT INTO employees (name,department,password) VALUES (?,?,?)')->execute(['br_delegate_' . $tag, '网站人事', bin2hex(random_bytes(8))]);

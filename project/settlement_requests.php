@@ -44,6 +44,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if (!$target) throw new RuntimeException('申请已处理，请刷新页面');
             pspr_sync_pending($actor,(int)$target['employee_id'],$target['payroll_month'],$_POST['expected_amount'] ?? null);
             $success = '已按首页扣减后的实结算同步该月待处理申请，已打款不会重复申请；请核对后再打款。';
+        } elseif (($_POST['do'] ?? '') === 'sync_all_payroll') {
+            $synced = 0;
+            $q = db()->query("SELECT r.id, r.employee_id, r.payroll_month, r.amount FROM project_settlement_requests r WHERE r.status='pending'");
+            foreach ($q->fetchAll(PDO::FETCH_ASSOC) as $tr) {
+                $chk = psr_check($tr);
+                if (!empty($chk['sync_needed']) && !empty($chk['sync_amount']) && $chk['sync_amount'] > 0) {
+                    try {
+                        pspr_sync_pending($actor, (int)$tr['employee_id'], $tr['payroll_month'], number_format($chk['sync_amount'], 2, '.', ''));
+                        $synced++;
+                    } catch (Throwable $e) {}
+                }
+            }
+            $success = '已批量同步 ' . $synced . ' 笔待处理申请至最新整月实结算金额。';
+        } elseif (($_POST['do'] ?? '') === 'bulk_green') {
+            require_once __DIR__ . '/../includes/ProjectPayrollSheet.php';
+            $m = $monthFilter ?: date('Y-m', strtotime('first day of last month'));
+            $n = 0;
+            foreach (pps_sheet($m, 0, true)['rows'] as $r) {
+                if ($r['diff'] === null || abs($r['diff']) > PPF_TOLERANCE || ($r['flag']['color'] ?? '') === 'green') continue;
+                ppf_save($actor, (int)$r['id'], $m, 'green', '系统金额与财务对照表差距 ' . round($r['diff']*100, 1) . '%，在 5% 以内，核对无异议，可以正常申请结算。', (string)$r['ref'], false);
+                $n++;
+            }
+            $success = '已为 ' . $n . ' 位核对无异议的合作人员标记通过（绿标）。';
         } elseif (($_POST['do'] ?? '') === 'settle') { psr_settle($id, $actor, (string)($_POST['note'] ?? '')); $success = '已标注结算：申请已记为已结算，并已通知申请人。'; }
         elseif (($_POST['do'] ?? '') === 'reject') { psr_reject($id, $actor, (string)($_POST['note'] ?? '')); $success = '已退回，结算项已释放，申请人可重新申请。'; }
         else throw new RuntimeException('操作无效');
@@ -80,14 +103,14 @@ foreach ($rows as $r) if ($r['status']==='pending' && !empty($checks[$r['id']]['
     $people[$eid]['cents']+=(int)round((float)$r['amount']*100); $people[$eid]['requests']++;
 }
 $pageUrl = function ($change) use ($status,$search,$monthFilter,$page) { $base = ['status'=>$status,'q'=>$search,'month'=>$monthFilter,'page'=>$page]; if (!empty($_GET['embed'])) $base['embed'] = 1; return '?'.http_build_query(array_merge($base,$change)); };
-$labels = ['pending' => ['待打款', 'warning'], 'settled' => ['已结算', 'success'], 'rejected' => ['已退回', 'secondary']];
+$labels = ['pending' => ['待处理', 'warning'], 'settled' => ['已结算', 'success'], 'rejected' => ['已退回', 'secondary']];
 $page_title = '结算申请';
 include __DIR__ . '/../includes/header.php';
 ?>
 <div class="container-fluid" style="max-width:<?php echo !empty($_GET['embed']) ? '100%' : '1100px'; ?>">
   <h2 class="h4 my-3"><i class="fas fa-hand-holding-usd mr-2"></i>结算申请</h2>
   <p class="text-muted small">待打款金额按首页扣减后的整月实结算计算，扣除该月已打款金额。旧逐单申请或金额变化时，可点击“同步整月实结算”更新，金额有变化需重新核对；未核对通过或仍含待审核金额不可导出、不可确认结算。实际打款后再点“已结算”。</p>
-  <div class="btn-group btn-group-sm mb-3"><?php foreach (['pending' => '待打款', 'settled' => '已结算', 'rejected' => '已退回', 'all' => '全部'] as $k => $v): ?><a class="btn btn-outline-secondary<?php echo $status === $k ? ' active' : ''; ?>" href="<?php echo e($pageUrl(['status'=>$k,'page'=>1])); ?>"><?php echo e($v); ?><?php if ($k !== 'all' && !empty($counts[$k])): ?> <span class="badge badge-light"><?php echo (int)$counts[$k]; ?></span><?php endif; ?></a><?php endforeach; ?></div>
+  <div class="btn-group btn-group-sm mb-3"><?php foreach (['pending' => '待处理', 'settled' => '已结算', 'rejected' => '已退回', 'all' => '全部'] as $k => $v): ?><a class="btn btn-outline-secondary<?php echo $status === $k ? ' active' : ''; ?>" href="<?php echo e($pageUrl(['status'=>$k,'page'=>1])); ?>"><?php echo e($v); ?><?php if ($k !== 'all' && !empty($counts[$k])): ?> <span class="badge badge-light"><?php echo (int)$counts[$k]; ?></span><?php endif; ?></a><?php endforeach; ?></div>
   <form method="get" class="form-inline mb-3"><?php if (!empty($_GET['embed'])): ?><input type="hidden" name="embed" value="1"><?php endif; ?><input type="hidden" name="status" value="<?php echo e($status); ?>"><input name="q" class="form-control form-control-sm mr-2" value="<?php echo e($search); ?>" placeholder="姓名 / 部门" aria-label="姓名或部门"><input type="month" name="month" class="form-control form-control-sm mr-2" value="<?php echo e($monthFilter); ?>" aria-label="结算月份"><button class="btn btn-sm btn-outline-primary">筛选</button><span class="small text-muted ml-2">共 <?php echo $totalRows; ?> 条，待打款按申请时间先后排列</span></form>
   <?php if ($success): ?><div class="alert alert-success"><?php echo e($success); ?></div><?php endif; ?>
   <?php if ($error): ?><div class="alert alert-danger"><?php echo e($error); ?></div><?php endif; ?>
@@ -99,7 +122,7 @@ include __DIR__ . '/../includes/header.php';
   <form method="post" id="batchForm" class="sr-bar"><input type="hidden" name="csrf" value="<?php echo e(ps_csrf_token()); ?>">
     <label class="mb-0"><input type="checkbox" id="srAll"> 全选本页无异议的</label>
     <span class="sr-sum">已选 <b id="srCnt">0</b> 条 · 打款合计 <b id="srAmt">¥0.00</b>　<small class="text-muted">（本页无异议 <?php echo (int)$readyCount; ?> 条 · ¥<?php echo number_format($readyAmount, 2); ?>）</small></span>
-    <span class="ml-auto"><button name="do" value="export" class="btn btn-sm btn-primary" id="srExport"><i class="fas fa-file-excel mr-1"></i>导出批量打款表</button>
+    <span class="ml-auto"><button name="do" value="bulk_green" class="btn btn-sm btn-outline-success mr-1" onclick="return confirm('为本月对照表差距在 5% 以内且无异议的人员一键标记通过（绿标）？');"><i class="fas fa-check mr-1"></i>一键复核标绿</button><button name="do" value="sync_all_payroll" class="btn btn-sm btn-outline-primary mr-1" onclick="return confirm('将所有金额发生变化的待处理申请批量同步至最新整月实结算金额？');"><i class="fas fa-sync mr-1"></i>一键同步最新金额</button><button name="do" value="export" class="btn btn-sm btn-primary" id="srExport"><i class="fas fa-file-excel mr-1"></i>导出批量打款表</button>
     <button name="do" value="settle_many" class="btn btn-sm btn-success ml-1" id="srSettle" onclick="return confirm('确认已按打款表全部打款？确认后选中的申请将标注已结算，不能撤销。');"><i class="fas fa-check-double mr-1"></i>批量已结算</button></span>
   </form>
   <style>.sr-bar{position:sticky;top:0;z-index:5;display:flex;flex-wrap:wrap;align-items:center;gap:.8rem;padding:.6rem .9rem;margin-bottom:1rem;border:1px solid #cfe0d6;border-radius:12px;background:rgba(246,250,247,.96);backdrop-filter:blur(6px);box-shadow:0 6px 16px -10px rgba(35,75,61,.4)}.sr-sum b{color:#1f6a52}.sr-card .sr-pick{margin-right:.5rem}.sr-hold{background:#fff6dc;border:1px solid #ecd596;border-radius:8px;padding:.3rem .6rem;font-size:.82rem;color:#7a5010;margin-bottom:.4rem}</style>

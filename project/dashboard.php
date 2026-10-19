@@ -1,6 +1,7 @@
 <?php
 require_once __DIR__ . '/../includes/ProjectPartnerDashboard.php';
 require_once __DIR__ . '/../includes/ProjectExpectedSettlement.php';
+require_once __DIR__ . '/../includes/ProjectPayrollSheet.php';
 require_once __DIR__ . '/../includes/ProjectWelfare.php';
 require_once __DIR__ . '/../includes/ProjectSettlementRequest.php';
 $actor = ps_require_actor();
@@ -34,6 +35,7 @@ $previous = ps_partner_summary($previousRows);
 $ordersUrl = ps_partner_orders_url($employeeId, $month);
 $previousOrdersUrl = ps_partner_orders_url($employeeId, substr($previousFrom, 0, 7));
 $expectedIncome = ps_partner_expected_income($employeeId, $month);
+$payrollRow = pps_sheet($month, $employeeId)['rows'][0] ?? array_fill_keys(['base','share','bonus','mgr','lead','ins_sub','other','deduct','parking','reserve','unit_ins','personal_ins','payable','net'], 0.0) + ['days' => null];
 $input = ps_partner_ai_input($summary, $previous, $month);
 $inputHash = hash('sha256', json_encode($input, JSON_UNESCAPED_UNICODE | JSON_PRESERVE_ZERO_FRACTION));
 $insightQuery = db()->prepare('SELECT insight_json,created_at FROM project_partner_insights WHERE employee_id=? AND period=? AND input_hash=? LIMIT 1');
@@ -100,8 +102,6 @@ $pendingN = (int)($pendingData[$employeeId]['n'] ?? 0);
 $unreviewedN = max($pendingN, count(array_filter($rows, static fn($r) => in_array($r['settlement_status'], ['draft', 'review'], true))));
 $currentMonth = date('Y-m');
 $isCurrentOrFuture = ($month >= $currentMonth);
-$availableOrders = array_values(array_filter($unsettledRows, static fn($r) => $r['state'] === 'available'));
-$canApply = !$isCurrentOrFuture && count($availableOrders) > 0 && (($actor['role'] === 'finance') || ((int)($actor['employee_id'] ?? 0) === $employeeId));
 $settleBadge = ['settled' => ['已结算', 'ok'], 'pending' => ['已申请 · 待打款', 'wait'], 'correcting' => ['更正中', 'warn'], 'available' => ['未申请', 'idle']];
 ?>
 <div class="partner-dashboard">
@@ -127,11 +127,23 @@ $settleBadge = ['settled' => ['已结算', 'ok'], 'pending' => ['已申请 · �
   <section class="pd-kpis" aria-label="经营数据">
     <article class="pd-kpi"><b class="pd-kpi-id" aria-hidden="true">01 / ORDERS</b><span><a class="pd-order-count-link" href="<?php echo e($ordersUrl); ?>">参与订单 <i class="fas fa-arrow-right small" aria-hidden="true"></i></a></span><strong><a class="pd-order-count-link" href="<?php echo e($ordersUrl); ?>" aria-label="<?php echo e('查看' . $person['name'] . '在' . $month . '参与的' . (int)$summary['orders'] . '笔订单'); ?>"><?php echo (int)$summary['orders']; ?> <small>单</small></a></strong><em><a class="pd-order-count-link" href="<?php echo e($previousOrdersUrl); ?>">上月 <?php echo (int)$previous['orders']; ?> 单</a></em></article>
     <article class="pd-kpi"><b class="pd-kpi-id" aria-hidden="true">02 / VALUE</b><span>订单成交额</span><strong>¥<?php echo money($summary['contract']); ?></strong><em>按本人分单权重归属</em></article>
-    <article class="pd-kpi pd-kpi-primary"><b class="pd-kpi-id" aria-hidden="true">03 / EXPECTED INCOME</b><span><?php echo e($month); ?> 预期总收入</span><strong>¥<?php echo money($expectedIncome['total']); ?></strong><em>固定服务费 ¥<?php echo money($expectedIncome['fixed_fee']); ?> + 项目分成 ¥<?php echo money($expectedIncome['commission']); ?> + 预期全勤奖 ¥<?php echo money($expectedIncome['attendance']); ?></em></article>
-    <article class="pd-kpi"><b class="pd-kpi-id" aria-hidden="true">04 / EXPECTED SHARE</b><span>预期总分成</span><strong>¥<?php echo money($expectedIncome['commission']); ?></strong><em>逐单分成及补助 ¥<?php echo money($expectedIncome['order_commission']); ?> · 月度阶梯、奖励及调整 ¥<?php echo money($expectedIncome['monthly_commission']); ?></em></article>
+    <article class="pd-kpi pd-kpi-primary"><b class="pd-kpi-id" aria-hidden="true">03 / NET PAY</b><span><?php echo e($month); ?> 实结算（预计）</span><strong data-payroll="net">¥<?php echo money($payrollRow['net']); ?></strong><em>应结算 ¥<?php echo money($payrollRow['payable']); ?> − 扣减 ¥<?php echo money($payrollRow['payable'] - $payrollRow['net']); ?><br><?php echo $payrollRow['days'] === null ? '考勤待核对' : '实际到岗 ' . rtrim(rtrim(number_format($payrollRow['days'], 2), '0'), '.') . ' 天'; ?></em></article>
+    <article class="pd-kpi"><b class="pd-kpi-id" aria-hidden="true">04 / PROJECT SHARE</b><span>项目分成</span><strong data-payroll="share">¥<?php echo money($payrollRow['share']); ?></strong><em>含逐单及月度分成；待审金额随审核更新</em></article>
+  </section>
+  <link rel="stylesheet" href="<?php echo e(BASE_URL . '/assets/css/payroll-request.css?v=' . filemtime(dirname(__DIR__) . '/assets/css/payroll-request.css')); ?>">
+  <script src="<?php echo e(BASE_URL . '/assets/js/payroll_request.js?v=' . filemtime(dirname(__DIR__) . '/assets/js/payroll_request.js')); ?>" defer></script>
+  <section class="pd-panel" aria-label="整月实结算申请"><h2>整月结算申请 · <?php echo e($month); ?></h2>
+    <link rel="stylesheet" href="<?php echo e(BASE_URL . '/assets/css/payroll_sheet.css?v=' . filemtime(dirname(__DIR__) . '/assets/css/payroll_sheet.css')); ?>">
+    <?php $payrollRequestEmployee=$employeeId; $payrollRequestMonth=$month; include __DIR__ . '/../includes/payroll_row_table.php'; include __DIR__ . '/../includes/payroll_request_button.php'; ?>
   </section>
   <div class="pd-data-note"><i class="fas fa-calculator"></i> 按订单归属日期与规则中心计算预期，归入本月的跨月分成更正一并计入，不代表已审核或已发放。未确认收款按已填写售价预估；全勤奖最终以财务批准为准。<?php if ($expectedIncome['warnings']['cash']): ?> <?php echo (int)$expectedIncome['warnings']['cash']; ?> 单实收待确认。<?php endif; ?><?php if ($expectedIncome['warnings']['cost']): ?> <?php echo (int)$expectedIncome['warnings']['cost']; ?> 单资源/成本待补齐，目前仅按已知成本估算，补齐后金额可能降低。<?php endif; ?><?php if ($expectedIncome['warnings']['rule']): ?> <?php echo (int)$expectedIncome['warnings']['rule']; ?> 单分成规则未匹配，相关金额暂不计入。<?php endif; ?><?php if ($expectedIncome['warnings']['weight']): ?> <?php echo (int)$expectedIncome['warnings']['weight']; ?> 单分配权重待核对，相关分成暂不计入。<?php endif; ?><?php if ($expectedIncome['warnings']['refund']): ?> <?php echo (int)$expectedIncome['warnings']['refund']; ?> 单退款待核对，确认后会自动重算。<?php endif; ?></div>
-  <details class="pd-data-note"><summary>查看预期收入组成与计算依据</summary><div>逐单分成及补助：¥<?php echo money($expectedIncome['order_commission']); ?></div><?php foreach ($expectedIncome['items'] as $incomeItem): ?><div><?php echo e($incomeItem['rule_name']); ?>：¥<?php echo money($incomeItem['amount']); ?> <small><?php echo e($incomeItem['detail']); ?></small></div><?php endforeach; ?></details>
+  <details class="pd-data-note"><summary>查看结算组成与计算依据</summary>
+    <?php foreach (['base'=>'固定服务费','share'=>'项目分成','bonus'=>'全勤奖','mgr'=>'经理补助','lead'=>'组长补助','ins_sub'=>'保险补助','other'=>'其他补助 / 延时服务','deduct'=>'扣款','parking'=>'车位费','reserve'=>'风险预留金','unit_ins'=>'单位保险','personal_ins'=>'代扣保险'] as $key=>$label): if (abs($payrollRow[$key]) < 0.005) continue; ?>
+    <div><?php echo e($label); ?>：<?php echo in_array($key, ['deduct','parking','reserve','unit_ins','personal_ins'], true) ? '−' : ''; ?>¥<?php echo money($payrollRow[$key]); ?></div>
+    <?php endforeach; ?>
+    <div>应结算 ¥<?php echo money($payrollRow['payable']); ?> − 扣减合计 ¥<?php echo money($payrollRow['payable'] - $payrollRow['net']); ?> ＝ 实结算 ¥<?php echo money($payrollRow['net']); ?></div>
+    <details><summary>月度规则计算依据</summary><?php foreach ($expectedIncome['items'] as $incomeItem): ?><div><?php echo e($incomeItem['rule_name']); ?>：¥<?php echo money($incomeItem['amount']); ?> <small><?php echo e($incomeItem['detail']); ?></small></div><?php endforeach; ?></details>
+  </details>
 
   <div class="pd-section-label"><span>02 / 业务信号</span><small>把数据变成下一步的线索</small></div>
   <div class="pd-grid">
@@ -149,67 +161,32 @@ $settleBadge = ['settled' => ['已结算', 'ok'], 'pending' => ['已申请 · �
     </section>
   </div>
 
-  <div class="pd-section-label"><span>03 / 结算订单</span><small>已结算的、还没结算的，一目了然</small></div>
+  <div class="pd-section-label"><span>03 / 项目分成明细</span><small>已结算的、还没结算的，一目了然</small></div>
   <section class="pd-panel pd-settle" id="pd-settle">
-    <div class="pd-panel-title"><div><span class="pd-icon"><i class="fas fa-hand-holding-usd"></i></span><h2><?php echo e($month); ?> 结算订单</h2></div><small><?php echo ($actor['role'] === 'finance' ? '财务查看 · ' . e($person['name']) : ''); ?></small></div>
-    <?php if ($actor['role'] !== 'finance' && !$isCurrentOrFuture): require_once __DIR__ . '/../includes/ProjectPayrollFlags.php'; $myFlag = ppf_all($month)[$employeeId] ?? null; $fc = $myFlag['color'] ?? null; ?>
-    <div class="pd-settle-banner <?php echo $fc === 'green' ? 'is-ok' : 'is-warn'; ?>"><i class="fas fa-<?php echo $fc === 'green' ? 'check-circle' : 'hourglass-half'; ?>"></i> <span><?php echo $fc === 'green' ? '财务已核对 ' . e($month) . ' 的结算金额，可以勾选订单提交结算申请。' : '财务还没有核对确认 ' . e($month) . ' 的结算金额，核对通过（标为绿色）后才能提交结算申请。' . ($fc ? '财务说明：' . e((string)$myFlag['reason']) : ''); ?></span></div>
-    <?php endif; ?>
+    <div class="pd-panel-title"><div><span class="pd-icon"><i class="fas fa-hand-holding-usd"></i></span><h2><?php echo e($month); ?> 项目分成明细</h2></div><small><?php echo ($actor['role'] === 'finance' ? '财务查看 · ' . e($person['name']) : ''); ?></small></div>
     <?php if ($isCurrentOrFuture): ?>
     <div class="pd-settle-banner is-warn"><i class="fas fa-info-circle"></i> <span>当前月份（<?php echo e($month); ?>）订单正在执行期内，不可申请结算；次月核对无误后方可申请（当前仅开放 <?php echo e(date('Y-m', strtotime('first day of last month'))); ?> 及以前历史月份已审核订单结算）。</span></div>
     <?php endif; ?>
     <div class="pd-settle-kpis">
-      <div class="is-ok"><span>已结算</span><strong>¥<?php echo money($sumOf($settledRows)); ?></strong><em><?php echo count($settledRows); ?> 项</em></div>
-      <div class="is-idle"><span>未结算（已审核）</span><strong>¥<?php echo money($sumOf($unsettledRows)); ?></strong><em><?php echo count($unsettledRows); ?> 项<?php $wait = count(array_filter($unsettledRows, static fn($r) => $r['state'] === 'pending')); echo $wait ? ' · 其中 ' . $wait . ' 项已申请待打款' : ''; ?></em></div>
+      <div class="is-ok"><span>已结算项目分成</span><strong>¥<?php echo money($sumOf($settledRows)); ?></strong><em><?php echo count($settledRows); ?> 项</em></div>
+      <div class="is-idle"><span>未结算项目分成（已审核）</span><strong>¥<?php echo money($sumOf($unsettledRows)); ?></strong><em><?php echo count($unsettledRows); ?> 项<?php $wait = count(array_filter($unsettledRows, static fn($r) => $r['state'] === 'pending')); echo $wait ? ' · 其中 ' . $wait . ' 项已申请待打款' : ''; ?></em></div>
       <div class="is-warn"><span>尚未审核</span><strong><?php echo (int)$unreviewedN; ?> 单<?php if ($pendingAmount > 0): ?> <small style="font-size:.9rem;font-weight:600;">(预计 ¥<?php echo money($pendingAmount); ?>)</small><?php endif; ?></strong><em>审核后才计入可结算分成</em></div>
     </div>
     <div class="pd-tabs" role="tablist"><button type="button" class="is-on" data-tab="unsettled">未结算订单 <b><?php echo count($unsettledRows); ?></b></button><button type="button" data-tab="settled">已结算订单 <b><?php echo count($settledRows); ?></b></button></div>
     
     <div class="pd-settle-list" data-pane="unsettled">
-      <?php if (!$unsettledRows): ?><div class="pd-empty pd-good"><i class="fas fa-check-circle"></i> 这个月份已审核的订单都已结算。</div>
+      <?php if (!$unsettledRows): ?><div class="pd-empty pd-good"><i class="fas fa-check-circle"></i> 本月暂无未结算的项目分成，整月申请状态见上方。</div>
       <?php else: ?>
-      <div class="pd-settle-bar">
-        <div class="pd-settle-bar-left">
-          <?php if (!$isCurrentOrFuture && count($availableOrders) > 0): ?>
-            <label class="pd-select-all-label"><input type="checkbox" id="pd-check-all-top"> <span>全选</span></label>
-            <span class="pd-sel-summary">已选 <strong id="pd-sel-count">0</strong> / <?php echo count($availableOrders); ?> 项，共计 <strong id="pd-sel-amount">¥0.00</strong></span>
-          <?php elseif ($isCurrentOrFuture): ?>
-            <span class="text-muted small"><i class="fas fa-lock"></i> 当月订单不可申请结算</span>
-          <?php else: ?>
-            <span class="text-muted small"><i class="fas fa-check-circle text-success"></i> 所有已审核订单均已提交申请或已结算</span>
-          <?php endif; ?>
-        </div>
-        <div class="pd-settle-bar-right">
-          <?php if (!$isCurrentOrFuture && count($availableOrders) > 0): ?>
-            <button type="button" class="btn btn-sm btn-outline-secondary" id="pd-btn-select-all">全选</button>
-            <button type="button" class="btn btn-sm btn-success" id="pd-btn-submit">
-              <i class="fas fa-check-circle"></i> 提交结算申请
-            </button>
-          <?php elseif ($isCurrentOrFuture): ?>
-            <button type="button" class="btn btn-sm btn-secondary" disabled title="当月订单不可提交结算申请">
-              <i class="fas fa-lock"></i> 当月不可结算
-            </button>
-          <?php endif; ?>
-        </div>
-      </div>
       <div class="table-responsive"><table class="pd-settle-table">
         <thead><tr>
-          <th style="width:40px;text-align:center;"><input type="checkbox" id="pd-th-check-all" title="全选" <?php echo ($isCurrentOrFuture || count($availableOrders) === 0) ? 'disabled' : ''; ?>></th>
           <th>订单号 / 结算项目</th><th>付款昵称 / 微信号</th><th>业务</th><th>日期</th><th class="r">本月分成</th><th>状态</th>
         </tr></thead>
         <tbody>
         <?php foreach ($unsettledRows as $so):
             [$bt, $bc] = $settleBadge[$so['state']];
-            $canCheck = ($so['state'] === 'available' && !$isCurrentOrFuture);
         ?>
-        <tr class="<?php echo $canCheck ? 'is-selectable' : 'is-disabled'; ?>">
-          <td style="text-align:center;">
-            <?php if ($canCheck): ?>
-              <input type="checkbox" name="order_ids[]" value="<?php echo (int)$so['order_id']; ?>" data-amt="<?php echo (float)$so['amount']; ?>" class="pd-row-chk" aria-label="选择项目 <?php echo e($so['order_no']); ?>">
-            <?php else: ?>
-              <input type="checkbox" disabled class="pd-row-chk is-disabled" title="<?php echo $isCurrentOrFuture ? '当月订单不可申请' : ($so['state'] === 'pending' ? '已申请待打款' : '不可申请'); ?>">
-            <?php endif; ?>
-          </td>
+        <tr>
+
           <td>
             <?php if ((int)$so['order_id'] >= 900000000): ?>
               <span class="badge badge-info mr-1">月度</span><strong><?php echo e($so['order_no']); ?></strong>
@@ -231,7 +208,7 @@ $settleBadge = ['settled' => ['已结算', 'ok'], 'pending' => ['已申请 · �
     </div>
 
     <div class="pd-settle-list" data-pane="settled" hidden>
-      <?php if (!$settledRows): ?><div class="pd-empty">这个月份还没有已结算的订单。</div>
+      <?php if (!$settledRows): ?><div class="pd-empty">本月暂无已结算的项目分成记录。</div>
       <?php else: ?>
       <div class="table-responsive"><table class="pd-settle-table">
         <thead><tr>
@@ -292,80 +269,6 @@ $settleBadge = ['settled' => ['已结算', 'ok'], 'pending' => ['已申请 · �
       [].forEach.call(s.querySelectorAll('.pd-settle-list'), function(p){ p.hidden = p.getAttribute('data-pane') !== b.getAttribute('data-tab'); });
     });
 
-    var chks = [].slice.call(s.querySelectorAll('.pd-row-chk:not(:disabled)'));
-    var chkTop = s.querySelector('#pd-check-all-top');
-    var chkTh = s.querySelector('#pd-th-check-all');
-    var btnSelectAll = s.querySelector('#pd-btn-select-all');
-    var btnSubmit = s.querySelector('#pd-btn-submit');
-    var cntEl = s.querySelector('#pd-sel-count');
-    var amtEl = s.querySelector('#pd-sel-amount');
-
-    function updateStats() {
-      var checked = chks.filter(function(c){ return c.checked; });
-      var total = checked.reduce(function(acc, c){ return acc + (parseFloat(c.getAttribute('data-amt')) || 0); }, 0);
-      if(cntEl) cntEl.textContent = checked.length;
-      if(amtEl) amtEl.textContent = '¥' + total.toLocaleString('zh-CN', {minimumFractionDigits: 2, maximumFractionDigits: 2});
-      var allChecked = chks.length > 0 && checked.length === chks.length;
-      if(chkTop) chkTop.checked = allChecked;
-      if(chkTh) chkTh.checked = allChecked;
-      if(btnSelectAll) btnSelectAll.textContent = allChecked ? '取消全选' : '全选';
-    }
-
-    function toggleAll(val) {
-      chks.forEach(function(c){ c.checked = val; });
-      updateStats();
-    }
-
-    if(chkTop) chkTop.addEventListener('change', function(){ toggleAll(chkTop.checked); });
-    if(chkTh) chkTh.addEventListener('change', function(){ toggleAll(chkTh.checked); });
-    if(btnSelectAll) btnSelectAll.addEventListener('click', function(){
-      var allChecked = chks.length > 0 && chks.every(function(c){ return c.checked; });
-      toggleAll(!allChecked);
-    });
-
-    s.addEventListener('change', function(e){
-      if(e.target.classList.contains('pd-row-chk')) updateStats();
-    });
-
-    if(btnSubmit) {
-      btnSubmit.addEventListener('click', function(){
-        var checked = chks.filter(function(c){ return c.checked; });
-        if(!checked.length) {
-          alert('请先勾选要结算的订单（也可以点“全选”按钮）');
-          return;
-        }
-        var total = checked.reduce(function(acc, c){ return acc + (parseFloat(c.getAttribute('data-amt')) || 0); }, 0);
-        var msg = '确认提交选中的 ' + checked.length + ' 笔订单（共 ¥' + total.toFixed(2) + '）进行结算申请吗？';
-        if(!confirm(msg)) return;
-
-        btnSubmit.disabled = true;
-        btnSubmit.textContent = '正在提交…';
-        var fd = new FormData();
-        fd.set('action', 'request_settle');
-        fd.set('csrf', <?php echo json_encode(ps_csrf_token()); ?>);
-        fd.set('month', <?php echo json_encode($month); ?>);
-        fd.set('employee_id', <?php echo (int)$employeeId; ?>);
-        checked.forEach(function(c){ fd.append('order_ids[]', c.value); });
-
-        fetch(location.pathname + location.search, { method: 'POST', body: fd, credentials: 'same-origin' })
-          .then(function(r){ return r.json().catch(function(){ return {ok:false, message:'提交失败（' + r.status + '）'}; }); })
-          .then(function(res){
-            if(res.ok) {
-              alert(res.message || '结算申请提交成功！');
-              location.reload();
-            } else {
-              alert(res.message || '提交失败，请重试');
-              btnSubmit.disabled = false;
-              btnSubmit.innerHTML = '<i class="fas fa-check-circle"></i> 提交结算申请';
-            }
-          })
-          .catch(function(err){
-            alert('网络请求失败，请稍后重试');
-            btnSubmit.disabled = false;
-            btnSubmit.innerHTML = '<i class="fas fa-check-circle"></i> 提交结算申请';
-          });
-      });
-    }
   })();
   </script>
 

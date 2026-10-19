@@ -42,13 +42,22 @@ function ppf_diff($sysNet, $ref)
 function ppf_is_green($employeeId, $month)
 {
     ppf_ensure();
-    $q = db()->prepare("SELECT color, reason FROM project_payroll_flags WHERE employee_id=? AND payroll_month=?");
+    $q = db()->prepare("SELECT color, reason, ref_net FROM project_payroll_flags WHERE employee_id=? AND payroll_month=?");
     $q->execute([(int)$employeeId, $month]);
     $row = $q->fetch(PDO::FETCH_ASSOC);
     if (!$row) return false;
     if ($row['color'] === 'green') return true;
     if ($row['color'] !== 'red' && preg_match('/一致|无异议|差距在\s*5%\s*以内/u', (string)$row['reason'])) {
         return true;
+    }
+    if ($row['color'] !== 'red' && $row['ref_net'] !== null && $row['ref_net'] !== '') {
+        require_once __DIR__ . '/ProjectPayrollSheet.php';
+        $sheet = pps_sheet($month, (int)$employeeId);
+        $net = (float)($sheet['rows'][0]['net'] ?? 0);
+        $diff = ppf_diff($net, $row['ref_net']);
+        if ($diff !== null && abs($diff) <= PPF_TOLERANCE) {
+            return true;
+        }
     }
     return false;
 }
