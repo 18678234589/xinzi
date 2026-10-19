@@ -49,6 +49,9 @@ function ps_monthly_results($month, $forceLive = false, $context = null)
     foreach ($rules as $r) {
         if ($r['rule_type'] === 'attendance_bonus' && $r['employee_id'] !== null) $fullAttendance[(int)$r['employee_id']] = (float)($r['params']['amount'] ?? 0);
     }
+    // 本人固定服务费规则（原基本工资）：阶梯固定额只是保底，不能把高于它的本人固定服务费压低（如 2300 被压成 2000−全勤奖=1800）。
+    $ownBase = [];
+    foreach ($rules as $r) if ($r['rule_type'] === 'base_fee' && $r['employee_id'] !== null) $ownBase[(int)$r['employee_id']] = ($ownBase[(int)$r['employee_id']] ?? 0) + (float)($r['params']['amount'] ?? 0);
     // 先确定阶梯固定额：规则中心调整展示顺序后，固定服务费仍须使用同一档位。
     foreach ($rules as $r) {
         if ($r['rule_type'] !== 'tier_rate') continue;
@@ -63,9 +66,13 @@ function ps_monthly_results($month, $forceLive = false, $context = null)
             $tier = ps_monthly_pick_tier($r['params']['tiers'] ?? [], $value);
             if (!$tier || !isset($tier['base']) || $tier['base'] === '') continue;
             $includesAttendance = $r['params']['base_includes_attendance'] ?? ($r['scope_business'] === 'AI网站定制' && $r['scope_role'] === '前端');
-            $tierBases[$eid] = ['amount' => max((float)$tier['base'] - ($includesAttendance ? ($fullAttendance[$eid] ?? 0) : 0), 0),
-                'detail' => '按当月阶梯固定额 ¥' . money_plain($tier['base']) . ($includesAttendance ? '，扣除单列全勤奖 ¥' . money_plain($fullAttendance[$eid] ??
-    0) : '')];
+            $tierAmount = max((float)$tier['base'] - ($includesAttendance ? ($fullAttendance[$eid] ?? 0) : 0), 0);
+            if (($ownBase[$eid] ?? 0) > $tierAmount + 0.004) {
+                $tierBases[$eid] = ['amount' => $ownBase[$eid], 'detail' => '本人固定服务费 ¥' . money_plain($ownBase[$eid]) . ' 高于当月阶梯固定额 ¥' . money_plain($tier['base']) . '，按本人固定服务费（全勤奖另计）'];
+            } else {
+                $tierBases[$eid] = ['amount' => $tierAmount,
+                    'detail' => '按当月阶梯固定额 ¥' . money_plain($tier['base']) . ($includesAttendance ? '，扣除单列全勤奖 ¥' . money_plain($fullAttendance[$eid] ?? 0) : '')];
+            }
         }
     }
     // 超时补贴的计算基数：每人固定服务费规则的本月金额（未按考勤折算前，口径同固定服务费）。

@@ -57,9 +57,9 @@ $ctx=['forecast'=>true,'snapshots'=>[$tierSnap],'inputs'=>[],'attendance'=>[],'r
 $income=ps_expected_rollup(84,[$tierSnap],ps_monthly_results('2026-09',true,$ctx));
 expect_value('internal frontend below ten thousand rate is five percent', $income['commission'],425);
 $reordered = $ctx; $reordered['rules'] = array_reverse($ctx['rules']);
-expect_value('tier fixed fee does not depend on rule order', ps_expected_rollup(84,[$tierSnap],ps_monthly_results('2026-09',true,$reordered))['fixed_fee'], 1800);
-expect_value('tier fixed fee excludes separately listed attendance', $income['fixed_fee'],1800);
-expect_value('tier gross fixed amount plus attendance is two thousand', $income['fixed_fee']+$income['attendance'],2000);
+expect_value('tier fixed fee does not depend on rule order', ps_expected_rollup(84,[$tierSnap],ps_monthly_results('2026-09',true,$reordered))['fixed_fee'], 2300);
+expect_value('tier floor does not reduce employee fixed fee', $income['fixed_fee'],2300);
+expect_value('employee fixed fee and attendance remain separate', $income['fixed_fee']+$income['attendance'],2500);
 $rule=['id'=>87,'rate'=>.04,'calc_mode'=>'pool','service_fee_rate'=>.057,'per_order_subsidy'=>2.5,'allow_negative'=>1,'low_profit_threshold'=>5,'low_profit_subsidy'=>1.5];
 expect_value('copywriting low profit subsidy',ps_calc_person($rule,10,6,10,1,.057)['subsidy'],1.5);
 expect_value('copywriting negative refund commission retained',ps_calc_person($rule,-10,0,0,1,.057)['share'],-.4);
