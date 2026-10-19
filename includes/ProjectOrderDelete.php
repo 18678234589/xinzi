@@ -22,7 +22,7 @@ function pod_blocker(array $row, $actor)
     }
     $pdo = db();
     if ($status === 'approved') {
-        if ($role !== 'finance' && !($isDept && in_array($row['project_type'], POD_DEPT_BUSINESSES, true))) return '订单已审核生成分成，只有财务（或售后部删售后部业务订单）可删除';
+        if ($role !== 'finance' && !($isDept && in_array($row['project_type'], POD_DEPT_BUSINESSES, true))) return '订单已审核生成分成，您没有删除权限。如果是重复录入，请把订单号发给财务删除（删除后进回收站，30 天内可还原，分成随之收回）';
         $settled = (string)ps_setting_get('refund_settled_through', '');
         if ($settled !== '' && substr((string)$row['order_date'], 0, 7) <= $settled) return '订单所在月份（' . substr((string)$row['order_date'], 0, 7) . '）已核算，不可删除';
     }
