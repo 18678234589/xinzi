@@ -173,6 +173,7 @@ $nav = function ($href, $icon, $label, $active) {
     <div class="sidebar-project-label">日常办公</div>
     <?php echo $nav('/project/dashboard.php', 'fa-chart-line', '合作方经营看板', $_rel === 'project/dashboard.php'); ?>
     <?php echo $nav('/project/index.php', 'fa-folder-open', '项目订单', $is_project_orders); ?>
+    <?php echo $nav('/project/completion_sync.php', 'fa-check-double', '网站订单完成同步', $_rel === 'project/completion_sync.php'); ?>
     <?php echo $nav('/project/import.php?scope=department&business=网站续费', 'fa-users', '网站售后部门订单', $_rel === 'project/import.php' && ($_GET['scope'] ?? $_POST['scope'] ?? '') === 'department'); ?>
     <?php echo $nav('/project/payroll.php', 'fa-wallet', '项目报酬结算', $_rel === 'project/payroll.php'); ?>
     <?php echo $nav('/project/welfare.php', 'fa-heart', '全员福利池', $_rel === 'project/welfare.php'); ?>
