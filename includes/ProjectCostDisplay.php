@@ -18,6 +18,9 @@ function ps_cost_display_state(array $order, array $costs)
             $state['message'] = '成本已录入，等待财务审核';
         }
     }
+    if ($order['project_type'] === '商标' && ($addon = ptc_addon_main_order((int)$order['id']))) {
+        return ['show_amount' => true, 'label' => '补款单', 'message' => '这是同一客户当天订单 #' . $addon . ' 的补款 / 小类加项，不计官费和件数，无需补填', 'block_estimate' => false];
+    }
     if ($order['project_type'] === '商标' && ($carrier = ptc_cost_carried_by((int)$order['id']))) {
         return ['show_amount' => true, 'label' => '同商标已计', 'message' => '该商标的官费已计入订单 #' . $carrier . '，本单不重复计成本', 'block_estimate' => false];
     }

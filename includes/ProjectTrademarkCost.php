@@ -110,6 +110,32 @@ function ptc_cost_carried_by($orderId)
     return $carrier && $carrier !== (int)$orderId ? $carrier : 0;
 }
 
+/**
+ * 补款 / 小类加项单：没有商标名、没有商标件数，金额比同一客户同一天的主订单小（如主订单 ¥660 之外另收 ¥100“小类 35 元”）。
+ * 它不是一件新商标：不计官费、不计件，客服只按同客户算提成（不再给单量补助）。返回主订单 id，不是补款单返回 0。
+ * 判定很保守，四条必须同时满足：件数为空 + 商标名为空 + 同一付款昵称同一天另有一张已填件数的商标订单 + 本单售价小于那张订单；
+ * 找到多张时取售价最高的那张。
+ */
+function ptc_addon_main_order($orderId)
+{
+    [$details] = ptc_order_pricing_data($orderId);
+    if (trim((string)($details['trademark_count'] ?? '')) !== '' || trim((string)($details['trademark_name'] ?? '')) !== '') return 0;
+    $q = db()->prepare("SELECT o.order_date,o.contract_amount,o.project_type,COALESCE(s.payment_nickname,'') nick FROM project_orders o LEFT JOIN project_order_sources s ON s.order_id=o.id WHERE o.id=?");
+    $q->execute([(int)$orderId]);
+    $me = $q->fetch();
+    if (!$me || $me['project_type'] !== '商标' || trim((string)$me['nick']) === '' || (float)$me['contract_amount'] <= 0) return 0;
+    $q = db()->prepare("SELECT o.id,o.contract_amount,d.details_json FROM project_orders o JOIN project_order_sources s ON s.order_id=o.id JOIN project_order_details d ON d.order_id=o.id
+        WHERE s.payment_nickname=? AND o.order_date=? AND o.project_type='商标' AND o.id<>? AND o.contract_amount>?");
+    $q->execute([$me['nick'], $me['order_date'], (int)$orderId, $me['contract_amount']]);
+    $best = 0; $bestAmount = -1.0;
+    foreach ($q->fetchAll() as $r) {
+        $d = json_decode((string)$r['details_json'], true) ?: [];
+        if (!is_numeric($d['trademark_count'] ?? '') || (float)$d['trademark_count'] < 1) continue;
+        if ((float)$r['contract_amount'] > $bestAmount) { $best = (int)$r['id']; $bestAmount = (float)$r['contract_amount']; }
+    }
+    return $best;
+}
+
 /** 给一张商标订单自动带入服务成本，返回新增条数（0 或 1）。调用方负责事务。 */
 function ptc_apply($orderId, $count, $actor, $origin, $text = '', ?array $templates = null)
 {

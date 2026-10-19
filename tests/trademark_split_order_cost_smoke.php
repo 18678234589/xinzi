@@ -149,6 +149,24 @@ try {
     $check(!array_filter(ptd_cost_mismatches(), function ($m) use ($buy) { return (int)$m['id'] === $buy; }), '处理后从核对列表消失');
     $failed = false; try { ptd_fix_cost($buy, ['type' => 'employee', 'id' => 1, 'role' => 'technical']); } catch (RuntimeException $e) { $failed = true; }
     $check($failed, '非财务不能调整已审核订单的成本');
+    // 9) 补款 / 小类加项单（如 ¥660 主订单之外另收 ¥100“小类 35 元”）：没有件数也能审核，不计官费，按同客户算。
+    require_once __DIR__ . '/../includes/ProjectBatchReview.php';
+    $mkSrc = function ($id, $nick) use ($pdo) { $pdo->prepare("INSERT INTO project_order_sources (order_id,payment_nickname) VALUES (?,?) ON DUPLICATE KEY UPDATE payment_nickname=VALUES(payment_nickname)")->execute([$id, $nick]); };
+    $mainAd = $makeOrder('addon-cust', 660, '2026-09-01', '洛书梵 14类 35类'); $mkSrc($mainAd, 'addon-cust');
+    $pdo->prepare("UPDATE project_orders SET settlement_status='approved',receipt_amount=660 WHERE id=?")->execute([$mainAd]);
+    $addon = $makeOrder('addon-cust', 100, '2026-09-01', '', '注册'); $mkSrc($addon, 'addon-cust');
+    $pdo->prepare("UPDATE project_order_details SET details_json=JSON_SET(details_json,'$.trademark_count','') WHERE order_id=?")->execute([$addon]);
+    $check(ptc_addon_main_order($addon) === $mainAd, '同客户同一天、售价更小、没有商标名和件数的订单被认定为补款单');
+    $check(ptc_addon_main_order($mainAd) === 0, '主订单不是补款单');
+    $other = $makeOrder('other-cust', 100, '2026-09-01', '', '注册'); $mkSrc($other, 'other-cust');
+    $pdo->prepare("UPDATE project_order_details SET details_json=JSON_SET(details_json,'$.trademark_count','') WHERE order_id=?")->execute([$other]);
+    $check(ptc_addon_main_order($other) === 0, '同客户当天没有别的商标订单时不认定为补款单，仍要求补填件数');
+    $d = ps_cost_display_state(['id' => $addon, 'project_type' => '商标', 'settlement_status' => 'draft'], []);
+    $check($d['label'] === '补款单' && !$d['block_estimate'], '订单页说明“补款单，无需补填”，不再提示缺件数');
+    $failed = false; try { ptc_approval_guard($other, []); } catch (RuntimeException $e) { $failed = true; }
+    $check($failed, '不是补款单的空件数订单仍然被拦（要求补填商标件数）');
+    ptc_approval_guard($addon, []);
+    $check(true, '补款单通过商标成本校验');
     echo "ALL PASS\n";
 } finally {
     if ($pdo->inTransaction()) $pdo->rollBack();

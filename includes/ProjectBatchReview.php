@@ -44,6 +44,17 @@ function pbr_prepare_order($oid, array $actor, $adminId, $who)
             ps_audit('order', $oid, 'confirm_resources', $actor, ['domain_mode' => 'none', 'via' => 'batch_review']);
         }
     }
+    // 补款 / 小类加项单：记下主订单，并按“同客户”算（不再给单量补助）；官费和件数在主订单上。
+    require_once __DIR__ . '/ProjectTrademarkCost.php';
+    if (($main = ptc_addon_main_order($oid)) > 0) {
+        [$ad] = ptc_order_pricing_data($oid);
+        if ((int)($ad['trademark_addon_of'] ?? 0) !== $main) {
+            $ad['trademark_addon_of'] = $main;
+            $pdo->prepare("INSERT INTO project_order_details (order_id,business_name,details_json) VALUES (?,'商标',?) ON DUPLICATE KEY UPDATE details_json=VALUES(details_json)")->execute([$oid, json_encode($ad, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR)]);
+        }
+        $pdo->prepare("UPDATE project_orders SET order_kind='同客户',row_version=row_version+1 WHERE id=? AND order_kind IN ('普通订单','新客户')")->execute([$oid]);
+        ps_audit('order', $oid, 'trademark_addon', $actor, ['main_order' => $main, 'via' => 'batch_review']);
+    }
     $pc = $pdo->prepare("SELECT id FROM project_costs WHERE order_id=? AND review_status='pending'"); $pc->execute([$oid]);
     foreach ($pc->fetchAll(PDO::FETCH_COLUMN) as $costId) {
         $pdo->prepare("UPDATE project_costs SET review_status='approved',reviewed_by_admin=?,review_note=? WHERE id=? AND review_status='pending'")->execute([$adminId, $who . '批量审核通过', (int)$costId]);

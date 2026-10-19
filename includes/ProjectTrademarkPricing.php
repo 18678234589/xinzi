@@ -187,6 +187,7 @@ function ptc_merge_import_details($orderId, &$details, $incoming, $actor)
 function ptc_approval_guard($orderId, $costs)
 {
     if (ptc_cost_carried_by($orderId)) return; // 同一商标的官费由同组承担订单计入，由那张订单的校验把关。
+    if (ptc_addon_main_order($orderId)) return; // 补款 / 小类加项单：官费和件数在主订单上，本单不计
     [$details, $context] = ptc_order_pricing_data($orderId);
     $templates = ptc_templates();
     $actual = round(array_sum(array_map(function ($c) { return $c['review_status'] === 'approved' ? (float)$c['amount'] : 0; }, $costs)), 2);
