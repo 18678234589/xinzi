@@ -5,6 +5,7 @@
  * 驳回会释放订单，可重新申请；已结算的不能撤销。
  */
 require_once __DIR__ . '/ProjectSettlement.php';
+require_once __DIR__ . '/ProjectPayrollFlags.php';
 
 function psr_ensure()
 {
@@ -42,6 +43,14 @@ function psr_orders($employeeId, $month)
     if ($out) {
         $ids = implode(',', array_map('intval', array_keys($out)));
         foreach (db()->query("SELECT id,order_no,project_type,order_date,customer_name FROM project_orders WHERE id IN ($ids)")->fetchAll() as $o) $info[(int)$o['id']] = $o;
+        // 付款昵称（旺旺 / 微信昵称），没有再用订单资料里的客户微信号，方便本人认出是哪一单
+        foreach (db()->query("SELECT order_id,payment_nickname FROM project_order_sources WHERE order_id IN ($ids)")->fetchAll() as $s) if (trim((string)$s['payment_nickname']) !== '') $info[(int)$s['order_id']]['nick'] = trim($s['payment_nickname']);
+        foreach (db()->query("SELECT order_id,details_json FROM project_order_details WHERE order_id IN ($ids)")->fetchAll() as $d) {
+            if (!empty($info[(int)$d['order_id']]['nick'])) continue;
+            $j = json_decode((string)$d['details_json'], true) ?: [];
+            $w = trim((string)($j['customer_wechat'] ?? $j['contact_wechat'] ?? ''));
+            if ($w !== '') $info[(int)$d['order_id']]['nick'] = $w;
+        }
     }
 
     $claim = db()->prepare("SELECT i.order_id,i.request_id,r.status,r.settled_at FROM project_settlement_request_items i JOIN project_settlement_requests r ON r.id=i.request_id WHERE i.employee_id=? AND i.payroll_month=? AND r.status<>'rejected'");
@@ -63,18 +72,22 @@ function psr_orders($employeeId, $month)
     $rows = [];
     foreach ($out as $oid => $amt) {
         $o = $info[$oid] ?? ['order_no' => '#' . $oid, 'project_type' => '', 'order_date' => '', 'customer_name' => ''];
-        $rows[] = ['order_id' => $oid, 'order_no' => $o['order_no'], 'project_type' => $o['project_type'], 'order_date' => $o['order_date'], 'customer' => $o['customer_name'],
+        $rows[] = ['order_id' => $oid, 'order_no' => $o['order_no'], 'project_type' => $o['project_type'], 'order_date' => $o['order_date'], 'customer' => $o['customer_name'], 'nick' => $o['nick'] ?? '',
             'amount' => round($amt, 2), 'state' => $state[$oid]['state'] ?? (isset($correcting[$oid]) ? 'correcting' : 'available'), 'request_id' => $state[$oid]['request_id'] ?? 0, 'settled_at' => $state[$oid]['settled_at'] ?? null, 'is_monthly' => false];
     }
 
     // 月度规则分成（部门利润池 / 阶梯 / 超额奖 / 单量提成 / 尾差等）
-    $lockQ = db()->prepare('SELECT status FROM project_payroll_periods WHERE period=?');
-    $lockQ->execute([$month]);
-    if ($lockQ->fetchColumn() === 'locked') $monthlyRows = ps_monthly_results($month);
-    else {
-        require_once __DIR__ . '/ProjectExpectedSettlement.php';
-        $monthlyRows = array_filter(ps_expected_month($month)['monthly'], function ($r) { return $r['rule_type'] !== 'adjustment'; });
+    static $monthlyRowsCache = [];
+    if (!isset($monthlyRowsCache[$month])) {
+        $lockQ = db()->prepare('SELECT status FROM project_payroll_periods WHERE period=?');
+        $lockQ->execute([$month]);
+        if ($lockQ->fetchColumn() === 'locked') $monthlyRowsCache[$month] = ps_monthly_results($month);
+        else {
+            require_once __DIR__ . '/ProjectExpectedSettlement.php';
+            $monthlyRowsCache[$month] = array_filter(ps_expected_month($month)['monthly'], function ($r) { return $r['rule_type'] !== 'adjustment'; });
+        }
     }
+    $monthlyRows = $monthlyRowsCache[$month];
     $lastDay = date('Y-m-t', strtotime($month . '-01'));
     foreach ($monthlyRows as $r) {
         if ((int)$r['employee_id'] !== $employeeId || !empty($r['paid_separately'])) continue;
@@ -142,6 +155,7 @@ function psr_submit($actor, $month, array $orderIds, $targetEmployeeId = 0)
     if ($month >= $currentMonth) {
         throw new RuntimeException("当月（{$month}）订单尚未结束，不可申请结算；仅可结算 {$currentMonth} 以前历史月份订单。");
     }
+    if (!$isFinance && !ppf_is_green($employeeId, $month)) throw new RuntimeException('财务还没有核对确认 ' . $month . ' 的结算金额（核对通过标为绿色后才能申请结算），请联系财务');
     $orderIds = array_values(array_unique(array_filter(array_map('intval', $orderIds))));
     if (!$orderIds) throw new RuntimeException('请先选择要结算的订单');
     psr_ensure();
@@ -408,4 +422,61 @@ function psr_notify_employee(array $r, $title, $body, $kind)
         db()->prepare('INSERT IGNORE INTO project_messages (employee_id,category,title,body,link,dedupe_key) VALUES (?,?,?,?,?,?)')
             ->execute([(int)$r['employee_id'], 'settlement', $title, $body, '/project/index.php', 'settle-' . $kind . ':' . (int)$r['id']]);
     } catch (Throwable $e) {}
+}
+
+/** 往月（当月以前，最近 12 个月）里本人仍可申请结算的订单：['n'=>订单数, 'amount'=>合计, 'months'=>[月份 => [订单 id…]]]。 */
+function psr_available_past($employeeId)
+{
+    $employeeId = (int)$employeeId;
+    $out = ['n' => 0, 'amount' => 0.0, 'months' => []];
+    if ($employeeId <= 0) return $out;
+
+    $pastMonths = [];
+    for ($i = 1; $i <= 12; $i++) {
+        $pastMonths[] = date('Y-m', strtotime("first day of -$i month"));
+    }
+    $inList = "'" . implode("','", $pastMonths) . "'";
+
+    // 仅针对该员工在往月里有订单/分成/手工项/参与记录的月份进行检查，避免对无业务月份反复重算整月预期结算
+    $activeMonths = [];
+    try {
+        $q = db()->query("
+            SELECT DISTINCT payroll_month FROM project_commission_snapshots WHERE employee_id={$employeeId} AND payroll_month IN ({$inList})
+            UNION SELECT DISTINCT payroll_month FROM project_commission_adjustments WHERE employee_id={$employeeId} AND payroll_month IN ({$inList})
+            UNION SELECT DISTINCT DATE_FORMAT(o.order_date, '%Y-%m') FROM project_orders o JOIN project_participants p ON p.order_id=o.id WHERE p.employee_id={$employeeId} AND DATE_FORMAT(o.order_date, '%Y-%m') IN ({$inList})
+        ");
+        if ($q) $activeMonths = $q->fetchAll(PDO::FETCH_COLUMN);
+        $q2 = db()->query("SHOW TABLES LIKE 'project_payroll_manual_items'");
+        if ($q2 && $q2->fetchColumn()) {
+            $q3 = db()->query("SELECT DISTINCT payroll_month FROM project_payroll_manual_items WHERE employee_id={$employeeId} AND payroll_month IN ({$inList})");
+            if ($q3) $activeMonths = array_merge($activeMonths, $q3->fetchAll(PDO::FETCH_COLUMN));
+        }
+    } catch (Throwable $e) {
+        $activeMonths = $pastMonths; // 出错时安全回退遍历
+    }
+    $activeMonths = array_unique($activeMonths);
+    if (!$activeMonths) return $out;
+
+    foreach ($pastMonths as $m) {
+        if (!in_array($m, $activeMonths, true)) continue;
+        foreach (psr_orders($employeeId, $m) as $r) {
+            if ($r['state'] !== 'available') continue;
+            $out['months'][$m][] = (int)$r['order_id']; $out['n']++; $out['amount'] += (float)$r['amount'];
+        }
+    }
+    $out['amount'] = round($out['amount'], 2);
+    return $out;
+}
+
+/** 一键申请：往月里所有可申请的订单，按月各提交一份申请；财务还没核对确认的月份跳过并说明原因。 */
+function psr_submit_all($actor)
+{
+    $eid = (int)($actor['employee_id'] ?? 0);
+    if ($eid <= 0 || ($actor['type'] ?? '') !== 'employee') throw new RuntimeException('只有合作人员本人可以申请结算');
+    $done = []; $skipped = [];
+    foreach (psr_available_past($eid)['months'] as $m => $ids) {
+        try { psr_submit($actor, $m, $ids); $done[] = [$m, count($ids)]; }
+        catch (RuntimeException $e) { $skipped[] = [$m, $e->getMessage()]; }
+    }
+    return ['done' => $done, 'skipped' => $skipped];
 }

@@ -23,6 +23,7 @@ try {
         $out = pa_batch($limit, $apply, $refresh, $month);
         // 自动结算的免审业务订单，每个业务每月补抽到 5 单交财务抽查（本月和上月）
         if ($apply) $out['spot_checks_assigned'] = psc_assign(date('Y-m')) + psc_assign(date('Y-m', strtotime('first day of last month')));
+        if ($apply) { require_once __DIR__ . '/../includes/ProjectMonthly.php'; foreach ([date('Y-m'), date('Y-m', strtotime('first day of last month'))] as $ucMonth) { try { puc_sync($ucMonth); } catch (Throwable $e) { error_log('puc_sync ' . $ucMonth . ' ' . $e->getMessage()); } } }
     }
     finally {
         if ($apply || $refresh) $p->query("SELECT RELEASE_LOCK('project_auto_review_job')");

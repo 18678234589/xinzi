@@ -38,6 +38,7 @@ function ps_monthly_presets()
     ],
         ['name' => '设计客服绩效固定服务费', 'rule_type' => 'perf_rank', 'scope_business' => '*', 'scope_group' => '*', 'scope_role' => '*', 'employee' => null, 'metric'
     => 'profit', 'params' => [], 'note' => '原系统客服绩效：设计客服多店绩效平均分排名，第 1/2/3 名 850/800/750，按考勤折算'],
+        ['name' => '穆楠 设计单量补助（按旺旺去重）', 'rule_type' => 'unique_customer', 'scope_business' => '设计', 'scope_group' => 'customer_service', 'scope_role' => '*', 'employee' => '穆楠', 'metric' => 'profit', 'params' => ['amount' => 0.5], 'note' => '每个客户旺旺每月 0.5 元：同一旺旺下两单、三单都按 1 单算；已按逐单规则发过每单补助的旺旺不重复发'],
         ['name' => '乔立宾代写单量提成', 'rule_type' => 'order_count', 'scope_business' => '软文代写,微信代写', 'scope_group' => '*', 'scope_role' => '*', 'employee'
     => '乔立宾', 'metric' => 'profit', 'params' => ['amount' => 1.2], 'note' => '1.2 元/单：博山 + 博山微信（系统内已审核、稿费 > 0 的代写订单，一单多写手计 1 单）+ 临沂 / 东营 / 合伙团队等（每月填写单量）'
     ],
@@ -61,9 +62,9 @@ function ps_monthly_presets()
     'metric' => 'profit', 'params' => ['rate' => 0.01, 'share' => 1, 'base' => 'profit', 'deduct_commissions' => false], 'note' => '(网站续费收入 − 成本 − 3%) × 1%'],
         // 平面设计（阎泸琪）：按月营业额阶梯结算，另有全勤奖 200
         ['name' => '阎泸琪 营业额阶梯薪酬', 'rule_type' => 'sales_package', 'scope_business' => '平面设计', 'scope_group' => '*', 'scope_role' => '*', 'employee' => '阎泸琪'
-    , 'metric' => 'sales', 'params' => ['tiers' => [['upto' => 3000, 'base' => 1800, 'rate' => 0, 'big' => 0, 'small' => 0], ['upto' => 6000, 'base' => 2100, 'rate' => 0.05, 'big'
-    => 2, 'small' => 0.5], ['upto' => 9000, 'base' => 2300, 'rate' => 0.08, 'big' => 3, 'small' => 0.5], ['upto' => 12000, 'base' => 3300, 'rate' => 0.1, 'big' => 5, 'small' => 0.5
-    ], ['upto' => 15000, 'base' => 4800, 'rate' => 0.1, 'big' => 5, 'small' => 0.5]], 'big_threshold' => 50, 'returning_rate' => 0.1, 'review_min' => 10, 'review_penalty' => 100],
+    , 'metric' => 'sales', 'params' => ['tiers' => [['from' => 3000, 'base' => 1800, 'rate' => 0, 'big' => 0, 'small' => 0], ['from' => 6000, 'base' => 2100, 'rate' => 0.05, 'big'
+    => 2, 'small' => 0.5], ['from' => 9000, 'base' => 2300, 'rate' => 0.08, 'big' => 3, 'small' => 0.5], ['from' => 12000, 'base' => 3300, 'rate' => 0.1, 'big' => 5, 'small' => 0.5
+    ], ['from' => 15000, 'base' => 4800, 'rate' => 0.1, 'big' => 5, 'small' => 0.5]], 'big_threshold' => 50, 'returning_rate' => 0.1, 'review_min' => 10, 'review_penalty' => 100],
     'note' => '平面设计：按月营业额落档，底薪按考勤折算；老客户找回 +10%；好评率每月填写，低于 10% 扣 100'],
         ['name' => '阎泸琪 全勤奖', 'rule_type' => 'attendance_bonus', 'scope_business' => '*', 'scope_group' => '*', 'scope_role' => '*', 'employee' => '阎泸琪', 'metric'
     => 'profit', 'params' => ['amount' => 200], 'note' => '请假 <4 小时全额、≥4 小时减半、≥8 小时不发'],

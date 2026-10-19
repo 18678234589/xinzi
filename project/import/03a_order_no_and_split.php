@@ -17,7 +17,17 @@
                         $record['order_no'] = '';
                         $record['public_transfer'] = true;
                     }
-                    if ($record['order_no'] !== $lookup($row, 'order_no') && $lookup($row, 'order_no') !== '') $record['warning'] .= ($record['warning'] ? '；' : '') . '订单号“'
+                    // 订单号格子里只有姓名 / 店铺名（没有任何数字，如“内部”“张姐”）不是订单号：库里没有同名订单时当作没填，走下面的“无订单号”流程（稳定内部号、疑似重复提示），
+                    // 不再把名字当订单号建单——否则补上真实订单号重传时会被当成另一张订单重复计算。库里已有同名订单（旧导入）时照旧沿用，避免旧表重传反而重复。
+                    $textOnlyNo = false;
+                    if ($record['order_no'] !== '' && !preg_match('/\d/', $record['order_no'])) {
+                        $textNoQuery = db()->prepare('SELECT 1 FROM project_orders WHERE order_no=? LIMIT 1'); $textNoQuery->execute([$record['order_no']]);
+                        if (!$textNoQuery->fetchColumn()) {
+                            $record['warning'] .= ($record['warning'] ? '；' : '') . '订单号格“' . mb_substr($record['order_no'], 0, 20) . '”不是订单号（没有数字，像是姓名 / 店铺名），已当作没有订单号处理';
+                            $record['order_no'] = ''; $textOnlyNo = true;
+                        }
+                    }
+                    if (!$textOnlyNo && $record['order_no'] !== $lookup($row, 'order_no') && $lookup($row, 'order_no') !== '') $record['warning'] .= ($record['warning'] ? '；' : '') . '订单号“'
     . mb_substr($lookup($row, 'order_no'), 0, 40) . '”按“' . $record['order_no'] . '”识别（已去掉标签 / 备注，同号不会重复建单）';
                     $siteBaseType = null; $siteBaseOrder = null;
                     if ($record['order_no'] !== '' && psp_is_website($record['project_type'])) {

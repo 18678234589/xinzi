@@ -37,7 +37,8 @@ function psc_assign($month)
     $from = $month . '-01'; $until = date('Y-m-d', strtotime($from . ' +1 month'));
     $have = $pdo->prepare('SELECT COUNT(*) FROM project_spot_checks WHERE month=? AND business=?');
     $pick = $pdo->prepare("SELECT o.id FROM project_orders o JOIN project_auto_reviews a ON a.order_id=o.id LEFT JOIN project_spot_checks c ON c.kind='order' AND c.order_id=o.id
-        WHERE o.project_type=? AND o.order_date>=? AND o.order_date<? AND a.state='spot_check' AND c.id IS NULL ORDER BY RAND() LIMIT ?");
+        WHERE o.project_type=? AND o.order_date>=? AND o.order_date<? AND a.state='spot_check' AND c.id IS NULL ORDER BY RAND() * IF(EXISTS (SELECT 1 FROM project_orders o2 JOIN project_participants p2 ON p2.order_id=o2.id WHERE o2.id<>o.id AND o2.project_type=o.project_type AND o2.order_date=o.order_date AND o2.contract_amount=o.contract_amount AND EXISTS (SELECT 1 FROM project_participants p1 WHERE p1.order_id=o.id AND p1.employee_id=p2.employee_id)), 0.25, 1) LIMIT ?");
+    // 同一人、同业务、同一天、同金额还有别的订单（可能是重复导入，也可能真是两单）：抽中的几率约为普通订单的 4 倍，只提醒财务核对，不拦截
     $ins = $pdo->prepare("INSERT IGNORE INTO project_spot_checks (kind,order_id,month,business) VALUES ('order',?,?,?)");
     foreach (PA_SPOT_CHECK_BUSINESSES as $business) {
         $have->execute([$month, $business]);

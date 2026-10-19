@@ -80,6 +80,8 @@ function br_catalog_registered($r)
     // Registered for an order: bind the domain so the order's staff find it under "我的订单域名". Never blocks the registration record.
     $quote=json_decode($r['quote_json'],true) ?: [];
     if(!empty($quote['order_id'])) {try{bo_link(db(),(int)$quote['order_id'],$r['domainname'],'registration');}catch(Throwable $e){error_log('Bizcn order link failed: '.get_class($e));}}
+    // 同时按域名后缀把注册成本记到订单上（成本中心的域名模板；已审核订单、已记过的不动）。
+    if(!empty($quote['order_id'])) {try{if(!function_exists('ps_domain_register_cost') && defined('DB_HOST'))require_once __DIR__.'/ProjectIntake.php';if(function_exists('ps_domain_register_cost'))ps_domain_register_cost((int)$quote['order_id'],$r['domainname'],$quote['term'] ?? 1,['type'=>'system','id'=>0,'employee_id'=>null,'role'=>'finance']);}catch(Throwable $e){error_log('Bizcn order cost failed: '.get_class($e));}}
     $data=json_decode($r['result_json'],true) ?: [];$day=$r['confirmed_day'] ?: br_day(time());
     // import_id=0 denotes registration, not a fabricated spreadsheet import.
     $reg=bc_date($data['createdate'] ?? '',true);$expiry=bc_date($data['expirationdate'] ?? '',true);

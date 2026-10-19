@@ -45,6 +45,7 @@
 .pps-card-no{font-family:Consolas,"SF Mono",monospace;color:#44574d;letter-spacing:.02em}
 .pps-sign{text-align:center}.pps-ok{color:#1f6a52;font-weight:700}
 .pps-edit{border:0;background:transparent;color:#a9b5ad;padding:0 .25rem;margin-left:.2rem;cursor:pointer;opacity:0;transition:opacity .15s}
+.pps-addcom{border:1px solid #cfe0d6;background:#f3f9f5;color:#2f6a52;border-radius:999px;padding:0 .5rem;margin-left:.3rem;font-size:.72rem;cursor:pointer}.pps-addcom:hover{background:#e3f2e9}
 .pps-table tbody tr:hover .pps-edit,.pps-edit:focus{opacity:1;color:#2f6a52}
 .pps-dialog{border:0;border-radius:16px;padding:0;box-shadow:0 24px 60px rgba(38,70,55,.28);width:min(420px,92vw)}
 .pps-dialog::backdrop{background:rgba(38,53,47,.35);backdrop-filter:blur(2px)}
@@ -83,3 +84,17 @@
 .pps-corr{border:1px solid #f0dca0;background:#fff8e6;border-radius:12px;padding:.7rem .9rem;font-size:.82rem;color:#6b4a00;display:grid;gap:.5rem}.pps-corr textarea{border:1px solid #e6d09a;border-radius:9px;padding:.45rem .6rem;font-size:.86rem;background:#fff;resize:vertical}
 .pps-corr[hidden]{display:none}.pps-corr-act{display:flex;justify-content:flex-end;gap:.5rem}.pps-corr-act button{border:1px solid #e6d09a;background:#fff;border-radius:9px;padding:.3rem .9rem;cursor:pointer}.pps-corr-act .is-warn{background:#c98a1b;border-color:#c98a1b;color:#fff}
 .pps-linkbtn{margin-right:auto;border:0!important;background:transparent!important;color:#a8650a;font-size:.84rem;padding-left:0!important}.pps-linkbtn:hover{text-decoration:underline}
+.pps-diff{display:inline-block;padding:.1rem .5rem;border-radius:999px;font-size:.78rem;font-weight:700}.pps-diff.is-ok{background:#e3f3ea;color:#1f6a52}.pps-diff.is-over{background:#fbe8e1;color:#b4572e}
+.pps-flag{border:1px solid #d7e0d3;background:#fff;border-radius:999px;padding:.12rem .7rem;font-size:.78rem;cursor:pointer;color:#6c7a72;white-space:nowrap}.pps-flag i{font-size:.6rem;color:#c4cbc3;margin-right:.15rem}.pps-flag:hover{border-color:#2f6a52;color:#2f6a52}
+.pps-flag.is-green{background:#e3f3ea;border-color:#b9dcc7;color:#1f6a52}.pps-flag.is-green i{color:#2fa56c}.pps-flag.is-yellow{background:#fdf1dc;border-color:#ecd596;color:#9a6512}.pps-flag.is-yellow i{color:#e0a323}.pps-flag.is-red{background:#fbe8e1;border-color:#efc2b2;color:#b4572e}.pps-flag.is-red i{color:#d8512b}.pps-flag.is-over{border-color:#efc2b2;color:#b4572e}.pps-flag.is-over i{color:#d8512b}
+.pps-flag-why{margin-top:.25rem;max-width:230px;font-size:.72rem;line-height:1.5;color:#9a6512;white-space:normal;text-align:left}
+.pps-fform{padding:1.2rem 1.3rem;display:grid;gap:.65rem}.pps-fform h6{margin:0;font-weight:700;color:#234b3d}
+.pps-fcmp{display:grid;grid-template-columns:repeat(3,1fr);gap:.6rem}.pps-fcmp>div{background:#f7f9f4;border:1px solid #e7ebe3;border-radius:12px;padding:.5rem .8rem}.pps-fcmp small{display:block;color:#7a877f;font-size:.74rem}.pps-fcmp b{font-size:1.1rem;color:#234b3d;font-variant-numeric:tabular-nums}.pps-fcmp b.over{color:#b4572e}.pps-fcmp b.ok{color:#1f6a52}
+.pps-fcmp input{width:100%;border:1px solid #d7e0d3;border-radius:8px;padding:.2rem .4rem;font-size:.95rem}
+.pps-freasons{display:grid;gap:.35rem;max-height:200px;overflow:auto}.pps-why{display:grid;grid-template-columns:auto 1fr auto auto;gap:.5rem;align-items:center;font-size:.82rem;padding:.4rem .6rem;border-radius:10px;background:#fbfcf9;border:1px solid #eef1ea}
+.pps-why .who{font-size:.68rem;font-weight:700;padding:.1rem .45rem;border-radius:999px;background:#e8f0fb;color:#365c99;white-space:nowrap}.pps-why.is-staff .who{background:#fdf1dc;color:#9a6512}.pps-why .use{border:0;background:transparent;color:#2f6a52;font-size:.74rem;cursor:pointer;white-space:nowrap}.pps-why a{font-size:.76rem;font-weight:600;color:#2f6a52;white-space:nowrap}
+.pps-fcolors{display:flex;flex-wrap:wrap;gap:.5rem}.pps-fcolors label{display:inline-flex;align-items:center;gap:.4rem;border:1px solid #d7e0d3;border-radius:999px;padding:.3rem .85rem;font-size:.84rem;cursor:pointer;background:#fff}.pps-fcolors label i{font-size:.65rem}
+.pps-fcolors .c-green i{color:#2fa56c}.pps-fcolors .c-yellow i{color:#e0a323}.pps-fcolors .c-red i{color:#d8512b}.pps-fcolors label:has(input:checked){box-shadow:0 0 0 2px #cfe7d8;border-color:#2f6a52;background:#f3f8ef}
+.pps-fform textarea{border:1px solid #d7e0d3;border-radius:9px;padding:.5rem .65rem;font-size:.88rem;resize:vertical}
+.pps-bulk{border:0;border-radius:999px;padding:.3rem .9rem;background:#2f6a52;color:#fff;font-size:.82rem;font-weight:600;cursor:pointer;box-shadow:0 4px 10px rgba(47,106,82,.25)}.pps-bulk:disabled{opacity:.6}
+.pps-orow .no{display:grid;line-height:1.35}.pps-orow .no .nk{font-family:inherit;color:#7a877f;font-size:.74rem}

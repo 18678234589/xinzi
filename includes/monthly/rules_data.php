@@ -18,6 +18,7 @@ function ps_monthly_types()
         'profit_pool' => '部门利润池分配',
         'perf_rank' => '绩效排名固定服务费（原系统客服绩效）',
         'order_count' => '部门单量提成（按订单数）',
+        'unique_customer' => '按客户旺旺去重的单量补助',
         'sales_package' => '营业额阶梯薪酬（底薪 + 提成 + 单量）',
     ];
 }
@@ -238,16 +239,24 @@ function ps_unreviewed_orders($employeeId, $month, $businesses = null)
 function ps_sales_package_calc($params, $orders, $reviewRate = null)
 {
     $tiers = $params['tiers'] ?? [];
-    usort($tiers, function ($a, $b) { return (float)$a['upto'] <=> (float)$b['upto']; });
+    // 档位按“营业额 ≥ 起点(from)”落档，低于最低起点按最低档保底；旧配置只有 upto（≤上限）时沿用原口径。
+    $byFrom = !empty($tiers) && isset($tiers[0]['from']);
+    $key = $byFrom ? 'from' : 'upto';
+    usort($tiers, function ($a, $b) use ($key) { return (float)$a[$key] <=> (float)$b[$key]; });
     $revenue = round(array_sum(array_map(function ($o) { return (float)$o['income']; }, $orders)), 2);
     $tier = null;
-    foreach ($tiers as $candidate) if ($revenue <= (float)$candidate['upto']) { $tier = $candidate; break; }
-    if (!$tier && $tiers) $tier = end($tiers);
+    if ($byFrom) {
+        $tier = $tiers ? $tiers[0] : null;
+        foreach ($tiers as $candidate) if ($revenue >= (float)$candidate['from']) $tier = $candidate;
+    } else {
+        foreach ($tiers as $candidate) if ($revenue <= (float)$candidate['upto']) { $tier = $candidate; break; }
+        if (!$tier && $tiers) $tier = end($tiers);
+    }
     if (!$tier) return ['revenue' => $revenue, 'tier' => null, 'base' => 0.0, 'items' => []];
     $threshold = (float)($params['big_threshold'] ?? 50);
     $big = count(array_filter($orders, function ($o) use ($threshold) { return (float)$o['income'] >= $threshold; }));
     $small = count(array_filter($orders, function ($o) use ($threshold) { return (float)$o['income'] > 0 && (float)$o['income'] < $threshold; }));
-    $tierText = '月营业额 ¥' . money_plain($revenue) . ' 落在“≤¥' . money_plain($tier['upto']) . '”档';
+    $tierText = '月营业额 ¥' . money_plain($revenue) . ' 落在“' . ($byFrom ? '≥¥' . money_plain($tier['from']) : '≤¥' . money_plain($tier['upto'])) . '”档';
     $items = [];
     if ((float)$tier['rate'] > 0) $items[] = ['营业额提成', $revenue * (float)$tier['rate'], $tierText . '：¥' . money_plain($revenue) . ' × ' . round((float)$tier['rate']
     * 100, 4) . '%'];

@@ -30,8 +30,67 @@
     card.querySelector('[data-t="cut"]').textContent = '¥' + money(sum.payable - sum.net);
     card.querySelector('[data-t="net"]').textContent = '¥' + money(sum.net);
   });
+  var FLAG_TOL = 0.05;
+  function flagDiff(dlg) {
+    var net = parseFloat(dlg.getAttribute('data-net') || 0), ref = parseFloat(dlg.querySelector('[name="ref"]').value), box = dlg.querySelector('[data-f="diff"]'), hint = dlg.querySelector('[data-f="fhint"]');
+    if (!ref) { box.textContent = '—'; box.className = ''; hint.textContent = '填入对照表金额后自动计算差距；差距在 5% 以内可标绿。'; return; }
+    var d = (net - ref) / Math.abs(ref);
+    box.textContent = (d >= 0 ? '+' : '') + (d * 100).toFixed(1) + '%'; box.className = Math.abs(d) > FLAG_TOL ? 'over' : 'ok';
+    hint.textContent = Math.abs(d) > FLAG_TOL ? '差距超过 5%：建议先让对方补充 / 财务审核订单，再标绿。' : '差距在 5% 以内，可以标绿，对方即可申请结算。';
+  }
   var yuan = function (v) { return '\u00a5' + Number(v).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); };
   host.addEventListener('click', function (ev) {
+    var sa = ev.target.closest('.pps-settle-all');
+    if (sa) {
+      if (!confirm('把往月所有已审核、还没申请的订单一次提交结算（' + sa.getAttribute('data-n') + ' 单，¥' + sa.getAttribute('data-amt') + '）？\n财务还没核对确认的月份会自动跳过。')) return;
+      var sfd = new FormData(); sfd.append('csrf', sa.getAttribute('data-token')); sfd.append('action', 'request_settle_all'); sa.disabled = true;
+      fetch(host.getAttribute('data-src'), { method: 'POST', credentials: 'same-origin', body: sfd })
+        .then(function (r) { return r.json().catch(function () { return { ok: false, message: '提交失败（' + r.status + '）' }; }); })
+        .then(function (j) {
+          if (!j.ok) { alert(j.message || '提交失败'); return; }
+          var msg = (j.done || []).length ? '已提交：' + j.done.map(function (d) { return d[0] + ' ' + d[1] + ' 单'; }).join('、') + '。' : '没有提交任何月份。';
+          if ((j.skipped || []).length) msg += '\n未提交：' + j.skipped.map(function (d) { return d[0] + '（' + d[1] + '）'; }).join('；');
+          alert(msg); load(host.querySelector('.pps-month').value);
+        })
+        .catch(function () { alert('网络异常，请重试'); })
+        .then(function () { sa.disabled = false; });
+      return;
+    }
+    var bg = ev.target.closest('.pps-bulk-green, .pps-bulk:not(.pps-settle-all)');
+    if (bg) {
+      if (!confirm('把差距在 5% 以内的 ' + bg.getAttribute('data-n') + ' 人标为绿色？他们会收到站内信，并可以申请结算。')) return;
+      var bd = new FormData(); bd.append('csrf', bg.getAttribute('data-token')); bd.append('action', 'bulk_green'); bd.append('month', bg.getAttribute('data-month')); bg.disabled = true;
+      fetch(host.getAttribute('data-src'), { method: 'POST', credentials: 'same-origin', body: bd }).then(function (r) { return r.json(); })
+        .then(function (j) { if (j.ok) load(host.querySelector('.pps-month').value); else { alert(j.message || '操作失败'); bg.disabled = false; } }).catch(function () { alert('网络异常，请重试'); bg.disabled = false; });
+      return;
+    }
+    var fb = ev.target.closest('.pps-flag');
+    if (fb) {
+      var fd = host.querySelector('#ppsFlag'), ff = fd.querySelector('form'), month = fb.getAttribute('data-month'), id = fb.getAttribute('data-id');
+      ff.employee_id.value = id; ff.month.value = month; ff.reason.value = ''; ff.ref.value = ''; [].forEach.call(ff.color, function (r) { r.checked = false; });
+      fd.querySelector('[data-f="ftitle"]').textContent = fb.getAttribute('data-name') + ' · ' + month; fd.querySelector('[data-f="ferr"]').hidden = true; fd.setAttribute('data-net', '0');
+      fd.querySelector('[data-f="net"]').textContent = '…'; fd.querySelector('[data-f="diff"]').textContent = '—';
+      var rv = fd.querySelector('[data-f="review"]'); rv.hidden = false; rv.href = '/project/batch_review.php?month=' + encodeURIComponent(month) + '&emp=' + encodeURIComponent(id);
+      var rl = fd.querySelector('[data-f="reasons"]'); rl.innerHTML = '<div class="pps-empty">正在分析差异原因…</div>';
+      fd.showModal();
+      fetch(host.getAttribute('data-src') + '?flag_info=' + encodeURIComponent(id) + '&pm=' + encodeURIComponent(month), { credentials: 'same-origin', cache: 'no-store' })
+        .then(function (r) { return r.json(); })
+        .then(function (j) {
+          fd.setAttribute('data-net', j.net); fd.querySelector('[data-f="net"]').textContent = yuan(j.net);
+          if (j.ref !== null) ff.ref.value = j.ref; if (j.color) { var rr = ff.querySelector('input[name="color"][value="' + j.color + '"]'); if (rr) rr.checked = true; } ff.reason.value = j.reason || '';
+          rl.innerHTML = '';
+          (j.reasons || []).forEach(function (it) {
+            var d = document.createElement('div'); d.className = 'pps-why is-' + it.who;
+            d.innerHTML = '<span class="who"></span><span class="tx"></span><button type="button" class="use" title="填入理由">填入理由</button>' + (it.link ? '<a target="_blank" href="' + it.link + '">去处理</a>' : '');
+            d.querySelector('.who').textContent = it.who === 'finance' ? '财务可处理' : '需本人 / 技术补充'; d.querySelector('.tx').textContent = it.text; rl.appendChild(d);
+          });
+          flagDiff(fd);
+        }).catch(function () { rl.innerHTML = '<div class="pps-empty">原因分析加载失败，可手动填写。</div>'; });
+      return;
+    }
+    var use = ev.target.closest('.pps-why .use');
+    if (use) { var ta = use.closest('dialog').querySelector('textarea[name="reason"]'), tx = use.parentNode.querySelector('.tx').textContent; ta.value = ta.value ? ta.value + '；' + tx : tx; ta.focus(); return; }
+    if (ev.target.matches('[data-f="fcancel"]')) { ev.target.closest('dialog').close(); return; }
     var sb = ev.target.closest('.pps-settle');
     if (sb) {
       var sd = host.querySelector('#ppsSettle'), sf = sd.querySelector('form'), list = sd.querySelector('[data-f="list"]'), month = sb.getAttribute('data-month');
@@ -74,12 +133,12 @@
         .then(function () { ev.target.disabled = false; });
       return;
     }
-    var btn = ev.target.closest('.pps-edit');
+    var addc = ev.target.closest('.pps-addcom'), btn = addc ? addc.parentNode.querySelector('.pps-edit') : ev.target.closest('.pps-edit');
     if (btn) {
       var dlg = host.querySelector('#ppsEdit'), f = dlg.querySelector('form'), pf = JSON.parse(btn.getAttribute('data-profile'));
       f.employee_id.value = btn.getAttribute('data-id'); f.supervisor.value = pf.supervisor || ''; f.bank_card.value = pf.bank_card || '';
       f.insurance_company.value = pf.insurance_company || ''; f.reserve_deducted.value = pf.reserve_deducted === null ? '' : pf.reserve_deducted;
-      f.signed.checked = String(pf.signed) === '1';
+      f.signed.checked = String(pf.signed) === '1'; f.no_insurance.checked = String(pf.no_insurance) === '1';
       dlg.querySelector('[data-f="title"]').textContent = btn.getAttribute('data-name');
       dlg.querySelector('[data-f="err"]').hidden = true;
       var ul = dlg.querySelector('[data-f="items"]'), fi = dlg.querySelector('.pps-itemform'); ul.innerHTML = '';
@@ -91,6 +150,7 @@
         li.firstChild.textContent = it.label + (it.note ? '（' + it.note + '）' : ''); ul.appendChild(li);
       });
       dlg.showModal();
+      if (addc) { dlg.querySelector('.pps-items').scrollIntoView({ block: 'center' }); fi.label.focus(); }
       return;
     }
     if (ev.target.matches('[data-f="cancel"]')) ev.target.closest('dialog').close();
@@ -120,6 +180,7 @@
     if (ev.target.matches('[data-f="all"]')) [].forEach.call(sd.querySelectorAll('input[name="order_ids[]"]:not(:disabled)'), function (b) { if (!b.dataset.hid) b.checked = ev.target.checked; });
     sumUp(sd);
   });
+  host.addEventListener('input', function (ev) { var fd = host.querySelector('#ppsFlag'); if (fd && ev.target.matches('#ppsFlag [name="ref"]')) flagDiff(fd); });
   host.addEventListener('input', function (ev) { var sd = host.querySelector('#ppsSettle'); if (sd && ev.target.matches('[data-f="q"]')) { filterRows(sd); sumUp(sd); } });
   host.addEventListener('click', function (ev) {
     var chip = ev.target.closest('#ppsSettle [data-type]'); if (!chip) return;
@@ -134,6 +195,16 @@
       .catch(function () { err.textContent = '网络异常，请重试'; err.hidden = false; });
   }
   host.addEventListener('submit', function (ev) {
+    if (ev.target.classList.contains('pps-fform')) {
+      ev.preventDefault();
+      var ffm = ev.target, fdlg = ffm.closest('dialog'), ferr = fdlg.querySelector('[data-f="ferr"]'), fbtn = ffm.querySelector('.is-primary'); fbtn.disabled = true;
+      fetch(host.getAttribute('data-src'), { method: 'POST', credentials: 'same-origin', body: new FormData(ffm) })
+        .then(function (r) { return r.json().catch(function () { return { ok: false, message: '保存失败（' + r.status + '）' }; }); })
+        .then(function (j) { if (j.ok) { fdlg.close(); load(host.querySelector('.pps-month').value); } else { ferr.textContent = j.message || '保存失败'; ferr.hidden = false; } })
+        .catch(function () { ferr.textContent = '网络异常，请重试'; ferr.hidden = false; })
+        .then(function () { fbtn.disabled = false; });
+      return;
+    }
     if (ev.target.classList.contains('pps-sform')) {
       ev.preventDefault();
       var sdlg = ev.target.closest('dialog'), serr = sdlg.querySelector('[data-f="serr"]');

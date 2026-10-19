@@ -152,6 +152,9 @@ $settleBadge = ['settled' => ['已结算', 'ok'], 'pending' => ['已申请 · �
   <div class="pd-section-label"><span>03 / 结算订单</span><small>已结算的、还没结算的，一目了然</small></div>
   <section class="pd-panel pd-settle" id="pd-settle">
     <div class="pd-panel-title"><div><span class="pd-icon"><i class="fas fa-hand-holding-usd"></i></span><h2><?php echo e($month); ?> 结算订单</h2></div><small><?php echo ($actor['role'] === 'finance' ? '财务查看 · ' . e($person['name']) : ''); ?></small></div>
+    <?php if ($actor['role'] !== 'finance' && !$isCurrentOrFuture): require_once __DIR__ . '/../includes/ProjectPayrollFlags.php'; $myFlag = ppf_all($month)[$employeeId] ?? null; $fc = $myFlag['color'] ?? null; ?>
+    <div class="pd-settle-banner <?php echo $fc === 'green' ? 'is-ok' : 'is-warn'; ?>"><i class="fas fa-<?php echo $fc === 'green' ? 'check-circle' : 'hourglass-half'; ?>"></i> <span><?php echo $fc === 'green' ? '财务已核对 ' . e($month) . ' 的结算金额，可以勾选订单提交结算申请。' : '财务还没有核对确认 ' . e($month) . ' 的结算金额，核对通过（标为绿色）后才能提交结算申请。' . ($fc ? '财务说明：' . e((string)$myFlag['reason']) : ''); ?></span></div>
+    <?php endif; ?>
     <?php if ($isCurrentOrFuture): ?>
     <div class="pd-settle-banner is-warn"><i class="fas fa-info-circle"></i> <span>当前月份（<?php echo e($month); ?>）订单正在执行期内，不可申请结算；次月核对无误后方可申请（当前仅开放 <?php echo e(date('Y-m', strtotime('first day of last month'))); ?> 及以前历史月份已审核订单结算）。</span></div>
     <?php endif; ?>
@@ -192,7 +195,7 @@ $settleBadge = ['settled' => ['已结算', 'ok'], 'pending' => ['已申请 · �
       <div class="table-responsive"><table class="pd-settle-table">
         <thead><tr>
           <th style="width:40px;text-align:center;"><input type="checkbox" id="pd-th-check-all" title="全选" <?php echo ($isCurrentOrFuture || count($availableOrders) === 0) ? 'disabled' : ''; ?>></th>
-          <th>订单号 / 结算项目</th><th>业务</th><th>日期</th><th class="r">本月分成</th><th>状态</th>
+          <th>订单号 / 结算项目</th><th>付款昵称 / 微信号</th><th>业务</th><th>日期</th><th class="r">本月分成</th><th>状态</th>
         </tr></thead>
         <tbody>
         <?php foreach ($unsettledRows as $so):
@@ -215,6 +218,7 @@ $settleBadge = ['settled' => ['已结算', 'ok'], 'pending' => ['已申请 · �
               <a href="<?php echo BASE_URL; ?>/project/order.php?id=<?php echo (int)$so['order_id']; ?>"><?php echo e($so['order_no']); ?></a>
             <?php endif; ?>
           </td>
+          <td><?php echo !empty($so['nick']) ? e($so['nick']) : '<span class="text-muted">—</span>'; ?></td>
           <td><?php echo e($so['project_type']); ?></td>
           <td><?php echo e($so['order_date']); ?></td>
           <td class="r">¥<?php echo money($so['amount']); ?></td>
@@ -232,7 +236,7 @@ $settleBadge = ['settled' => ['已结算', 'ok'], 'pending' => ['已申请 · �
       <div class="table-responsive"><table class="pd-settle-table">
         <thead><tr>
           <th style="width:40px;text-align:center;">#</th>
-          <th>订单号 / 结算项目</th><th>业务</th><th>日期</th><th class="r">本月分成</th><th>状态</th>
+          <th>订单号 / 结算项目</th><th>付款昵称 / 微信号</th><th>业务</th><th>日期</th><th class="r">本月分成</th><th>状态</th>
         </tr></thead>
         <tbody>
         <?php foreach ($settledRows as $idx => $so): [$bt, $bc] = $settleBadge[$so['state']]; ?>
@@ -245,6 +249,7 @@ $settleBadge = ['settled' => ['已结算', 'ok'], 'pending' => ['已申请 · �
               <a href="<?php echo BASE_URL; ?>/project/order.php?id=<?php echo (int)$so['order_id']; ?>"><?php echo e($so['order_no']); ?></a>
             <?php endif; ?>
           </td>
+          <td><?php echo !empty($so['nick']) ? e($so['nick']) : '<span class="text-muted">—</span>'; ?></td>
           <td><?php echo e($so['project_type']); ?></td>
           <td><?php echo e($so['order_date']); ?></td>
           <td class="r">¥<?php echo money($so['amount']); ?></td>
@@ -258,7 +263,7 @@ $settleBadge = ['settled' => ['已结算', 'ok'], 'pending' => ['已申请 · �
   </section>
   <style>
   .pd-settle-banner{display:flex;align-items:center;gap:.6rem;padding:.7rem 1rem;border-radius:12px;font-size:.85rem;margin:.4rem 0 1rem;background:#fff8e6;border:1px solid #f0dca0;color:#8a580a}
-  .pd-settle-banner i{font-size:1.05rem;color:#c07d10}
+  .pd-settle-banner i{font-size:1.05rem;color:#c07d10}.pd-settle-banner.is-ok{background:#e6f4ec;border-color:#b9dcc7;color:#1f6a52}.pd-settle-banner.is-ok i{color:#2fa56c}
   .pd-settle-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:.7rem;margin:.4rem 0 1rem}.pd-settle-kpis>div{padding:.7rem 1rem;border-radius:14px;background:#f6faf7;border:1px solid #e1ece5}.pd-settle-kpis span{display:block;font-size:.8rem;color:#6c7a72}.pd-settle-kpis strong{font-size:1.4rem;color:#234b3d;font-variant-numeric:tabular-nums}.pd-settle-kpis em{display:block;font-style:normal;font-size:.76rem;color:#8a978f}
   .pd-settle-kpis .is-ok{background:linear-gradient(135deg,#e6f4ec,#f6faf7)}.pd-settle-kpis .is-ok strong{color:#1f6a52}.pd-settle-kpis .is-warn{background:#fff8e6;border-color:#f0dca0}.pd-settle-kpis .is-warn strong{color:#a8650a}
   .pd-tabs{display:flex;gap:.4rem;margin-bottom:.7rem}.pd-tabs button{border:1px solid #d7e0d3;background:#fff;border-radius:999px;padding:.3rem 1rem;font-size:.88rem;color:#44574d;cursor:pointer}.pd-tabs button b{margin-left:.3rem;color:#2f6a52}.pd-tabs button.is-on{background:#2f6a52;border-color:#2f6a52;color:#fff}.pd-tabs button.is-on b{color:#cfe7d8}

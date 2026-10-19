@@ -24,6 +24,8 @@ function ppp_ensure()
         employee_id INT NOT NULL PRIMARY KEY, supervisor VARCHAR(40) NOT NULL DEFAULT '', bank_card VARCHAR(32) NOT NULL DEFAULT '',
         signed TINYINT(1) NOT NULL DEFAULT 0, insurance_company VARCHAR(60) NOT NULL DEFAULT '', reserve_deducted DECIMAL(12,2) NULL,
         updated_by VARCHAR(60) NOT NULL DEFAULT '', updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+    $has = db()->query("SHOW COLUMNS FROM project_partner_profiles LIKE 'no_insurance'")->fetch();
+    if (!$has) db()->exec("ALTER TABLE project_partner_profiles ADD COLUMN no_insurance TINYINT(1) NOT NULL DEFAULT 0");
     $done = true;
 }
 
@@ -38,7 +40,7 @@ function ppp_all()
 
 function ppp_blank()
 {
-    return ['supervisor' => '', 'bank_card' => '', 'signed' => 0, 'insurance_company' => '', 'reserve_deducted' => null];
+    return ['supervisor' => '', 'bank_card' => '', 'signed' => 0, 'insurance_company' => '', 'reserve_deducted' => null, 'no_insurance' => 0];
 }
 
 /** 校验并保存一个人的结算资料（只改传入的这五项）。返回保存后的行。 */
@@ -60,6 +62,10 @@ function ppp_save($employeeId, array $in, $actor)
     db()->prepare('INSERT INTO project_partner_profiles (employee_id,supervisor,bank_card,signed,insurance_company,reserve_deducted,updated_by) VALUES (?,?,?,?,?,?,?)
         ON DUPLICATE KEY UPDATE supervisor=VALUES(supervisor),bank_card=VALUES(bank_card),signed=VALUES(signed),insurance_company=VALUES(insurance_company),reserve_deducted=VALUES(reserve_deducted),updated_by=VALUES(updated_by)')
         ->execute([(int)$employeeId, $supervisor, $card, $row['signed'], $company, $row['reserve_deducted'], ($actor['type'] ?? '') . ':' . (int)($actor['id'] ?? 0)]);
+    if (isset($in['ni_present'])) { // 只有带标记的表单（首页资料弹窗）才改“免代扣保险”，其他入口保存资料不会把它清掉
+        db()->prepare('UPDATE project_partner_profiles SET no_insurance=? WHERE employee_id=?')->execute([empty($in['no_insurance']) ? 0 : 1, (int)$employeeId]);
+        $row['no_insurance'] = empty($in['no_insurance']) ? 0 : 1;
+    }
     // 审计里不留完整卡号，只记尾号
     ps_audit('partner_profile', (int)$employeeId, 'save', $actor, ['supervisor' => $supervisor, 'card_tail' => $card === '' ? '' : substr($card, -4), 'signed' => $row['signed'], 'insurance_company' => $company, 'reserve' => $row['reserve_deducted']]);
     return $row;

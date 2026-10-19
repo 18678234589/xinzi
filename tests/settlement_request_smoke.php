@@ -8,13 +8,14 @@ if (DB_HOST !== '127.0.0.1' || (string)DB_PORT !== '13399') throw new RuntimeExc
 $check = function ($ok, $label) { if (!$ok) throw new RuntimeException('未通过：' . $label); echo "  [OK] $label\n"; };
 $throws = function (callable $f) { try { $f(); } catch (RuntimeException $e) { return $e->getMessage(); } return null; };
 psr_ensure();
-$row = $pdo->query("SELECT c.employee_id,c.payroll_month,COUNT(DISTINCT c.order_id) n FROM project_commission_snapshots c JOIN project_users u ON u.employee_id=c.employee_id AND u.is_active=1 GROUP BY c.employee_id,c.payroll_month HAVING n>=4 ORDER BY n DESC LIMIT 1")->fetch();
+$row = $pdo->query("SELECT c.employee_id,c.payroll_month,COUNT(DISTINCT c.order_id) n FROM project_commission_snapshots c JOIN project_users u ON u.employee_id=c.employee_id AND u.is_active=1 GROUP BY c.employee_id,c.payroll_month HAVING n>=4 AND c.payroll_month < DATE_FORMAT(CURDATE(),'%Y-%m') ORDER BY n DESC LIMIT 1")->fetch();
 $check($row !== false, '找到有已审核订单的合作人员');
 $eid = (int)$row['employee_id']; $month = $row['payroll_month'];
 $user = $pdo->query("SELECT id FROM project_users WHERE employee_id=$eid AND is_active=1 LIMIT 1")->fetchColumn();
 $actor = ['type' => 'employee', 'id' => (int)$user, 'employee_id' => $eid, 'role' => 'customer_service'];
 $other = ['type' => 'employee', 'id' => 999999, 'employee_id' => $eid + 100000, 'role' => 'customer_service'];
 $fin = ['type' => 'admin', 'id' => (int)$pdo->query('SELECT MIN(id) FROM admins')->fetchColumn(), 'employee_id' => null, 'role' => 'finance'];
+ppf_save($fin, $eid, $month, 'green', '测试核对无异议', '', false); // 财务标绿后本人才能申请结算
 $orders = psr_orders($eid, $month);
 $check(count($orders) >= 4 && count(array_filter($orders, function ($o) { return $o['state'] !== 'available'; })) === 0, '本月订单都可申请：' . count($orders));
 $ids = array_column($orders, 'order_id');
@@ -48,11 +49,12 @@ $check(count(array_unique($st)) === 1 && reset($st) === 'settled', '本月订单
 $check($throws(function () use ($rid2, $fin) { psr_reject($rid2, $fin, '已结算不能退回'); }) !== null, '已结算的申请不能退回');
 // ---- 申请更正：多选订单一起提交，主管和财务都能审核 ----
 require_once __DIR__ . '/../includes/commission_explain.php';
-$cand = $pdo->query("SELECT c.employee_id,c.payroll_month,e.department FROM project_commission_snapshots c JOIN project_users u ON u.employee_id=c.employee_id AND u.is_active=1 JOIN employees e ON e.id=c.employee_id JOIN project_dept_heads h ON h.department=e.department AND h.employee_id<>c.employee_id WHERE c.employee_id<>$eid GROUP BY c.employee_id,c.payroll_month HAVING COUNT(DISTINCT c.order_id)>=3 LIMIT 1")->fetch();
+$cand = $pdo->query("SELECT c.employee_id,c.payroll_month,e.department FROM project_commission_snapshots c JOIN project_users u ON u.employee_id=c.employee_id AND u.is_active=1 JOIN employees e ON e.id=c.employee_id JOIN project_dept_heads h ON h.department=e.department AND h.employee_id<>c.employee_id WHERE c.employee_id<>$eid AND c.payroll_month < DATE_FORMAT(CURDATE(),'%Y-%m') GROUP BY c.employee_id,c.payroll_month HAVING COUNT(DISTINCT c.order_id)>=3 LIMIT 1")->fetch();
 $check($cand !== false, '找到所在部门有主管的合作人员');
 $e2 = (int)$cand['employee_id']; $m2 = $cand['payroll_month']; $dept = $cand['department'];
 $u2 = $pdo->query("SELECT id FROM project_users WHERE employee_id=$e2 AND is_active=1 LIMIT 1")->fetchColumn();
 $act2 = ['type' => 'employee', 'id' => (int)$u2, 'employee_id' => $e2, 'role' => 'customer_service'];
+ppf_save($fin, $e2, $m2, 'green', '测试核对无异议', '', false);
 $ord2 = psr_orders($e2, $m2); $ids2 = array_slice(array_column($ord2, 'order_id'), 0, 3);
 $check($throws(function () use ($act2, $m2, $ids2) { psr_correct($act2, $m2, $ids2, '短'); }) !== null, '更正理由太短被拒');
 $check($throws(function () use ($act2, $m2) { psr_correct($act2, $m2, [], '这几单的成本填错了应为更低'); }) !== null, '没勾选订单被拒');

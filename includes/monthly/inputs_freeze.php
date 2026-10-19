@@ -41,18 +41,18 @@ function ps_monthly_params_from_input($type, $input)
     if ($type === 'fixed') return ['amount' => $num($input['amount'] ?? '', '金额'), 'separate' => !empty($input['separate'])];
     if ($type === 'base_fee') return ['amount' => $num($input['amount'] ?? '0', '金额'), 'no_prorate' => !empty($input['no_prorate'])];
     if ($type === 'overtime_pay') return ['holiday_rate' => $num($input['holiday_rate'] ?? '1.5', '节假日倍率'), 'normal_rate' => $num($input['normal_rate'] ?? '1', '普通日期倍率')];
-    if ($type === 'per_unit' || $type === 'attendance_bonus' || $type === 'order_count') return ['amount' => $num($input['amount'] ?? '0', '金额')];
+    if ($type === 'per_unit' || $type === 'attendance_bonus' || $type === 'order_count' || $type === 'unique_customer') return ['amount' => $num($input['amount'] ?? '0', '金额')];
     if ($type === 'sales_package') {
-        // 每行“营业额上限,底薪,比例%,≥门槛每单,<门槛每单”，如 6000,2100,5,2,0.5
+        // 每行“营业额起点（≥）,底薪,比例%,≥门槛每单,<门槛每单”，如 6000,2100,5,2,0.5
         $tiers = [];
         foreach (array_filter(array_map('trim', preg_split('/[\r\n]+/', (string)($input['package_tiers'] ?? ''))), 'strlen') as $line) {
             $cells = array_map('trim', preg_split('/[,，\s]+/u', $line));
-            if (count($cells) !== 5) throw new RuntimeException('阶梯每行填 5 个数：营业额上限,底薪,比例%,≥门槛每单,<门槛每单');
-            $tiers[] = ['upto' => $num($cells[0], '营业额上限'), 'base' => $num($cells[1], '底薪'), 'rate' => $num($cells[2], '比例') / 100, 'big' => $num($cells[3], '大单每单金额'
+            if (count($cells) !== 5) throw new RuntimeException('阶梯每行填 5 个数：营业额起点,底薪,比例%,≥门槛每单,<门槛每单');
+            $tiers[] = ['from' => $num($cells[0], '营业额起点'), 'base' => $num($cells[1], '底薪'), 'rate' => $num($cells[2], '比例') / 100, 'big' => $num($cells[3], '大单每单金额'
     ), 'small' => $num($cells[4], '小单每单金额')];
         }
         if (!$tiers) throw new RuntimeException('请至少填写一档');
-        usort($tiers, function ($a, $b) { return $a['upto'] <=> $b['upto']; });
+        usort($tiers, function ($a, $b) { return $a['from'] <=> $b['from']; });
         return ['tiers' => $tiers, 'big_threshold' => $num($input['big_threshold'] ?? '50', '大单门槛'), 'returning_rate' => $num($input['returning_rate'] ?? '0', '老客户找回比例'
     ) / 100, 'review_min' => $num($input['review_min'] ?? '0', '好评率门槛'), 'review_penalty' => $num($input['review_penalty'] ?? '0', '好评率罚款')];
     }

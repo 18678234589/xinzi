@@ -57,8 +57,8 @@ try {
     $mine = array_values(array_filter(ps_monthly_results($month, true), function ($r) use ($actor) { return (int)$r['employee_id'] === (int)$actor['employee_id']; }));
     $lines = []; foreach ($mine as $r) $lines[$r['rule_name']] = (float)$r['amount'];
     foreach ($mine as $r) echo '     ' . $r['rule_name'] . '  ¥' . $r['amount'] . '  ' . $r['detail'] . "\n";
-    $check(abs(($lines['阎泸琪 营业额阶梯薪酬 · 底薪'] ?? 0) - 2100) < 0.01 || strpos(json_encode($mine, JSON_UNESCAPED_UNICODE), '请假') !== false, '营业额 5000 落 ≤6000 档：底薪 2100（按考勤折算）');
-    $check(($lines['阎泸琪 营业额阶梯薪酬 · 营业额提成'] ?? 0) == 250.0, '营业额提成 5000 × 5% = 250');
+    $check(abs(($lines['阎泸琪 营业额阶梯薪酬 · 底薪'] ?? 0) - 2100) < 0.01 || strpos(json_encode($mine, JSON_UNESCAPED_UNICODE), '请假') !== false, '营业额 6000 落 ≥6000 档：底薪 2100（按考勤折算）');
+    $check(($lines['阎泸琪 营业额阶梯薪酬 · 营业额提成'] ?? 0) == 300.0, '营业额提成 6000 × 5% = 300');
     $check(($lines['阎泸琪 营业额阶梯薪酬 · 单量补助'] ?? 0) == 7.0, '单量补助 3 × 2 + 2 × 0.5 = 7');
     $check(($lines['阎泸琪 营业额阶梯薪酬 · 老客户找回'] ?? 0) == 150.0, '老客户找回 1500 × 10% = 150');
     $check(($lines['阎泸琪 营业额阶梯薪酬 · 好评率罚款'] ?? 0) == -100.0, '好评率 8%：扣 100');

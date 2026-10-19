@@ -9,6 +9,7 @@ require_once __DIR__ . '/ProjectSettlement.php';
 require_once __DIR__ . '/ProjectMonthly.php';
 require_once __DIR__ . '/ProjectPayrollExtras.php';
 require_once __DIR__ . '/ProjectPartnerProfile.php';
+require_once __DIR__ . '/ProjectPayrollFlags.php';
 
 /** 固定类补助按名称归到经理 / 组长 / 保险补助，其余算其他补助。 */
 function pps_allowance_slot($name)
@@ -45,7 +46,14 @@ function pps_sheet($month, $onlyEmployeeId = 0, $withProfile = false)
         require_once __DIR__ . '/ProjectExpectedSettlement.php';
         $monthlyRows = array_filter(ps_expected_month($month)['monthly'], function ($r) { return $r['rule_type'] !== 'adjustment'; }); // 跨月更正上面已按 payroll_month 单独计入
     }
+    // 预期结算（ps_expected_month）已把“手工项”也汇进 monthly 结果；下面单独按手工项逐条计入，这里先去掉重复的那几条（按人 + 名称 + 金额配对）。
+    $manualSeen = [];
+    foreach (ps_payroll_extras($month) as $mEid => $mx) foreach ($mx['items'] as $mi) { $k = $mEid . '|' . $mi['label'] . '|' . number_format((float)$mi['amount'], 2, '.', ''); $manualSeen[$k] = ($manualSeen[$k] ?? 0) + 1; }
     foreach ($monthlyRows as $r) {
+        if (in_array($r['rule_type'], ['manual', 'extra_share'], true)) {
+            $mk = (int)$r['employee_id'] . '|' . $r['rule_name'] . '|' . number_format((float)$r['amount'], 2, '.', '');
+            if (!empty($manualSeen[$mk])) { $manualSeen[$mk]--; continue; }
+        }
         $eid = (int)$r['employee_id'];
         if (!isset($people[$eid]) || !empty($r['paid_separately'])) continue; // 另行支付（法人补助）不计入应结算
         $amount = (float)$r['amount'];
@@ -72,7 +80,7 @@ function pps_sheet($month, $onlyEmployeeId = 0, $withProfile = false)
             if ($amount < 0) {
                 $slot = strpos($label, '车位') !== false ? 'parking' : (strpos($label, '预留') !== false ? 'reserve' : 'deduct');
                 $p[$slot] += -$amount;
-            } else $p[strpos($label, '补单') !== false ? 'base' : (strpos($label, '全勤') !== false ? 'bonus' : (preg_match('/分成|提成|游学/u', $label) ? 'share' : pps_allowance_slot($label)))] += $amount; // 手工录入的“xx业务分成 / 提成”记在项目分成一栏 // 网站客服的“补单提成”在报酬表里记在固定服务费一栏
+            } else $p[strpos($label, '补单') !== false ? 'base' : (strpos($label, '全勤') !== false ? 'bonus' : (preg_match('/分成|提成|游学|留学/u', $label) ? 'share' : pps_allowance_slot($label)))] += $amount; // 手工录入的“xx业务分成 / 提成”记在项目分成一栏 // 网站客服的“补单提成”在报酬表里记在固定服务费一栏
             if ($withProfile) $p['items'][] = ['id' => (int)$item['id'], 'label' => $label, 'amount' => $amount, 'note' => (string)$item['note']];
             $p['notes'][] = $label . ' ' . ($amount < 0 ? '-' : '+') . '¥' . number_format(abs($amount), 2, '.', '') . ($item['note'] !== '' ? '（' . $item['note'] . '）' : '');
         }
@@ -92,6 +100,7 @@ function pps_sheet($month, $onlyEmployeeId = 0, $withProfile = false)
     }
 
     $profiles = $withProfile ? ppp_all() : [];
+    $flags = ppf_all($month);
     $rows = [];
     $totals = array_fill_keys(array_merge($cols, ['payable', 'net']), 0.0);
     foreach ($people as $p) {
@@ -100,6 +109,9 @@ function pps_sheet($month, $onlyEmployeeId = 0, $withProfile = false)
         $p['net'] = round($p['payable'] - $p['deduct'] - $p['parking'] - $p['reserve'] - $p['unit_ins'] - $p['personal_ins'], 2);
         if (abs($p['payable']) + abs($p['net']) + $p['deduct'] + $p['parking'] + $p['reserve'] + $p['unit_ins'] + $p['personal_ins'] < 0.005) continue;
         if ($withProfile) $p['profile'] = ($profiles[$p['id']] ?? []) + ppp_blank();
+        $fl = $flags[$p['id']] ?? null;
+        $p['flag'] = ['color' => $fl['color'] ?? null, 'reason' => (string)($fl['reason'] ?? '')];
+        if ($withProfile) { $p['ref'] = $fl && $fl['ref_net'] !== null ? (float)$fl['ref_net'] : null; $p['diff'] = ppf_diff($p['net'], $p['ref']); } // 对照金额和差距只给财务 / 管理账号
         $p['note'] = implode('；', array_slice(array_unique($p['notes']), 0, 4));
         $rows[] = $p;
         foreach (array_keys($totals) as $c) $totals[$c] += $p[$c];

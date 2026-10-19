@@ -5,35 +5,43 @@ require_once __DIR__ . '/../includes/ProjectMonthly.php';
 
 $failures = 0;
 $check = function ($ok, $label) use (&$failures) { echo ($ok ? '  [OK] ' : '  [FAIL] ') . $label . "\n"; if (!$ok) $failures++; };
-$params = ['tiers' => [['upto' => 3000, 'base' => 1800, 'rate' => 0, 'big' => 0, 'small' => 0], ['upto' => 6000, 'base' => 2100, 'rate' => 0.05, 'big' => 2, 'small' => 0.5], ['upto' => 9000, 'base' => 2300, 'rate' => 0.08, 'big' => 3, 'small' => 0.5], ['upto' => 12000, 'base' => 3300, 'rate' => 0.1, 'big' => 5, 'small' => 0.5], ['upto' => 15000, 'base' => 4800, 'rate' => 0.1, 'big' => 5, 'small' => 0.5]], 'big_threshold' => 50, 'returning_rate' => 0.1, 'review_min' => 10, 'review_penalty' => 100];
+$params = ['tiers' => [['from' => 3000, 'base' => 1800, 'rate' => 0, 'big' => 0, 'small' => 0], ['from' => 6000, 'base' => 2100, 'rate' => 0.05, 'big' => 2, 'small' => 0.5], ['from' => 9000, 'base' => 2300, 'rate' => 0.08, 'big' => 3, 'small' => 0.5], ['from' => 12000, 'base' => 3300, 'rate' => 0.1, 'big' => 5, 'small' => 0.5], ['from' => 15000, 'base' => 4800, 'rate' => 0.1, 'big' => 5, 'small' => 0.5]], 'big_threshold' => 50, 'returning_rate' => 0.1, 'review_min' => 10, 'review_penalty' => 100];
 $orders = function (array $amounts, array $returning = []) { return array_map(function ($a, $i) use ($returning) { return ['income' => $a, 'returning' => in_array($i, $returning, true)]; }, $amounts, array_keys($amounts)); };
 $total = function ($calc) { return round($calc['base'] + array_sum(array_map(function ($i) { return $i[1]; }, $calc['items'])), 2); };
 $item = function ($calc, $name) { foreach ($calc['items'] as $i) if ($i[0] === $name) return round($i[1], 2); return 0.0; };
 
-echo "=== ≤3000 保底 ===\n";
+echo "=== 营业额 ≥3000 保底 ===\n";
 $c = ps_sales_package_calc($params, $orders([2000, 500, 30]));
-$check($c['revenue'] == 2530 && $c['base'] == 1800 && !$c['items'], '营业额 2530：保底 1800，无提成、无单量');
+$check($c['revenue'] == 2530 && $c['base'] == 1800 && !$c['items'], '营业额 2530（低于最低起点）：按最低档保底 1800，无提成、无单量');
 $c = ps_sales_package_calc($params, $orders([3000]));
-$check($c['base'] == 1800 && !$c['items'], '正好 3000 仍按保底档');
+$check($c['base'] == 1800 && !$c['items'], '正好 3000：保底档 1800');
+$c = ps_sales_package_calc($params, $orders([5999.99]));
+$check($c['base'] == 1800 && !$c['items'], '营业额 5999.99 还没到 6000：仍是保底档');
 $c = ps_sales_package_calc($params, []);
 $check($c['revenue'] == 0 && $c['base'] == 1800, '当月没有订单：照发保底 1800');
 
-echo "=== ≤6000 ===\n";
-$c = ps_sales_package_calc($params, $orders([3000, 1500, 450, 40, 10], [2]));
-$check($c['base'] == 2100 && $item($c, '营业额提成') == 250.0, '营业额 5000：底薪 2100 + 5000×5% = 250');
+echo "=== 营业额 ≥6000 ===\n";
+$c = ps_sales_package_calc($params, $orders([4000, 1500, 450, 40, 10], [2]));
+$check($c['base'] == 2100 && $item($c, '营业额提成') == 300.0, '营业额 6000：底薪 2100 + 6000×5% = 300');
 $check($item($c, '单量补助') == 7.0, '≥50 元 3 单 × 2 + <50 元 2 单 × 0.5 = 7');
 $check($item($c, '老客户找回') == 45.0, '老客户找回订单 450 × 10% = 45');
-$check($total($c) == 2402.0, '合计 2402（不含全勤）');
+$check($total($c) == 2452.0, '合计 2452（不含全勤）');
 
-echo "=== ≤9000 / ≤12000 / ≤15000 / 超过 ===\n";
-$c = ps_sales_package_calc($params, $orders([4000, 3000, 20]));
-$check($c['base'] == 2300 && $item($c, '营业额提成') == 561.6 && $item($c, '单量补助') == 6.5, '营业额 7020：2300 + 8% = 561.6 + 2×3 + 1×0.5 = 6.5');
-$c = ps_sales_package_calc($params, $orders([6000, 5000, 60]));
-$check($c['base'] == 3300 && $item($c, '营业额提成') == 1106.0 && $item($c, '单量补助') == 15.0, '营业额 11060：3300 + 10% + 3 单 × 5');
+echo "=== ≥9000 / ≥12000 / ≥15000 / 超过 ===\n";
+$c = ps_sales_package_calc($params, $orders([5000, 4000, 20]));
+$check($c['base'] == 2300 && $item($c, '营业额提成') == 721.6 && $item($c, '单量补助') == 6.5, '营业额 9020：2300 + 8% = 721.6 + 2×3 + 1×0.5 = 6.5');
+$c = ps_sales_package_calc($params, $orders([6000, 6000, 60]));
+$check($c['base'] == 3300 && $item($c, '营业额提成') == 1206.0 && $item($c, '单量补助') == 15.0, '营业额 12060：3300 + 10% + 3 单 × 5');
 $c = ps_sales_package_calc($params, $orders([8000, 7000]));
 $check($c['base'] == 4800 && $item($c, '营业额提成') == 1500.0 && $item($c, '单量补助') == 10.0, '营业额 15000：4800 + 10% + 2 单 × 5');
 $c = ps_sales_package_calc($params, $orders([9000, 7000]));
-$check($c['base'] == 4800 && $item($c, '营业额提成') == 1600.0, '营业额 16000 超过最高档：按 ≤15000 档（4800 + 10%）');
+$check($c['base'] == 4800 && $item($c, '营业额提成') == 1600.0, '营业额 16000：仍是 ≥15000 档（4800 + 10%）');
+
+echo "=== 2026-09 真实数据：营业额 6905（27 单 ≥50、6 单 <50，含老客户找回 200）===\n";
+$sept = array_merge([200, 6705 - 26 * 50 - 200 + 50 - 50], array_fill(0, 25, 50), [20, 10, 10, 5, 5, 5]);
+$sept[1] = 6905 - array_sum($sept) + $sept[1];
+$c = ps_sales_package_calc($params, array_merge($orders($sept), []), null);
+$check($c['revenue'] == 6905 && $c['base'] == 2100 && $item($c, '营业额提成') == 345.25 && $item($c, '单量补助') == 57.0, '落 ≥6000 档：底薪 2100 + 5% = 345.25 + 单量 27×2 + 6×0.5 = 57（旧口径误落 2300 + 8%）');
 
 echo "=== 好评率 ===\n";
 $c = ps_sales_package_calc($params, $orders([5000]), 8);

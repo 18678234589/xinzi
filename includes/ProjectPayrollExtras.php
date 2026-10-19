@@ -64,8 +64,11 @@ function ps_payroll_extras($month)
         else $items[(int)$r['employee_id']][] = $r;
     }
     $out = [];
+    $exempt = []; // 个人资料里标了“免代扣保险”（已退休等）的人：永远不扣
+    try { $exempt = array_flip(array_map('intval', db()->query('SELECT employee_id FROM project_partner_profiles WHERE no_insurance=1')->fetchAll(PDO::FETCH_COLUMN))); } catch (Throwable $e) {}
     foreach (db()->query('SELECT id FROM employees')->fetchAll(PDO::FETCH_COLUMN) as $id) {
         $eid = (int)$id;
+        if (isset($exempt[$eid])) { $out[$eid] = ['insurance' => ['amount' => 0.0, 'manual' => true, 'auto_amount' => 0.0, 'detail' => '个人资料已标“免代扣保险”（已退休），不扣保险'], 'items' => $items[$eid] ?? [], 'items_total' => round(array_sum(array_map(function ($r) { return (float)$r['amount']; }, $items[$eid] ?? [])), 2)]; continue; }
         $leave = round((float)($attendance[$eid]['absent'] ?? 0) / 8, 2);
         [$auto, $detail] = ps_insurance_suggest($leave, $settings);
         $override = $overrides[$eid] ?? null;

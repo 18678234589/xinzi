@@ -1,5 +1,7 @@
 <?php
 
+require_once __DIR__ . '/ProjectUniqueCustomer.php';
+
 /**
  * 计算某月全部月度规则结果。返回 [['employee_id','rule_id','rule_name','rule_type','amount','detail'], ...]（金额为 0 的不返回）。
  * 已锁定月份返回冻结结果。
@@ -135,6 +137,10 @@ function ps_monthly_results($month, $forceLive = false, $context = null)
             // 未在系统录单的团队（临沂、东营、合伙团队等）单量由财务每月填写。
             if ($rule['employee_id'] === null) continue;
             /* split: includes/monthly/types/order_count.php */ include __DIR__ . '/monthly/types/order_count.php';
+
+        } elseif ($type === 'unique_customer') {
+            if ($rule['employee_id'] === null) continue;
+            /* split: includes/monthly/types/unique_customer.php */ include __DIR__ . '/monthly/types/unique_customer.php';
 
         } elseif ($type === 'legacy_sheet') {
             // 原系统单量补贴（referral_order staff_match 精确还原，旧 SalaryCalculator::calcReferralOrder）：

@@ -212,6 +212,8 @@ function pra_monthly_text(array $m)
         $headline = '每件 ' . pra_money($amount ?? 0); $details[] = '件数由财务当月在规则中心填写';
     } elseif ($type === 'order_count') {
         $headline = '每单 ' . pra_money($amount ?? 0);
+    } elseif ($type === 'unique_customer') {
+        $headline = '每个客户旺旺 ' . pra_money($amount ?? 0); $details[] = '同一旺旺当月下两单、三单都按 1 单算；已有每单补助的旺旺不重复发';
     } else {
         $headline = (string)($m['note'] ?? '') !== '' ? (string)$m['note'] : (PRA_MONTHLY_TYPES[$type] ?? $type);
     }

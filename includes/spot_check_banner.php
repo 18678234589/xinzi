@@ -14,3 +14,18 @@ if (!empty($current_admin) && ($_rel ?? '') !== 'project/spot_checks.php') {
 <?php   endif;
     } catch (Throwable $e) {}
 }
+// 单量补助里系统拿不准的客户旺旺（部分退款 / 旺旺很像）：待财务标记“可以结算”或“无需结算”。
+if (!empty($current_admin) && ($_rel ?? '') !== 'project/customer_checks.php') {
+    try {
+        require_once __DIR__ . '/ProjectUniqueCustomer.php';
+        $pucBanner = puc_pending_count();
+        if ($pucBanner > 0): ?>
+<div class="alert alert-warning d-flex flex-wrap align-items-center mb-3" role="alert" style="border-left:6px solid #e0a100;gap:10px">
+  <i class="fas fa-user-check fa-lg"></i>
+  <a class="flex-grow-1 text-reset" style="text-decoration:none" href="<?php echo BASE_URL; ?>/project/customer_checks.php"><strong>有 <?php echo (int)$pucBanner; ?> 个单量补助的客户旺旺待财务核对</strong>
+    <span class="small ml-1">（部分退款或旺旺很像，系统拿不准是否算一单）请标记“可以结算”或“无需结算”，未标记的暂不计入补助。</span></a>
+  <a class="btn btn-warning btn-sm font-weight-bold" href="<?php echo BASE_URL; ?>/project/customer_checks.php">去核对</a>
+</div>
+<?php   endif;
+    } catch (Throwable $e) {}
+}

@@ -6,6 +6,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') { // 保存合作人员结算资料�
     header('Content-Type: application/json; charset=UTF-8');
     require_once __DIR__ . '/includes/ProjectPartnerProfile.php';
     $actor = ps_actor();
+    if ($actor && ($_POST['action'] ?? '') === 'request_settle_all') { // 一键申请往月全部可结算订单
+        if (!hash_equals(ps_csrf_token(), (string)($_POST['csrf'] ?? ''))) { http_response_code(403); echo json_encode(['ok' => false, 'message' => '页面已过期，请刷新后重试'], JSON_UNESCAPED_UNICODE); exit; }
+        try {
+            require_once __DIR__ . '/includes/ProjectSettlementRequest.php';
+            echo json_encode(['ok' => true] + psr_submit_all($actor), JSON_UNESCAPED_UNICODE);
+        } catch (RuntimeException $e) { echo json_encode(['ok' => false, 'message' => $e->getMessage()], JSON_UNESCAPED_UNICODE); }
+        catch (Throwable $e) { http_response_code(500); echo json_encode(['ok' => false, 'message' => '提交失败，请稍后再试'], JSON_UNESCAPED_UNICODE); }
+        exit;
+    }
     if ($actor && ($_POST['action'] ?? '') === 'request_settle') {
         if (!hash_equals(ps_csrf_token(), (string)($_POST['csrf'] ?? ''))) { http_response_code(403); echo json_encode(['ok' => false, 'message' => '页面已过期，请刷新后重试'], JSON_UNESCAPED_UNICODE); exit; }
         try {
@@ -14,6 +23,31 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') { // 保存合作人员结算资料�
             echo json_encode(['ok' => true, 'id' => $rid]);
         } catch (RuntimeException $e) { echo json_encode(['ok' => false, 'message' => $e->getMessage()], JSON_UNESCAPED_UNICODE); }
         catch (Throwable $e) { http_response_code(500); echo json_encode(['ok' => false, 'message' => '提交失败，请稍后再试'], JSON_UNESCAPED_UNICODE); }
+        exit;
+    }
+    if ($actor && ($_POST['action'] ?? '') === 'save_flag') { // 财务核对标记：绿 / 黄 / 红 + 理由 + 对照金额，可通知本人
+        if (!ppp_can($actor)) { http_response_code(403); echo json_encode(['ok' => false, 'message' => '无权限'], JSON_UNESCAPED_UNICODE); exit; }
+        if (!hash_equals(ps_csrf_token(), (string)($_POST['csrf'] ?? ''))) { http_response_code(403); echo json_encode(['ok' => false, 'message' => '页面已过期，请刷新后重试'], JSON_UNESCAPED_UNICODE); exit; }
+        try {
+            ppf_save($actor, (int)($_POST['employee_id'] ?? 0), (string)($_POST['month'] ?? ''), (string)($_POST['color'] ?? ''), (string)($_POST['reason'] ?? ''), $_POST['ref'] ?? '', !empty($_POST['notify']));
+            echo json_encode(['ok' => true]);
+        } catch (RuntimeException $e) { echo json_encode(['ok' => false, 'message' => $e->getMessage()], JSON_UNESCAPED_UNICODE); }
+        catch (Throwable $e) { http_response_code(500); echo json_encode(['ok' => false, 'message' => '保存失败，请稍后再试'], JSON_UNESCAPED_UNICODE); }
+        exit;
+    }
+    if ($actor && ($_POST['action'] ?? '') === 'bulk_green') { // 一键标绿：对照金额已填且差距 ≤ 5% 的人
+        if (!ppp_can($actor)) { http_response_code(403); echo json_encode(['ok' => false, 'message' => '无权限'], JSON_UNESCAPED_UNICODE); exit; }
+        if (!hash_equals(ps_csrf_token(), (string)($_POST['csrf'] ?? ''))) { http_response_code(403); echo json_encode(['ok' => false, 'message' => '页面已过期，请刷新后重试'], JSON_UNESCAPED_UNICODE); exit; }
+        try {
+            require_once __DIR__ . '/includes/ProjectPayrollSheet.php';
+            $m = (string)($_POST['month'] ?? ''); $n = 0;
+            foreach (pps_sheet($m, 0, true)['rows'] as $r) {
+                if ($r['diff'] === null || abs($r['diff']) > PPF_TOLERANCE || $r['flag']['color'] === 'green') continue;
+                ppf_save($actor, (int)$r['id'], $m, 'green', '与对照表差距在 5% 以内，核对无异议', (string)$r['ref'], true); $n++;
+            }
+            echo json_encode(['ok' => true, 'count' => $n]);
+        } catch (RuntimeException $e) { echo json_encode(['ok' => false, 'message' => $e->getMessage()], JSON_UNESCAPED_UNICODE); }
+        catch (Throwable $e) { http_response_code(500); echo json_encode(['ok' => false, 'message' => '操作失败，请稍后再试'], JSON_UNESCAPED_UNICODE); }
         exit;
     }
     if ($actor && ($_POST['action'] ?? '') === 'request_correction') { // 本人对算得不对的订单申请更正：通知主管 + 财务
@@ -53,6 +87,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') { // 保存合作人员结算资料�
 header('Content-Type: text/html; charset=UTF-8');
 header('Cache-Control: no-store');
 header('X-Content-Type-Options: nosniff');
+if (isset($_GET['flag_info'])) { // 核对弹窗：系统实结算、对照金额、差距、系统给出的差异原因
+    header('Content-Type: application/json; charset=UTF-8');
+    require_once __DIR__ . '/includes/ProjectPayrollSheet.php';
+    $a = ps_actor(); $m = (string)($_GET['pm'] ?? ''); $eid = (int)($_GET['flag_info'] ?? 0);
+    if (!$a || !ppp_can($a) || $eid <= 0 || !preg_match('/^\\d{4}-(0[1-9]|1[0-2])$/', $m)) { http_response_code(403); echo json_encode(['ok' => false]); exit; }
+    $row = pps_sheet($m, $eid, true)['rows'][0] ?? ['net' => 0, 'flag' => ['color' => null, 'reason' => ''], 'ref' => null];
+    $fl = ppf_all($m)[$eid] ?? null;
+    echo json_encode(['ok' => true, 'net' => $row['net'] ?? 0, 'ref' => $fl && $fl['ref_net'] !== null ? (float)$fl['ref_net'] : null, 'color' => $fl['color'] ?? null, 'reason' => $fl['reason'] ?? '',
+        'reasons' => ppf_reasons($eid, $m, $row, $fl['ref_net'] ?? null)], JSON_UNESCAPED_UNICODE); exit;
+}
 if (isset($_GET['settle_orders'])) { // 申请结算弹窗：本人某月的订单列表
     header('Content-Type: application/json; charset=UTF-8');
     require_once __DIR__ . '/includes/ProjectSettlementRequest.php';
