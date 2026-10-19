@@ -191,6 +191,7 @@ $nav = function ($href, $icon, $label, $active) {
     <?php echo $nav('/project/system.php', 'fa-sliders-h', '系统设置', $_rel === 'project/system.php'); ?>
     <?php if ($vault_nav): echo $nav('/project/vault.php', 'fa-key', '平台与服务器信息', $_rel === 'project/vault.php'); endif; ?>
     <?php endif; ?>
+    <?php if ($project_staff): require_once __DIR__ . '/ProjectCompletionSync.php'; if (pcs_can_access(ps_actor() ?: [])) echo $nav('/project/completion_sync.php', 'fa-check-double', '网站订单完成同步', $_rel === 'project/completion_sync.php'); endif; ?>
     <?php include __DIR__ . '/renewal_nav.php'; ?>
     <?php include __DIR__ . '/service_perf_nav.php'; ?>
     <?php include __DIR__ . '/dup_appeal_nav.php'; ?>

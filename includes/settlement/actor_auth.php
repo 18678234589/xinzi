@@ -83,6 +83,7 @@ function ps_require_actor()
             $actor['governance_orders'] = true;
         }
         if ($script === 'batch_review.php' && function_exists('pbr_scope') && pbr_scope($actor)) $allowed[] = $script; // 被授权审核订单的管理层人员（如网站人事）
+        if ($script === 'completion_sync.php' && function_exists('pcs_can_access') && pcs_can_access($actor)) $allowed[] = $script;
         if (!in_array($script, $allowed, true)) { http_response_code(403); exit('此账号仅可访问管理层事项与本人结算'); }
         if ($script !== 'profile.php' && empty($actor['password_changed_at']) && PHP_SAPI !== 'cli') {
             header('Location: ' . BASE_URL . '/project/profile.php?password=1'); exit;

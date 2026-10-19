@@ -7,6 +7,25 @@
  */
 require_once __DIR__ . '/ProjectIntake.php';
 
+function pcs_can_access(array $actor)
+{
+    return ($actor['role'] ?? '') === 'finance'
+        || (($actor['type'] ?? '') === 'employee' && (int)($actor['employee_id'] ?? 0) === 71);
+}
+
+function pcs_manual_finish($orderId, array $actor)
+{
+    if (($actor['role'] ?? '') !== 'finance') throw new RuntimeException('只有财务可以确认完成');
+    $q = db()->prepare('SELECT id,order_no,project_type,settlement_status,delivery_status FROM project_orders WHERE id=?');
+    $q->execute([(int)$orderId]); $order = $q->fetch();
+    if (!$order || !ps_is_website_order($order['project_type'])) throw new RuntimeException('只能标记网站业务订单');
+    if (in_array($order['settlement_status'], ['approved','locked'], true)) throw new RuntimeException('订单已审核或锁定，请在订单详情中核对');
+    if ($order['delivery_status'] === 'finished') return ['finished'=>0,'unfinished'=>0,'reopened'=>0,'skipped'=>[]];
+    $result = pcs_apply(['mark_finished'=>[$order],'mark_unfinished'=>[],'approved_unfinished'=>[]], false, $actor, '财务手动确认');
+    if (!$result['finished'] && !$result['skipped']) throw new RuntimeException('订单状态已变化，请刷新后重试');
+    return $result;
+}
+
 /** 一个单元格里的状态归类：fin / unf / closed。 */
 function pcs_classify($text)
 {
@@ -105,19 +124,20 @@ function pcs_plan(array $map)
  * 执行：改未审核订单的完成情况；$reopen 为真时撤回“已审核但总表未完成”的订单（删分成快照、回到未审核）。
  * 返回统计和跳过原因。
  */
-function pcs_apply(array $plan, $reopen, array $actor)
+function pcs_apply(array $plan, $reopen, array $actor, $source = '订单汇总表')
 {
+    if (($actor['role'] ?? '') !== 'finance') throw new RuntimeException('只有财务可以确认完成状态');
     $pdo = db();
     $res = ['finished' => 0, 'unfinished' => 0, 'reopened' => 0, 'skipped' => []];
     foreach ($plan['mark_finished'] as $o) {
         if (!ps_is_website_order($o['project_type'] ?? '')) { $res['skipped'][] = $o['order_no'] . '：非网站业务，已跳过'; continue; }
         $pdo->beginTransaction();
         try {
-            $r = $pdo->prepare("UPDATE project_orders SET delivery_status='finished',row_version=row_version+1 WHERE id=? AND settlement_status NOT IN ('approved','locked')");
+            $r = $pdo->prepare("UPDATE project_orders SET delivery_status='finished',row_version=row_version+1 WHERE id=? AND project_type IN ('网站模板','AI网站定制','网站定制') AND settlement_status NOT IN ('approved','locked')");
             $r->execute([(int)$o['id']]);
             if ($r->rowCount()) {
-                $pdo->prepare("UPDATE project_order_requests SET status='approved', reviewer_id=?, reviewed_at=NOW(), review_note='按订单汇总表标记完成' WHERE order_id=? AND request_type='delivery_completion' AND status='pending'")->execute([$actor['id'], (int)$o['id']]);
-                ps_audit('order', (int)$o['id'], 'sync_completion', $actor, ['to' => 'finished', 'source' => '订单汇总表']);
+                $pdo->prepare("UPDATE project_order_requests SET status='approved', reviewer_id=?, reviewed_at=NOW(), review_note=? WHERE order_id=? AND request_type='delivery_completion' AND status='pending'")->execute([$actor['id'], $source . '标记完成', (int)$o['id']]);
+                ps_audit('order', (int)$o['id'], 'sync_completion', $actor, ['to' => 'finished', 'source' => $source]);
                 $res['finished']++;
             }
             $pdo->commit();
