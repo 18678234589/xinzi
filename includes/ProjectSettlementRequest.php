@@ -1,11 +1,13 @@
 <?php
 /**
- * 合作人员“申请结算”：本人在首页报酬表里选某月已审核的订单提交申请 → 财务打款后点“已结算” → 这些订单（按人 + 订单 + 月份）在库里标注已结算，
+ * 合作人员“申请结算”：首页一键按整月实结算提交；兼容原逐单提成申请，整月金额自动扣除旧申请，防止重复支付。
+ * 财务打款后点“已结算” → 这些结算项（按人 + 项目 + 月份）在库里标注已结算，
  * 不能再次申请，并出现在本人的“已结算订单”里。申请时金额由服务器按已审核分成快照 / 售后调整重算，不信任页面传来的数字。
  * 驳回会释放订单，可重新申请；已结算的不能撤销。
  */
 require_once __DIR__ . '/ProjectSettlement.php';
 require_once __DIR__ . '/ProjectPayrollFlags.php';
+require_once __DIR__ . '/ProjectPayrollRequest.php';
 
 function psr_ensure()
 {
@@ -94,7 +96,7 @@ function psr_orders($employeeId, $month)
         $amount = (float)$r['amount'];
         if (abs($amount) < 0.005) continue;
         // 固定服务费、全勤奖、补助类在工资表单列，其余（阶梯/部门提成/超额奖/尾差等）全属“项目分成”
-        if (in_array($r['rule_type'], ['base_fee', 'perf_rank', 'attendance_bonus', 'fixed', 'overtime_pay', 'manual'], true)) continue;
+        if (in_array($r['rule_type'], ['base_fee', 'perf_rank', 'attendance_bonus', 'fixed', 'overtime_pay', 'manual', 'extra_share'], true)) continue; // extra_share 是手工提成项，下面单独列，避免重复计
         if ($r['rule_type'] === 'sales_package' && strpos((string)$r['rule_name'], '底薪') !== false) continue;
 
         $vid = (int)($r['rule_id'] > 0 ? (900000000 + (int)$r['rule_id']) : (910000000 + (abs(crc32($r['rule_type'] . ':' . $r['rule_name'])) % 1000000)));
@@ -118,8 +120,7 @@ function psr_orders($employeeId, $month)
     foreach ($extras as $item) {
         $amount = (float)$item['amount'];
         $label = (string)$item['label'];
-        if ($amount <= 0 || strpos($label, '补单') !== false || strpos($label, '全勤') !== false) continue;
-        if (!preg_match('/分成|提成|游学/u', $label)) continue;
+        if (abs($amount) < 0.005 || ps_manual_item_slot($label, $amount) !== 'share') continue; // 负数的提成项也要进来，否则扣减不生效
         $vid = 950000000 + (int)($item['id'] > 0 ? $item['id'] : (abs(crc32($label)) % 1000000));
         $rows[] = [
             'order_id' => $vid,
@@ -135,6 +136,13 @@ function psr_orders($employeeId, $month)
         ];
     }
 
+    $full = db()->prepare("SELECT r.id,r.status,r.settled_at FROM project_settlement_requests r JOIN project_settlement_request_items i ON i.request_id=r.id WHERE r.employee_id=? AND r.payroll_month=? AND i.order_id=? AND r.status<>'rejected'");
+    $full->execute([$employeeId, $month, PSPR_NET_ITEM]);
+    if ($claim = $full->fetch()) foreach ($rows as &$row) {
+        if ($row['state'] !== 'available') continue;
+        $row['state'] = $claim['status']; $row['request_id'] = (int)$claim['id']; $row['settled_at'] = $claim['settled_at'];
+    }
+    unset($row);
     usort($rows, function ($a, $b) { return [$a['order_date'], $a['order_id']] <=> [$b['order_date'], $b['order_id']]; });
     return $rows;
 }
@@ -160,9 +168,13 @@ function psr_submit($actor, $month, array $orderIds, $targetEmployeeId = 0)
     if (!$orderIds) throw new RuntimeException('请先选择要结算的订单');
     psr_ensure();
     $pdo = db();
-    $pdo->beginTransaction();
+    $ownTransaction = !$pdo->inTransaction();
+    if ($ownTransaction) $pdo->beginTransaction();
     try {
         $pdo->prepare('SELECT id FROM employees WHERE id=? FOR UPDATE')->execute([$employeeId]); // 同一人的申请串行，避免并发重复提交
+        $full = $pdo->prepare("SELECT 1 FROM project_settlement_request_items WHERE employee_id=? AND payroll_month=? AND order_id=?");
+        $full->execute([$employeeId, $month, PSPR_NET_ITEM]);
+        if ($full->fetchColumn()) throw new RuntimeException('本月已申请整月实结算，不能再单独申请提成');
         $avail = [];
         foreach (psr_orders($employeeId, $month) as $r) if ($r['state'] === 'available') $avail[$r['order_id']] = $r;
         // 如果本月存在待扣减的负向分成/尾差项，必须一并提交结算，不可单方剔除
@@ -176,14 +188,17 @@ function psr_submit($actor, $month, array $orderIds, $targetEmployeeId = 0)
             if (!isset($avail[$oid])) throw new RuntimeException('有订单不在本月可申请的范围内，或已申请 / 已结算过，请刷新后重新选择');
             $total += $avail[$oid]['amount'];
         }
+        // 逐单提成结算申请：允许合作人员申报订单分成，后续整月结算时自动扣除已申报提成；只要实结算未发生透支即可
+        $home = psr_home_expected($employeeId, $month);
+        if ($home['expected'] < -0.01) throw new RuntimeException('该月实结算已有超额扣减（余额 ¥' . number_format($home['expected'], 2) . '），请联系财务核对');
         $pdo->prepare("INSERT INTO project_settlement_requests (employee_id,payroll_month,status,amount,order_count,requested_by_user) VALUES (?,?,'pending',?,?,?)")
             ->execute([$employeeId, $month, round($total, 2), count($orderIds), (int)$actor['id']]);
         $rid = (int)$pdo->lastInsertId();
         $ins = $pdo->prepare('INSERT INTO project_settlement_request_items (request_id,employee_id,order_id,payroll_month,amount) VALUES (?,?,?,?,?)');
         foreach ($orderIds as $oid) $ins->execute([$rid, $employeeId, $oid, $month, $avail[$oid]['amount']]);
         ps_audit('settlement_request', $rid, 'submit', $actor, ['month' => $month, 'orders' => count($orderIds), 'amount' => round($total, 2)]);
-        $pdo->commit();
-    } catch (Throwable $e) { if ($pdo->inTransaction()) $pdo->rollBack(); throw $e; }
+        if ($ownTransaction) $pdo->commit();
+    } catch (Throwable $e) { if ($ownTransaction && $pdo->inTransaction()) $pdo->rollBack(); throw $e; }
     psr_notify_finance($rid, $employeeId, $month, round($total, 2), count($orderIds));
     return $rid;
 }
@@ -193,17 +208,22 @@ function psr_settle($requestId, $actor, $note = '')
 {
     psr_ensure();
     $pdo = db();
-    $pdo->beginTransaction();
+    $pre = $pdo->prepare('SELECT * FROM project_settlement_requests WHERE id=?'); $pre->execute([(int)$requestId]);
+    if ($preRow = $pre->fetch()) psr_check($preRow); // 依赖表在事务前初始化。
+    $ownTransaction = !$pdo->inTransaction();
+    if ($ownTransaction) $pdo->beginTransaction();
     try {
         $q = $pdo->prepare('SELECT * FROM project_settlement_requests WHERE id=? FOR UPDATE'); $q->execute([(int)$requestId]); $r = $q->fetch();
         if (!$r || $r['status'] !== 'pending') throw new RuntimeException('这条申请已处理或不存在，请刷新');
+        $check = psr_check($r);
+        if (!$check['ok']) throw new RuntimeException('有异议，未结算：' . implode('；', $check['issues']));
         $by = function_exists('ps_finance_username') ? (string)ps_finance_username($actor) : (string)($actor['username'] ?? '');
         $pdo->prepare("UPDATE project_settlement_requests SET status='settled',settled_at=NOW(),handled_by=?,note=? WHERE id=?")->execute([mb_substr($by, 0, 60), mb_substr(trim($note), 0, 200), (int)$requestId]);
         $pdo->prepare('UPDATE project_settlement_request_items SET settled_at=NOW() WHERE request_id=?')->execute([(int)$requestId]);
         ps_audit('settlement_request', (int)$requestId, 'settled', $actor, ['employee_id' => (int)$r['employee_id'], 'month' => $r['payroll_month'], 'amount' => $r['amount']]);
-        $pdo->commit();
-    } catch (Throwable $e) { if ($pdo->inTransaction()) $pdo->rollBack(); throw $e; }
-    psr_notify_employee($r, '你 ' . $r['payroll_month'] . ' 的结算申请已打款', '财务已打款并确认结算：共 ' . (int)$r['order_count'] . ' 张订单，¥' . number_format((float)$r['amount'], 2) . '。这些订单已标注“已结算”，可在首页“已结算订单”里查看。', 'settled');
+        if ($ownTransaction) $pdo->commit();
+    } catch (Throwable $e) { if ($ownTransaction && $pdo->inTransaction()) $pdo->rollBack(); throw $e; }
+    psr_notify_employee($r, '你 ' . $r['payroll_month'] . ' 的结算申请已打款', '财务已打款并确认结算：共 ' . (int)$r['order_count'] . ' 项，¥' . number_format((float)$r['amount'], 2) . '。可在首页查看结算状态。', 'settled');
 }
 
 /** 财务驳回（写明原因）：订单释放，本人可修改后重新申请。 */
@@ -213,7 +233,8 @@ function psr_reject($requestId, $actor, $reason)
     if (mb_strlen($reason) < 2) throw new RuntimeException('驳回请写明原因');
     psr_ensure();
     $pdo = db();
-    $pdo->beginTransaction();
+    $ownTransaction = !$pdo->inTransaction();
+    if ($ownTransaction) $pdo->beginTransaction();
     try {
         $q = $pdo->prepare('SELECT * FROM project_settlement_requests WHERE id=? FOR UPDATE'); $q->execute([(int)$requestId]); $r = $q->fetch();
         if (!$r || $r['status'] !== 'pending') throw new RuntimeException('这条申请已处理或不存在，请刷新');
@@ -221,8 +242,8 @@ function psr_reject($requestId, $actor, $reason)
         $pdo->prepare("UPDATE project_settlement_requests SET status='rejected',handled_by=?,note=? WHERE id=?")->execute([mb_substr($by, 0, 60), mb_substr($reason, 0, 200), (int)$requestId]);
         $pdo->prepare('DELETE FROM project_settlement_request_items WHERE request_id=? AND settled_at IS NULL')->execute([(int)$requestId]);
         ps_audit('settlement_request', (int)$requestId, 'rejected', $actor, ['reason' => $reason]);
-        $pdo->commit();
-    } catch (Throwable $e) { if ($pdo->inTransaction()) $pdo->rollBack(); throw $e; }
+        if ($ownTransaction) $pdo->commit();
+    } catch (Throwable $e) { if ($ownTransaction && $pdo->inTransaction()) $pdo->rollBack(); throw $e; }
     psr_notify_employee($r, '你 ' . $r['payroll_month'] . ' 的结算申请被退回', '原因：' . $reason . '。订单已释放，可修改后重新申请。', 'rejected');
 }
 
@@ -287,9 +308,24 @@ function psr_notify_correction($employeeId, $month, $count, $reason)
  * 财务看一条待打款申请有没有异议：申请后订单金额又变了 / 订单上有待处理的更正。没有则可以放心打款并导出。
  * 返回 ['ok' => bool, 'issues' => [说明…], 'has_card' => bool]；缺银行卡号不算异议，但导出时会标出来。
  */
+/**
+ * 首页“项目报酬表”里这个人这个月的实结算，扣掉其他申请（待打款 / 已结算，不含 $exceptRequestId 自己）后应有的金额。
+ * 申请金额必须等于它，财务页里看到的就是首页显示的应结算，不会出现“申请 ¥20，首页是 ¥2,685”。
+ */
+function psr_home_expected($employeeId, $month, $exceptRequestId = 0)
+{
+    require_once __DIR__ . '/ProjectPayrollSheet.php';
+    $net = round((float)(pps_sheet($month, (int)$employeeId)['rows'][0]['net'] ?? 0), 2);
+    $q = db()->prepare("SELECT COALESCE(SUM(amount),0) FROM project_settlement_requests WHERE employee_id=? AND payroll_month=? AND status<>'rejected' AND id<>?");
+    $q->execute([(int)$employeeId, $month, (int)$exceptRequestId]);
+    $others = round((float)$q->fetchColumn(), 2);
+    return ['net' => $net, 'others' => $others, 'expected' => round($net - $others, 2)];
+}
+
 function psr_check(array $req)
 {
     psr_ensure();
+    require_once __DIR__ . '/commission_explain.php'; ps_corr_ensure();
     $issues = [];
     $items = db()->prepare('SELECT order_id,amount FROM project_settlement_request_items WHERE request_id=?');
     $items->execute([(int)$req['id']]);
@@ -306,10 +342,36 @@ function psr_check(array $req)
     }
     $changed = 0;
     foreach ($itemRows as $it) {
+        if ((int)$it['order_id'] === PSPR_NET_ITEM) {
+            $month = pspr_month((int)$req['employee_id'], $req['payroll_month']);
+            $now[PSPR_NET_ITEM] = ['amount' => $month['amount']];
+            if ($month['pending_n'] > 0) $issues[] = '本月仍含待审核预计分成';
+            if (!ppf_is_green((int)$req['employee_id'], $req['payroll_month'])) $issues[] = '财务核对状态已改变，请重新核对整月实结算';
+            $c = db()->prepare("SELECT COUNT(*) FROM project_commission_corrections c JOIN project_orders o ON o.id=c.order_id WHERE c.target_employee_id=? AND c.status='pending' AND DATE_FORMAT(o.order_date,'%Y-%m')=?");
+            $c->execute([(int)$req['employee_id'], $req['payroll_month']]);
+            if ((int)$c->fetchColumn()) $issues[] = '本月有待处理的分成更正申请';
+        }
         $cur = $now[(int)$it['order_id']] ?? null;
         if (!$cur || abs((float)$cur['amount'] - (float)$it['amount']) > 0.004) $changed++;
     }
-    if ($changed) $issues[] = $changed . ' 张订单的分成在申请后有变动，请退回让本人重新申请';
+    if ($changed) $issues[] = $changed . ' 项结算金额在申请后有变动，请退回让本人重新申请';
+    $hasFullNet = false;
+    foreach ($itemRows as $it) {
+        if (defined('PSPR_NET_ITEM') && (int)$it['order_id'] === PSPR_NET_ITEM) {
+            $hasFullNet = true;
+            break;
+        }
+    }
+    $home = psr_home_expected((int)$req['employee_id'], $req['payroll_month'], (int)$req['id']);
+    if ($hasFullNet) {
+        if (abs($home['expected'] - (float)$req['amount']) > 0.01) {
+            $issues[] = '申请金额 ¥' . number_format((float)$req['amount'], 2) . ' 与首页应结算不一致（首页实结算 ¥' . number_format($home['net'], 2) . ($home['others'] != 0 ? '，扣除其他申请 ¥' . number_format($home['others'], 2) : '') . ' → 应为 ¥' . number_format($home['expected'], 2) . '），请退回让本人按“整月结算”重新申请';
+        }
+    } else {
+        if ($home['expected'] < -0.01) {
+            $issues[] = '该月实结算已有超额扣减（余额 ¥' . number_format($home['expected'], 2) . '），请联系财务核对';
+        }
+    }
     try {
         require_once __DIR__ . '/commission_explain.php'; ps_corr_ensure();
         $c = db()->prepare("SELECT COUNT(DISTINCT c.order_id) FROM project_commission_corrections c JOIN project_settlement_request_items i ON i.order_id=c.order_id AND i.employee_id=c.target_employee_id WHERE i.request_id=? AND c.status='pending'");
@@ -383,6 +445,13 @@ function psr_request_orders($requestId)
     $cachedOrders = [];
     foreach ($rows as &$row) {
         $oid = (int)$row['order_id'];
+        if ($oid === PSPR_NET_ITEM) {
+            $row['order_no'] = '整月实结算（已扣除其他申请）';
+            $row['project_type'] = '固定工资、全勤、提成及补助，减车位费等全部扣减';
+            $row['order_date'] = $row['payroll_month'] . '-01';
+            $row['is_monthly'] = true;
+            continue;
+        }
         if ($oid >= 900000000) {
             $eid = (int)$row['employee_id'];
             $m = (string)$row['payroll_month'];
@@ -419,7 +488,7 @@ function psr_notify_finance($rid, $employeeId, $month, $amount, $count)
         $q = db()->prepare('SELECT id FROM employees WHERE name IN (' . implode(',', array_fill(0, count($names), '?')) . ')');
         $q->execute($names);
         $ins = db()->prepare('INSERT IGNORE INTO project_messages (employee_id,category,title,body,link,dedupe_key) VALUES (?,?,?,?,?,?)');
-        foreach ($q->fetchAll(PDO::FETCH_COLUMN) as $eid) $ins->execute([(int)$eid, 'settlement', $name . ' 申请结算 ' . $month, $name . ' 申请结算 ' . $month . '：' . $count . ' 张订单，合计 ¥' . number_format($amount, 2) . '。打款后请在“结算申请”里点“已结算”。', '/project/settlement_requests.php', 'settle-req:' . $rid . ':' . (int)$eid]);
+        foreach ($q->fetchAll(PDO::FETCH_COLUMN) as $eid) $ins->execute([(int)$eid, 'settlement', $name . ' 申请结算 ' . $month, $name . ' 申请结算 ' . $month . '：' . $count . ' 项，合计 ¥' . number_format($amount, 2) . '。打款后请在“结算申请”里点“已结算”。', '/project/settlement_requests.php', 'settle-req:' . $rid . ':' . (int)$eid]);
     } catch (Throwable $e) { /* 站内信失败不影响申请 */ }
 }
 
@@ -431,59 +500,20 @@ function psr_notify_employee(array $r, $title, $body, $kind)
     } catch (Throwable $e) {}
 }
 
-/** 往月（当月以前，最近 12 个月）里本人仍可申请结算的订单：['n'=>订单数, 'amount'=>合计, 'months'=>[月份 => [订单 id…]]]。 */
+/** 往月可申请的整月实结算；金额已减去旧提成申请。 */
 function psr_available_past($employeeId)
 {
-    $employeeId = (int)$employeeId;
-    $out = ['n' => 0, 'amount' => 0.0, 'months' => []];
-    if ($employeeId <= 0) return $out;
-
-    $pastMonths = [];
-    for ($i = 1; $i <= 12; $i++) {
-        $pastMonths[] = date('Y-m', strtotime("first day of -$i month"));
-    }
-    $inList = "'" . implode("','", $pastMonths) . "'";
-
-    // 仅针对该员工在往月里有订单/分成/手工项/参与记录的月份进行检查，避免对无业务月份反复重算整月预期结算
-    $activeMonths = [];
-    try {
-        $q = db()->query("
-            SELECT DISTINCT payroll_month FROM project_commission_snapshots WHERE employee_id={$employeeId} AND payroll_month IN ({$inList})
-            UNION SELECT DISTINCT payroll_month FROM project_commission_adjustments WHERE employee_id={$employeeId} AND payroll_month IN ({$inList})
-            UNION SELECT DISTINCT DATE_FORMAT(o.order_date, '%Y-%m') FROM project_orders o JOIN project_participants p ON p.order_id=o.id WHERE p.employee_id={$employeeId} AND DATE_FORMAT(o.order_date, '%Y-%m') IN ({$inList})
-        ");
-        if ($q) $activeMonths = $q->fetchAll(PDO::FETCH_COLUMN);
-        $q2 = db()->query("SHOW TABLES LIKE 'project_payroll_manual_items'");
-        if ($q2 && $q2->fetchColumn()) {
-            $q3 = db()->query("SELECT DISTINCT payroll_month FROM project_payroll_manual_items WHERE employee_id={$employeeId} AND payroll_month IN ({$inList})");
-            if ($q3) $activeMonths = array_merge($activeMonths, $q3->fetchAll(PDO::FETCH_COLUMN));
-        }
-    } catch (Throwable $e) {
-        $activeMonths = $pastMonths; // 出错时安全回退遍历
-    }
-    $activeMonths = array_unique($activeMonths);
-    if (!$activeMonths) return $out;
-
-    foreach ($pastMonths as $m) {
-        if (!in_array($m, $activeMonths, true)) continue;
-        foreach (psr_orders($employeeId, $m) as $r) {
-            if ($r['state'] !== 'available') continue;
-            $out['months'][$m][] = (int)$r['order_id']; $out['n']++; $out['amount'] += (float)$r['amount'];
-        }
-    }
-    $out['amount'] = round($out['amount'], 2);
-    return $out;
+    return pspr_past($employeeId);
 }
 
-/** 一键申请：往月里所有可申请的订单，按月各提交一份申请；财务还没核对确认的月份跳过并说明原因。 */
 function psr_submit_all($actor)
 {
     $eid = (int)($actor['employee_id'] ?? 0);
     if ($eid <= 0 || ($actor['type'] ?? '') !== 'employee') throw new RuntimeException('只有合作人员本人可以申请结算');
     $done = []; $skipped = [];
-    foreach (psr_available_past($eid)['months'] as $m => $ids) {
-        try { psr_submit($actor, $m, $ids); $done[] = [$m, count($ids)]; }
-        catch (RuntimeException $e) { $skipped[] = [$m, $e->getMessage()]; }
+    foreach (pspr_past($eid)['months'] as $month => $amount) {
+        try { $r = pspr_submit($actor, $month); $done[] = [$month, $r['amount']]; }
+        catch (RuntimeException $e) { $skipped[] = [$month, $e->getMessage()]; }
     }
     return ['done' => $done, 'skipped' => $skipped];
 }
