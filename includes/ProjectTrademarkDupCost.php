@@ -185,11 +185,10 @@ function ptd_save_details($orderId, array $details)
 function ptd_decide($groupKey, $decision, $actor)
 {
     if (!in_array($decision, ['same', 'separate'], true)) throw new RuntimeException('操作无效');
+    if (!ptd_can_review($actor)) throw new RuntimeException('仅管理员、财务或商标主管可以核对商标成本');
     $group = null;
     foreach (ptd_all(true) as $g) if (hash_equals($g['key'], (string)$groupKey)) { $group = $g; break; }
     if (!$group) throw new RuntimeException('这组订单已被处理或已变化，请刷新页面');
-    // 含已审核订单的合并只有财务能做（已审核订单的分成快照不会自动变，见下方说明）。
-    if ($decision === 'same' && $group['blocked'] && ($actor['role'] ?? '') !== 'finance') throw new RuntimeException('其中有已审核 / 锁定结算的订单，只有财务可以合并');
     $ids = array_map('intval', array_column($group['orders'], 'id'));
     $pdo = db();
     $own = !$pdo->inTransaction(); // 调用方已开事务时由调用方负责提交 / 回滚
@@ -216,11 +215,12 @@ function ptd_decide($groupKey, $decision, $actor)
             if ($q->fetchColumn()) throw new RuntimeException('其中有已锁定结算的订单，重复成本不能自动作废，请先通过“分成更正申请”处理');
             $q = $pdo->query("SELECT id FROM project_orders WHERE id IN (" . implode(',', array_map('intval', $siblings)) . ") AND settlement_status='approved'");
             $approved = array_map('intval', $q->fetchAll(PDO::FETCH_COLUMN));
-            ptc_sync_order_cost($carrier, $actor, '财务确认同一商标'); // 承担订单已审核时这里不动，由下面逐个处理其余订单
+            ptc_sync_order_cost($carrier, $actor, '确认同一商标'); // 承担订单已审核时这里不动，由下面逐个处理其余订单
+            $reviewerRole = (($actor['role'] ?? '') === 'finance') ? '财务' : '商标主管';
             foreach ($siblings as $sid) {
                 if (in_array($sid, $approved, true)) {
                     // 已审核订单：自动成本行直接作废（保留记录）；它的分成快照不会自动变，需要的话再走“分成更正申请”。
-                    $pdo->prepare("UPDATE project_costs SET review_status='rejected',review_note=? WHERE order_id=? AND unit='件' AND review_status<>'rejected'")->execute(['同一商标的官费已由订单 #' . $carrier . ' 承担，本单不重复计入（财务确认）', $sid]);
+                    $pdo->prepare("UPDATE project_costs SET review_status='rejected',review_note=? WHERE order_id=? AND unit='件' AND review_status<>'rejected'")->execute(['同一商标的官费已由订单 #' . $carrier . ' 承担，本单不重复计入（' . $reviewerRole . '确认）', $sid]);
                     ps_audit('order', $sid, 'trademark_cost_merged_after_approval', $actor, ['carrier' => $carrier]);
                 } else ptc_reconcile_order_cost($sid, $actor, '同商标成本合并');
                 if (ptc_order_has_costs($sid)) throw new RuntimeException('订单 #' . $sid . ' 含人工录入或待核对的成本，不能自动作废，请先在该订单里核对成本');
