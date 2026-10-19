@@ -6,6 +6,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') { // 保存合作人员结算资料�
     header('Content-Type: application/json; charset=UTF-8');
     require_once __DIR__ . '/includes/ProjectPartnerProfile.php';
     $actor = ps_actor();
+    if ($actor && ($_POST['action'] ?? '') === 'request_payroll') {
+        if (!hash_equals(ps_csrf_token(), (string)($_POST['csrf'] ?? ''))) { http_response_code(403); echo json_encode(['ok'=>false,'message'=>'页面已过期，请刷新后重试'],JSON_UNESCAPED_UNICODE); exit; }
+        try {
+            require_once __DIR__ . '/includes/ProjectSettlementRequest.php';
+            $r = pspr_submit($actor, (string)($_POST['month'] ?? ''));
+            echo json_encode(['ok'=>true] + $r + ['message'=>'整月实结算申请已提交，等待财务打款'],JSON_UNESCAPED_UNICODE);
+        } catch (RuntimeException $e) { echo json_encode(['ok'=>false,'message'=>$e->getMessage()],JSON_UNESCAPED_UNICODE); }
+        catch (Throwable $e) { http_response_code(500); echo json_encode(['ok'=>false,'message'=>'提交失败，请稍后重试'],JSON_UNESCAPED_UNICODE); }
+        exit;
+    }
     if ($actor && ($_POST['action'] ?? '') === 'request_settle_all') { // 一键申请往月全部可结算订单
         if (!hash_equals(ps_csrf_token(), (string)($_POST['csrf'] ?? ''))) { http_response_code(403); echo json_encode(['ok' => false, 'message' => '页面已过期，请刷新后重试'], JSON_UNESCAPED_UNICODE); exit; }
         try {
@@ -64,17 +74,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') { // 保存合作人员结算资料�
     if (!hash_equals(ps_csrf_token(), (string)($_POST['csrf'] ?? ''))) { http_response_code(403); echo json_encode(['ok' => false, 'message' => '页面已过期，请刷新后重试'], JSON_UNESCAPED_UNICODE); exit; }
     try {
         $act = (string)($_POST['action'] ?? 'save_profile');
-        if (in_array($act, ['add_item', 'delete_item'], true)) { // 财务给某人本月加 / 扣一项（如兼职业务分成）：与结算页“手工项”同一套，锁月后不可改
+        if (in_array($act, ['add_item', 'delete_item', 'save_parking', 'save_director'], true)) { // 月度扣款、补助核定及每月车位费；锁月后不可改
             require_once __DIR__ . '/includes/ProjectPayrollExtras.php';
             $month = (string)($_POST['month'] ?? '');
             if (!preg_match('/^\d{4}-(0[1-9]|1[0-2])$/', $month)) throw new RuntimeException('月份无效');
             ps_payroll_extras_ensure();
+            if ($act === 'save_director') ppf_ensure();
             db()->beginTransaction();
             try {
                 db()->prepare('INSERT INTO project_payroll_periods (period) VALUES (?) ON DUPLICATE KEY UPDATE period=period')->execute([$month]);
                 $lock = db()->prepare('SELECT status FROM project_payroll_periods WHERE period=? FOR UPDATE'); $lock->execute([$month]);
                 if ($lock->fetchColumn() === 'locked') throw new RuntimeException('该月项目分成已锁定');
-                ps_payroll_extras_action($act === 'add_item' ? 'add_manual_item' : 'delete_manual_item', $month, (int)($_POST['employee_id'] ?? 0), $_POST, $actor);
+                if ($act === 'save_parking') ps_parking_save((int)($_POST['employee_id'] ?? 0), $month, $_POST['amount'] ?? '', $actor);
+                elseif ($act === 'save_director') ps_director_save((int)($_POST['employee_id'] ?? 0), $month, $_POST['amount'] ?? '', $_POST['note'] ?? '', $actor);
+                else ps_payroll_extras_action($act === 'add_item' ? 'add_manual_item' : 'delete_manual_item', $month, (int)($_POST['employee_id'] ?? 0), $_POST, $actor);
                 db()->commit();
             } catch (Throwable $e) { if (db()->inTransaction()) db()->rollBack(); throw $e; }
         } else ppp_save((int)($_POST['employee_id'] ?? 0), $_POST, $actor);
@@ -96,6 +109,13 @@ if (isset($_GET['flag_info'])) { // 核对弹窗：系统实结算、对照金�
     $fl = ppf_all($m)[$eid] ?? null;
     echo json_encode(['ok' => true, 'net' => $row['net'] ?? 0, 'ref' => $fl && $fl['ref_net'] !== null ? (float)$fl['ref_net'] : null, 'color' => $fl['color'] ?? null, 'reason' => $fl['reason'] ?? '',
         'reasons' => ppf_reasons($eid, $m, $row, $fl['ref_net'] ?? null)], JSON_UNESCAPED_UNICODE); exit;
+}
+if (isset($_GET['pending_count'])) {
+    header('Content-Type: application/json; charset=UTF-8');
+    require_once __DIR__ . '/includes/ProjectSettlementRequest.php';
+    $a = ps_actor();
+    if (!$a || !ppp_can($a)) { http_response_code(403); echo json_encode(['ok' => false]); exit; }
+    echo json_encode(['ok' => true, 'count' => psr_pending_count()]); exit;
 }
 if (isset($_GET['settle_orders'])) { // 申请结算弹窗：本人某月的订单列表
     header('Content-Type: application/json; charset=UTF-8');

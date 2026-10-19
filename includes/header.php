@@ -110,13 +110,18 @@ $nav = function ($href, $icon, $label, $active) {
     @keyframes phone-bind-glow{50%{box-shadow:0 0 0 7px #f3bd55,0 0 22px #e7a62a}}
     @media(max-width:575px){.phone-bind-reminder{align-items:flex-start;flex-direction:column}}
     @media(prefers-reduced-motion:reduce){.phone-bind-reminder{animation:none}}
+    body.is-embedded .app-topbar,
+    body.is-embedded .sidebar,
+    body.is-embedded .sidebar-backdrop { display: none !important; }
+    body.is-embedded .main-content { margin-left: 0 !important; padding: 12px 16px 24px !important; max-width: 100% !important; }
+    body.is-embedded { background: #f8fafc; }
     </style>
     <?php if (in_array(($_rel ?? ''), ['project/governance.php','project/governance_ideas.php','project/governance_election.php','project/contributions.php','project/messages.php','project/holidays.php'], true) || (($_rel ?? '') === 'project/rules.php' && ($_GET['domain'] ?? $_POST['domain'] ?? '') === 'governance')): ?><link href="<?php echo BASE_URL; ?>/assets/css/governance.css" rel="stylesheet"><?php endif; ?>
     <?php if (($_rel ?? '') === 'project/dashboard.php'): ?><link href="<?php echo BASE_URL; ?>/assets/css/partner-dashboard.css" rel="stylesheet"><?php endif; ?>
     <?php if (($_rel ?? '') === 'project/dashboard.php'): ?><link href="<?php echo BASE_URL; ?>/assets/css/partner-dashboard-future.css" rel="stylesheet"><?php endif; ?>
     <?php if (($_rel ?? '') === 'project/welfare.php' || (($_rel ?? '') === 'project/rules.php' && ($_GET['domain'] ?? '') === 'welfare')): ?><link href="<?php echo BASE_URL; ?>/assets/css/welfare.css" rel="stylesheet"><?php endif; ?>
 </head>
-<body class="app-warm<?php echo ($_rel ?? '') === 'project/dashboard.php' ? ' pd-shell' : ''; ?>">
+<body class="app-warm<?php echo ($_rel ?? '') === 'project/dashboard.php' ? ' pd-shell' : ''; ?><?php echo !empty($_GET['embed']) ? ' is-embedded' : ''; ?>">
 <nav class="navbar navbar-expand-lg navbar-light fixed-top app-topbar">
     <button class="app-menu-btn d-lg-none" type="button" id="sidebarToggle" aria-label="打开菜单"><i class="fas fa-bars"></i></button>
     <a class="navbar-brand" href="<?php echo BASE_URL; ?><?php echo ($project_staff['role'] ?? '') === 'governance' ? '/project/governance_ideas.php' : (($project_staff['role'] ?? '') === 'vault' ? '/project/vault.php' : ($project_staff ? '/project/index.php' : '/index.php')); ?>"><span class="app-brand-mark"><i class="fas fa-seedling"></i></span> 项目合作结算中心</a>

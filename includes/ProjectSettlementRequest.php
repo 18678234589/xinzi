@@ -291,12 +291,21 @@ function psr_check(array $req)
 {
     psr_ensure();
     $issues = [];
-    $now = [];
-    foreach (psr_orders((int)$req['employee_id'], $req['payroll_month']) as $o) $now[$o['order_id']] = $o;
     $items = db()->prepare('SELECT order_id,amount FROM project_settlement_request_items WHERE request_id=?');
     $items->execute([(int)$req['id']]);
+    $itemRows = $items->fetchAll();
+    $lookupItems = array_filter($itemRows, function ($it) { return !defined('PSPR_NET_ITEM') || (int)$it['order_id'] !== PSPR_NET_ITEM; });
+    $now = [];
+    if (array_filter($lookupItems, function ($it) { return (int)$it['order_id'] >= 900000000; })) {
+        foreach (psr_orders((int)$req['employee_id'], $req['payroll_month']) as $o) $now[$o['order_id']] = $o;
+    } elseif ($lookupItems) {
+        // 普通订单只需核对分成金额，不必加载客户资料或重算整月工资。
+        $amounts = db()->prepare('SELECT order_id,ROUND(SUM(amount),2) amount FROM (SELECT order_id,commission_amount amount FROM project_commission_snapshots WHERE employee_id=? AND payroll_month=? UNION ALL SELECT order_id,amount FROM project_commission_adjustments WHERE employee_id=? AND payroll_month=?) current_amounts GROUP BY order_id');
+        $amounts->execute([(int)$req['employee_id'], $req['payroll_month'], (int)$req['employee_id'], $req['payroll_month']]);
+        foreach ($amounts->fetchAll() as $o) $now[$o['order_id']] = $o;
+    }
     $changed = 0;
-    foreach ($items->fetchAll() as $it) {
+    foreach ($itemRows as $it) {
         $cur = $now[(int)$it['order_id']] ?? null;
         if (!$cur || abs((float)$cur['amount'] - (float)$it['amount']) > 0.004) $changed++;
     }
@@ -345,8 +354,6 @@ function psr_settle_many(array $requestIds, $actor, $note = '')
     $ok = 0; $fail = [];
     foreach (array_values(array_unique(array_filter(array_map('intval', $requestIds)))) as $id) {
         try {
-            $q = db()->prepare('SELECT * FROM project_settlement_requests WHERE id=?'); $q->execute([$id]); $r = $q->fetch();
-            if ($r && $r['status'] === 'pending') { $chk = psr_check($r); if (!$chk['ok']) throw new RuntimeException('有异议，未处理（' . implode('；', $chk['issues']) . '）'); }
             psr_settle($id, $actor, $note); $ok++;
         } catch (RuntimeException $e) { $fail[] = '#' . $id . '：' . $e->getMessage(); }
     }

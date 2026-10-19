@@ -4,6 +4,7 @@ require_once __DIR__ . '/../includes/ProjectMonthly.php';
 require_once __DIR__ . '/../includes/ProjectPayrollOrderSummary.php';
 require_once __DIR__ . '/../includes/ProjectImportReconciliation.php';
 require_once __DIR__ . '/../includes/ProjectPayrollExtras.php';
+require_once __DIR__ . '/../includes/ProjectSettlementRequest.php';
 $actor = ps_require_actor();
 ps_payroll_extras_ensure(); // 建表是 DDL，须在事务之前
 $month = (string)($_GET['month'] ?? date('Y-m', strtotime('first day of last month')));
@@ -221,10 +222,37 @@ if ($employeeId > 0) {
 $prevEmployee = $nextEmployee = null;
 if ($actor['role'] === 'finance' && $employeeId > 0) foreach ($employees as $i => $emp) if ((int)$emp['id'] === $employeeId) { $prevEmployee = $employees[$i - 1] ?? null; $nextEmployee = $employees[$i + 1] ?? null; }
 $settlementPreview = ps_settlement_preview($legacySalary['net_pay'] ?? null, $total, $reconciliation['deduction'], $reconciliation['pending'] === 0);
+$pendingSettlementCount = 0;
+if ($actor['role'] === 'finance') {
+    try { $pendingSettlementCount = psr_pending_count(); } catch (Throwable $e) { $pendingSettlementCount = 0; }
+}
 $page_title = $actor['role'] === 'finance' ? '项目报酬结算中心' : '我的项目报酬';
 include __DIR__ . '/../includes/header.php';
 ?>
-<div class="d-flex justify-content-between align-items-center mb-3"><h4 class="mb-0"><?php echo e($page_title); ?></h4><div><?php if ($actor['role'] === 'finance'): ?><a class="btn btn-primary btn-sm mr-2" href="<?php echo BASE_URL; ?>/attendance/month.php?year=<?php echo (int)substr($month, 0, 4); ?>&amp;month=<?php echo (int)substr($month, 5, 2); ?>#home-roster">考勤 / 居家名单 · 自动核算全勤</a><?php endif; ?><a class="btn btn-outline-success btn-sm mr-2" href="<?php echo BASE_URL; ?>/project/payroll.php?<?php echo e(http_build_query(['month' => $month, 'employee_id' => $employeeId, 'export' => 'project_csv'])); ?>">导出项目分成 CSV</a><a class="btn btn-outline-secondary btn-sm" href="<?php echo BASE_URL; ?>/project/index.php">返回项目订单</a></div></div>
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h4 class="mb-0"><?php echo e($page_title); ?></h4>
+  <div class="d-flex align-items-center flex-wrap" style="gap:6px">
+    <?php if ($actor['role'] === 'finance'): ?>
+      <button type="button" class="btn <?php echo $pendingSettlementCount > 0 ? 'btn-warning font-weight-bold text-dark' : 'btn-outline-secondary'; ?> btn-sm" id="btnOpenSettlementModal" data-toggle="modal" data-target="#modalSettlementRequests" title="查看合作商提交的结算申请并打款">
+        <i class="fas fa-hand-holding-usd mr-1"></i>（<span id="settlementPendingBadge"><?php echo (int)$pendingSettlementCount; ?></span>笔）待结算
+      </button>
+      <a class="btn btn-primary btn-sm" href="<?php echo BASE_URL; ?>/attendance/month.php?year=<?php echo (int)substr($month, 0, 4); ?>&amp;month=<?php echo (int)substr($month, 5, 2); ?>#home-roster">考勤 / 居家名单 · 自动核算全勤</a>
+    <?php endif; ?>
+    <a class="btn btn-outline-success btn-sm" href="<?php echo BASE_URL; ?>/project/payroll.php?<?php echo e(http_build_query(['month' => $month, 'employee_id' => $employeeId, 'export' => 'project_csv'])); ?>">导出项目分成 CSV</a>
+    <a class="btn btn-outline-secondary btn-sm" href="<?php echo BASE_URL; ?>/project/index.php">返回项目订单</a>
+  </div>
+</div>
+<?php if ($actor['role'] === 'finance' && $pendingSettlementCount > 0): ?>
+<div class="alert alert-warning d-flex justify-content-between align-items-center mb-3" id="alertSettlementPending" style="border-left: 4px solid #f59e0b;">
+  <div>
+    <i class="fas fa-exclamation-circle mr-2 text-warning" style="font-size:1.1rem;"></i>
+    <strong>结算待办：</strong>当前有 <strong class="badge badge-warning font-weight-bold mx-1" id="settlementPendingAlertCount" style="font-size:0.95rem;"><?php echo (int)$pendingSettlementCount; ?></strong> 笔合作商提交的结算申请等待核对打款。
+  </div>
+  <button type="button" class="btn btn-warning btn-sm font-weight-bold text-dark" data-toggle="modal" data-target="#modalSettlementRequests">
+    <i class="fas fa-hand-holding-usd mr-1"></i>立即审核打款
+  </button>
+</div>
+<?php endif; ?>
 <?php if ($periodError): ?><div class="alert alert-danger"><?php echo e($periodError); ?></div><?php endif; ?>
 <?php if (isset($_GET['locked'])): ?><div class="alert alert-success">该月项目分成已锁定。</div><?php endif; ?>
 <?php if (isset($_GET['reconciled'])): ?><div class="alert alert-success">技术旧分成核对记录已保存。</div><?php endif; ?>
@@ -493,6 +521,115 @@ if ($employeeId > 0) {
   }
   [search, dept, sort, nonzero].forEach(function (el) { el.addEventListener(el === search ? 'input' : 'change', apply); });
   apply();
+})();
+</script>
+<?php endif; ?>
+<?php if ($actor['role'] === 'finance'): ?>
+<div class="modal fade" id="modalSettlementRequests" tabindex="-1" role="dialog" aria-labelledby="modalSettlementRequestsTitle" aria-hidden="true">
+  <div class="modal-dialog modal-xl modal-dialog-scrollable" role="document" style="max-width: 95vw; margin: 15px auto;">
+    <div class="modal-content shadow-lg" style="height: calc(100vh - 30px); border-radius: 12px; overflow: hidden; border: 1px solid rgba(0,0,0,0.1);">
+      <div class="modal-header py-2 px-3 bg-light d-flex align-items-center" style="border-bottom: 1px solid #dee2e6;">
+        <h5 class="modal-title font-weight-bold d-flex align-items-center mb-0" id="modalSettlementRequestsTitle" style="font-size: 1.05rem;">
+          <i class="fas fa-hand-holding-usd text-warning mr-2"></i>合作商提交的结算申请
+          <span class="badge badge-warning ml-2 font-weight-bold" id="modalSettlementBadge" style="font-size: 0.8rem;"><?php echo (int)$pendingSettlementCount; ?> 笔待打款</span>
+        </h5>
+        <div class="ml-auto d-flex align-items-center" style="gap: 8px;">
+          <button type="button" class="btn btn-sm btn-outline-secondary" id="btnReloadSettlementIframe" title="刷新内嵌列表">
+            <i class="fas fa-sync-alt"></i> 刷新
+          </button>
+          <a href="<?php echo BASE_URL; ?>/project/settlement_requests.php" target="_blank" class="btn btn-sm btn-outline-primary" title="在新窗口中全屏打开">
+            <i class="fas fa-external-link-alt"></i> 新窗口打开
+          </a>
+          <button type="button" class="close ml-2" data-dismiss="modal" aria-label="关闭" style="font-size: 1.5rem; line-height: 1;">
+            <span aria-hidden="true">&times;</span>
+          </button>
+        </div>
+      </div>
+      <div class="modal-body p-0" style="height: calc(100% - 50px); background: #f8fafc; position: relative;">
+        <div id="settlementIframeLoader" class="d-flex flex-column align-items-center justify-content-center" style="position: absolute; top:0; left:0; width:100%; height:100%; background:rgba(255,255,255,0.88); z-index:10;">
+          <div class="spinner-border text-primary" role="status" style="width: 2.5rem; height: 2.5rem;"></div>
+          <div class="mt-2 text-muted small font-weight-bold">正在加载合作商结算申请…</div>
+        </div>
+        <iframe id="iframeSettlementRequests" data-src="<?php echo BASE_URL; ?>/project/settlement_requests.php?embed=1" style="width: 100%; height: 100%; border: none; display: block;" frameborder="0"></iframe>
+      </div>
+    </div>
+  </div>
+</div>
+<script>
+(function () {
+  var modalEl = document.getElementById('modalSettlementRequests');
+  if (!modalEl) return;
+  var iframe = document.getElementById('iframeSettlementRequests');
+  var loader = document.getElementById('settlementIframeLoader');
+  var btnReload = document.getElementById('btnReloadSettlementIframe');
+  var badge = document.getElementById('settlementPendingBadge');
+  var alertBadge = document.getElementById('settlementPendingAlertCount');
+  var modalBadge = document.getElementById('modalSettlementBadge');
+  var alertBox = document.getElementById('alertSettlementPending');
+  var btnOpen = document.getElementById('btnOpenSettlementModal');
+
+  function updateBadge(cnt) {
+    cnt = parseInt(cnt, 10) || 0;
+    if (badge) badge.textContent = cnt;
+    if (alertBadge) alertBadge.textContent = cnt;
+    if (modalBadge) modalBadge.textContent = cnt + ' 笔待打款';
+    if (btnOpen) {
+      if (cnt > 0) {
+        btnOpen.className = 'btn btn-warning font-weight-bold text-dark btn-sm';
+      } else {
+        btnOpen.className = 'btn btn-outline-secondary btn-sm';
+      }
+    }
+    if (alertBox && cnt === 0) {
+      alertBox.style.display = 'none';
+    }
+  }
+
+  function refreshCount() {
+    fetch('<?php echo BASE_URL; ?>/payroll_sheet.php?pending_count=1', { credentials: 'same-origin' })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        if (data && data.ok) {
+          updateBadge(data.count);
+        }
+      }).catch(function () {});
+  }
+
+  // 模态框打开时按需加载 iframe
+  $('#modalSettlementRequests').on('show.bs.modal', function () {
+    if (!iframe.src || iframe.src === 'about:blank' || iframe.getAttribute('data-loaded') !== '1') {
+      loader.style.display = 'flex';
+      iframe.src = iframe.getAttribute('data-src');
+      iframe.setAttribute('data-loaded', '1');
+    }
+  });
+
+  iframe.addEventListener('load', function () {
+    if (loader) loader.style.display = 'none';
+  });
+
+  if (btnReload) {
+    btnReload.addEventListener('click', function () {
+      if (loader) loader.style.display = 'flex';
+      try {
+        iframe.contentWindow.location.reload();
+      } catch(e) {
+        iframe.src = iframe.getAttribute('data-src');
+      }
+    });
+  }
+
+  // 关闭弹窗时静默同步最新待打款笔数
+  $('#modalSettlementRequests').on('hidden.bs.modal', function () {
+    refreshCount();
+  });
+
+  // 监听 iframe 内部结算打款成功后发来的 postMessage
+  window.addEventListener('message', function (ev) {
+    if (ev && ev.data && ev.data.type === 'settlement_updated') {
+      refreshCount();
+    }
+  });
 })();
 </script>
 <?php endif; ?>
