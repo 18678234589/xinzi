@@ -7,7 +7,7 @@ if (!$ppsActor) return;
 $ppsAll = pps_sees_all($ppsActor);
 $ppsOwn = $ppsAll ? 0 : (int)($ppsActor['employee_id'] ?? 0);
 require_once __DIR__ . '/ProjectSettlementRequest.php';
-$ppsMine = ($ppsActor['type'] ?? '') === 'employee' ? (int)($ppsActor['employee_id'] ?? 0) : 0; // 本人行才有“申请结算”
+$ppsMine = pspr_self_employee($ppsActor); // 财务管理员同样能在本人行提交申请。
 if (!$ppsAll && !$ppsOwn) return;
 $ppsCssFile = dirname(__DIR__) . '/assets/css/payroll_sheet.css';
 $ppsJsFile = dirname(__DIR__) . '/assets/js/payroll_sheet.js';
@@ -16,6 +16,8 @@ if (empty($ppsFragment)) {
     $ppsPm = in_array((string)($_GET['pm'] ?? ''), pps_months(), true) ? (string)$_GET['pm'] : $ppsDefault;
     ?>
 <link rel="stylesheet" href="<?php echo e(BASE_URL . '/assets/css/payroll_sheet.css?v=' . (is_file($ppsCssFile) ? filemtime($ppsCssFile) : 1)); ?>">
+<link rel="stylesheet" href="<?php echo e(BASE_URL . '/assets/css/payroll-request.css?v=' . filemtime(dirname(__DIR__) . '/assets/css/payroll-request.css')); ?>">
+<script src="<?php echo e(BASE_URL . '/assets/js/payroll_request.js?v=' . filemtime(dirname(__DIR__) . '/assets/js/payroll_request.js')); ?>" defer></script>
 <div id="ppsHost" class="mb-3" data-src="<?php echo e(BASE_URL . '/payroll_sheet.php'); ?>" data-month="<?php echo e($ppsPm); ?>">
   <section class="pps-card pps-skel" aria-busy="true"><header class="pps-head"><div class="pps-title"><span class="pps-ico"><i class="fas fa-file-invoice-dollar"></i></span><div><h5><?php echo e($ppsPm); ?> 合作人员项目报酬表</h5><small>正在核算…</small></div></div></header>
     <div class="pps-tiles"><div><i></i></div><div><i></i></div><div><i></i></div><div><i></i></div></div><div class="pps-skel-rows"><i></i><i></i><i></i><i></i><i></i></div></section>
@@ -73,17 +75,10 @@ $ppsHeads = [['days', '到岗天数'], ['base', '固定服务费'], ['share', '�
       </thead>
       <tbody>
 <?php
-$ppsSt = ['available' => 0, 'pending' => 0, 'settled' => 0];
-if ($ppsMine) foreach (psr_orders($ppsMine, $ppsMonth) as $so) $ppsSt[$so['state']]++;
 foreach ($pps['rows'] as $i => $r): ?>
         <tr data-dept="<?php echo e($r['department']); ?>">
 <?php if ($ppsMine): ?>
-          <td class="pps-actcol"><?php if ((int)$r['id'] === $ppsMine):
-            if ($ppsSt['available'] > 0 && !ppf_is_green((int)$r['id'], $ppsMonth)): ?><span class="pps-st is-<?php echo $r['flag']['color'] === 'red' ? 'bad' : 'pending'; ?>" title="<?php echo e($r['flag']['reason']); ?>"><i class="fas fa-hourglass-half"></i> <?php echo $r['flag']['color'] ? ppf_label($r['flag']['color']) : '待财务核对'; ?></span><?php if ($r['flag']['reason'] !== ''): ?><div class="pps-flag-why"><?php echo e($r['flag']['reason']); ?></div><?php endif; ?>
-            <?php elseif ($ppsSt['available'] > 0): ?><button type="button" class="pps-settle" data-month="<?php echo e($ppsMonth); ?>"><i class="fas fa-hand-holding-usd"></i> 申请结算<small><?php echo $ppsSt['available']; ?> 单</small></button>
-            <?php elseif ($ppsSt['pending'] > 0): ?><span class="pps-st is-pending">已申请 · 待打款</span>
-            <?php elseif ($ppsSt['settled'] > 0): ?><span class="pps-st is-done"><i class="fas fa-check-circle"></i> 已结算</span>
-            <?php else: ?><span class="pps-st">本月暂无已审核订单</span><?php endif; endif; ?></td>
+          <td class="pps-actcol"><?php if ((int)$r['id'] === $ppsMine): $payrollRequestEmployee=$ppsMine; $payrollRequestMonth=$ppsMonth; include __DIR__ . '/payroll_request_button.php'; endif; ?></td>
 <?php endif; ?>
 <?php if ($ppsAll): $pf = $r['profile']; ?>
           <td class="pps-dept"><?php echo $pf['supervisor'] !== '' ? e($pf['supervisor']) : '<span class="pps-zero">—</span>'; ?></td>

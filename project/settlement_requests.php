@@ -39,6 +39,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $res = psr_settle_many((array)($_POST['ids'] ?? []), $actor, '批量打款');
             if (!$res['ok'] && $res['fail']) throw new RuntimeException(implode('；', $res['fail']));
             $success = '已批量标注结算 ' . $res['ok'] . ' 条，这些结算项已记为已结算并通知申请人。' . ($res['fail'] ? '另有 ' . count($res['fail']) . ' 条未处理：' . implode('；', $res['fail']) : '');
+        } elseif (($_POST['do'] ?? '') === 'sync_payroll') {
+            $q = db()->prepare("SELECT employee_id,payroll_month FROM project_settlement_requests WHERE id=? AND status='pending'"); $q->execute([$id]); $target=$q->fetch();
+            if (!$target) throw new RuntimeException('申请已处理，请刷新页面');
+            pspr_sync_pending($actor,(int)$target['employee_id'],$target['payroll_month'],$_POST['expected_amount'] ?? null);
+            $success = '已按首页扣减后的实结算同步该月待处理申请，已打款不会重复申请；请核对后再打款。';
         } elseif (($_POST['do'] ?? '') === 'settle') { psr_settle($id, $actor, (string)($_POST['note'] ?? '')); $success = '已标注结算：申请已记为已结算，并已通知申请人。'; }
         elseif (($_POST['do'] ?? '') === 'reject') { psr_reject($id, $actor, (string)($_POST['note'] ?? '')); $success = '已退回，结算项已释放，申请人可重新申请。'; }
         else throw new RuntimeException('操作无效');
@@ -81,7 +86,7 @@ include __DIR__ . '/../includes/header.php';
 ?>
 <div class="container-fluid" style="max-width:<?php echo !empty($_GET['embed']) ? '100%' : '1100px'; ?>">
   <h2 class="h4 my-3"><i class="fas fa-hand-holding-usd mr-2"></i>结算申请</h2>
-  <p class="text-muted small">合作人员从首页“一键申请往月全部”提交整月实结算，包含固定工资、全勤、提成、补助及全部扣减，已申请的提成自动扣除。旧逐单申请继续保留；核对并实际打款后再点“已结算”。申请后金额变化时须退回重申。</p>
+  <p class="text-muted small">待打款金额按首页扣减后的整月实结算计算，扣除该月已打款金额。旧逐单申请或金额变化时，可点击“同步整月实结算”更新，金额有变化需重新核对；未核对通过或仍含待审核金额不可导出、不可确认结算。实际打款后再点“已结算”。</p>
   <div class="btn-group btn-group-sm mb-3"><?php foreach (['pending' => '待打款', 'settled' => '已结算', 'rejected' => '已退回', 'all' => '全部'] as $k => $v): ?><a class="btn btn-outline-secondary<?php echo $status === $k ? ' active' : ''; ?>" href="<?php echo e($pageUrl(['status'=>$k,'page'=>1])); ?>"><?php echo e($v); ?><?php if ($k !== 'all' && !empty($counts[$k])): ?> <span class="badge badge-light"><?php echo (int)$counts[$k]; ?></span><?php endif; ?></a><?php endforeach; ?></div>
   <form method="get" class="form-inline mb-3"><?php if (!empty($_GET['embed'])): ?><input type="hidden" name="embed" value="1"><?php endif; ?><input type="hidden" name="status" value="<?php echo e($status); ?>"><input name="q" class="form-control form-control-sm mr-2" value="<?php echo e($search); ?>" placeholder="姓名 / 部门" aria-label="姓名或部门"><input type="month" name="month" class="form-control form-control-sm mr-2" value="<?php echo e($monthFilter); ?>" aria-label="结算月份"><button class="btn btn-sm btn-outline-primary">筛选</button><span class="small text-muted ml-2">共 <?php echo $totalRows; ?> 条，待打款按申请时间先后排列</span></form>
   <?php if ($success): ?><div class="alert alert-success"><?php echo e($success); ?></div><?php endif; ?>
@@ -113,6 +118,7 @@ include __DIR__ . '/../includes/header.php';
       <?php else: ?><details data-detail-url="?detail_id=<?php echo (int)$r['id']; ?>"><summary class="small text-muted" style="cursor:pointer">展开结算明细（<?php echo (int)$r['order_count']; ?>）</summary><div class="sr-detail-content small text-muted py-2">展开时加载明细</div></details><?php endif; ?>
       <?php if ($r['status'] === 'pending'): ?>
       <form method="post" class="form-inline mt-2"><input type="hidden" name="csrf" value="<?php echo e(ps_csrf_token()); ?>"><input type="hidden" name="id" value="<?php echo (int)$r['id']; ?>">
+        <?php if ($ck && $ck['sync_needed'] && $ck['sync_amount']>0): ?><input type="hidden" name="expected_amount" value="<?php echo e(number_format($ck['sync_amount'],2,'.','')); ?>"><button name="do" value="sync_payroll" class="btn btn-sm btn-outline-primary mr-2" onclick="return confirm('将本月待处理申请合并为扣减后的实结算 ¥<?php echo e(number_format($ck['sync_amount'],2,'.','')); ?>（已扣除已打款）？金额变化时需重新核对，不会确认打款。');">同步整月实结算 ¥<?php echo number_format($ck['sync_amount'],2); ?></button><?php endif; ?>
         <input name="note" class="form-control form-control-sm mr-2" style="min-width:240px" maxlength="200" placeholder="备注（退回时必填原因）">
         <button name="do" value="settle" class="btn btn-sm btn-success mr-2"<?php echo $ck && !$ck['ok'] ? ' disabled' : ''; ?> onclick="return confirm('确认已打款？确认后申请将标注已结算，不能撤销。');"><i class="fas fa-check mr-1"></i>已结算</button>
         <button name="do" value="reject" class="btn btn-sm btn-outline-danger">退回</button></form>

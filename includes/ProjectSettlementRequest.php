@@ -136,8 +136,8 @@ function psr_orders($employeeId, $month)
         ];
     }
 
-    $full = db()->prepare("SELECT r.id,r.status,r.settled_at FROM project_settlement_requests r JOIN project_settlement_request_items i ON i.request_id=r.id WHERE r.employee_id=? AND r.payroll_month=? AND i.order_id=? AND r.status<>'rejected'");
-    $full->execute([$employeeId, $month, PSPR_NET_ITEM]);
+    $full = db()->prepare("SELECT r.id,r.status,r.settled_at FROM project_settlement_requests r JOIN project_settlement_request_items i ON i.request_id=r.id WHERE r.employee_id=? AND r.payroll_month=? AND i.order_id BETWEEN ? AND ? AND r.status<>'rejected'");
+    $full->execute([$employeeId, $month, PSPR_NET_ITEM, PSPR_NET_LAST]);
     if ($claim = $full->fetch()) foreach ($rows as &$row) {
         if ($row['state'] !== 'available') continue;
         $row['state'] = $claim['status']; $row['request_id'] = (int)$claim['id']; $row['settled_at'] = $claim['settled_at'];
@@ -172,8 +172,8 @@ function psr_submit($actor, $month, array $orderIds, $targetEmployeeId = 0)
     if ($ownTransaction) $pdo->beginTransaction();
     try {
         $pdo->prepare('SELECT id FROM employees WHERE id=? FOR UPDATE')->execute([$employeeId]); // 同一人的申请串行，避免并发重复提交
-        $full = $pdo->prepare("SELECT 1 FROM project_settlement_request_items WHERE employee_id=? AND payroll_month=? AND order_id=?");
-        $full->execute([$employeeId, $month, PSPR_NET_ITEM]);
+        $full = $pdo->prepare("SELECT 1 FROM project_settlement_request_items WHERE employee_id=? AND payroll_month=? AND order_id BETWEEN ? AND ?");
+        $full->execute([$employeeId, $month, PSPR_NET_ITEM, PSPR_NET_LAST]);
         if ($full->fetchColumn()) throw new RuntimeException('本月已申请整月实结算，不能再单独申请提成');
         $avail = [];
         foreach (psr_orders($employeeId, $month) as $r) if ($r['state'] === 'available') $avail[$r['order_id']] = $r;
@@ -316,10 +316,10 @@ function psr_home_expected($employeeId, $month, $exceptRequestId = 0)
 {
     require_once __DIR__ . '/ProjectPayrollSheet.php';
     $net = round((float)(pps_sheet($month, (int)$employeeId)['rows'][0]['net'] ?? 0), 2);
-    $q = db()->prepare("SELECT COALESCE(SUM(amount),0) FROM project_settlement_requests WHERE employee_id=? AND payroll_month=? AND status<>'rejected' AND id<>?");
+    $q = db()->prepare("SELECT COALESCE(SUM(amount),0) others,COALESCE(SUM(IF(status='settled',amount,0)),0) paid,SUM(status='pending') pending_count FROM project_settlement_requests WHERE employee_id=? AND payroll_month=? AND status<>'rejected' AND id<>?");
     $q->execute([(int)$employeeId, $month, (int)$exceptRequestId]);
-    $others = round((float)$q->fetchColumn(), 2);
-    return ['net' => $net, 'others' => $others, 'expected' => round($net - $others, 2)];
+    $claims = $q->fetch(); $others = round((float)$claims['others'], 2);
+    return ['net' => $net, 'paid' => round((float)$claims['paid'],2), 'pending_count' => (int)$claims['pending_count'], 'others' => $others, 'expected' => round($net - $others, 2)];
 }
 
 function psr_check(array $req)
@@ -330,7 +330,7 @@ function psr_check(array $req)
     $items = db()->prepare('SELECT order_id,amount FROM project_settlement_request_items WHERE request_id=?');
     $items->execute([(int)$req['id']]);
     $itemRows = $items->fetchAll();
-    $lookupItems = array_filter($itemRows, function ($it) { return !defined('PSPR_NET_ITEM') || (int)$it['order_id'] !== PSPR_NET_ITEM; });
+    $lookupItems = array_filter($itemRows, function ($it) { return !pspr_is_net_item($it['order_id']); });
     $now = [];
     if (array_filter($lookupItems, function ($it) { return (int)$it['order_id'] >= 900000000; })) {
         foreach (psr_orders((int)$req['employee_id'], $req['payroll_month']) as $o) $now[$o['order_id']] = $o;
@@ -342,9 +342,9 @@ function psr_check(array $req)
     }
     $changed = 0;
     foreach ($itemRows as $it) {
-        if ((int)$it['order_id'] === PSPR_NET_ITEM) {
+        if (pspr_is_net_item($it['order_id'])) {
             $month = pspr_month((int)$req['employee_id'], $req['payroll_month']);
-            $now[PSPR_NET_ITEM] = ['amount' => $month['amount']];
+            $now[(int)$it['order_id']] = ['amount' => $month['amount']];
             if ($month['pending_n'] > 0) $issues[] = '本月仍含待审核预计分成';
             if (!ppf_is_green((int)$req['employee_id'], $req['payroll_month'])) $issues[] = '财务核对状态已改变，请重新核对整月实结算';
             $c = db()->prepare("SELECT COUNT(*) FROM project_commission_corrections c JOIN project_orders o ON o.id=c.order_id WHERE c.target_employee_id=? AND c.status='pending' AND DATE_FORMAT(o.order_date,'%Y-%m')=?");
@@ -357,7 +357,7 @@ function psr_check(array $req)
     if ($changed) $issues[] = $changed . ' 项结算金额在申请后有变动，请退回让本人重新申请';
     $hasFullNet = false;
     foreach ($itemRows as $it) {
-        if (defined('PSPR_NET_ITEM') && (int)$it['order_id'] === PSPR_NET_ITEM) {
+        if (pspr_is_net_item($it['order_id'])) {
             $hasFullNet = true;
             break;
         }
@@ -365,9 +365,10 @@ function psr_check(array $req)
     $home = psr_home_expected((int)$req['employee_id'], $req['payroll_month'], (int)$req['id']);
     if ($hasFullNet) {
         if (abs($home['expected'] - (float)$req['amount']) > 0.01) {
-            $issues[] = '申请金额 ¥' . number_format((float)$req['amount'], 2) . ' 与首页应结算不一致（首页实结算 ¥' . number_format($home['net'], 2) . ($home['others'] != 0 ? '，扣除其他申请 ¥' . number_format($home['others'], 2) : '') . ' → 应为 ¥' . number_format($home['expected'], 2) . '），请退回让本人按“整月结算”重新申请';
+            $issues[] = '申请金额与首页扣减后实结算不一致，请先同步整月实结算申请后重新核对';
         }
     } else {
+        $issues[] = '旧逐单提成申请，请先同步为整月实结算，包含固定服务费、补助及全部扣减';
         if ($home['expected'] < -0.01) {
             $issues[] = '该月实结算已有超额扣减（余额 ¥' . number_format($home['expected'], 2) . '），请联系财务核对';
         }
@@ -380,7 +381,9 @@ function psr_check(array $req)
     } catch (Throwable $e) {}
     $card = '';
     try { $q = db()->prepare('SELECT bank_card FROM project_partner_profiles WHERE employee_id=?'); $q->execute([(int)$req['employee_id']]); $card = (string)$q->fetchColumn(); } catch (Throwable $e) {}
-    return ['ok' => !$issues, 'issues' => $issues, 'has_card' => $card !== '', 'card' => $card];
+    $syncAmount = round($home['net']-$home['paid'],2);
+    return ['ok' => !$issues, 'issues' => $issues, 'has_card' => $card !== '', 'card' => $card,
+        'sync_amount' => $syncAmount, 'sync_needed' => !$hasFullNet || $home['pending_count'] > 0 || abs($syncAmount-(float)$req['amount'])>0.004];
 }
 
 /**
@@ -445,7 +448,7 @@ function psr_request_orders($requestId)
     $cachedOrders = [];
     foreach ($rows as &$row) {
         $oid = (int)$row['order_id'];
-        if ($oid === PSPR_NET_ITEM) {
+        if (pspr_is_net_item($oid)) {
             $row['order_no'] = '整月实结算（已扣除其他申请）';
             $row['project_type'] = '固定工资、全勤、提成及补助，减车位费等全部扣减';
             $row['order_date'] = $row['payroll_month'] . '-01';
@@ -508,8 +511,8 @@ function psr_available_past($employeeId)
 
 function psr_submit_all($actor)
 {
-    $eid = (int)($actor['employee_id'] ?? 0);
-    if ($eid <= 0 || ($actor['type'] ?? '') !== 'employee') throw new RuntimeException('只有合作人员本人可以申请结算');
+    $eid = pspr_self_employee($actor);
+    if ($eid <= 0) throw new RuntimeException('当前账号未绑定本人合作人员资料，无法申请结算');
     $done = []; $skipped = [];
     foreach (pspr_past($eid)['months'] as $month => $amount) {
         try { $r = pspr_submit($actor, $month); $done[] = [$month, $r['amount']]; }

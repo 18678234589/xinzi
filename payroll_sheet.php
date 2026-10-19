@@ -6,11 +6,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') { // 保存合作人员结算资料�
     header('Content-Type: application/json; charset=UTF-8');
     require_once __DIR__ . '/includes/ProjectPartnerProfile.php';
     $actor = ps_actor();
-    if ($actor && ($_POST['action'] ?? '') === 'request_payroll') {
+    if ($actor && in_array($_POST['action'] ?? '', ['request_payroll','sync_payroll'], true)) {
         if (!hash_equals(ps_csrf_token(), (string)($_POST['csrf'] ?? ''))) { http_response_code(403); echo json_encode(['ok'=>false,'message'=>'页面已过期，请刷新后重试'],JSON_UNESCAPED_UNICODE); exit; }
         try {
             require_once __DIR__ . '/includes/ProjectSettlementRequest.php';
-            $r = pspr_submit($actor, (string)($_POST['month'] ?? ''));
+            $month = (string)($_POST['month'] ?? '');
+            $target = (int)($_POST['employee_id'] ?? 0);
+            $r = $_POST['action'] === 'sync_payroll'
+                ? pspr_sync_pending($actor, $target, $month, $_POST['expected_amount'] ?? null)
+                : pspr_submit($actor, $month, $_POST['expected_amount'] ?? null, $target);
             echo json_encode(['ok'=>true] + $r + ['message'=>'整月实结算申请已提交，等待财务打款'],JSON_UNESCAPED_UNICODE);
         } catch (RuntimeException $e) { echo json_encode(['ok'=>false,'message'=>$e->getMessage()],JSON_UNESCAPED_UNICODE); }
         catch (Throwable $e) { http_response_code(500); echo json_encode(['ok'=>false,'message'=>'提交失败，请稍后重试'],JSON_UNESCAPED_UNICODE); }

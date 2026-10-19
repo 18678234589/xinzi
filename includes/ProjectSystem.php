@@ -221,7 +221,7 @@ function ps_php_cost_for($contract, $group, $role, $actual)
 /** 获取所有可指派为审核人的财务/管理员列表 */
 function ps_admin_reviewers()
 {
-    $sql = "SELECT a.id, a.username, COALESCE(e.name, a.username) AS real_name, COALESCE(e.department, '管理') AS dept
+    $sql = "SELECT a.id, a.username, e.id AS employee_id, COALESCE(e.name, a.username) AS real_name, COALESCE(e.department, '管理') AS dept
             FROM admins a
             LEFT JOIN employees e ON (a.username='songwenna' AND e.name='宋文娜')
                                   OR (a.username='liuqun' AND e.name='刘群')

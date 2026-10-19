@@ -11,6 +11,7 @@
       .catch(function () { host.innerHTML = '<section class="pps-card"><div class="pps-empty">项目报酬表加载失败，请刷新页面重试。</div></section>'; })
       .then(function () { host.style.opacity = ''; host.removeAttribute('aria-busy'); });
   }
+  host.addEventListener('payroll-request-submitted', function (ev) { load(ev.detail.month); });
   host.addEventListener('change', function (ev) { if (ev.target.classList.contains('pps-month')) load(ev.target.value); });
   host.addEventListener('click', function (ev) {
     var b = ev.target.closest('.pps-chips button'); if (!b) return;
