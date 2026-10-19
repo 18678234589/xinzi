@@ -345,8 +345,11 @@ function psr_check(array $req)
         if (pspr_is_net_item($it['order_id'])) {
             $month = pspr_month((int)$req['employee_id'], $req['payroll_month']);
             $now[(int)$it['order_id']] = ['amount' => $month['amount']];
-            if ($month['pending_n'] > 0) $issues[] = '本月仍含待审核预计分成';
-            if (!ppf_is_green((int)$req['employee_id'], $req['payroll_month'])) $issues[] = '财务核对状态已改变，请重新核对整月实结算';
+            $isGreen = ppf_is_green((int)$req['employee_id'], $req['payroll_month']);
+            if (!$isGreen) {
+                if ($month['pending_n'] > 0) $issues[] = '本月仍含待审核预计分成';
+                $issues[] = '财务核对状态已改变，请重新核对整月实结算';
+            }
             $c = db()->prepare("SELECT COUNT(*) FROM project_commission_corrections c JOIN project_orders o ON o.id=c.order_id WHERE c.target_employee_id=? AND c.status='pending' AND DATE_FORMAT(o.order_date,'%Y-%m')=?");
             $c->execute([(int)$req['employee_id'], $req['payroll_month']]);
             if ((int)$c->fetchColumn()) $issues[] = '本月有待处理的分成更正申请';

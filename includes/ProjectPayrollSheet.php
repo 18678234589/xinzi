@@ -146,9 +146,12 @@ function pps_pending($month, $onlyEmployeeId = 0)
     foreach ($q->fetchAll() as $order) {
         // 开发类业务（网站 / 小程序等）没确认已完成的订单不计入预计：完成情况以技术填写 / 财务按汇总表标记为准
         if ($order['delivery_status'] !== 'finished' && !empty(ps_business_catalog()[ps_business_normalize((string)$order['project_type'])]['requires_technical'])) continue;
+        require_once __DIR__ . '/ProjectMiniappDelivery.php';
+        if (ps_miniapp_custom_unshipped($order, ['trade_status' => $order['trade_status']])) continue;
         if (strpos((string)$order['trade_status'], '交易关闭') !== false && (float)$order['receipt_amount'] <= 0) continue;
         if (strpos((string)$order['trade_status'], '等待卖家发货') !== false && (float)$order['receipt_amount'] <= 0) continue; // 买家已付款、店铺还没发货：不算预计（9 月核对对表误差更小）
         if ((float)$order['contract_amount'] <= 0 && (float)$order['receipt_amount'] <= 0) continue;
+        if ($order['project_type'] === '商标' && (float)$order['receipt_amount'] <= 0) continue;
         $costs = ps_costs($order['id']);
         $sum = ps_summary($order, $costs, ps_participants($order['id']));
         foreach ($sum['groups'] as $groupName => $group) foreach ($group['people'] as $person) {

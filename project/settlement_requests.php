@@ -67,6 +67,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $n++;
             }
             $success = '已为 ' . $n . ' 位核对无异议的合作人员标记通过（绿标）。';
+        } elseif (($_POST['do'] ?? '') === 'mark_green') {
+            require_once __DIR__ . '/../includes/ProjectPayrollFlags.php';
+            $rQ = db()->prepare('SELECT employee_id, payroll_month FROM project_settlement_requests WHERE id=?');
+            $rQ->execute([$id]);
+            $sr = $rQ->fetch(PDO::FETCH_ASSOC);
+            if ($sr) {
+                ppf_save($actor, (int)$sr['employee_id'], $sr['payroll_month'], 'green', '财务在结算申请页面手动复核确认通过。', null, false);
+                $success = '已手动标记通过（绿标）。';
+            }
         } elseif (($_POST['do'] ?? '') === 'settle') { psr_settle($id, $actor, (string)($_POST['note'] ?? '')); $success = '已标注结算：申请已记为已结算，并已通知申请人。'; }
         elseif (($_POST['do'] ?? '') === 'reject') { psr_reject($id, $actor, (string)($_POST['note'] ?? '')); $success = '已退回，结算项已释放，申请人可重新申请。'; }
         else throw new RuntimeException('操作无效');
@@ -142,6 +151,7 @@ include __DIR__ . '/../includes/header.php';
       <?php if ($r['status'] === 'pending'): ?>
       <form method="post" class="form-inline mt-2"><input type="hidden" name="csrf" value="<?php echo e(ps_csrf_token()); ?>"><input type="hidden" name="id" value="<?php echo (int)$r['id']; ?>">
         <?php if ($ck && $ck['sync_needed'] && $ck['sync_amount']>0): ?><input type="hidden" name="expected_amount" value="<?php echo e(number_format($ck['sync_amount'],2,'.','')); ?>"><button name="do" value="sync_payroll" class="btn btn-sm btn-outline-primary mr-2" onclick="return confirm('将本月待处理申请合并为扣减后的实结算 ¥<?php echo e(number_format($ck['sync_amount'],2,'.','')); ?>（已扣除已打款）？金额变化时需重新核对，不会确认打款。');">同步整月实结算 ¥<?php echo number_format($ck['sync_amount'],2); ?></button><?php endif; ?>
+        <?php if ($ck && !$ck['ok']): ?><button name="do" value="mark_green" class="btn btn-sm btn-outline-success mr-2" onclick="return confirm('确认手动复核标绿通过此人？标绿后将允许导出与打款。');"><i class="fas fa-check-circle mr-1"></i>复核标绿</button><?php endif; ?>
         <input name="note" class="form-control form-control-sm mr-2" style="min-width:240px" maxlength="200" placeholder="备注（退回时必填原因）">
         <button name="do" value="settle" class="btn btn-sm btn-success mr-2"<?php echo $ck && !$ck['ok'] ? ' disabled' : ''; ?> onclick="return confirm('确认已打款？确认后申请将标注已结算，不能撤销。');"><i class="fas fa-check mr-1"></i>已结算</button>
         <button name="do" value="reject" class="btn btn-sm btn-outline-danger">退回</button></form>

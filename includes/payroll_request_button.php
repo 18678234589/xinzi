@@ -1,10 +1,10 @@
 <?php
 // 本人申请（含财务本人）；财务可将待处理申请同步为整月实结算。
-$pr = pspr_status($payrollRequestEmployee, $payrollRequestMonth);
+$pr = pspr_status($payrollRequestEmployee, $payrollRequestMonth, $payrollRequestRow ?? null);
 $prActor = ps_actor();
 $prOwn = pspr_self_employee($prActor) === (int)$payrollRequestEmployee;
-$prFinance = ($prActor['role'] ?? '') === 'finance';
-$prProxy = $prFinance && !$prOwn && !empty($payrollRequestProxy);
+$prFinance = ($prActor['type'] ?? '') === 'admin' || ($prActor['role'] ?? '') === 'finance';
+$prProxy = $prFinance && !$prOwn;
 $prSync = $prFinance && $pr['pending'] && (!$pr['request'] || $pr['request']['status'] !== 'pending' || count($pr['pending']) > 1 || abs((float)$pr['request']['amount'] - $pr['remaining']) > 0.004);
 $prAmount = $pr['request'] ? (float)$pr['request']['amount'] : max(0, $pr['amount']);
 if ($prSync) $prAmount = max(0, $pr['remaining']);

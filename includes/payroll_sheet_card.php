@@ -41,11 +41,11 @@ $ppsDepts = [];
 foreach ($pps['rows'] ?? [] as $r) $ppsDepts[$r['department']] = ($ppsDepts[$r['department']] ?? 0) + 1;
 ksort($ppsDepts);
 $ppsHeads = pps_heads();
-$ppsFixed = $ppsAll ? pspr_fixed_people($ppsMonth) : [];
+$ppsFixed = []; if ($ppsAll) foreach ($pps['rows'] ?? [] as $fr) $ppsFixed[(int)$fr['id']] = $fr;
 $ppsProxyExpected = []; $ppsProxyNames = []; $ppsProxyTotal = 0.0;
 foreach ($ppsFixed as $eid=>$fixedRow) {
     if ($eid === $ppsMine) continue;
-    $fixedStatus = pspr_status($eid,$ppsMonth);
+    $fixedStatus = pspr_status($eid,$ppsMonth,$fixedRow);
     if (!$fixedStatus['can_apply'] || $fixedStatus['pending']) continue;
     $ppsProxyExpected[$eid] = number_format($fixedStatus['amount'],2,'.','');
     $ppsProxyNames[] = $fixedRow['name'].' ¥'.number_format($fixedStatus['amount'],2);
@@ -63,7 +63,7 @@ foreach ($ppsFixed as $eid=>$fixedRow) {
       <?php if ($ppsMine && ($ppsPast = psr_available_past($ppsMine)) && $ppsPast['n'] > 0): ?><button type="button" class="pps-bulk pps-settle-all" data-n="<?php echo (int)$ppsPast['n']; ?>" data-amt="<?php echo e(number_format($ppsPast['amount'], 2)); ?>" data-token="<?php echo e(ps_csrf_token()); ?>" title="按首页实结算申请往月报酬，含固定工资、全勤、提成和全部扣减；自动扣除已申请或已结算金额"><i class="fas fa-bolt"></i> 一键申请往月全部（<?php echo (int)$ppsPast['n']; ?> 个月 ¥<?php echo e(number_format($ppsPast['amount'], 2)); ?>）</button><?php endif; ?>
       <?php if ($ppsProxyExpected): ?><form class="payroll-request-form" action="<?php echo e(BASE_URL.'/payroll_sheet.php'); ?>" method="post" data-month="<?php echo e($ppsMonth); ?>" data-amount="<?php echo e(number_format($ppsProxyTotal,2,'.','')); ?>" data-people="<?php echo e(implode("\n",$ppsProxyNames)); ?>">
         <input type="hidden" name="csrf" value="<?php echo e(ps_csrf_token()); ?>"><input type="hidden" name="action" value="request_fixed_payroll"><input type="hidden" name="month" value="<?php echo e($ppsMonth); ?>"><input type="hidden" name="expected_requests" value="<?php echo e(json_encode($ppsProxyExpected,JSON_UNESCAPED_UNICODE)); ?>">
-        <button type="submit">一键代申请固定服务费 · <?php echo count($ppsProxyExpected); ?> 人 · ¥<?php echo number_format($ppsProxyTotal,2); ?></button><span class="payroll-request-message" role="status" hidden></span>
+        <button type="submit">一键代申请整月实结算 · <?php echo count($ppsProxyExpected); ?> 人 · ¥<?php echo number_format($ppsProxyTotal,2); ?></button><span class="payroll-request-message" role="status" hidden></span>
       </form><?php endif; ?>
       <?php if ($ppsAll): ?><a class="pps-link" href="<?php echo BASE_URL; ?>/project/payroll.php?month=<?php echo e($ppsMonth); ?>">明细与锁月 <i class="fas fa-angle-right"></i></a><?php endif; ?>
     </div>
@@ -94,7 +94,7 @@ $ppsClaim = $ppsMine ? pspr_month($ppsMine, $ppsMonth) : null; // 已申请 / �
 foreach ($pps['rows'] as $i => $r): ?>
         <tr data-dept="<?php echo e($r['department']); ?>">
 <?php if ($ppsMine || $ppsAll): ?>
-          <td class="pps-actcol"><?php if ((int)$r['id'] === $ppsMine || isset($ppsFixed[(int)$r['id']])): $payrollRequestEmployee=(int)$r['id']; $payrollRequestMonth=$ppsMonth; $payrollRequestProxy=$ppsAll && (int)$r['id']!==$ppsMine; include __DIR__ . '/payroll_request_button.php'; endif; ?></td>
+          <td class="pps-actcol"><?php if ((int)$r['id'] === $ppsMine || $ppsAll): $payrollRequestEmployee=(int)$r['id']; $payrollRequestRow=$r; $payrollRequestMonth=$ppsMonth; $payrollRequestProxy=$ppsAll && (int)$r['id']!==$ppsMine; include __DIR__ . '/payroll_request_button.php'; unset($payrollRequestRow); endif; ?></td>
 <?php endif; ?>
 <?php if ($ppsAll): $pf = $r['profile']; ?>
           <td class="pps-dept"><?php echo $pf['supervisor'] !== '' ? e($pf['supervisor']) : '<span class="pps-zero">—</span>'; ?></td>
