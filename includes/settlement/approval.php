@@ -14,6 +14,12 @@ function ps_approve_order($orderId, $actor, $payrollMonth)
         $q->execute([$orderId]);
         $order = $q->fetch();
         if (!$order || !in_array($order['settlement_status'], ['draft','review'], true)) throw new RuntimeException('当前订单不可审核');
+        require_once dirname(__DIR__) . '/ProjectMiniappDelivery.php';
+        if (ps_miniapp_custom_order($order)) {
+            $shipping = $pdo->prepare('SELECT trade_status FROM project_order_sources WHERE order_id=? FOR UPDATE');
+            $shipping->execute([$orderId]);
+            if (ps_miniapp_custom_unshipped($order, $shipping->fetch() ?: [])) throw new RuntimeException('小程序 AI 定制未发货，不能结算；到账不代表已发货');
+        }
         $pdo->prepare('INSERT INTO project_payroll_periods (period) VALUES (?) ON DUPLICATE KEY UPDATE period=period')->execute([$payrollMonth]);
         $periodQuery = $pdo->prepare('SELECT status FROM project_payroll_periods WHERE period=? FOR UPDATE');
         $periodQuery->execute([$payrollMonth]);

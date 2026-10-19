@@ -66,8 +66,6 @@
                     if ($record['delivery_status'] === null) { $record['delivery_status'] = 'unfinished'; $record['warning'] .= ($record['warning'] ? '；' : '') . '状态“' . mb_substr
     ($status, 0, 20) . '”无法识别，已按未完成导入，交付后请在订单里标记完成'; }
                     $record['trade_status'] = mb_strpos($status, '交易关闭') !== false ? '交易关闭' : '';
-                    // 之前传表时还没完成 / 没到账，这次表里写了已完成 / 到账：导入时把原单状态更新为已完成（只前进，已审核订单不动）
-                    if ($existing && ($existing['delivery_status'] ?? '') === 'unfinished' && $record['delivery_status'] === 'finished' && !in_array($existing['settlement_status'], ['approved', 'locked'], true)) $record['warning'] .= ($record['warning'] ? '；' : '') . '原单状态是“未完成”，本次表格写已完成 / 到账，导入后将更新为已完成';
                     if ($record['trade_status'] !== '') $record['warning'] = '表格写交易关闭：请财务核对退款';
                     $sheetBusiness = $lookup($row, 'business');
                     $record['business_text'] = '';
@@ -348,4 +346,13 @@
                     if (preg_match('/^\d{4}-\d{2}-\d{2}$/', (string)$record['order_date']) && ($record['order_date'] > date('Y-m-d', strtotime('+35 days')) || $record['order_date']
     < date('Y-m-d', strtotime('-3 years')))) throw new RuntimeException('日期“' . $record['order_date'] . '”年份异常（应在今天前后合理范围内），请核对年份后重新上传'
     );
+                    require_once (dirname(__DIR__, 1)) . '/../includes/ProjectMiniappDelivery.php';
+                    if (ps_miniapp_custom_order($record)) {
+                        if (ps_miniapp_custom_unshipped($record, ['trade_status' => $status])) {
+                            $record['delivery_status'] = 'unfinished';
+                            $record['warning'] .= ($record['warning'] ? '；' : '') . '小程序 AI 定制未发货不计分成，到账不能代替发货';
+                        }
+                        if ($status !== '') $record['trade_status'] = $status;
+                    }
+                    if ($existing && ($existing['delivery_status'] ?? '') === 'unfinished' && $record['delivery_status'] === 'finished' && !in_array($existing['settlement_status'], ['approved', 'locked'], true)) $record['warning'] .= ($record['warning'] ? '；' : '') . '原单状态是“未完成”，本次表格写已完成 / 到账，导入后将更新为已完成';
                     if ($existing) $record['existing_snapshot'] = $existing;

@@ -2,10 +2,12 @@
 require_once __DIR__ . '/ProjectSettlement.php';
 require_once __DIR__ . '/ProjectMonthly.php';
 require_once __DIR__ . '/ProjectRefundTrash.php';
+require_once __DIR__ . '/ProjectMiniappDelivery.php';
 
 /** 内存预期记录：只用于看板，不写入分成快照或收款。 */
 function ps_expected_snapshot_rows($order, $summary, $source = [])
 {
+    if (ps_miniapp_custom_unshipped($order, $source)) return [];
     $order = ps_order_asof($order);
     $rows = [];
     $closed = preg_match('/交易关闭|已关闭|取消订单|已取消/u', (string)($source['trade_status'] ?? '')) === 1;

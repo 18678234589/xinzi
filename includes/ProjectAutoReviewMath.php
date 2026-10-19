@@ -1,7 +1,8 @@
 <?php
+require_once __DIR__ . '/ProjectMiniappDelivery.php';
 require_once __DIR__ . '/ProjectCommissionRoles.php';
 /** Deterministic review policy. No database, network, AI or clock side effects. */
-const PA_POLICY_VERSION = '2026-10-15.1';
+const PA_POLICY_VERSION = '2026-10-18.1';
 const PA_SPOT_CHECK_BUSINESSES = ['设计', 'AI网站定制', '网站模板']; // 不逐单财务审核、改为事后抽查的业务
 const PA_PER_ORDER_BUSINESSES = ['回购订单']; // 提成只有每单固定补助、订单不带售价和收款的业务：不要求收款记录，登记完成后直接结算
 
@@ -123,6 +124,7 @@ function pa_evaluate(array $ctx)
         if (!$d || $d->format('Y-m-d') !== $date || $date > $ctx['today']) $add('order_date', '订单日期缺失、无效或晚于今天，请补齐核对');
         if (($ctx['period_status'] ?? '') === 'locked') $add('period_locked', '订单归属月份已锁定，需要财务选择调整月份', 'exception');
         if (($o['delivery_status'] ?? '') !== 'finished') $add('delivery', '尚未确认业务已完成；付款成功不代替交付确认');
+        if (ps_miniapp_custom_unshipped($o, $ctx['source'] ?? [])) $add('miniapp_unshipped', '小程序 AI 定制尚未发货，不计分成；到账不代表已发货');
         if (!empty($ctx['pending_requests'])) $add('request_pending', '交付／升级申请已提交，等待审核，无需重复提交', 'finance');
         if (!empty($ctx['catalog']['resources']) && (!$ctx['resource'] || ($ctx['resource']['domain_mode'] ?? 'pending') === 'pending')) $add('resource', '域名、空间等实际资源待技术确认');
         if (!empty($ctx['catalog']['requires_technical']) && empty($ctx['technical_count'])) $add('technical', '尚未指定参与技术');
