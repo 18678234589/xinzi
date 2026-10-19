@@ -105,8 +105,9 @@ if ($actor['role'] !== 'finance') $adjustments = array_values(array_filter($adju
 <?php if ($actor['role'] === 'finance' && !$canEdit): ?><div class="card-body<?php echo $adjustments ? ' border-top' : ''; ?>"><form method="post" class="form-row align-items-end" onsubmit="return confirm('确认登记售后调整？退款将直接记为已审核，并按差额扣回或补发分成。')"><input type="hidden" name="csrf" value="<?php
     echo e(ps_csrf_token()); ?>"><input type="hidden" name="action" value="post_adjustment">
 <div class="form-group col-md-2"><label>退款金额 ¥</label><input class="form-control" type="number" min="0" step="0.01" name="refund_amount" placeholder="如 678"></div>
-<div class="form-group col-md-2"><label>成本调整 ¥</label><input class="form-control" type="number" step="0.01" name="cost_delta" placeholder="冲减填负数，如 -180"></div>
-<div class="form-group col-md-4"><label>原因</label><input class="form-control" name="reason" maxlength="300" required placeholder="如 客户退款，保留域名注册 120 元"></div>
+<div class="form-group col-md-2"><label>改成实际总成本 ¥</label><input class="form-control" type="number" min="0" step="0.01" name="cost_actual" placeholder="如 2610"><small class="text-muted">现有成本 ¥<?php echo money(array_sum(array_map(function ($c) { return $c['review_status'] === 'approved' ? (float)$c['amount'] : 0; }, $costs))); ?>，系统自动算差额</small></div>
+<div class="form-group col-md-2"><label>或：成本调整 ¥</label><input class="form-control" type="number" step="0.01" name="cost_delta" placeholder="冲减填负数，如 -180"></div>
+<div class="form-group col-md-2"><label>原因</label><input class="form-control" name="reason" maxlength="300" required placeholder="如 客户退款，保留域名注册 120 元"></div>
 <div class="form-group col-md-2"><label>计入月份</label><input class="form-control" type="month" name="adjust_month" value="<?php echo e(ps_next_open_month()); ?>" required></div>
 <div class="form-group col-md-2"><button class="btn btn-outline-danger btn-block">登记调整</button></div>
 </form><small class="text-muted">系统按审核时的比例重算：全额退款会收回分成和每单补助；部分退款或成本变化只调整差额。默认计入下一个未锁定月份。</small></div><?php

@@ -132,6 +132,23 @@ try {
     $mineMsg->execute([$head, '%tmc-msg%']);
     $check(!$mineMsg->fetch(), '有人核对后，商标主管的这条提醒自动消失');
     $check(ptd_can_review(['role' => 'finance']) === true && ptd_can_review(['role' => 'customer_service', 'id' => 0]) === false, '财务可核对，普通合作人员不可');
+    // 8) 已审核订单：表格实际成本不再被悄悄跳过，财务一键改成实际成本（走售后调整）。
+    $pdo->exec("INSERT INTO project_cost_templates (category,business_scope,name,specification,unit,price_mode,cost_kind,price,requires_proof,auto_approve,version) VALUES ('other','商标','商标转让','测试标准','件','fixed','one_time',450,0,1,1)");
+    $buy = $makeOrder('tmc-buy', 2300, '2026-09-30', '33498406 挑幕 9类', '转让');
+    ptc_sync_order_cost($buy, $actor, '先建单');
+    $check(count($live($buy)) === 1 && (float)$live($buy)[0]['amount'] === 450.0, '买卖商标先按转让官费 450 带入');
+    $pdo->prepare("UPDATE project_orders SET settlement_status='approved',receipt_amount=2300 WHERE id=?")->execute([$buy]);
+    ptc_sync_order_cost($buy, $actor, '客服上传', 1649);
+    $check(count($live($buy)) === 1 && (float)$live($buy)[0]['amount'] === 450.0, '已审核订单的成本不被上传改动');
+    $mm = array_values(array_filter(ptd_cost_mismatches(), function ($m) use ($buy) { return (int)$m['id'] === $buy; }));
+    $check($mm && $mm[0]['sheet_cost'] === 1649.0 && (float)$mm[0]['cost'] === 450.0, '表格实际成本 1649 高于系统 450，记入核对列表（不再被悄悄跳过）');
+    $adminId = (int)$pdo->query('SELECT id FROM admins ORDER BY id LIMIT 1')->fetchColumn();
+    $msg = ptd_fix_cost($buy, ['type' => 'admin', 'id' => $adminId, 'role' => 'finance']);
+    $total = array_sum(array_map(function ($c) { return $c['review_status'] === 'approved' ? (float)$c['amount'] : 0; }, ps_costs($buy)));
+    $check($total === 1649.0 && strpos($msg, '1,649.00') !== false, '财务一键改成实际成本后订单成本为 1649');
+    $check(!array_filter(ptd_cost_mismatches(), function ($m) use ($buy) { return (int)$m['id'] === $buy; }), '处理后从核对列表消失');
+    $failed = false; try { ptd_fix_cost($buy, ['type' => 'employee', 'id' => 1, 'role' => 'technical']); } catch (RuntimeException $e) { $failed = true; }
+    $check($failed, '非财务不能调整已审核订单的成本');
     echo "ALL PASS\n";
 } finally {
     if ($pdo->inTransaction()) $pdo->rollBack();

@@ -7,7 +7,18 @@ function ptc_reconcile_order_cost($orderId, $actor, $origin, $excelCost = null, 
     $q = $pdo->prepare('SELECT project_type,settlement_status FROM project_orders WHERE id=? FOR UPDATE');
     $q->execute([(int)$orderId]);
     $order = $q->fetch();
-    if (!$order || $order['project_type'] !== '商标' || in_array($order['settlement_status'], ['approved', 'locked'], true)) return 'skip';
+    if ($order && $order['project_type'] === '商标' && in_array($order['settlement_status'], ['approved', 'locked'], true)) {
+        // 已审核 / 锁定的订单不改成本，但表格里的实际成本要记下来，由财务在“商标成本核对”里看到差异并决定是否调整（以前这里直接跳过，差异无人知道）。
+        if ($excelCost !== null && $excelCost !== '' && is_numeric($excelCost) && (float)$excelCost > 0) {
+            [$d] = ptc_order_pricing_data($orderId);
+            if ((float)($d['trademark_excel_cost'] ?? 0) !== round((float)$excelCost, 2)) {
+                $d['trademark_excel_cost'] = round((float)$excelCost, 2);
+                $pdo->prepare("INSERT INTO project_order_details (order_id,business_name,details_json) VALUES (?,'商标',?) ON DUPLICATE KEY UPDATE details_json=VALUES(details_json)")->execute([(int)$orderId, json_encode($d, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR)]);
+            }
+        }
+        return 'skip';
+    }
+    if (!$order || $order['project_type'] !== '商标') return 'skip';
     [$details, $context] = ptc_order_pricing_data($orderId);
     $oldDetails = $details;
     $context .= ' ' . (string)$text;

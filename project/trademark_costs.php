@@ -6,7 +6,7 @@ if (!ptd_can_review($actor)) { http_response_code(403); exit('仅管理员、财
 $isFinance = ($actor['role'] ?? '') === 'finance';
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     ps_check_csrf();
-    try { $_SESSION['ptd_flash'] = ['ok', ptd_decide($_POST['group'] ?? '', (string)($_POST['decision'] ?? ''), $actor)]; }
+    try { $_SESSION['ptd_flash'] = ['ok', ($_POST['decision'] ?? '') === 'fixcost' ? ptd_fix_cost((int)($_POST['order_id'] ?? 0), $actor) : ptd_decide($_POST['group'] ?? '', (string)($_POST['decision'] ?? ''), $actor)]; }
     catch (Throwable $e) { $_SESSION['ptd_flash'] = ['err', $e->getMessage()]; }
     header('Location: ' . BASE_URL . '/project/trademark_costs.php'); exit; // 处理后回到列表，刷新页面不会重复提交
 }
@@ -14,6 +14,7 @@ $flash = $_SESSION['ptd_flash'] ?? null; unset($_SESSION['ptd_flash']);
 $groups = ptd_all();
 ptd_sync_messages($groups);
 $totalDupe = round(array_sum(array_column($groups, 'dupe')), 2);
+$mismatches = $isFinance ? ptd_cost_mismatches() : [];
 $page_title = '商标成本核对';
 include __DIR__ . '/../includes/header.php';
 if ($isFinance) require_once __DIR__ . '/../includes/correction_tabs.php';
@@ -31,7 +32,13 @@ $cssFile = dirname(__DIR__) . '/assets/css/rule_algo.css';
   <div class="ra-page-head"><div><h2>商标成本核对</h2><p>同一客户、同一商标、同一办理事项的多张订单都带入了官费，可能是同一件商标被重复计了成本。每组下面有原因、相同 / 不同点和处理建议，点一下即可；财务和商标主管任何一人处理后，另一人的提醒会自动消失。</p></div></div>
   <?php if ($flash): ?><div class="alert alert-<?php echo $flash[0] === 'ok' ? 'success' : 'danger'; ?>"><?php echo e($flash[1]); ?></div><?php endif; ?>
   <?php if ($groups): ?><div class="tmc-sum"><div class="warn">待核对 <b><?php echo count($groups); ?></b> 组</div><div>可能多计官费合计 <b>¥<?php echo e(number_format($totalDupe, 2)); ?></b></div><div>处理后预计分成立即重算</div></div><?php endif; ?>
-  <?php if (!$groups): ?><div class="ra-empty"><i class="far fa-check-circle"></i><h3>没有需要核对的商标成本</h3><p>系统发现疑似重复计官费的订单时，会出现在这里，并提醒在顶部铃铛、左侧栏和站内信。</p></div><?php endif; ?>
+  <?php if ($mismatches): ?><article class="ra-req"><header><div><strong>表格实际成本比系统高的已审核订单</strong> <small class="text-muted">共 <?php echo count($mismatches); ?> 单</small></div></header>
+    <div class="tmc-why"><b>原因：</b>客服 / 专员上传的表格里写了“实际直接成本”，但这些订单已经审核结算，系统不能自动改成本。系统成本偏低会让客服提成多算。核对表格无误后点“改成实际成本”，系统按差额登记售后调整，并重算相关人员的分成。</div>
+    <table class="tmc-table"><thead><tr><th>订单</th><th>客户</th><th>商标</th><th>售价</th><th>系统成本</th><th>表格实际成本</th><th></th></tr></thead><tbody>
+    <?php foreach ($mismatches as $m): ?><tr><td><a class="ra-link" target="_blank" href="<?php echo BASE_URL; ?>/project/order.php?id=<?php echo (int)$m['id']; ?>"><?php echo e($m['order_no']); ?></a></td><td><?php echo e($m['customer_name']); ?></td><td><?php echo e($m['trademark']); ?></td><td>¥<?php echo e(number_format((float)$m['contract_amount'], 2)); ?></td><td>¥<?php echo e(number_format((float)$m['cost'], 2)); ?></td><td><b>¥<?php echo e(number_format($m['sheet_cost'], 2)); ?></b></td>
+      <td><form method="post" onsubmit="return confirm('确认把成本改成 ¥<?php echo e(number_format($m['sheet_cost'], 2)); ?>？相关人员的分成会按差额调整。')"><input type="hidden" name="csrf" value="<?php echo e(ps_csrf_token()); ?>"><input type="hidden" name="decision" value="fixcost"><input type="hidden" name="order_id" value="<?php echo (int)$m['id']; ?>"><button class="ra-btn" type="submit">改成实际成本</button></form></td></tr><?php endforeach; ?>
+    </tbody></table></article><?php endif; ?>
+  <?php if (!$groups && !$mismatches): ?><div class="ra-empty"><i class="far fa-check-circle"></i><h3>没有需要核对的商标成本</h3><p>系统发现疑似重复计官费的订单时，会出现在这里，并提醒在顶部铃铛、左侧栏和站内信。</p></div><?php endif; ?>
   <?php foreach ($groups as $g): $advSame = $g['advice'] === 'same' && !$g['blocked']; $advSep = $g['advice'] === 'separate' || $g['blocked']; ?>
   <article class="ra-req">
     <header><div><strong><?php echo e($g['customer']); ?></strong> · <?php echo e($g['trademark']); ?> · <?php echo e($g['service']); ?> <small class="text-muted">共 <?php echo count($g['orders']); ?> 张订单</small></div></header>

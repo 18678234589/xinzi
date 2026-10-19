@@ -128,6 +128,45 @@ function ptd_sync_messages(array $groups = null)
     } catch (Throwable $e) { /* 站内信异常不影响核对 */ }
 }
 
+/** 已审核订单里，表格实际成本高于系统已核实成本的订单（财务一键“改成实际成本”）。被同组订单承担官费的不列。 */
+function ptd_cost_mismatches()
+{
+    $rows = db()->query("SELECT o.id,o.order_no,o.customer_name,o.order_date,o.contract_amount,o.settlement_status,d.details_json,
+        (SELECT COALESCE(SUM(c.amount),0) FROM project_costs c WHERE c.order_id=o.id AND c.review_status='approved') AS cost
+        FROM project_orders o JOIN project_order_details d ON d.order_id=o.id
+        WHERE o.project_type='商标' AND o.settlement_status IN ('approved','locked') AND JSON_EXTRACT(d.details_json,'$.trademark_excel_cost') IS NOT NULL")->fetchAll();
+    $out = [];
+    foreach ($rows as $r) {
+        $d = json_decode((string)$r['details_json'], true) ?: [];
+        $sheet = round((float)($d['trademark_excel_cost'] ?? 0), 2);
+        if ($sheet <= (float)$r['cost'] + 0.01) continue;
+        if (ptc_cost_carried_by((int)$r['id'])) continue;
+        $r['sheet_cost'] = $sheet; $r['trademark'] = (string)($d['trademark_name'] ?? ''); $r['service'] = ptc_order_service($d);
+        $out[] = $r;
+    }
+    return $out;
+}
+
+function ptd_mismatch_count()
+{
+    static $n = null;
+    if ($n === null) { try { $n = count(ptd_cost_mismatches()); } catch (Throwable $e) { $n = 0; } }
+    return $n;
+}
+
+/** 财务把已审核订单的成本改成表格里的实际成本：走售后调整，差额计入该订单月份（已锁定则计入下一个未锁定月份）。 */
+function ptd_fix_cost($orderId, array $actor)
+{
+    if (($actor['role'] ?? '') !== 'finance') throw new RuntimeException('只有财务可以调整已审核订单的成本');
+    foreach (ptd_cost_mismatches() as $m) if ((int)$m['id'] === (int)$orderId) {
+        require_once __DIR__ . '/settlement/adjustment.php';
+        $delta = round($m['sheet_cost'] - (float)$m['cost'], 2);
+        $created = ps_post_adjustment((int)$orderId, $actor, 0, $delta, '表格实际直接成本 ¥' . number_format($m['sheet_cost'], 2, '.', '') . '，系统原成本 ¥' . number_format((float)$m['cost'], 2, '.', ''), ps_next_open_month(substr((string)$m['order_date'], 0, 7)));
+        return '已把订单 ' . $m['order_no'] . ' 的成本改成 ¥' . number_format($m['sheet_cost'], 2) . '，生成 ' . count($created) . ' 条分成调整';
+    }
+    throw new RuntimeException('这张订单已处理或已变化，请刷新页面');
+}
+
 /** 待核对组数；同时把站内信与待核对列表对齐。任何错误都按 0 处理，不能影响页面顶部。 */
 function ptd_count()
 {
