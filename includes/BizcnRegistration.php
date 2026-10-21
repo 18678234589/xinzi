@@ -12,8 +12,8 @@ function br_template_pass($id,$allowAuditing=false)
     if($status==='unpass')throw new RuntimeException('所选实名模板审核未通过，请核对资料后重新提交实名');
     throw new RuntimeException('所选实名模板尚未审核通过，请在商务中国完成实名');
 }
-/** 可选注册年限（接口文档：1、2、5、10 年）。 */
-function br_terms() { return [1,2,5,10]; }
+/** 可选注册年限（接口文档列 1、2、5、10 年；3 年按业务反馈开放）。 */
+function br_terms() { return [1,2,3,5,10]; }
 function br_tld_rules()
 {
     return [

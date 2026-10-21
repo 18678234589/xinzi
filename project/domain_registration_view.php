@@ -48,7 +48,7 @@
     </section>
     <form id="registrationSearch" class="domain-form-grid">
       <label>想注册的完整域名<input id="registrationDomain" placeholder="your-next-idea.com" maxlength="253" required autocomplete="off"></label>
-      <label>注册年限<select id="registrationTerm"><option value="1">1 年</option><option value="2">2 年</option><option value="5">5 年</option><option value="10">10 年</option></select></label>
+      <label>注册年限<select id="registrationTerm"><option value="1">1 年</option><option value="2">2 年</option><option value="3">3 年</option><option value="5">5 年</option><option value="10">10 年</option></select></label>
       <div class="domain-form-wide registration-subject">
         <label for="registrationTemplateQuery">客户实名主体（输入主体名称、模板名称或模板编号查找）</label>
         <div class="registration-subject-row"><input id="registrationTemplateQuery" placeholder="例如：某某科技有限公司 / biz…编号" maxlength="120" autocomplete="off"><button class="domain-btn ghost" id="registrationFindTemplate" type="button">查找实名主体</button><button class="domain-btn ghost" id="registrationRefreshTemplates" type="button" title="先同步商务中国最新审核通过的实名，再查找">刷新最新实名并查找</button></div>
@@ -57,7 +57,7 @@
       </div>
       <label>关联订单号（可选，注册成功后自动出现在该订单的「我的订单域名」）<input id="registrationOrderNo" maxlength="100" placeholder="订单编号" autocomplete="off"></label>
       <label>域名实名主体<select id="registrationTemplate" required><option value="">请先查找实名主体</option></select></label>
-      <div class="domain-form-wide"><button class="domain-btn" type="submit" id="registrationCheck" disabled>查询可注册性与实时价格</button><p class="domain-help">先查询，不扣费。可选 1、2、5、10 年，多年总价按「首年价 + 续费价 × (年数 - 1)」计算、以商务中国实际扣款为准；高价域名仅支持 1 年且由管理员操作；续费另行确认。证件资料不在这里收集。</p></div>
+      <div class="domain-form-wide"><button class="domain-btn" type="submit" id="registrationCheck" disabled>查询可注册性与实时价格</button><p class="domain-help">先查询，不扣费。可选 1、2、3、5、10 年，多年总价按「首年价 + 续费价 × (年数 - 1)」计算、以商务中国实际扣款为准；高价域名仅支持 1 年且由管理员操作；续费另行确认。证件资料不在这里收集。</p></div>
     </form>
     <form id="registrationConfirm" hidden>
       <div id="registrationQuote" class="domain-detail-grid"></div>

@@ -98,7 +98,7 @@ $mockPrice='93.00';
 $qNet=br_dispatch('registration_quote',['domain'=>'mytest.net','template_id'=>'f2','term'=>'5'],$a);
 bt($qNet['quote']['unit_price_cents']===9300&&$qNet['quote']['renew_price_cents']===9700&&$qNet['quote']['price_cents']===48100,'5-year .net quote total = 93 + 97 * 4 = 481');
 $mockPrice='58.00';
-bt(reject(function()use($a){br_dispatch('registration_quote',['domain'=>'threeyears.example.com','template_id'=>'f2','term'=>'3'],$a);}),'unsupported term refused');
+bt(reject(function()use($a){br_dispatch('registration_quote',['domain'=>'sixyears.example.com','template_id'=>'f2','term'=>'6'],$a);}),'unsupported term refused');
 bt(reject(function()use($a){br_dispatch('registration_quote',['domain'=>'zeroyears.example.com','template_id'=>'f2','term'=>'0'],$a);}),'zero term refused');
 $mockPremium='true';bt(reject(function()use($admin){br_dispatch('registration_quote',['domain'=>'vipmulti.example.com','template_id'=>'f2','term'=>'2'],$admin);}),'premium domain limited to 1 year');$mockPremium='false';
 $before=$calls;$r=br_dispatch('registration_submit',['token'=>$q5['token'],'confirm'=>'fiveyears.example.com','ack'=>'1','term'=>1],$a);
