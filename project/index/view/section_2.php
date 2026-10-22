@@ -1,9 +1,11 @@
+<?php ob_start(); // 提醒与工具：挪到订单列表之后输出（piTools） ?>
 <?php include (dirname((dirname(__DIR__, 1)), 1)) . '/../includes/renewal_due_widget.php'; ?>
 <?php include (dirname((dirname(__DIR__, 1)), 1)) . '/../includes/domain_missing_widget.php'; ?>
 <?php include (dirname((dirname(__DIR__, 1)), 1)) . '/../includes/renewal_info_popup.php'; ?>
 <?php include (dirname((dirname(__DIR__, 1)), 1)) . '/../includes/finance_taobao_card.php'; ?>
 <?php include (dirname((dirname(__DIR__, 1)), 1)) . '/../includes/rule_algo_card.php'; ?>
 <?php if (($actor['type'] ?? '') !== 'admin') include (dirname((dirname(__DIR__, 1)), 1)) . '/../includes/payroll_sheet_card.php'; // 合作人员首页：本人（管理账号为全部）项目报酬表 ?>
+<?php $piTools = ob_get_clean(); ?>
 <?php if ($error): ?><div class="alert alert-danger"><?php echo e($error); ?></div><?php endif; ?>
 <?php if ($createdOrder): ?><div class="alert alert-success d-flex justify-content-between align-items-center flex-wrap"><span><i class="fas fa-check-circle mr-1"></i> 订单 <strong><?php
     echo e($createdOrder['order_no']); ?></strong> 已保存，可以继续录入下一单。</span><a class="btn btn-sm btn-outline-success" href="<?php echo BASE_URL; ?>/project/order.php?id=<?php
@@ -14,7 +16,7 @@
     ['order_no']); ?></strong> <?php echo $deleteResult['ok'] ? '已删除，相关实收流水、成本、参与人和分成快照已一并清理。' : '删除失败：' . e($deleteResult
     ['reason']); ?></div><?php endif; ?>
 <?php if ($bulkResult): ?><div class="alert alert-<?php echo $bulkResult['failed'] ? 'warning' : 'success'; ?>"><strong>批量<?php echo e($bulkResult['action']); ?>：</strong>成功 <?php
-    echo (int)$bulkResult['done']; ?> 单<?php if ($bulkResult['failed']): ?>，<?php echo count($bulkResult['failed']); ?> 单未处理：<ul class="mb-0 mt-1 small"><?php foreach
+    echo (int)$bulkResult['done']; ?> 单<?php if (!empty($bulkResult['already'])): ?>，另有 <?php echo (int)$bulkResult['already']; ?> 单本来就已审核，已跳过<?php endif; ?><?php if ($bulkResult['failed']): ?>，<?php echo count($bulkResult['failed']); ?> 单未处理：<ul class="mb-0 mt-1 small"><?php foreach
     (array_slice($bulkResult['failed'], 0, 30) as $failure): ?><li><?php echo e($failure); ?></li><?php endforeach; ?></ul><?php endif; ?></div><?php endif; ?>
 <?php if ($autoFinishInfo): ?><div class="alert alert-info"><i class="fas fa-magic mr-1"></i><?php echo e($autoFinishInfo); ?></div><?php endif; ?>
 <?php if (!$allowedBusinesses): ?><div class="alert alert-warning">当前账户尚未匹配业务类型，请联系财务在项目结算配置中分配。</div><?php endif; ?>
@@ -60,8 +62,8 @@
     echo e($shopName); ?>"><?php endforeach; ?></datalist></div>
       <div class="form-group col-md-3"><label for="intakeNickname">付款昵称（可后补）</label><input class="form-control" id="intakeNickname" name="payment_nickname" maxlength="200" value="<?php
     echo e($_POST['payment_nickname'] ?? ''); ?>"></div>
-      <div class="form-group col-md-3"><label for="intakePaymentReference">微信交易流水号 / 支付订单号</label><input class="form-control" id="intakePaymentReference" name="payment_reference" maxlength="200" value="<?php
-    echo e($_POST['payment_reference'] ?? ''); ?>" placeholder="无店铺订单号时填这里"><small class="text-muted">用于生成可追溯的内部订单编号</small></div>
+      <div class="form-group col-md-3"><label for="intakePaymentReference">微信交易流水号 / 对公编码</label><input class="form-control" id="intakePaymentReference" name="payment_reference" maxlength="200" value="<?php
+    echo e($_POST['payment_reference'] ?? ''); ?>" placeholder="无店铺订单号时填这里"><small class="text-muted">微信付款填交易流水号；客户转到对公账户的填对公编码；用于生成可追溯的内部订单编号</small></div>
       <div class="form-group col-md-3"><label for="intakePrice">售价（可后补）</label><div class="input-group"><div class="input-group-prepend"><span class="input-group-text">¥</span></div><input class="form-control" id="intakePrice" type="number" step="0.01" min="0" name="contract_amount" value="<?php
     echo e($_POST['contract_amount'] ?? ''); ?>" placeholder="待订单上传补全"></div></div>
       <div class="form-group col-md-3" id="intakeDirectCostWrap" hidden><label for="intakeDirectCost" id="intakeDirectCostLabel">成本</label><div class="input-group"><div class="input-group-prepend"><span class="input-group-text">¥</span></div><input class="form-control" id="intakeDirectCost" type="number" step="0.01" name="direct_cost" value="<?php
@@ -106,8 +108,8 @@
     <?php foreach ($allowedBusinesses as $businessName): $specificFields = $businessCatalog[$businessName]['fields']; if (!$specificFields || ($actor['role'] === 'customer_service'
     && $businessName === '网站模板')) continue; ?>
     <div class="project-business-fields" data-business="<?php echo e($businessName); ?>"><div class="project-divider"></div><div class="project-mini-title"><?php echo e($businessName
-    ); ?>专属信息</div><div class="form-row"><?php foreach ($specificFields as $fieldKey => $fieldLabel): ?><div class="form-group col-md-4"><label><?php echo e($fieldLabel); ?></label><input class="form-control" name="details[<?php
-    echo e($fieldKey); ?>]" maxlength="300" value="<?php echo e($_POST['details'][$fieldKey] ?? ''); ?>" placeholder="填写<?php echo e($fieldLabel); ?>"></div><?php endforeach; ?></div></div>
+    ); ?>专属信息</div><div class="form-row"><?php foreach ($specificFields as $fieldKey => $fieldLabel): ?><div class="form-group col-md-4"><label><?php echo e($fieldLabel); ?></label><?php if ($fieldKey === 'space_source'): $spaceNow = (string)($_POST['details']['space_source'] ?? ''); ?><select class="form-control" name="details[space_source]"><option value="">不填（按我们的空间）</option><?php foreach (['我们的空间', '客户自有空间'] as $spaceOpt): ?><option value="<?php echo e($spaceOpt); ?>" <?php echo $spaceNow === $spaceOpt ? 'selected' : ''; ?>><?php echo e($spaceOpt); ?></option><?php endforeach; ?></select><?php else: ?><input class="form-control" name="details[<?php
+    echo e($fieldKey); ?>]" maxlength="300" value="<?php echo e($_POST['details'][$fieldKey] ?? ''); ?>" placeholder="填写<?php echo e($fieldLabel); ?>"><?php endif; ?></div><?php endforeach; ?></div></div>
     <?php endforeach; ?>
     <div id="intakeResourceFields"><div class="project-divider"></div><div class="project-mini-title">技术提交 · 资源与成本 <small>可先留空，技术确认后再计成本；无需域名不产生域名成本</small></div>
     <div class="form-row" id="intakeProgramRow">
@@ -136,17 +138,18 @@
   </form>
 </div></div>
 <?php endif; ?>
+<?php if ($filterState === 'missing_price'): ?><div class="alert alert-warning d-flex justify-content-between align-items-center flex-wrap" style="gap:8px"><span><i class="fas fa-tag mr-1"></i>售价待补：这些订单还没有售价来源（不限月份）。点订单号进结算单补售价，或用 ETMLL 同步自动补齐。</span><span><a class="alert-link mr-3" href="<?php echo BASE_URL; ?>/shops/etmll_sync.php">去 ETMLL 同步</a><a class="alert-link" href="<?php echo BASE_URL; ?>/project/index.php">查看全部订单</a></span></div><?php endif; ?>
 <?php if ($importFileId): ?><div class="alert alert-info">正在查看这份表格对应的订单，已跨月份核对；仅显示你有权限的订单。<a class="alert-link" href="<?php
     echo BASE_URL; ?>/project/index.php">返回全部项目订单</a></div><?php endif; ?>
 <?php if ($participationOnly && $filterEmployeeId > 0): ?><div class="alert alert-info d-flex justify-content-between align-items-center flex-wrap" style="gap:8px"><span><i class="fas fa-chart-line mr-1" aria-hidden="true"></i><?php
     echo e($filterEmployeeName); ?> · <?php echo e($month); ?> · <?php echo e($filterBusiness ?: '全部业务'); ?> · 共 <?php echo (int)$totalOrders; ?> 单参与订单</span><a class="alert-link" href="<?php
     echo BASE_URL; ?>/project/dashboard.php?<?php echo e(http_build_query(['employee_id' => $filterEmployeeId, 'month' => $month])); ?>">返回经营看板</a></div><?php endif; ?>
-<div class="card mb-3"><div class="card-body py-3"><form method="get" class="form-row align-items-end">
+<div class="pi-filterwrap"><form method="get" class="pi-filter" id="piFilter">
 <?php if ($importFileId): ?><input type="hidden" name="import_file" value="<?php echo $importFileId; ?>"><?php endif; ?>
-<?php if ($actor['role'] === 'finance'): ?><div class="col-md-2 mb-2"><label class="small text-muted mb-1" for="filterFinance">核算财务</label><select class="form-control" name="filter_finance" id="filterFinance"><option value="all" <?php echo $filterFinance === 'all' ? 'selected' : ''; ?>>全部业务</option><?php foreach (ps_admin_reviewers() as $finance): $financeLogin = strtolower($finance['username']); ?><option value="<?php echo e($financeLogin); ?>" <?php echo $filterFinance === $financeLogin ? 'selected' : ''; ?>><?php echo e($finance['real_name']); ?>负责的业务</option><?php endforeach; ?></select></div><?php endif; ?>
+<?php if ($actor['role'] === 'finance'): ?><div class="pi-f pi-adv"><label for="filterFinance">核算财务</label><select class="form-control" name="filter_finance" id="filterFinance"><option value="all" <?php echo $filterFinance === 'all' ? 'selected' : ''; ?>>全部业务</option><?php foreach (ps_admin_reviewers() as $finance): $financeLogin = strtolower($finance['username']); ?><option value="<?php echo e($financeLogin); ?>" <?php echo $filterFinance === $financeLogin ? 'selected' : ''; ?>><?php echo e($finance['real_name']); ?>负责的业务</option><?php endforeach; ?></select></div><?php endif; ?>
 <?php if ($participationOnly): ?><input type="hidden" name="participating" value="1"><?php if ($actor['role'] !== 'finance'): ?><input type="hidden" name="employee_id" value="<?php
     echo $filterEmployeeId; ?>"><?php endif; ?><?php endif; ?>
-<?php if ($actor['role'] === 'finance' || ps_is_management($actor)): ?><div class="col-md-2 mb-2"><label class="small text-muted mb-1" for="filterEmployee">合作人员</label><select class="form-control" name="employee_id" id="filterEmployee"><option value="0">全部合作人员</option><?php
+<?php if ($actor['role'] === 'finance' || ps_is_management($actor)): ?><div class="pi-f"><label for="filterEmployee">合作人员</label><select class="form-control" name="employee_id" id="filterEmployee"><option value="0">全部合作人员</option><?php
     foreach ($employees as $filterPerson): ?><option value="<?php echo (int)$filterPerson['id']; ?>" <?php echo $filterEmployeeId === (int)$filterPerson['id'] ? 'selected' : ''; ?>><?php
     echo e($filterPerson['name'] . ' · ' . $filterPerson['department']); ?></option><?php endforeach; ?></select></div><?php endif; ?>
-  <div class="col-md-3 mb-2">
+  <div class="pi-f pi-month">

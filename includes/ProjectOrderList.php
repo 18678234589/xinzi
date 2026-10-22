@@ -22,6 +22,9 @@ if ($importFileId > 0) {
     $credentialSql = $credentialHits ? ' OR o.id IN (' . implode(',', array_map('intval', array_keys($credentialHits))) . ')' : '';
     $where[] = '(o.order_no LIKE ? OR o.customer_name LIKE ? OR s.payment_nickname LIKE ?' . $credentialSql . ')';
     array_push($params, '%' . $keyword . '%', '%' . $keyword . '%', '%' . $keyword . '%');
+} elseif ($filterState === 'missing_price') {
+    // 首页“售价待补”：未审核且没有售价来源的订单，不受月份限制（和首页统计口径一致）
+    $where[] = "o.settlement_status IN ('draft','review') AND COALESCE(s.price_source,'missing')='missing'";
 } else {
     $where[] = 'o.' . $dateBasis . '>=? AND o.' . $dateBasis . '<?';
     array_push($params, $month . '-01', date('Y-m-d', strtotime($month . '-01 +1 month')));

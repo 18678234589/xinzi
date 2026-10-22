@@ -46,6 +46,10 @@ function ps_manual_item_slot($label, $amount)
     return $amount < 0 ? 'share' : 'other';
 }
 
+/** “仅调整应结算”手工项：只改应结算（报酬表对照用），实结算、结算申请、详情页合计都不变；备注以此标记开头。 */
+const PPE_PAYABLE_ONLY = '〔仅应结算〕';
+function ps_manual_payable_only($item) { return strpos((string)($item['note'] ?? ''), PPE_PAYABLE_ONLY) === 0; }
+
 /** 保险金额：personal 个人承担（每月），unit 单位承担（每月）。 */
 function ps_insurance_settings()
 {
@@ -104,7 +108,7 @@ function ps_payroll_extras($month)
             'insurance' => ['amount' => $override ? (float)$override['amount'] : -$auto, 'manual' => (bool)$override, 'auto_amount' => $auto,
                 'detail' => !$override ? $detail : ($override['note'] === '锁月固化' ? '锁月时已固化：' . $detail : '财务手动录入' . ($override['note'] !== '' ? '：' . $override['note'] : '') . '（系统建议：' . $detail . '）')],
             'items' => $items[$eid] ?? [],
-            'items_total' => round(array_sum(array_map(function ($r) { return (float)$r['amount']; }, $items[$eid] ?? [])), 2),
+            'items_total' => round(array_sum(array_map(function ($r) { return ps_manual_payable_only($r) ? 0.0 : (float)$r['amount']; }, $items[$eid] ?? [])), 2),
         ];
     }
     return $out;
@@ -133,6 +137,7 @@ function ps_payroll_extras_action($action, $month, $employeeId, $post, $actor)
         $text = trim((string)($post['amount'] ?? ''));
         if ($label === '' || mb_strlen($label) > 60) throw new RuntimeException('请填写不超过60字的项目名称');
         if (!preg_match('/^-?\d{1,9}(?:\.\d{1,2})?$/', $text) || (float)$text == 0.0) throw new RuntimeException('金额须为非零数字（正数补助、负数扣款），最多两位小数');
+        if (!empty($post['payable_only'])) $note = mb_substr(PPE_PAYABLE_ONLY . $note, 0, 200);
         db()->prepare("INSERT INTO project_payroll_manual_items (employee_id,payroll_month,kind,label,amount,note,created_by_admin) VALUES (?,?,'other',?,?,?,?)")
             ->execute([$employeeId, $month, $label, $text, $note, $actor['id']]);
         ps_audit('payroll_manual', (int)db()->lastInsertId(), 'add', $actor, ['employee_id' => $employeeId, 'month' => $month, 'label' => $label, 'amount' => $text, 'note' => $note]);

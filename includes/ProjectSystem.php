@@ -176,7 +176,8 @@ function ps_ai_parse_order($text, array $businesses, array $shops, array $orderK
 /**
  * 《PHPweb程序成本区间表》：PHP 程序订单算提成时，成本随售价调整。
  * 客服（及资料员）：售价低于第一档不变（按实际：空间 90 + 域名首年 80 / 次年 90）；从第一档起按档位成本。
- * 技术：同上，售价 ≥ tech_from 时再 + tech_extra；exclude_roles 中的岗位（资料员）按客服口径。
+ * 技术：不按档位，成本 = 实际成本；售价 ≥ tech_from（400）时再 + tech_extra（100）（《PHPweb程序成本区间表》“技术PHP成本：售价400元以上成本+100”）；
+ *       exclude_roles 中的岗位（资料员）按客服口径。
  * 仅影响个人提成的成本基数，订单毛利仍按实际成本。
  */
 function ps_php_cost_default()
@@ -207,9 +208,10 @@ function ps_php_cost_for($contract, $group, $role, $actual)
     if (!$config['enabled'] || (float)$actual <= 0) return [(float)$actual, ''];
     $cost = (float)$actual;
     $label = '';
-    foreach ($config['bands'] as $band) if ((float)$contract >= $band['from']) { $cost = $band['cost']; $label = '售价≥' . money_plain($band['from']); }
     $isTech = $group === 'technical';
     foreach ($config['exclude_roles'] as $excluded) if ($excluded !== '' && mb_strpos((string)$role, $excluded) !== false) $isTech = false;
+    // 技术不套客服的档位表：只有售价 ≥ tech_from 才在实际成本上加 tech_extra
+    if (!$isTech) foreach ($config['bands'] as $band) if ((float)$contract >= $band['from']) { $cost = $band['cost']; $label = '售价≥' . money_plain($band['from']); }
     $extra = $isTech && $config['tech_extra'] > 0 && (float)$contract >= $config['tech_from'] ? $config['tech_extra'] : 0.0;
     $cost = round($cost + $extra, 2);
     if (abs($cost - (float)$actual) < 0.005) return [$cost, ''];

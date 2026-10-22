@@ -70,7 +70,7 @@ $reportIds = array_map('intval', array_column($files, 'id'));
 if ($reportIds) foreach (db()->query("SELECT entity_id,details_json FROM project_audit_logs WHERE entity_type='import_file' AND action='import_result' AND entity_id IN (" . implode(',', $reportIds) . ') ORDER BY id DESC') as $r) {
     if (!isset($resultReports[(int)$r['entity_id']])) $resultReports[(int)$r['entity_id']] = json_decode($r['details_json'], true) ?: [];
 }
-$pendingFiles = count(array_filter($files, function ($f) use ($resultReports) { return $f['status'] === 'preview' || !empty($resultReports[(int)$f['id']]['pending']) || (empty($resultReports[(int)$f['id']]) && (int)$f['skipped_count'] > 0); }));
+$pendingFiles = count(array_filter($files, function ($f) use ($resultReports) { return $f['status'] === 'preview' || (!empty($resultReports[(int)$f['id']]['pending']) || !empty($resultReports[(int)$f['id']]['conflict'])) || (empty($resultReports[(int)$f['id']]) && (int)$f['skipped_count'] > 0); }));
 $uploaders = ($isFinance || $isManagement) ? db()->query('SELECT DISTINCT e.id,e.name,e.department FROM project_import_files f JOIN employees e ON e.id=f.employee_id ORDER BY e.department,e.name')->fetchAll() : [];
 $businesses = array_keys(array_filter(ps_business_catalog(), function ($d) { return empty($d['legacy']); }));
 $admins = [];
@@ -133,6 +133,29 @@ include __DIR__ . '/../includes/header.php';
 (function () {
   var box = document.getElementById('sheetSearch'), rows = document.querySelectorAll('#sheetTable tr:not(.is-head)');
   box.addEventListener('input', function () { var k = box.value.trim().toLowerCase(); rows.forEach(function (tr) { tr.hidden = k !== '' && tr.textContent.toLowerCase().indexOf(k) === -1; }); });
+  // 只读查看里的金额求和：点单元格多选（再点取消），点表头选整列；也可在下拉里直接选整列求和（只算当前没被搜索过滤掉的行）
+  var tbl = document.getElementById('sheetTable'); if (!tbl || !window.SheetSum) return;
+  var wrap = tbl.closest('.project-sheet-wrap'), headRow = tbl.querySelector('tr.is-head');
+  var bar = SheetSum.bar(function (el) { wrap.parentNode.insertBefore(el, wrap.nextSibling); });
+  var bodyRows = function () { return [].filter.call(tbl.querySelectorAll('tr:not(.is-head)'), function (tr) { return !tr.hidden; }); };
+  var colVals = function (i) { return bodyRows().map(function (tr) { var c = tr.children[i]; return c ? c.textContent : ''; }); };
+  function sums() { var on = tbl.querySelectorAll('td.is-sel'); bar.showSel([].map.call(on, function (td) { return td.textContent; }), ''); }
+  tbl.addEventListener('click', function (e) {
+    var td = e.target.closest('td'); if (!td) return;
+    var tr = td.parentNode, i = [].indexOf.call(tr.children, td);
+    if (tr === headRow) {
+      var cells = bodyRows().map(function (r) { return r.children[i]; }).filter(Boolean), allOn = cells.length && cells.every(function (c) { return c.classList.contains('is-sel'); });
+      cells.forEach(function (c) { c.classList.toggle('is-sel', !allOn); });
+    } else td.classList.toggle('is-sel');
+    sums();
+  });
+  var list = [];
+  if (headRow) [].forEach.call(headRow.children, function (th, i) {
+    if (i === 0) return; var v = [].map.call(tbl.querySelectorAll('tr:not(.is-head)'), function (tr) { return tr.children[i] ? tr.children[i].textContent : ''; });
+    if (SheetSum.isAmountColumn(v)) list.push({ label: th.textContent.trim() || ('列' + i), get: function () { return colVals(i); } });
+  });
+  bar.setColumns(list);
+  box.addEventListener('input', function () { bar.refresh(); });
 })();
 </script>
 <?php endif; ?>
@@ -153,8 +176,8 @@ include __DIR__ . '/../includes/header.php';
   <td data-label="上传人"><?php echo e($uploaderText($f)); ?><?php if (!empty($f['department'])): ?><div class="small text-muted"><?php echo e($f['department']); ?></div><?php endif; ?></td>
   <td data-label="上传时间" class="text-nowrap"><?php echo e(substr($f['created_at'], 0, 16)); ?></td>
   <td data-label="工作表" class="small"><?php echo e($f['sheets_used'] ?: '—'); ?></td>
-  <td data-label="结果"><?php $report = $resultReports[(int)$f['id']] ?? []; if ($report): ?><span class="badge badge-<?php echo $report['pending'] ? 'warning' : 'success'; ?>"><?php echo $report['pending'] ? '待补全 ' . (int)$report['pending'] . ' 行' : '核对完成'; ?></span><div class="small text-muted">对应 <?php echo count($report['order_ids']); ?> 单 · 本次写入 <?php echo (int)$report['written']; ?> · 已在库 <?php echo (int)$report['existing']; ?></div><?php else: ?><?php echo $f['status'] === 'imported' ? '<span class="badge badge-success">已导入 ' . (int)$f['imported_count'] . ' 单</span>' . ((int)$f['skipped_count'] ? ' <span class="small text-muted">跳过 ' . (int)$f['skipped_count'] . '</span>' : '') : '<span class="badge badge-warning">待确认导入 · 仅预览</span>'; ?><?php endif; ?></td>
-  <td class="text-nowrap"><div class="mb-2"><?php if ($f['status'] === 'preview' || !empty($report['pending']) || (!$report && (int)$f['skipped_count'] > 0)): ?><a class="btn btn-sm btn-warning" href="<?php echo BASE_URL; ?>/project/import.php?resume_file=<?php echo (int)$f['id']; ?>">继续导入</a><?php endif; ?><?php if (!empty($report['order_ids'])): ?> <a class="btn btn-sm btn-success" href="<?php echo BASE_URL; ?>/project/index.php?import_file=<?php echo (int)$f['id']; ?>">对应订单</a><?php endif; ?></div><a class="btn btn-sm btn-outline-primary" href="<?php echo BASE_URL; ?>/project/files.php?<?php echo e(http_build_query(array_merge($_GET, ['view' => (int)$f['id']]))); ?>">查看</a> <a class="btn btn-sm btn-outline-secondary" href="<?php echo BASE_URL; ?>/project/files.php?download=<?php echo (int)$f['id']; ?>">下载</a> <form method="post" class="d-inline" onsubmit="return confirmFileDelete(this, <?php echo (int)$f['imported_count']; ?>);"><input type="hidden" name="csrf" value="<?php echo e(ps_csrf_token()); ?>"><input type="hidden" name="action" value="delete_file"><input type="hidden" name="file_id" value="<?php echo (int)$f['id']; ?>"><button class="btn btn-sm btn-outline-danger" type="submit" title="只删除原始表格文件，不动已导入的订单">删除原件</button></form><?php if (!empty($report['written_order_ids'])): ?> <button type="button" class="btn btn-sm btn-outline-warning js-undo-upload" data-file="<?php echo (int)$f['id']; ?>" title="撤回这张表格新建的、还没结算的订单">撤销上传</button><?php endif; ?></td>
+  <td data-label="结果"><?php $report = $resultReports[(int)$f['id']] ?? []; if ($report): ?><span class="badge badge-<?php echo ($report['pending'] || !empty($report['conflict'])) ? 'warning' : 'success'; ?>"><?php echo ($report['pending'] || !empty($report['conflict'])) ? trim(($report['pending'] ? '待补全 ' . (int)$report['pending'] . ' 行 ' : '') . (!empty($report['conflict']) ? '与原单不一致，待财务核对 ' . (int)$report['conflict'] . ' 行' : '')) : '核对完成'; ?></span><div class="small text-muted">对应 <?php echo count($report['order_ids']); ?> 单 · 本次写入 <?php echo (int)$report['written']; ?> · 已在库 <?php echo (int)$report['existing']; ?></div><?php else: ?><?php echo $f['status'] === 'imported' ? '<span class="badge badge-success">已导入 ' . (int)$f['imported_count'] . ' 单</span>' . ((int)$f['skipped_count'] ? ' <span class="small text-muted">跳过 ' . (int)$f['skipped_count'] . '</span>' : '') : '<span class="badge badge-warning">待确认导入 · 仅预览</span>'; ?><?php endif; ?></td>
+  <td class="text-nowrap"><div class="mb-2"><?php if ($f['status'] === 'preview' || !empty($report['pending']) || !empty($report['conflict']) || (!$report && (int)$f['skipped_count'] > 0)): ?><a class="btn btn-sm btn-warning" href="<?php echo BASE_URL; ?>/project/import.php?resume_file=<?php echo (int)$f['id']; ?>">继续导入</a><?php endif; ?><?php if (!empty($report['order_ids'])): ?> <a class="btn btn-sm btn-success" href="<?php echo BASE_URL; ?>/project/index.php?import_file=<?php echo (int)$f['id']; ?>">对应订单</a><?php endif; ?></div><a class="btn btn-sm btn-outline-primary" href="<?php echo BASE_URL; ?>/project/files.php?<?php echo e(http_build_query(array_merge($_GET, ['view' => (int)$f['id']]))); ?>">查看</a> <a class="btn btn-sm btn-outline-secondary" href="<?php echo BASE_URL; ?>/project/files.php?download=<?php echo (int)$f['id']; ?>">下载</a> <form method="post" class="d-inline" onsubmit="return confirmFileDelete(this, <?php echo (int)$f['imported_count']; ?>);"><input type="hidden" name="csrf" value="<?php echo e(ps_csrf_token()); ?>"><input type="hidden" name="action" value="delete_file"><input type="hidden" name="file_id" value="<?php echo (int)$f['id']; ?>"><button class="btn btn-sm btn-outline-danger" type="submit" title="只删除原始表格文件，不动已导入的订单">删除原件</button></form><?php if (!empty($report['written_order_ids'])): ?> <button type="button" class="btn btn-sm btn-outline-warning js-undo-upload" data-file="<?php echo (int)$f['id']; ?>" title="撤回这张表格新建的、还没结算的订单">撤销上传</button><?php endif; ?></td>
 </tr><?php endforeach; ?>
 <?php if (!$files): ?><tr><td colspan="7" class="text-center text-muted py-4">还没有上传过的表格。合作人员在“拖拽上传 Excel”上传后会自动出现在这里。</td></tr><?php endif; ?>
 </tbody></table></div></div>

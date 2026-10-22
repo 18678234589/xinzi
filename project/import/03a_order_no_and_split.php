@@ -108,6 +108,17 @@
                         $record['order_no'] = trim((string)$fixOrderNos[$record['line']]);
                         $record['warning'] = '订单号由上传人在预览中补填，请核对原始交易记录';
                     }
+                    // 对公收款没有店铺订单号：订单编号写“对公”（或留空、店铺写对公）即可，没有交易流水号时按“日期 + 付款昵称 + 售价 + 序号”生成稳定的内部号（DG-…），重传不重复建单
+                    if ($record['order_no'] === '' && $record['payment_reference'] === '' && trim((string)($fixOrderNos[$record['line']] ?? '')) === '' && (!empty($record['public_transfer']) || preg_match('/对公|公账/u', (string)$lookup($row, 'shop')))) {
+                        $dgDate = ps_import_date($lookup($row, 'order_date')); $dgNick = trim((string)$lookup($row, 'payment_nickname')); $dgAmt = preg_replace('/[^\d.]/', '', (string)$lookup($row, 'contract_amount'));
+                        if ($dgDate && $dgNick !== '' && $dgAmt !== '') {
+                            $dgKey = $selectedBusiness . '|' . $dgDate . '|' . mb_strtolower($dgNick) . '|' . (float)$dgAmt;
+                            $wxSeq['dg|' . $dgKey] = ($wxSeq['dg|' . $dgKey] ?? 0) + 1;
+                            $record['order_no'] = 'DG-' . strtoupper(substr(hash('sha256', $dgKey . '|' . $wxSeq['dg|' . $dgKey]), 0, 12));
+                            $record['public_transfer'] = true;
+                            $record['warning'] .= ($record['warning'] ? '；' : '') . '对公收款没有填对公编码：已按“日期 + 付款昵称 + 售价”临时生成内部关联号，请在“流水号/对公编码”列补上对公编码（对账用）';
+                        }
+                    }
                     if ($record['order_no'] === '' && $record['payment_reference'] !== '') {
                         $record['order_no'] = ps_payment_reference_order_no($selectedBusiness, $record['payment_reference']);
                         $record['warning'] .= ($record['warning'] ? '；' : '') . '无店铺订单号，已按微信交易流水号生成内部关联号';

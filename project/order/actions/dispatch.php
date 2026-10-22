@@ -4,6 +4,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     try {
         $action = (string)($_POST['action'] ?? '');
         $finance = $actor['role'] === 'finance';
+        $reviewer = $finance || pbr_can_review_order($actor, $order); // 授权审核人员只开放成本审核和资源确认
         if (!in_array($action, ['approve_order', 'post_adjustment', 'set_order_kind', 'submit_commission_correction', 'reassign_backend_approved'], true)) {
             db()->beginTransaction();
             $lock = db()->prepare('SELECT settlement_status FROM project_orders WHERE id=? FOR UPDATE');
@@ -11,7 +12,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $currentStatus = $lock->fetchColumn();
             if ($currentStatus === false || in_array($currentStatus, ['approved','locked'], true)) throw new RuntimeException('订单已审核，修改须走调整流程');
             $isDeliveryAction = in_array($action, ['mark_delivery_finished', 'review_delivery_completion'], true) && ps_can_mark_delivery_finished($actor);
-            if (!$finance && !$isDeliveryAction && !in_array($action, ['claim_backend', 'add_software_tester'], true)) {
+            if (!$finance && !$isDeliveryAction && !in_array($action, ['claim_backend', 'add_software_tester'], true) && !($reviewer && in_array($action, ['review_cost', 'confirm_resources'], true))) {
                 $access = db()->prepare('SELECT 1 FROM project_participants WHERE order_id=? AND employee_id=? LIMIT 1');
                 $access->execute([$id, $actor['employee_id']]);
                 if (!$access->fetchColumn()) throw new RuntimeException('已不再参与此订单，请刷新页面');

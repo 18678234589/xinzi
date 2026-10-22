@@ -48,6 +48,15 @@ function pspr_month($employeeId, $month, $sheetRow = null)
     return ['net' => $net, 'paid' => round($paid, 2), 'pending' => $pending, 'remaining' => round($net - $paid, 2), 'claimed' => round($claimed, 2), 'amount' => round($net - $claimed, 2), 'request' => $request, 'pending_n' => (int)($row['pending_n'] ?? 0)];
 }
 
+/** 该月财务是否已有核对记录（红 / 黄 / 绿均算）；财务 / 管理员代申请不受限。 */
+function pspr_month_checked($employeeId, $month)
+{
+    $viewer = function_exists('ps_actor') ? ps_actor() : null;
+    if ($viewer && (($viewer['type'] ?? '') === 'admin' || ($viewer['role'] ?? '') === 'finance')) return true;
+    ppf_ensure();
+    return isset(ppf_all($month)[(int)$employeeId]);
+}
+
 function pspr_status($employeeId, $month, $sheetRow = null)
 {
     $m = pspr_month($employeeId, $month, $sheetRow);
@@ -59,6 +68,9 @@ function pspr_status($employeeId, $month, $sheetRow = null)
         $m['label'] = '当月暂不可申请'; $m['reason'] = '只能申请往月实结算';
     } elseif ($m['amount'] <= 0) {
         $m['label'] = '无剩余可申请金额'; $m['reason'] = '本月没有剩余可申请金额';
+    } elseif (!pspr_month_checked($employeeId, $month)) {
+        // 财务还没核对过的往月（如已在原工资表发放的月份）不给本人申请，避免固定服务费等被凭空再算一遍
+        $m['label'] = '财务尚未核对该月'; $m['reason'] = '该月财务还没有核对结算金额（可能已在原工资表发放），暂不能申请；如需申请请联系财务';
     } else {
         $m['can_apply'] = true; $m['label'] = '申请整月实结算'; $m['reason'] = '';
         if (!ppf_is_green($employeeId, $month)) {

@@ -1,5 +1,5 @@
 <?php
-// PHPweb 程序成本区间表：客服 / 资料员按售价档位计 PHP 成本，技术售价 ≥400 再 +100；订单毛利仍按实际成本。
+// PHPweb 程序成本区间表：客服 / 资料员按售价档位计 PHP 成本；技术不套档位，成本 = 实际成本，售价 ≥400 才 +100；订单毛利仍按实际成本。
 if (PHP_SAPI !== 'cli') { http_response_code(403); exit; }
 require_once __DIR__ . '/../includes/ProjectIntake.php';
 require_once __DIR__ . '/../includes/ProjectPresets.php';
@@ -22,7 +22,7 @@ try {
     foreach ([[100, 170], [149, 170], [150, 100], [268, 100], [269, 150], [399, 150], [400, 200], [599, 250], [799, 300], [1199, 400], [1599, 500], [1999, 600], [2399, 700]] as [$price, $cost]) {
         check_php(ps_php_cost_for($price, 'customer_service', '客服', 170)[0], $cost, "客服 售价 $price");
         check_php(ps_php_cost_for($price, 'technical', '资料员', 170)[0], $cost, "资料员 售价 $price");
-        check_php(ps_php_cost_for($price, 'technical', '模板技术', 170)[0], $cost + ($price >= 400 ? 100 : 0), "技术 售价 $price");
+        check_php(ps_php_cost_for($price, 'technical', '模板技术', 170)[0], 170 + ($price >= 400 ? 100 : 0), "技术 售价 $price");
     }
 
     $order = ['project_type' => '网站模板', 'order_kind' => '新订单', 'contract_amount' => 500, 'receipt_amount' => 500, 'refund_amount' => 0, 'order_date' => '2026-09-15'];
@@ -38,9 +38,9 @@ try {
     check_php($sum['profit'], 315, '订单毛利按实际成本');
     if (mb_strpos($sum['groups']['technical']['people'][0]['calc']['note'], 'PHP 成本按区间表 250') === false) throw new RuntimeException('算式应注明 PHP 区间成本');
 
-    // 模板技术：(500 − 350 − 15) × 13% = 17.55
+    // 模板技术：成本 = 实际 170 + 100 = 270：(500 − 270 − 15) × 13% = 27.95
     $people[0]['role_name'] = '模板技术';
-    check_php(ps_summary($order, $costs, $people)['groups']['technical']['people'][0]['calc']['share'], 17.55, '模板技术 +100');
+    check_php(ps_summary($order, $costs, $people)['groups']['technical']['people'][0]['calc']['share'], 27.95, '模板技术 实际成本 +100');
 
     // 非 PHP 程序不受影响：优站 230 → (500 − 230 − 15) × 13% = 33.15
     $costs[0]['item_name'] = '优站 · 1年 空间+域名'; $costs[0]['amount'] = 230;

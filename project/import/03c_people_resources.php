@@ -157,6 +157,8 @@
                         $record['status'] = '需确认域名';
                         $record['warning'] = '域名使用未明确写是/否，请在下方选择';
                     }
+                    // 空间来源写“客户自有空间”：系统照常按程序套餐 / 成本列核算，提示财务核对空间成本（套餐成本里含空间）
+                    if (preg_match('/客户|自有|自备/u', (string)($record['details']['space_source'] ?? ''))) $record['warning'] .= ($record['warning'] ? '；' : '') . '空间来源为客户自有空间，空间成本请财务核对';
                     if ($record['existing_order_id']) $record['warning'] .= ($record['warning'] ? '；' : '') . '将补充到同一订单号，不会新建订单';
                     if (is_numeric($record['ssl_used']) && (float)$record['ssl_used'] > 0) $record['warning'] .= ($record['warning'] ? '；' : '') . 'SSL 实际成本需创建后补凭证'
     ;

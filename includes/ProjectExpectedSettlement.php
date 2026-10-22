@@ -132,7 +132,7 @@ function ps_expected_month($month)
     foreach (ps_payroll_extras($month) as $eid => $x) {
         foreach ($x['items'] as $it) {
             $amt = (float)$it['amount'];
-            if (abs($amt) < 0.005) continue;
+            if (abs($amt) < 0.005 || ps_manual_payable_only($it)) continue; // 仅调应结算的项不进预期收入
             $lbl = (string)$it['label'];
             $isShare = ps_manual_item_slot($lbl, $amt) === 'share';
             $monthly[] = [

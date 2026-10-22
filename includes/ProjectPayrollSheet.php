@@ -80,7 +80,10 @@ function pps_sheet($month, $onlyEmployeeId = 0, $withProfile = false)
             $amount = (float)$item['amount'];
             $label = (string)$item['label'];
             $slot = ps_manual_item_slot($label, $amount);
-            if (in_array($slot, ['parking', 'reserve', 'deduct'], true)) $p[$slot] += -$amount;
+            if (ps_manual_payable_only($item)) { // 只调应结算：计入对应收入栏，同时用 net_adj 抵回，实结算不变
+                if (in_array($slot, ['parking', 'reserve', 'deduct'], true)) $slot = 'share';
+                $p[$slot] += $amount; $p['net_adj'] = ($p['net_adj'] ?? 0.0) - $amount;
+            } elseif (in_array($slot, ['parking', 'reserve', 'deduct'], true)) $p[$slot] += -$amount;
             else $p[$slot] += $amount; // 负数的分成 / 提成项直接减项目分成（应发同步减少） // 手工录入的“xx业务分成 / 提成”记在项目分成一栏 // 网站客服的“补单提成”在报酬表里记在固定服务费一栏
             if ($withProfile) $p['items'][] = ['id' => (int)$item['id'], 'label' => $label, 'amount' => $amount, 'note' => (string)$item['note'], 'automatic' => !empty($item['automatic'])];
             $p['notes'][] = $label . ' ' . ($amount < 0 ? '-' : '+') . '¥' . number_format(abs($amount), 2, '.', '') . ($item['note'] !== '' ? '（' . $item['note'] . '）' : '');
@@ -107,7 +110,7 @@ function pps_sheet($month, $onlyEmployeeId = 0, $withProfile = false)
     foreach ($people as $p) {
         foreach ($cols as $c) $p[$c] = round($p[$c], 2);
         $p['payable'] = round($p['base'] + $p['share'] + $p['bonus'] + $p['mgr'] + $p['lead'] + $p['ins_sub'] + $p['other'], 2);
-        $p['net'] = round($p['payable'] - $p['deduct'] - $p['parking'] - $p['reserve'] - $p['unit_ins'] - $p['personal_ins'], 2);
+        $p['net'] = round($p['payable'] - $p['deduct'] - $p['parking'] - $p['reserve'] - $p['unit_ins'] - $p['personal_ins'] + ($p['net_adj'] ?? 0.0), 2);
         if (abs($p['payable']) + abs($p['net']) + $p['deduct'] + $p['parking'] + $p['reserve'] + $p['unit_ins'] + $p['personal_ins'] < 0.005) continue;
         if ($withProfile) $p['profile'] = ($profiles[$p['id']] ?? []) + ppp_blank();
         $fl = $flags[$p['id']] ?? null;
@@ -177,6 +180,34 @@ function pps_pending($month, $onlyEmployeeId = 0)
 }
 
 /** 可选月份：上月起往前 6 个月，本月也可看（未结算的月份显示的是实时预计）。 */
+/**
+ * 首页 / 经营看板 / 报酬结算页的默认月份：平时是上月；上月已全部结算后自动换成当月。
+ * 全部结算 = 该月没有待处理的结算申请，且报酬表里每个实结算大于 0 的人都已打款（已结算申请合计 ≥ 实结算）。
+ * 便宜的检查（有无待处理 / 已结算申请）每次都做，逐人核对的结果按“已结算申请数 + 最新编号”缓存 5 分钟。
+ */
+function pps_default_month()
+{
+    static $month = null;
+    if ($month !== null) return $month;
+    $last = date('Y-m', strtotime('first day of last month'));
+    $month = $last;
+    try {
+        $q = db()->prepare("SELECT COALESCE(SUM(status='pending'),0) pend, COALESCE(SUM(status='settled'),0) done, COALESCE(MAX(CASE WHEN status='settled' THEN id END),0) maxid FROM project_settlement_requests WHERE payroll_month=?");
+        $q->execute([$last]); $s = $q->fetch();
+        if (!$s || (int)$s['pend'] > 0 || (int)$s['done'] === 0) return $month;
+        $cache = sys_get_temp_dir() . '/pps_default_' . $last . '_' . (int)$s['done'] . '_' . (int)$s['maxid'] . '.txt';
+        if (is_file($cache) && time() - (int)filemtime($cache) < 300) return $month = (trim((string)file_get_contents($cache)) === '1') ? date('Y-m') : $last;
+        $paid = [];
+        $pq = db()->prepare("SELECT employee_id, SUM(amount) FROM project_settlement_requests WHERE payroll_month=? AND status='settled' GROUP BY employee_id");
+        $pq->execute([$last]); foreach ($pq->fetchAll(PDO::FETCH_NUM) as $r) $paid[(int)$r[0]] = (float)$r[1];
+        $all = true;
+        foreach (pps_sheet($last)['rows'] as $row) if ((float)$row['net'] > 0.004 && ($paid[(int)$row['id']] ?? 0.0) < (float)$row['net'] - 0.01) { $all = false; break; }
+        @file_put_contents($cache, $all ? '1' : '0');
+        if ($all) $month = date('Y-m');
+    } catch (Throwable $e) { $month = $last; }
+    return $month;
+}
+
 function pps_months()
 {
     $out = [date('Y-m')];
@@ -187,10 +218,23 @@ function pps_months()
 /** 报酬表表头（key => 名称）：首页报酬表与看板“整月结算申请”共用。 */
 function pps_heads()
 {
-    return [['days', '到岗天数'], ['base', '固定服务费'], ['share', '项目分成'], ['bonus', '全勤奖'], ['mgr', '经理补助'], ['lead', '组长补助'], ['ins_sub', '保险补助'], ['other', '其他补助 / 延时服务'], ['payable', '应结算'], ['deduct', '扣款'], ['parking', '车位费'], ['reserve', '扣风险预留金'], ['unit_ins', '单位保险'], ['personal_ins', '代扣保险'], ['net', '实结算']];
+    // 列序按“用户最想看的在最左”：应结算、实结算紧跟姓名，再是收入构成，最后是各项扣减。
+    return [['payable', '应结算'], ['net', '实结算'], ['share', '项目分成'], ['base', '固定服务费'], ['bonus', '全勤奖'], ['days', '到岗天数'], ['mgr', '经理补助'], ['lead', '组长补助'], ['ins_sub', '保险补助'], ['other', '其他补助 / 延时服务'], ['deduct', '扣款'], ['parking', '车位费'], ['reserve', '扣风险预留金'], ['unit_ins', '单位保险'], ['personal_ins', '代扣保险']];
 }
 
-function pps_cell($v, $class = '')
+function pps_cell($v, $class = '', $key = '')
 {
-    return '<td class="pps-n' . ($class ? ' ' . $class : '') . '" data-v="' . (float)$v . '">' . (abs((float)$v) < 0.005 ? '<span class="pps-zero">—</span>' : number_format((float)$v, 2)) . '</td>';
+    return '<td class="pps-n' . ($class ? ' ' . $class : '') . '"' . ($key !== '' ? ' data-c="' . $key . '"' : '') . ' data-v="' . (float)$v . '">' . (abs((float)$v) < 0.005 ? '<span class="pps-zero">—</span>' : number_format((float)$v, 2)) . '</td>';
+}
+
+/** 到岗天数格：天数 + “+延时天数”；没有记录显示 —。 */
+function pps_days_cell($r)
+{
+    return '<td class="pps-n" data-c="days">' . (($r['days'] ?? null) === null ? '<span class="pps-zero">—</span>' : rtrim(rtrim(number_format($r['days'], 2), '0'), '.') . (($r['ot_days'] ?? 0) > 0 ? '<small class="pps-ot"> +' . rtrim(rtrim(number_format($r['ot_days'], 2), '0'), '.') . '</small>' : '')) . '</td>';
+}
+
+/** 各列的样式类：应结算 / 实结算突出，扣减项用暖色。 */
+function pps_cell_class($k)
+{
+    return $k === 'payable' ? 'pps-key' : ($k === 'net' ? 'pps-key pps-net' : (in_array($k, ['deduct', 'parking', 'reserve', 'unit_ins', 'personal_ins'], true) ? 'pps-cut' : ''));
 }

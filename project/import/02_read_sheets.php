@@ -80,6 +80,28 @@
                 $head = $raw ? array_map(function ($v) { return trim((string)$v); }, array_shift($raw)) : [];
                 if ($head) $head[0] = preg_replace('/^\xEF\xBB\xBF/', '', $head[0] ?? '');
                 $entry = ['raw' => $raw, 'head' => $head, 'map' => null, 'reason' => '', 'ai' => '', 'line_base' => 2];
+                // 新模板“编号类型”下拉（淘宝订单编号 / 微信交易流水号 / 对公转账编号）+ 订单编号列粘贴编号：按类型归到对应字段。
+                // 微信交易流水号、对公转账编号 → 编号进“支付流水号”（对公再把订单编号写成“对公”）；淘宝订单编号 / 没选类型 → 照旧当订单号。没有这一列的老表不受影响。
+                $numKindIdx = array_search('编号类型', $head, true);
+                if ($numKindIdx !== false) {
+                    $numIdx = false; foreach (['订单编号', '订单号', '编号'] as $numHead) { $found = array_search($numHead, $head, true); if ($found !== false) { $numIdx = $found; break; } }
+                    $refIdx = false; foreach (['微信交易流水号', '对公编码', '支付流水号', '付款流水号', '对公交易号'] as $refHead) { $found = array_search($refHead, $head, true); if ($found !== false) { $refIdx = $found; break; } }
+                    if ($numIdx !== false) {
+                        $virtualRef = $refIdx === false;
+                        if ($virtualRef) { $refIdx = count($head); $head[] = '微信交易流水号'; }
+                        $raw = array_map(function ($r) use ($numKindIdx, $numIdx, $refIdx) {
+                            if (!is_array($r)) return $r;
+                            $r = array_pad(array_values($r), $refIdx + 1, '');
+                            $kind = trim((string)$r[$numKindIdx]); $code = trim((string)$r[$numIdx]);
+                            if ($kind !== '' && $code !== '' && !preg_match('/^(对公|公对公|公账)/u', $code)) {
+                                if (preg_match('/对公/u', $kind)) { $r[$refIdx] = $code; $r[$numIdx] = '对公'; }
+                                elseif (preg_match('/微信|流水/u', $kind)) { $r[$refIdx] = $code; $r[$numIdx] = ''; }
+                            } elseif ($kind !== '' && $code === '' && preg_match('/对公/u', $kind)) { $r[$numIdx] = '对公'; }
+                            return $r;
+                        }, $raw);
+                        $entry['raw'] = $raw; $entry['head'] = $head;
+                    }
+                }
                 // 森动备案“二次备案”分表 / 备案-单量表没有订单编号列：按“域名 + 联系方式”生成稳定的内部订单号
                 // （二次备案 EB-…、备案-单量 BA-…，业务名参与散列避免跨业务撞号），同一行重复上传不会重复建单。
                 if (in_array($selectedBusiness, ['森动备案', '备案-单量'], true) && $head && in_array('域名', $head, true) && !array_intersect(['订单编号', '订单号'

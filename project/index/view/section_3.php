@@ -1,5 +1,5 @@
 <?php $writingLabelMap = psw_list_labels($orders, $actor); ?>
-    <label class="small text-muted mb-1" for="month"><?php echo $dateBasis === 'created_at' ? '录入月份' : '订单月份'; ?></label>
+    <label for="month"><?php echo $dateBasis === 'created_at' ? '录入月份' : '订单月份'; ?></label>
     <div class="input-group">
       <input class="form-control" type="month" name="month" id="month" value="<?php echo e($month); ?>">
       <div class="input-group-append">
@@ -8,7 +8,7 @@
       </div>
     </div>
   </div>
-  <div class="col-md-2 mb-2"><label class="small text-muted mb-1" for="dateBasis">查看方式</label><select class="form-control" id="dateBasis" name="date_basis"><option value="order_date" <?php
+  <div class="pi-f pi-adv"><label for="dateBasis">查看方式</label><select class="form-control" id="dateBasis" name="date_basis"><option value="order_date" <?php
     echo $dateBasis === 'order_date' ? 'selected' : ''; ?>>按订单日期</option><option value="created_at" <?php echo $dateBasis === 'created_at' ? 'selected' : ''; ?>>最近录入 / 导入</option></select></div>
   <?php
   $filterCatalog = [];
@@ -23,26 +23,27 @@
   }
   if ($participationOnly && $filterBusiness !== '' && !isset($filterCatalog[$filterBusiness])) $filterCatalog[$filterBusiness] = [];
   ?>
-  <div class="col-md-2 mb-2"><label class="small text-muted mb-1" for="filterBusiness">业务</label><select class="form-control" name="filter_business" id="filterBusiness"><option value="">全部业务</option><?php
+  <div class="pi-f"><label for="filterBusiness">业务</label><select class="form-control" name="filter_business" id="filterBusiness"><option value="">全部业务</option><?php
     foreach ($filterCatalog as $businessName => $definition): ?><option value="<?php echo e($businessName); ?>" <?php echo $filterBusiness === $businessName ? 'selected' : ''; ?>><?php
     echo e($businessName); ?></option><?php endforeach; ?></select></div>
-  <?php if ($deptChoices): ?><div class="col-md-2 mb-2"><label class="small text-muted mb-1" for="filterDepartment">部门</label><select class="form-control" name="filter_department" id="filterDepartment"><option value="">全部部门</option><?php
+  <?php if ($deptChoices): ?><div class="pi-f pi-adv"><label for="filterDepartment">部门</label><select class="form-control" name="filter_department" id="filterDepartment"><option value="">全部部门</option><?php
     foreach ($deptChoices as $deptName): ?><option value="<?php echo e($deptName); ?>" <?php echo $filterDepartment === $deptName ? 'selected' : ''; ?>><?php echo e($deptName); ?></option><?php endforeach; ?></select></div><?php endif; ?>
-  <div class="col-md-2 mb-2"><label class="small text-muted mb-1" for="filterCheck">系统核对</label><select class="form-control" id="filterCheck" name="check"><option value="">全部核对状态</option><?php
+  <div class="pi-f"><label for="filterCheck">系统核对</label><select class="form-control" id="filterCheck" name="check"><option value="">全部核对状态</option><?php
     foreach(['wait_sync','wait_finance','wait_data','exception','ready','auto_passed','spot_check','settled','queued'] as $checkState): $checkMeta=pa_state_meta($checkState); ?><option value="<?php
     echo e($checkState); ?>" <?php echo $filterReview===$checkState?'selected':''; ?>><?php echo e($checkMeta[0]); ?>（<?php echo (int)($reviewCounts[$checkState]??0); ?>）</option><?php
     endforeach; ?></select></div>
-  <div class="col-md-2 mb-2"><label class="small text-muted mb-1" for="filterState">状态</label><select class="form-control" name="state" id="filterState"><option value="">全部</option><option value="unfinished" <?php
+  <div class="pi-f"><label for="filterState">状态</label><select class="form-control" name="state" id="filterState"><option value="">全部</option><option value="unfinished" <?php
     echo $filterState === 'unfinished' ? 'selected' : ''; ?>>交付未完成</option><option value="finished" <?php echo $filterState === 'finished' ? 'selected' : ''; ?>>交付已完成</option><option value="pending_backend" <?php
     echo $filterState === 'pending_backend' ? 'selected' : ''; ?>>待指定后端</option><option value="pending_delivery" <?php echo $filterState === 'pending_delivery' ? 'selected'
     : ''; ?>>待交付审核</option><option value="pending_upgrade" <?php echo $filterState === 'pending_upgrade' ? 'selected' : ''; ?>>待升级审核</option><option value="todo" <?php
     echo $filterState === 'todo' ? 'selected' : ''; ?>>有待办</option><option value="open" <?php echo $filterState === 'open' ? 'selected' : ''; ?>>未审核</option><option value="approved" <?php
-    echo $filterState === 'approved' ? 'selected' : ''; ?>>已审核</option><option value="settled" <?php echo $filterState === 'settled' ? 'selected' : ''; ?>>已结算（售后中）</option></select></div>
-  <div class="col-md-3 mb-2"><label class="small text-muted mb-1" for="filterQ">搜索（订单号 / 客户 / 付款昵称 / 项目账号）</label><input class="form-control" type="search" name="q" id="filterQ" value="<?php
+    echo $filterState === 'approved' ? 'selected' : ''; ?>>已审核</option><option value="settled" <?php echo $filterState === 'settled' ? 'selected' : ''; ?>>已结算（售后中）</option><option value="missing_price" <?php echo $filterState === 'missing_price' ? 'selected' : ''; ?>>售价待补</option></select></div>
+  <div class="pi-f pi-q"><label for="filterQ">搜索（订单号 / 客户 / 付款昵称 / 项目账号）</label><input class="form-control" type="search" name="q" id="filterQ" value="<?php
     echo e($keyword); ?>" placeholder="订单号、客户、账号、IP、备注…"></div>
-  <div class="col-md-2 mb-2"><button class="btn btn-outline-primary btn-block">筛选</button></div>
-</form></div></div>
-<?php $mine = $actor['role'] !== 'finance' ? '我参与的' : ''; ?><div class="project-totals mb-3"><div><small><?php echo $mine; ?>订单</small><strong><?php echo count($orders)
+  <div class="pi-f pi-go"><button class="pi-btn is-main"><i class="fas fa-search"></i> 筛选</button><button type="button" class="pi-btn" id="piAdvToggle" aria-expanded="false"><i class="fas fa-sliders-h"></i> 更多筛选</button></div>
+</form></div>
+<script>(function(){var f=document.getElementById("piFilter");if(!f)return;var t=document.getElementById("piAdvToggle");var adv=<?php echo ($filterFinance !== "all" && $filterFinance !== null && $actor["role"] === "finance") || $filterDepartment !== "" || $dateBasis !== "order_date" ? "true" : "false"; ?>;function set(v){f.classList.toggle("show-adv",v);t.setAttribute("aria-expanded",v?"true":"false");}set(adv);t.addEventListener("click",function(){set(!f.classList.contains("show-adv"));});f.querySelectorAll("select,input[type=month]").forEach(function(el){el.addEventListener("change",function(){f.submit();});});})();</script>
+<?php $mine = $actor['role'] !== 'finance' ? '我参与的' : ''; ?><div class="pi-kpis"><div><small><?php echo $mine; ?>订单</small><strong><?php echo count($orders)
     ; ?></strong></div><div><small><?php echo $mine; ?>售价合计</small><strong>¥<?php echo money($totals['contract']); ?></strong></div><div><small>已确认净实收</small><strong>¥<?php
     echo money($totals['receipt']); ?></strong></div><div><small>已审核直接成本</small><strong>¥<?php echo money($totals['cost']); ?></strong></div><div class="<?php echo $totals
     ['todo'] ? 'is-alert' : ''; ?>"><small>有待办的订单</small><strong><?php echo $totals['todo']; ?></strong></div></div>
@@ -52,7 +53,7 @@
     ; ?> 条分成更正申请待处理，<a class="alert-link" href="<?php echo BASE_URL; ?>/project/corrections.php">点此查看</a>。</div><?php endif; ?>
 <?php if ($canSelectOrders): ?><form method="post" id="bulkForm"><input type="hidden" name="csrf" value="<?php echo e(ps_csrf_token()); ?>"><input type="hidden" name="return_query" value="<?php
     echo e(http_build_query(array_intersect_key($_GET, array_flip(['month','date_basis','filter_business','filter_finance','filter_department','state','q','page','employee_id','participating'])))); ?>"><?php endif; ?>
-<div class="card"><div class="card-header d-flex justify-content-between align-items-center flex-wrap" style="gap:8px"><span>订单列表（共 <?php echo (int)$totalOrders; ?> 单<?php
+<div class="card pi-list"><div class="card-header d-flex justify-content-between align-items-center flex-wrap" style="gap:8px"><span>订单列表（共 <?php echo (int)$totalOrders; ?> 单<?php
     if ($totalPages > 1): ?>，第 <?php echo (int)$page; ?>/<?php echo (int)$totalPages; ?> 页<?php endif; ?>）</span><?php if ($canSelectOrders && $orders): ?><div class="project-bulk-bar d-flex align-items-center flex-wrap" style="gap:6px"><span class="small text-muted" id="bulkCount">已选 0 单</span><select name="bulk_order_kind" id="bulkOrderKind" class="form-control form-control-sm mr-1" style="width:auto;display:inline-block"><option value="">批量改订单类型...</option><option value="定制">小程序：定制开发（按客户需求开发）</option><option value="新订单">小程序：小程序商城新注册搭建 ｜ 网站模板：模板新建网站</option><option value="续费">小程序：小程序续费（续年费） ｜ 网站模板：网站续费</option><option value="技术服务">小程序：注册公众号、认证等其他服务</option><option value="加购/纯利润">网站模板：加购、补差价（纯利润）</option></select><button class="btn btn-sm btn-outline-primary mr-1" name="bulk_action" value="set_kind" onclick="return confirm('确认把所选订单批量修改为所选订单类型？')"><i class="fas fa-tags mr-1"></i>批量改类型</button><?php
     if ($isFinance || ps_can_mark_delivery_finished($actor)): ?><button class="btn btn-sm btn-outline-success mr-1" name="bulk_action" value="finish" onclick="return confirm('确认把所选订单标记为交付完成？')"><i class="fas fa-check-circle mr-1"></i>标记交付完成</button><?php
     endif; ?><?php if ($isFinance): ?><button class="btn btn-sm btn-outline-success mr-1" name="bulk_action" value="receipt" onclick="return confirm('根据收退款证据和规则核对所选订单？只有资料齐全的未结算订单会自动处理，不会按售价登记实收。')">系统核对</button><input type="month" name="bulk_month" class="form-control form-control-sm mr-1" style="width:150px" value="<?php
@@ -67,7 +68,7 @@
   ?><tr>
     <?php if ($canSelectOrders): ?><td><?php if (!$isLocked || ($canDeleteOrders && $order['settlement_status'] === 'approved')): ?><input type="checkbox" name="ids[]" value="<?php echo (int)
     $order['id']; ?>" class="bulk-item" aria-label="选择 <?php echo e($order['order_no']); ?>"><?php endif; ?></td><?php endif; ?>
-    <td><strong><?php echo e($order['order_no']); ?></strong><?php if (!empty($order['is_department_order'])): ?> <span class="badge badge-success">部门订单</span><?php endif;
+    <td><a class="pi-ono" href="<?php echo BASE_URL; ?>/project/order.php?id=<?php echo (int)$order['id']; ?>" title="打开结算单"><strong><?php echo e($order['order_no']); ?></strong></a><?php if (!empty($order['is_department_order'])): ?> <span class="badge badge-success">部门订单</span><?php endif;
     ?><?php if (!empty($order['split_parent_id']) || !empty($order['split_children'])): ?> <span class="badge badge-info" title="同一订单号由不同业务分别录入，各自按本人金额结算；收款需财务按订单号合并核对">分单</span><?php
     endif; ?><?php $nickText = (string)($order['payment_nickname'] ?: $order['customer_name']); $contactText = (string)($extra['wechat'] ?: $extra['phone']); $nickFromContact = $nickText === '' && $contactText !== ''; ?><div class="small text-muted"><?php if ($nickText !== ''): ?><?php echo e($nickText); ?> <a href="javascript:void(0)" class="js-copy-cell text-secondary" data-text="<?php echo e($nickText); ?>" title="复制付款昵称"><i class="far fa-copy fa-xs"></i></a><?php elseif ($nickFromContact): ?><span class="badge badge-light border mr-1"><?php echo $extra['wechat'] !== '' ? '微信' : '手机'; ?></span><?php echo e($contactText); ?> <a href="javascript:void(0)" class="js-copy-cell text-secondary" data-text="<?php echo e($contactText); ?>" title="复制联系方式"><i class="far fa-copy fa-xs"></i></a><?php else: ?>—<?php endif; ?></div><?php if (!$nickFromContact && ($extra['phone'] !== '' || $extra['wechat'] !== '')): ?><div class="small text-success mt-1" title="客户联系方式"><i class="fas fa-phone-alt fa-xs mr-1"></i><?php echo e($extra['phone'] ?: $extra['wechat']); ?> <a href="javascript:void(0)" class="js-copy-cell text-secondary" data-text="<?php echo e($extra['phone'] ?: $extra['wechat']); ?>" title="复制联系方式"><i class="far fa-copy fa-xs"></i></a><?php if ($canEditOrder): ?> <a href="javascript:void(0)" class="js-quick-trigger text-primary" data-id="<?php echo (int)$order['id']; ?>" data-tab="contact" title="修改联系方式"><i class="fas fa-pen fa-xs"></i></a><?php endif; ?></div><?php elseif ($nickFromContact && $canEditOrder): ?><div class="small mt-1"><a href="javascript:void(0)" class="js-quick-trigger text-primary" data-id="<?php echo (int)$order['id']; ?>" data-tab="contact" title="修改联系方式"><i class="fas fa-pen fa-xs mr-1"></i>改联系方式</a></div><?php elseif ($canEditOrder): ?><div class="small mt-1"><a href="javascript:void(0)" class="text-primary js-quick-trigger" data-id="<?php echo (int)$order['id']; ?>" data-tab="contact" title="添加客户联系方式"><i class="fas fa-plus-circle fa-xs mr-1"></i>加联系方式</a></div><?php endif; ?><?php if (isset($credentialHits[(int)$order['id']
     ])): ?><div class="small"><span class="badge badge-info">项目账号命中</span> <?php echo e($credentialHits[(int)$order['id']]); ?></div><?php endif; ?></td>
@@ -119,6 +120,7 @@
 </ul></nav>
 <?php endif; ?>
 <?php if ($canSelectOrders): ?></form><?php endif; ?>
+<?php if (!empty($piTools)): ?><div class="pi-tools" id="pi-tools"><div class="pi-sec">提醒与工具</div><?php echo $piTools; ?></div><?php endif; ?>
 <script>
 window.quickOrdersMap = <?php
   $qMap = [];

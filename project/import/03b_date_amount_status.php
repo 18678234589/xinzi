@@ -280,6 +280,17 @@
                         $record['renewal_extras'] = array_merge($record['renewal_extras'] ?? [], $modifyExtras);
                     }
                     $record['program_name'] = $usesProgram ? $lookup($row, 'program_name') : '';
+                    // “年限”列（1-10 年下拉）：程序名称没写年数时拼成“N年+程序名称”，与原来直接写“5年JSP展示中级版”完全等价；名称里已有年数的以名称为准
+                    if ($usesProgram && $record['program_name'] !== '') {
+                        $yearsRaw = trim((string)$lookup($row, 'program_years'));
+                        $yearsMap = ['一' => 1, '二' => 2, '两' => 2, '三' => 3, '四' => 4, '五' => 5, '六' => 6, '七' => 7, '八' => 8, '九' => 9, '十' => 10];
+                        $years = preg_match('/(\d{1,2})/', $yearsRaw, $ym) ? (int)$ym[1] : (preg_match('/^([一二两三四五六七八九十])年?$/u', $yearsRaw, $ym) ? $yearsMap[$ym[1]] : 0);
+                        if ($yearsRaw !== '' && ($years < 1 || $years > 10)) $record['warning'] .= ($record['warning'] ? '；' : '') . '年限“' . $yearsRaw . '”不在 1-10 年内，已忽略';
+                        elseif ($years >= 1) {
+                            if (preg_match('/^\s*(\d+)年/u', $record['program_name'], $nm)) { if ((int)$nm[1] !== $years) $record['warning'] .= ($record['warning'] ? '；' : '') . '程序名称写的是' . $nm[1] . '年、年限列是' . $years . '年，以程序名称为准'; }
+                            else $record['program_name'] = $years . '年' . $record['program_name'];
+                        }
+                    }
                     $record['program_template_id'] = 0;
                     $record['lines'] = [$record['line']];
                     $rawDetails = [];

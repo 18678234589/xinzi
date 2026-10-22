@@ -64,6 +64,20 @@ function pbr_prepare_site_group($oid, array $actor, $adminId, $who)
  * 批量审核前的准备（调用方持有事务）：财务/授权人员勾选通过即视为认可——
  * 未确认的资源按“无需另计”确认并同步商品成本、待审核成本一并通过。收款/退款仍须单独审核；SSL 凭证等仍由 ps_approve_order 把关。
  */
+/** 财务批量通过时：订单有售价、还没有实收，按售价登记收款（与订单审核页一致，记审计）；没有售价的订单不处理。 */
+function pbr_register_receipt($oid, array $actor, $adminId, $who)
+{
+    if (($actor['role'] ?? '') !== 'finance') return false;
+    $pdo = db();
+    $q = $pdo->prepare('SELECT contract_amount,receipt_amount,refund_amount FROM project_orders WHERE id=? FOR UPDATE'); $q->execute([(int)$oid]); $o = $q->fetch();
+    if (!$o || (float)$o['receipt_amount'] - (float)$o['refund_amount'] > 0 || (float)$o['contract_amount'] <= 0) return false;
+    $pdo->prepare("INSERT INTO project_cash_movements (order_id,movement_type,amount,note,review_status,submitted_by_type,submitted_by_id,reviewed_by_admin,reviewed_at) VALUES (?,'receipt',?,?,'approved',?,?,?,NOW())")
+        ->execute([(int)$oid, round((float)$o['contract_amount'], 2), $who . '批量审核：抽查后按售价确认收款', $actor['type'], $actor['id'], $adminId]);
+    ps_recalculate_cash((int)$oid);
+    ps_audit('order', (int)$oid, 'batch_review_receipt', $actor, ['amount' => round((float)$o['contract_amount'], 2)]);
+    return true;
+}
+
 function pbr_prepare_order($oid, array $actor, $adminId, $who)
 {
     pbr_prepare_site_group($oid, $actor, $adminId, $who);
@@ -89,6 +103,34 @@ function pbr_prepare_order($oid, array $actor, $adminId, $who)
         $pdo->prepare("UPDATE project_orders SET order_kind='同客户',row_version=row_version+1 WHERE id=? AND order_kind IN ('普通订单','新客户')")->execute([$oid]);
         ps_audit('order', $oid, 'trademark_addon', $actor, ['main_order' => $main, 'via' => 'batch_review']);
     }
+    // 商品明细还没关联成本、但订单上已有同类（程序 / 证书等）未被占用的成本：财务批量通过即认可它们对应，自动关联（只关联，不新增成本）
+    require_once __DIR__ . '/ProjectIntake.php'; poi_ensure();
+    $claimed = [];
+    foreach (poi_items($oid) as $it) if ($it['cost_id']) $claimed[(int)$it['cost_id']] = true;
+    foreach (poi_items($oid) as $it) {
+        if ($it['cost_id']) continue;
+        $cq = $pdo->prepare("SELECT id FROM project_costs WHERE order_id=? AND category=? AND review_status IN ('approved','pending') ORDER BY id");
+        $cq->execute([$oid, $it['category']]);
+        foreach ($cq->fetchAll(PDO::FETCH_COLUMN) as $cid) if (empty($claimed[(int)$cid])) {
+            $pdo->prepare('UPDATE project_order_items SET cost_id=? WHERE id=? AND cost_id IS NULL')->execute([(int)$cid, (int)$it['id']]);
+            $claimed[(int)$cid] = true;
+            ps_audit('order', $oid, 'batch_review_link_item_cost', $actor, ['item' => $it['item_name'], 'cost_id' => (int)$cid]);
+            break;
+        }
+    }
+    // 关联完后仍没成本的商品明细，如果有完全相同（名称 / 类别 / 售价 / 模板）且已关联成本的明细：是重复导入产生的重复行，删掉重复明细行（不动任何成本记录，原行备份进审计）
+    $rest = poi_items($oid);
+    foreach ($rest as $it) {
+        if ($it['cost_id']) continue;
+        foreach ($rest as $twin) {
+            if ((int)$twin['id'] === (int)$it['id'] || !$twin['cost_id']) continue;
+            if ($twin['item_name'] === $it['item_name'] && $twin['category'] === $it['category'] && (float)$twin['sale_amount'] === (float)$it['sale_amount'] && (int)$twin['template_id'] === (int)$it['template_id']) {
+                $pdo->prepare('DELETE FROM project_order_items WHERE id=? AND cost_id IS NULL')->execute([(int)$it['id']]);
+                ps_audit('order', $oid, 'batch_review_drop_duplicate_item', $actor, ['item' => $it]);
+                break;
+            }
+        }
+    }
     $pc = $pdo->prepare("SELECT id FROM project_costs WHERE order_id=? AND review_status='pending'"); $pc->execute([$oid]);
     foreach ($pc->fetchAll(PDO::FETCH_COLUMN) as $costId) {
         $pdo->prepare("UPDATE project_costs SET review_status='approved',reviewed_by_admin=?,review_note=? WHERE id=? AND review_status='pending'")->execute([$adminId, $who . '批量审核通过', (int)$costId]);
@@ -96,25 +138,50 @@ function pbr_prepare_order($oid, array $actor, $adminId, $who)
     }
 }
 
-/** 授权审核人员（如网站人事）只能审核指定业务、且不含本人参与的订单；财务不受限。 */
+/**
+ * 审核范围：财务不受限；授权审核人员（如网站人事）只能审核指定业务；部门主管（project_dept_heads）可审核本部门成员的订单。
+ * 都不含本人参与的订单。返回 ['businesses'=>[], 'departments'=>[], 'self'=>员工id]；没有审核资格返回 null。
+ */
 function pbr_scope($actor)
 {
     if (($actor['role'] ?? '') === 'finance') return ['all' => true];
     $emp = (int)($actor['employee_id'] ?? 0);
     if ($emp <= 0) return null;
+    $biz = [];
     try {
         $q = db()->prepare('SELECT business_name FROM project_batch_review_delegates WHERE employee_id=?'); $q->execute([$emp]);
         $biz = $q->fetchAll(PDO::FETCH_COLUMN);
-    } catch (Throwable $e) { return null; }
-    return $biz ? ['businesses' => $biz, 'self' => $emp] : null;
+    } catch (Throwable $e) { /* 授权表还没建 */ }
+    require_once __DIR__ . '/ProjectDeptHead.php';
+    $deps = pdh_departments($actor);
+    return ($biz || $deps) ? ['businesses' => $biz, 'departments' => $deps, 'self' => $emp] : null;
+}
+
+/** 财务，或被授权审核该业务、且本人没参与此订单的人员（如网站人事冯超）：可审核成本、确认资源。 */
+function pbr_can_review_order(array $actor, array $order)
+{
+    if (($actor['role'] ?? '') === 'finance') return true;
+    $scope = pbr_scope($actor);
+    if (!$scope || !empty($scope['all']) || empty($order['id'])) return false;
+    $byBusiness = in_array(ps_business_normalize((string)($order['project_type'] ?? '')), array_map('ps_business_normalize', $scope['businesses'] ?? []), true);
+    $byDepartment = !$byBusiness && !empty($scope['departments']) && pdh_can_view_order((int)$order['id'], $actor);
+    if (!$byBusiness && !$byDepartment) return false;
+    $q = db()->prepare('SELECT 1 FROM project_participants WHERE order_id=? AND employee_id=? LIMIT 1');
+    $q->execute([(int)$order['id'], (int)$scope['self']]);
+    return !$q->fetchColumn();
 }
 
 function pbr_scope_sql($scope, &$params)
 {
     $params = [];
     if (!$scope || !empty($scope['all'])) return '';
-    $params = array_merge($scope['businesses'], [(int)$scope['self']]);
-    return ' AND o.project_type IN (' . implode(',', array_fill(0, count($scope['businesses']), '?')) . ') AND NOT EXISTS (SELECT 1 FROM project_participants sp WHERE sp.order_id=o.id AND sp.employee_id=?)';
+    $biz = $scope['businesses'] ?? []; $deps = $scope['departments'] ?? []; $or = [];
+    if ($biz) { $or[] = 'o.project_type IN (' . implode(',', array_fill(0, count($biz), '?')) . ')'; $params = array_merge($params, array_values($biz)); }
+    // 部门主管：被审核的人（查询里的 p.employee_id）须属于所管部门
+    if ($deps) { $or[] = 'p.employee_id IN (SELECT id FROM employees WHERE department IN (' . implode(',', array_fill(0, count($deps), '?')) . '))'; $params = array_merge($params, array_values($deps)); }
+    if (!$or) return ' AND 1=0';
+    $params[] = (int)$scope['self'];
+    return ' AND (' . implode(' OR ', $or) . ') AND NOT EXISTS (SELECT 1 FROM project_participants sp WHERE sp.order_id=o.id AND sp.employee_id=?)';
 }
 
 function pbr_orders($employeeId, $month, $scope = null)
@@ -151,6 +218,15 @@ function pbr_submit(array $actor, $month, $note)
     if ($id) db()->prepare('UPDATE project_batch_reviews SET note=?,order_count=?,amount=? WHERE id=?')->execute([$note, count($orders), $sum, $id]);
     else { db()->prepare('INSERT INTO project_batch_reviews (employee_id,month,note,order_count,amount) VALUES (?,?,?,?,?)')->execute([$eid, $month, $note, count($orders), $sum]); $id = (int)db()->lastInsertId(); }
     ps_audit('batch_review', $id, 'submit', $actor, ['month' => $month, 'orders' => count($orders), 'amount' => $sum]);
+    // 通知本人所在部门的主管（不含本人），他们有资格审核本部门成员的订单
+    try {
+        require_once __DIR__ . '/ProjectDeptHead.php'; require_once __DIR__ . '/dup_feedback.php';
+        $nameQ = db()->prepare('SELECT name,department FROM employees WHERE id=?'); $nameQ->execute([$eid]); $me = $nameQ->fetch();
+        if ($me && $me['department'] !== '') {
+            $hq = db()->prepare('SELECT DISTINCT employee_id FROM project_dept_heads WHERE department=? AND employee_id<>?'); $hq->execute([$me['department'], $eid]);
+            foreach ($hq->fetchAll(PDO::FETCH_COLUMN) as $headId) pd_message((int)$headId, $me['name'] . ' 申请审核 ' . $month . ' 的订单', $me['name'] . ' 提交了 ' . count($orders) . ' 单的审核申请，你作为部门主管可以抽查审核。', '/project/batch_review.php?month=' . $month . '&emp=' . $eid, 'batch_review_head:' . $id . ':' . (int)$headId . ':' . count($orders));
+        }
+    } catch (Throwable $e) { /* 通知失败不影响申请 */ }
     return $id;
 }
 
@@ -176,7 +252,7 @@ function pbr_approve(array $actor, $requestId, array $orderIds, $employeeId = 0,
     if (!$scope) throw new RuntimeException('只有财务或被授权人员可以审核');
     // 授权审核人员（如冯超）支持按申请或按员工月份审核，且自动按其业务范围 $scope 过滤
     $adminId = ($actor['type'] ?? '') === 'admin' ? (int)$actor['id'] : null; // 授权人员不是管理员账号，审核人记在审计里
-    $who = !empty($scope['all']) ? '财务' : '授权审核人员';
+    $who = !empty($scope['all']) ? '财务' : (empty($scope['businesses']) ? '部门主管' : '授权审核人员');
     pbr_ensure();
     if ((int)$requestId > 0) {
         $q = db()->prepare("SELECT * FROM project_batch_reviews WHERE id=? AND status='pending'"); $q->execute([(int)$requestId]); $req = $q->fetch();
@@ -227,6 +303,62 @@ function pbr_approve(array $actor, $requestId, array $orderIds, $employeeId = 0,
         pd_message((int)$req['employee_id'], $req['month'] . ' 的订单审核有进展', '财务已审核通过 ' . $done . ' 单' . ($failed ? '，另有 ' . count($failed) . ' 单需要单独处理' : '') . '。', '/project/batch_review.php?month=' . $req['month'], 'batch_review:' . (int)$req['id'] . ':' . $done . ((int)$req['id'] ? '' : ':' . date('YmdHis')));
     } catch (Throwable $e) {}
     return [$done, $failed];
+}
+
+/** 财务批量作废当前员工、月份下未审核的订单；完整备份到回收站后移出业务列表。 */
+function pbr_void(array $actor, $requestId, array $orderIds, $employeeId = 0, $month = '', $reason = '')
+{
+    if (($actor['role'] ?? '') !== 'finance') throw new RuntimeException('仅财务可以批量作废订单');
+    $reason = trim((string)$reason);
+    if (mb_strlen($reason) < 4 || mb_strlen($reason) > 500) throw new RuntimeException('请填写 4–500 字作废原因');
+    $ids = array_values(array_unique(array_filter(array_map('intval', $orderIds), static fn($id) => $id > 0)));
+    if (!$ids) throw new RuntimeException('请先勾选需要作废的订单');
+    if (count($ids) > 300) throw new RuntimeException('每次最多作废 300 单，请分批处理');
+    pbr_ensure();
+    if ((int)$requestId > 0) {
+        $q = db()->prepare("SELECT * FROM project_batch_reviews WHERE id=? AND status='pending'");
+        $q->execute([(int)$requestId]); $req = $q->fetch();
+        if (!$req) throw new RuntimeException('申请不存在或已处理');
+    } else {
+        if ((int)$employeeId <= 0 || !preg_match('/^\d{4}-(0[1-9]|1[0-2])$/', (string)$month)) throw new RuntimeException('请选择员工和月份');
+        $req = ['id'=>0, 'employee_id'=>(int)$employeeId, 'month'=>(string)$month];
+    }
+    $allowed = array_column(pbr_orders((int)$req['employee_id'], $req['month']), null, 'id');
+    require_once __DIR__ . '/ProjectOrderDelete.php';
+    require_once __DIR__ . '/ProjectOrderTrash.php';
+    pot_ensure();
+    $from = $req['month'] . '-01'; $until = date('Y-m-d', strtotime($from . ' +1 month'));
+    $done = 0; $failed = [];
+    foreach ($ids as $oid) {
+        if (!isset($allowed[$oid])) { $failed[] = '#' . $oid . '：不在当前员工、月份的待审核订单内'; continue; }
+        try {
+            $pdo = db(); $pdo->beginTransaction();
+            $q = $pdo->prepare('SELECT * FROM project_orders WHERE id=? FOR UPDATE'); $q->execute([$oid]); $row = $q->fetch();
+            if (!$row || in_array($row['settlement_status'], ['approved','locked'], true)) throw new RuntimeException('订单已审核、锁定或已不存在');
+            $q = $pdo->prepare('SELECT 1 FROM project_participants WHERE order_id=? AND employee_id=? LIMIT 1');
+            $q->execute([$oid,(int)$req['employee_id']]);
+            if (!$q->fetchColumn() || $row['order_date'] < $from || $row['order_date'] >= $until) throw new RuntimeException('订单所属人员或月份已变化，请刷新');
+            if ((float)$row['receipt_amount'] != 0 || (float)$row['refund_amount'] != 0) throw new RuntimeException('已有确认收退款，请在订单详情单独核对处理');
+            $q = $pdo->prepare("SELECT 1 FROM project_cash_movements WHERE order_id=? AND review_status='approved' LIMIT 1"); $q->execute([$oid]);
+            if ($q->fetchColumn()) throw new RuntimeException('已有确认收退款，请在订单详情单独核对处理');
+            $q = $pdo->prepare('SELECT 1 FROM project_order_splits WHERE parent_order_id=? OR child_order_id=? LIMIT 1'); $q->execute([$oid,$oid]);
+            if ($q->fetchColumn()) throw new RuntimeException('存在分单关联，请在订单详情单独处理');
+            if (($blocked = pod_blocker($row, $actor)) !== '') throw new RuntimeException($blocked);
+            $backup = pod_backup($oid, $row['order_no'], $actor);
+            pod_delete_rows($oid);
+            ps_audit('order',$oid,'batch_review_void',$actor,['request'=>(int)$req['id'],'order_no'=>$row['order_no'],'reason'=>$reason,'backup'=>$backup]);
+            $pdo->commit(); $done++;
+        } catch (Throwable $e) {
+            if (db()->inTransaction()) db()->rollBack();
+            $failed[] = $allowed[$oid]['order_no'] . '：' . ($e instanceof PDOException ? '保存失败，订单未作废' : $e->getMessage());
+        }
+    }
+    if ((int)$req['id'] > 0 && !pbr_orders((int)$req['employee_id'], $req['month'])) {
+        db()->prepare("UPDATE project_batch_reviews SET status='done',handled_by=?,handled_at=NOW(),handled_note=? WHERE id=?")
+            ->execute([pbr_name($actor),'待审核订单已处理，最后批次作废 ' . $done . ' 单',(int)$req['id']]);
+    }
+    ps_audit('batch_review',(int)$req['id'],'void',$actor,['done'=>$done,'failed'=>count($failed),'employee_id'=>(int)$req['employee_id'],'month'=>$req['month'],'reason'=>$reason]);
+    return [$done,$failed];
 }
 
 function pbr_reject(array $actor, $requestId, $note)

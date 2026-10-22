@@ -10,8 +10,8 @@ include (dirname(__DIR__, 1)) . '/../includes/header.php';
     : '先选业务模板，再拖入 Excel 逐行核对。已关联人员上传相同订单号时补充原单，不会重复建单；售价不直接作为实收。'; ?></p></div><div class="project-hero-actions"><a class="btn btn-light" href="<?php
     echo BASE_URL; ?>/project/index.php?business=<?php echo rawurlencode($selectedBusiness ?: ''); ?>">返回订单录入</a></div></div>
 <?php if ($error): ?><div class="alert alert-danger"><?php echo e($error); ?></div><?php endif; ?>
-<?php if ($importReport): ?><div class="alert alert-<?php echo $importReport['pending'] ? 'warning' : 'success'; ?>">本次已写入 / 补充 <?php echo (int)$importReport['written'
-    ]; ?> 单，已在库 <?php echo (int)$importReport['existing']; ?> 单<?php echo $importReport['pending'] ? '；还有 ' . (int)$importReport['pending'] . ' 行待补全，其他订单已成功保存'
+<?php if ($importReport): ?><div class="alert alert-<?php echo ($importReport['pending'] || !empty($importReport['conflict'])) ? 'warning' : 'success'; ?>">本次已写入 / 补充 <?php echo (int)$importReport['written'
+    ]; ?> 单，已在库 <?php echo (int)$importReport['existing']; ?> 单<?php echo ($importReport['pending'] || !empty($importReport['conflict'])) ? ($importReport['pending'] ? '；还有 ' . (int)$importReport['pending'] . ' 行待补全' : '') . (!empty($importReport['conflict']) ? '；另有 ' . (int)$importReport['conflict'] . ' 行与原单不一致，待财务核对（表格本身没有漏填，不必改表重传）' : '') . '，其他订单已成功保存'
     : '，核对已完成'; ?>。实收仍须财务确认。<a class="btn btn-sm btn-success ml-2" href="<?php echo BASE_URL; ?>/project/index.php?import_file=<?php echo $resultFileId
     ; ?>">查看这份表格对应订单</a></div><?php elseif ($imported): ?><div class="alert alert-success">已导入 <?php echo $imported; ?> 个订单。实收仍须财务确认。</div><?php
     endif; ?>

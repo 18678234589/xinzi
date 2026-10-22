@@ -120,7 +120,7 @@ function psr_orders($employeeId, $month)
     foreach ($extras as $item) {
         $amount = (float)$item['amount'];
         $label = (string)$item['label'];
-        if (abs($amount) < 0.005 || ps_manual_item_slot($label, $amount) !== 'share') continue; // 负数的提成项也要进来，否则扣减不生效
+        if (abs($amount) < 0.005 || ps_manual_payable_only($item) || ps_manual_item_slot($label, $amount) !== 'share') continue; // 负数的提成项也要进来，否则扣减不生效
         $vid = 950000000 + (int)($item['id'] > 0 ? $item['id'] : (abs(crc32($label)) % 1000000));
         $rows[] = [
             'order_id' => $vid,

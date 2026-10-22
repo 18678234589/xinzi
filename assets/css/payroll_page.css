@@ -1,0 +1,64 @@
+/* 项目报酬结算中心 / 我的项目报酬：配色沿用合作方经营看板。只作用于 .pp */
+.pp{max-width:1480px;margin:0 auto;padding:4px 2px 36px;color:#243a34}
+.pp button,.pp a{font-family:inherit}
+.pp-hero{display:flex;flex-wrap:wrap;align-items:flex-end;justify-content:space-between;gap:16px 24px;padding:24px 30px;border-radius:24px;background:linear-gradient(115deg,#e4f3e7 0%,#f6f8ee 56%,#fff0d8 100%);border:1px solid #e1ebdc;box-shadow:0 14px 34px rgba(31,83,65,.08)}
+.pp-eyebrow{display:inline-flex;gap:7px;align-items:center;color:#41765d;font-size:13px;font-weight:700;letter-spacing:.04em}
+.pp-hero h2{font-size:28px;font-weight:800;letter-spacing:-.03em;margin:8px 0 6px}
+.pp-hero p{margin:0;color:#64776e;font-size:14px}
+.pp-state{display:inline-flex;align-items:center;gap:6px;padding:3px 11px;border-radius:999px;font-size:12px;font-weight:700;vertical-align:middle}
+.pp-state.is-live{background:#fdf1dc;color:#9a6512}.pp-state.is-locked{background:#e3f3ea;color:#1f6a52}
+.pp-hero-tools{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+.pp-btn{display:inline-flex;align-items:center;gap:7px;height:38px;padding:0 16px;border:1px solid #cfe3d6;border-radius:999px;background:#fff;color:#286b55!important;font-size:13.5px;font-weight:700;text-decoration:none!important;cursor:pointer;box-shadow:0 3px 9px #a9bdac30;transition:transform .15s,box-shadow .15s}
+.pp-btn:hover{transform:translateY(-1px);box-shadow:0 8px 18px #a9bdac55}
+.pp-btn.is-main{background:linear-gradient(135deg,#286b55,#3e8b68);border-color:transparent;color:#fff!important}
+.pp-btn.is-warn{background:#fff3d6;border-color:#f1dfbc;color:#8a5a00!important}.pp-btn.is-warn b{background:#c27a00;color:#fff;border-radius:999px;padding:0 8px;line-height:20px;font-size:12px}
+.pp-btn.is-danger{color:#b4472a!important;border-color:#f1cdbd}
+.pp-lock{margin:0}
+.pp-banner{display:flex;flex-wrap:wrap;align-items:center;gap:10px 14px;margin-top:14px;padding:10px 16px;border-radius:16px;background:#fff8e8;border:1px solid #f1dfbc;border-left:4px solid #e0a323;color:#7a5010;font-size:14px}
+.pp-banner i{color:#c27a00}.pp-banner strong{display:inline-block;min-width:22px;padding:0 7px;border-radius:999px;background:#c27a00;color:#fff;text-align:center}.pp-banner .pp-btn{margin-left:auto;height:34px}
+
+.pp-filter{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin:14px 0}
+.pp-month{display:inline-flex;align-items:center;height:40px;border:1px solid #dce7d9;border-radius:999px;background:#fff;overflow:hidden}
+.pp-month a{display:grid;place-items:center;width:38px;height:100%;color:#286b55!important;font-size:18px;font-weight:700;text-decoration:none!important}.pp-month a:hover{background:#eef6ea}
+.pp-month input{border:0;outline:0;background:transparent;height:100%;padding:0 6px;font-size:14px;font-weight:700;color:#243a34}
+.pp-pick{display:flex;align-items:center;gap:8px;flex:1 1 260px;max-width:420px;height:40px;margin:0;padding:0 16px;border:1px solid #dce7d9;border-radius:999px;background:#fff}.pp-pick i{color:#8a998d;font-size:13px}
+.pp-pick input[list]{border:0;outline:0;background:transparent;flex:1;font-size:14px;color:#243a34;min-width:0}
+.pp-pn{margin-left:auto;display:flex;gap:14px;font-size:13px}.pp-pn a{color:#286b55!important;font-weight:600}
+.pp-filter .pp-btn{height:40px}
+
+.pp-card{margin-bottom:14px;padding:16px 20px;border:1px solid #e7eee7;border-radius:20px;background:#fff;box-shadow:0 7px 24px rgba(29,65,46,.045)}
+.pp-card-h{display:flex;align-items:baseline;gap:10px;margin-bottom:10px}.pp-card-h b{font-size:16px;font-weight:800}.pp-card-h small{color:#8a998d}
+
+.pp-total{margin-bottom:14px;padding:18px 22px;border-radius:20px;background:linear-gradient(135deg,#286b55,#3e8b68);color:#fff;box-shadow:0 12px 26px rgba(40,107,85,.22)}
+.pp-total-main small{color:#d9efe0;font-size:13px}.pp-total h3{margin:2px 0 0;font-size:16px;font-weight:700;color:#e4f4e9}.pp-total h3 b{font-size:32px;font-weight:800;letter-spacing:-.03em;color:#fff;margin-left:6px;font-variant-numeric:tabular-nums}
+.pp-total-note{margin-top:4px;color:#cfe7d8;font-size:12.5px}
+.pp-algo{margin-top:12px}.pp-algo summary{display:inline-flex;align-items:center;gap:6px;padding:4px 14px;border-radius:999px;background:rgba(255,255,255,.18);color:#fff;font-size:13px;font-weight:700;cursor:pointer;list-style:none}.pp-algo summary::-webkit-details-marker{display:none}
+.pp-algo .table-responsive{margin-top:10px;border-radius:14px;background:#fff;overflow:hidden}.pp-algo table{color:#243a34}
+
+/* 沿用原有卡片 / 表格的页面内统一风格 */
+.pp .card{border:1px solid #e7eee7;border-radius:20px;box-shadow:0 7px 24px rgba(29,65,46,.045);overflow:hidden;margin-bottom:14px}
+.pp .card-header{background:linear-gradient(180deg,#fbfdfa,#f4f8f1);border-bottom:1px solid #e7eee7;font-weight:800;color:#2f5a48;padding:.8rem 1.2rem}
+.pp .card-header .small,.pp .card-header a.small{font-weight:500}
+.pp .table thead th{background:#f1f7ee;color:#2f5a48;font-size:.8rem;font-weight:700;border-top:0;border-bottom:1px solid #dfe9db;white-space:nowrap}
+.pp .table td{border-top:1px solid #eef2eb;vertical-align:middle}
+.pp .table-hover tbody tr:hover{background:#eef6ea}
+.pp .table td.text-right,.pp .table th.text-right{font-variant-numeric:tabular-nums}
+.pp .table-bordered,.pp .table-bordered td,.pp .table-bordered th{border-color:#eef2eb}
+.pp .project-slip-grid{gap:12px}.pp .project-slip-grid>div{border-radius:16px;background:#f7faf5;border:1px solid #eaf1e7}
+.pp .project-slip-grid .is-total{background:linear-gradient(135deg,#286b55,#3e8b68);border-color:transparent;box-shadow:0 8px 18px rgba(40,107,85,.22)}
+.pp .form-control{border-color:#dce7d9;border-radius:12px}.pp .form-control:focus{border-color:#286b55;box-shadow:0 0 0 3px #cfe7d8}
+.pp .btn{border-radius:999px}.pp .btn-primary{background:#286b55;border-color:#286b55}.pp .btn-outline-primary{color:#286b55;border-color:#b9dcc7}.pp .btn-outline-primary:hover{background:#286b55;border-color:#286b55;color:#fff}
+
+/* 全员收入概览 */
+#overviewTable tbody tr{cursor:pointer}
+#overviewTable td:first-child{white-space:nowrap}
+.pp-av{display:inline-grid;place-items:center;width:34px;height:34px;margin-right:10px;border-radius:50%;background:linear-gradient(135deg,#e4f3e7,#fff0d8);color:#286b55;font-weight:800;vertical-align:middle}
+.pp-pname{display:inline-block;vertical-align:middle;line-height:1.3}.pp-pname a{color:#243a34!important;text-decoration:none!important}.pp-pname a:hover strong{color:#286b55}
+.pp-amt{position:relative;color:#1f6a52}
+.pp-bar{display:block;height:4px;margin:4px 0 0 auto;border-radius:3px;background:linear-gradient(90deg,#9ccfb1,#3e8b68);max-width:100%}
+.pp-go{display:inline-block;padding:3px 12px;border-radius:999px;background:#f1f6ee;color:#286b55;font-size:12.5px;font-weight:700;transition:background .15s}#overviewTable tr:hover .pp-go{background:#286b55;color:#fff}
+#ovSearch,#ovDept,#ovSort{height:40px;border-radius:999px;padding:0 16px}
+
+@media(max-width:700px){.pp-hero{padding:18px;border-radius:20px}.pp-hero h2{font-size:23px}.pp-total h3 b{font-size:26px}.pp-pn{margin-left:0;width:100%;justify-content:space-between}}
+.pp-fold>summary{cursor:pointer;list-style:none;display:flex;align-items:center;gap:10px;border-bottom:0}.pp-fold>summary::-webkit-details-marker{display:none}
+.pp-fold>summary small{margin-left:auto;color:#8a998d;font-weight:500}.pp-fold>summary::after{content:"▾";color:#8a998d}.pp-fold[open]>summary{border-bottom:1px solid #e7eee7}.pp-fold[open]>summary::after{content:"▴"}

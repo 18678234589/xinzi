@@ -1,6 +1,6 @@
 <?php
 
-            if (!$finance) throw new RuntimeException('无权限');
+            if (!$finance && !$reviewer) throw new RuntimeException('无权限');
             $costId = (int)($_POST['cost_id'] ?? 0);
             $decision = (string)($_POST['decision'] ?? '');
             if (!in_array($decision, ['approved','rejected'], true)) throw new RuntimeException('审核结果无效');

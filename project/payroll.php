@@ -7,8 +7,9 @@ require_once __DIR__ . '/../includes/ProjectPayrollExtras.php';
 require_once __DIR__ . '/../includes/ProjectSettlementRequest.php';
 $actor = ps_require_actor();
 ps_payroll_extras_ensure(); // 建表是 DDL，须在事务之前
-$month = (string)($_GET['month'] ?? date('Y-m', strtotime('first day of last month')));
-if (!preg_match('/^\d{4}-(0[1-9]|1[0-2])$/', $month)) $month = date('Y-m', strtotime('first day of last month'));
+require_once __DIR__ . '/../includes/ProjectPayrollSheet.php';
+$month = (string)($_GET['month'] ?? pps_default_month());
+if (!preg_match('/^\d{4}-(0[1-9]|1[0-2])$/', $month)) $month = pps_default_month();
 $periodError = '';
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     ps_check_csrf();
@@ -229,43 +230,43 @@ if ($actor['role'] === 'finance') {
 $page_title = $actor['role'] === 'finance' ? '项目报酬结算中心' : '我的项目报酬';
 include __DIR__ . '/../includes/header.php';
 ?>
-<div class="d-flex justify-content-between align-items-center mb-3">
-  <h4 class="mb-0"><?php echo e($page_title); ?></h4>
-  <div class="d-flex align-items-center flex-wrap" style="gap:6px">
-    <?php if ($actor['role'] === 'finance'): ?>
-      <button type="button" class="btn <?php echo $pendingSettlementCount > 0 ? 'btn-warning font-weight-bold text-dark' : 'btn-outline-secondary'; ?> btn-sm" id="btnOpenSettlementModal" data-toggle="modal" data-target="#modalSettlementRequests" title="查看合作商提交的结算申请并打款">
-        <i class="fas fa-hand-holding-usd mr-1"></i>（<span id="settlementPendingBadge"><?php echo (int)$pendingSettlementCount; ?></span>笔）待结算
-      </button>
-      <a class="btn btn-primary btn-sm" href="<?php echo BASE_URL; ?>/attendance/month.php?year=<?php echo (int)substr($month, 0, 4); ?>&amp;month=<?php echo (int)substr($month, 5, 2); ?>#home-roster">考勤 / 居家名单 · 自动核算全勤</a>
+<?php $ppFin = $actor['role'] === 'finance'; $ppLocked = $period['status'] === 'locked'; $ppCss = __DIR__ . '/../assets/css/payroll_page.css'; ?>
+<link rel="stylesheet" href="<?php echo e(BASE_URL . '/assets/css/payroll_page.css?v=' . (is_file($ppCss) ? filemtime($ppCss) : 1)); ?>">
+<div class="pp">
+<header class="pp-hero">
+  <div class="pp-hero-main">
+    <div class="pp-eyebrow"><i class="fas fa-wallet"></i> <?php echo $ppFin ? '财务结算' : '我的报酬'; ?> · <?php echo e($month); ?></div>
+    <h2><?php echo e($page_title); ?></h2>
+    <p><?php echo $selectedEmployee ? e($selectedEmployee['name'] . ' · ' . $selectedEmployee['department']) : '全部合作人员'; ?>　<span class="pp-state <?php echo $ppLocked ? 'is-locked' : 'is-live'; ?>" title="此状态仅锁定项目分成，不代表项目报酬已发放"><i class="fas <?php echo $ppLocked ? 'fa-lock' : 'fa-bolt'; ?>"></i> <?php echo $ppLocked ? '项目分成已锁定' : '项目分成未锁定 · 实时计算'; ?></span></p>
+  </div>
+  <div class="pp-hero-tools">
+    <?php if ($ppFin): ?>
+      <button type="button" class="pp-btn <?php echo $pendingSettlementCount > 0 ? 'is-warn' : ''; ?>" id="btnOpenSettlementModal" data-toggle="modal" data-target="#modalSettlementRequests" title="查看合作商提交的结算申请并打款"><i class="fas fa-hand-holding-usd"></i> 待结算 <b><span id="settlementPendingBadge"><?php echo (int)$pendingSettlementCount; ?></span></b></button>
+      <a class="pp-btn is-main" href="<?php echo BASE_URL; ?>/attendance/month.php?year=<?php echo (int)substr($month, 0, 4); ?>&amp;month=<?php echo (int)substr($month, 5, 2); ?>#home-roster"><i class="fas fa-calendar-check"></i> 考勤 / 居家名单 · 自动核算全勤</a>
     <?php endif; ?>
-    <a class="btn btn-outline-success btn-sm" href="<?php echo BASE_URL; ?>/project/payroll.php?<?php echo e(http_build_query(['month' => $month, 'employee_id' => $employeeId, 'export' => 'project_csv'])); ?>">导出项目分成 CSV</a>
-    <a class="btn btn-outline-secondary btn-sm" href="<?php echo BASE_URL; ?>/project/index.php">返回项目订单</a>
+    <a class="pp-btn" href="<?php echo BASE_URL; ?>/project/payroll.php?<?php echo e(http_build_query(['month' => $month, 'employee_id' => $employeeId, 'export' => 'project_csv'])); ?>"><i class="fas fa-file-csv"></i> 导出项目分成</a>
+    <a class="pp-btn" href="<?php echo BASE_URL; ?>/project/index.php"><i class="fas fa-folder-open"></i> 项目订单</a>
+    <?php if ($ppFin && $employeeId === 0 && !$ppLocked): ?><form method="post" class="pp-lock" onsubmit="return confirm('确认该月项目分成已核对？锁定后新订单不能计入本月。')"><input type="hidden" name="csrf" value="<?php echo e(ps_csrf_token()); ?>"><input type="hidden" name="action" value="lock_period"><input type="hidden" name="period" value="<?php echo e($month); ?>"><button class="pp-btn is-danger"><i class="fas fa-lock"></i> 锁定本月</button></form><?php endif; ?>
   </div>
-</div>
-<?php if ($actor['role'] === 'finance' && $pendingSettlementCount > 0): ?>
-<div class="alert alert-warning d-flex justify-content-between align-items-center mb-3" id="alertSettlementPending" style="border-left: 4px solid #f59e0b;">
-  <div>
-    <i class="fas fa-exclamation-circle mr-2 text-warning" style="font-size:1.1rem;"></i>
-    <strong>结算待办：</strong>当前有 <strong class="badge badge-warning font-weight-bold mx-1" id="settlementPendingAlertCount" style="font-size:0.95rem;"><?php echo (int)$pendingSettlementCount; ?></strong> 笔合作商提交的结算申请等待核对打款。
-  </div>
-  <button type="button" class="btn btn-warning btn-sm font-weight-bold text-dark" data-toggle="modal" data-target="#modalSettlementRequests">
-    <i class="fas fa-hand-holding-usd mr-1"></i>立即审核打款
-  </button>
+</header>
+<?php if ($ppFin && $pendingSettlementCount > 0): ?>
+<div class="pp-banner" id="alertSettlementPending">
+  <i class="fas fa-bell"></i><span><b>结算待办：</b>当前有 <strong id="settlementPendingAlertCount"><?php echo (int)$pendingSettlementCount; ?></strong> 笔合作商提交的结算申请等待核对打款。</span>
+  <button type="button" class="pp-btn is-warn" data-toggle="modal" data-target="#modalSettlementRequests">立即审核打款 ›</button>
 </div>
 <?php endif; ?>
 <?php if ($periodError): ?><div class="alert alert-danger"><?php echo e($periodError); ?></div><?php endif; ?>
 <?php if (isset($_GET['locked'])): ?><div class="alert alert-success">该月项目分成已锁定。</div><?php endif; ?>
 <?php if (isset($_GET['reconciled'])): ?><div class="alert alert-success">技术旧分成核对记录已保存。</div><?php endif; ?>
 <?php $qs = function ($over) use ($month, $employeeId) { return BASE_URL . '/project/payroll.php?' . http_build_query(array_merge(['month' => $month, 'employee_id' => $employeeId ?: null], $over)); }; ?>
-<div class="card mb-3 project-payroll-bar"><div class="card-body"><form method="get" class="form-row align-items-end" id="payrollFilter">
-  <div class="form-group col-12 col-md-4"><label>结算月份</label><div class="input-group"><div class="input-group-prepend"><a class="btn btn-outline-secondary" href="<?php echo e($qs(['month' => $monthShift($month, -1)])); ?>" aria-label="上个月">‹</a></div><input type="month" class="form-control" name="month" value="<?php echo e($month); ?>" required onchange="this.form.submit()"><div class="input-group-append"><a class="btn btn-outline-secondary" href="<?php echo e($qs(['month' => $monthShift($month, 1)])); ?>" aria-label="下个月">›</a></div></div></div>
-  <?php if ($actor['role'] === 'finance'): ?>
-  <div class="form-group col-12 col-md-5"><label>查某个人（输入姓名 / 拼音 / 部门）</label><input class="form-control" id="personPicker" list="personList" placeholder="例如 张欣、zhangxin、设计" autocomplete="off" value="<?php echo $selectedEmployee ? e($selectedEmployee['name'] . ' · ' . $selectedEmployee['department']) : ''; ?>"><input type="hidden" name="employee_id" id="personId" value="<?php echo (int)$employeeId; ?>"><datalist id="personList"><?php foreach ($employees as $emp): ?><option data-id="<?php echo (int)$emp['id']; ?>" value="<?php echo e($emp['name'] . ' · ' . $emp['department']); ?>"><?php endforeach; ?></datalist></div>
-  <div class="form-group col-12 col-md-3 d-flex" style="gap:6px"><button class="btn btn-primary flex-fill">查询</button><?php if ($employeeId > 0): ?><a class="btn btn-outline-secondary flex-fill" href="<?php echo e($qs(['employee_id' => null])); ?>">全员概览</a><?php endif; ?></div>
-  <?php else: ?><div class="form-group col-12 col-md-2"><button class="btn btn-primary btn-block">查询</button></div><?php endif; ?>
+<form method="get" class="pp-filter" id="payrollFilter">
+  <div class="pp-month"><a href="<?php echo e($qs(['month' => $monthShift($month, -1)])); ?>" aria-label="上个月">‹</a><input type="month" name="month" value="<?php echo e($month); ?>" required onchange="this.form.submit()" aria-label="结算月份"><a href="<?php echo e($qs(['month' => $monthShift($month, 1)])); ?>" aria-label="下个月">›</a></div>
+  <?php if ($ppFin): ?>
+  <label class="pp-pick"><i class="fas fa-search"></i><input id="personPicker" list="personList" placeholder="查某个人：姓名 / 拼音 / 部门" autocomplete="off" value="<?php echo $selectedEmployee ? e($selectedEmployee['name'] . ' · ' . $selectedEmployee['department']) : ''; ?>"><input type="hidden" name="employee_id" id="personId" value="<?php echo (int)$employeeId; ?>"><datalist id="personList"><?php foreach ($employees as $emp): ?><option data-id="<?php echo (int)$emp['id']; ?>" value="<?php echo e($emp['name'] . ' · ' . $emp['department']); ?>"><?php endforeach; ?></datalist></label>
+  <button class="pp-btn is-main">查询</button><?php if ($employeeId > 0): ?><a class="pp-btn" href="<?php echo e($qs(['employee_id' => null])); ?>"><i class="fas fa-users"></i> 全员概览</a><?php endif; ?>
+  <?php else: ?><button class="pp-btn is-main">查询</button><?php endif; ?>
+  <?php if ($prevEmployee || $nextEmployee): ?><span class="pp-pn"><?php if ($prevEmployee): ?><a href="<?php echo e($qs(['employee_id' => (int)$prevEmployee['id']])); ?>">‹ <?php echo e($prevEmployee['name']); ?></a><?php endif; ?><?php if ($nextEmployee): ?><a href="<?php echo e($qs(['employee_id' => (int)$nextEmployee['id']])); ?>"><?php echo e($nextEmployee['name']); ?> ›</a><?php endif; ?></span><?php endif; ?>
 </form>
-<?php if ($prevEmployee || $nextEmployee): ?><div class="d-flex justify-content-between small mt-1"><span><?php if ($prevEmployee): ?><a href="<?php echo e($qs(['employee_id' => (int)$prevEmployee['id']])); ?>">‹ <?php echo e($prevEmployee['name']); ?></a><?php endif; ?></span><span><?php if ($nextEmployee): ?><a href="<?php echo e($qs(['employee_id' => (int)$nextEmployee['id']])); ?>"><?php echo e($nextEmployee['name']); ?> ›</a><?php endif; ?></span></div><?php endif; ?>
-</div></div>
 <script>
 (function () {
   var picker = document.getElementById('personPicker'); if (!picker) return;
@@ -278,10 +279,8 @@ include __DIR__ . '/../includes/header.php';
 })();
 </script>
 <?php if ($employeeId > 0 && $trend): $maxTrend = max(array_map('abs', $trend)) ?: 1; ?>
-<div class="card mb-3"><div class="card-header">近 6 个月应结算 · <?php echo e($selectedEmployee['name']); ?></div><div class="card-body"><div class="project-trend"><?php foreach ($trend as $m => $v): ?><a class="<?php echo $m === $month ? 'is-current' : ''; ?>" href="<?php echo e($qs(['month' => $m])); ?>"><span class="project-trend-bar" style="height:<?php echo max(4, round(abs($v) / $maxTrend * 100)); ?>%"></span><strong>¥<?php echo money($v); ?></strong><small><?php echo e(substr($m, 2)); ?></small></a><?php endforeach; ?></div></div></div>
+<section class="pp-card"><div class="pp-card-h"><b>近 6 个月应结算</b><small><?php echo e($selectedEmployee['name']); ?></small></div><div class="project-trend"><?php foreach ($trend as $m => $v): ?><a class="<?php echo $m === $month ? 'is-current' : ''; ?>" href="<?php echo e($qs(['month' => $m])); ?>"><span class="project-trend-bar" style="height:<?php echo max(4, round(abs($v) / $maxTrend * 100)); ?>%"></span><strong>¥<?php echo money($v); ?></strong><small><?php echo e(substr($m, 2)); ?></small></a><?php endforeach; ?></div></section>
 <?php endif; ?>
-<div class="alert alert-<?php echo $period['status'] === 'locked' ? 'secondary' : 'info'; ?>">项目分成月份 <?php echo e($month); ?>：<?php echo $period['status'] === 'locked' ? '已锁定（' . e($period['locked_at']) . '）' : '未锁定'; ?>。此状态仅锁定项目分成，不代表项目报酬已发放。</div>
-<?php if ($actor['role'] === 'finance' && $employeeId === 0 && $period['status'] !== 'locked'): ?><form method="post" class="text-right mb-3" onsubmit="return confirm('确认该月项目分成已核对？锁定后新订单不能计入本月。')"><input type="hidden" name="csrf" value="<?php echo e(ps_csrf_token()); ?>"><input type="hidden" name="action" value="lock_period"><input type="hidden" name="period" value="<?php echo e($month); ?>"><button class="btn btn-outline-danger btn-sm">锁定本月项目分成</button></form><?php endif; ?>
 <?php
 // 算法明细：拆解应结算合计的构成（另行支付不计入）
 $orderRegistrationSummary = ps_payroll_order_summary($employeeId, $month);
@@ -418,14 +417,14 @@ if ($employeeId > 0) {
     $algoLines[] = ['月度奖励与补助', $algoOther, '规则中心月度规则（不含另行支付）合计'];
 }
 ?>
-<div class="card mb-3"><div class="card-body"><div class="row align-items-center"><div class="col-md-8"><div class="text-muted small"><?php echo $selectedEmployee ? e($selectedEmployee['name'] . ' · ' . $selectedEmployee['department']) : '全部合作人员'; ?> · <?php echo e($month); ?></div><h3 class="mb-0">应结算合计 ¥<?php echo money($total); ?></h3></div><div class="col-md-4 text-md-right text-muted small">逐单分成快照 + 售后调整 + 月度规则<?php echo $period['status'] === 'locked' ? '（已冻结）' : '（月度规则实时计算）'; ?></div></div>
-<details class="mt-2"><summary class="small text-primary" style="cursor:pointer;user-select:none">算法明细（点击展开）</summary>
+<section class="pp-total"><div class="pp-total-main"><small><?php echo $selectedEmployee ? e($selectedEmployee['name'] . ' · ' . $selectedEmployee['department']) : '全部合作人员'; ?> · <?php echo e($month); ?></small><h3>应结算合计 <b>¥<?php echo money($total); ?></b></h3></div><div class="pp-total-note">逐单分成快照 + 售后调整 + 月度规则<?php echo $period['status'] === 'locked' ? '（已冻结）' : '（月度规则实时计算）'; ?></div>
+<details class="pp-algo"><summary><i class="fas fa-calculator"></i> 算法明细（点击展开）</summary>
 <div class="table-responsive mt-2"><table class="table table-sm table-bordered mb-0 bg-white"><thead><tr><th>项目</th><th class="text-right">金额</th><th>算法</th></tr></thead><tbody>
 <?php foreach ($algoLines as $algoLine): ?><tr><td><?php echo e($algoLine[0]); ?></td><td class="text-right font-weight-bold <?php echo $algoLine[1] < 0 ? 'text-danger' : ''; ?>">¥<?php echo money($algoLine[1]); ?></td><td class="small text-muted"><?php echo e($algoLine[2]); ?></td></tr><?php endforeach; ?>
 <tr class="table-light"><td class="font-weight-bold">应结算合计</td><td class="text-right font-weight-bold">¥<?php echo money($total); ?></td><td class="small text-muted">以上计入项之和<?php echo $separateTotal > 0 ? '；另行支付 ¥' . money($separateTotal) . ' 单独发放、不计入' : ''; ?></td></tr>
 </tbody></table></div>
 </details>
-</div></div>
+</section>
 <?php if ($employeeId > 0): ?>
 <?php if ($hasFullSlip): $orderShare = 0.0; foreach ($rows as $r) $orderShare += (float)$r['commission_amount']; $adjustShare = 0.0; foreach ($adjustRows as $a) $adjustShare += (float)$a['amount']; ?>
 <div class="card mb-3 project-slip"><div class="card-header d-flex justify-content-between flex-wrap"><span>项目报酬结算单 · <?php echo e($selectedEmployee['name']); ?> · <?php echo e($month); ?></span><span class="text-muted small"><?php echo $period['status'] === 'locked' ? '已锁定' : '实时计算，锁月后冻结'; ?></span></div><div class="card-body">
@@ -487,15 +486,15 @@ if ($employeeId > 0) {
   <div class="form-group col-12 col-md-2 d-flex align-items-center"><label class="mb-0"><input type="checkbox" id="ovNonzero" checked> 只看有收入</label></div>
 </div></div>
 <div class="table-responsive"><table class="table table-hover mb-0 project-stack-table" id="overviewTable"><thead><tr><th>合作人员</th><th class="text-right">固定服务费</th><th class="text-right">全勤</th><th class="text-right">项目分成</th><th class="text-right">奖励补助</th><th class="text-right">应结算</th><th class="text-right">另行支付</th><th></th></tr></thead><tbody>
-<?php foreach ($rows as $row): ?><tr data-name="<?php echo e(mb_strtolower($row['name'] . ' ' . $row['username'] . ' ' . $row['department'])); ?>" data-dept="<?php echo e($row['department']); ?>" data-total="<?php echo e($row['amount']); ?>" data-share="<?php echo e($row['share']); ?>" data-sep="<?php echo e($row['separate']); ?>" data-sortname="<?php echo e($row['name']); ?>" onclick="if(!event.target.closest('a'))location.href=this.querySelector('a').href" style="cursor:pointer">
-  <td data-label="合作人员"><a href="<?php echo e($qs(['employee_id' => (int)$row['employee_id']])); ?>"><strong><?php echo e($row['name']); ?></strong></a><div class="small text-muted"><?php echo e($row['department']); ?><?php echo $row['username'] !== '' ? ' · ' . e($row['username']) : ''; ?></div></td>
+<?php $ppMax = 0.0; foreach ($rows as $row) $ppMax = max($ppMax, abs((float)$row['amount'])); $ppMax = $ppMax ?: 1; foreach ($rows as $row): ?><tr data-name="<?php echo e(mb_strtolower($row['name'] . ' ' . $row['username'] . ' ' . $row['department'])); ?>" data-dept="<?php echo e($row['department']); ?>" data-total="<?php echo e($row['amount']); ?>" data-share="<?php echo e($row['share']); ?>" data-sep="<?php echo e($row['separate']); ?>" data-sortname="<?php echo e($row['name']); ?>" onclick="if(!event.target.closest('a'))location.href=this.querySelector('a').href" style="cursor:pointer">
+  <td data-label="合作人员"><span class="pp-av"><?php echo e(mb_substr($row['name'], 0, 1)); ?></span><span class="pp-pname"><a href="<?php echo e($qs(['employee_id' => (int)$row['employee_id']])); ?>"><strong><?php echo e($row['name']); ?></strong></a><div class="small text-muted"><?php echo e($row['department']); ?><?php echo $row['username'] !== '' ? ' · ' . e($row['username']) : ''; ?></div></span></td>
   <td data-label="固定服务费" class="text-right">¥<?php echo money($row['base_fee']); ?></td>
   <td data-label="全勤" class="text-right">¥<?php echo money($row['attendance_bonus']); ?></td>
   <td data-label="项目分成" class="text-right">¥<?php echo money($row['share']); ?><?php if ((int)$row['order_count']): ?><div class="small text-muted"><?php echo (int)$row['order_count']; ?> 条</div><?php endif; ?></td>
   <td data-label="奖励补助" class="text-right">¥<?php echo money($row['other']); ?></td>
-  <td data-label="应结算" class="text-right font-weight-bold">¥<?php echo money($row['amount']); ?><?php if (!empty($row['unreviewed_n'])): ?><div class="small font-weight-normal"><a class="text-warning" href="<?php echo BASE_URL; ?>/project/batch_review.php" title="没审核的订单不计入应结算；审核通过后才会计入，按营业额落档的还会重新落档。点这里去审核申请"><?php echo (int)$row['unreviewed_n']; ?> 单 ¥<?php echo money($row['unreviewed_amt']); ?> 未审核 ›</a></div><?php endif; ?></td>
+  <td data-label="应结算" class="text-right font-weight-bold pp-amt">¥<?php echo money($row['amount']); ?><i class="pp-bar" style="width:<?php echo max(2, round(abs((float)$row['amount']) / $ppMax * 100)); ?>%"></i><?php if (!empty($row['unreviewed_n'])): ?><div class="small font-weight-normal"><a class="text-warning" href="<?php echo BASE_URL; ?>/project/batch_review.php" title="没审核的订单不计入应结算；审核通过后才会计入，按营业额落档的还会重新落档。点这里去审核申请"><?php echo (int)$row['unreviewed_n']; ?> 单 ¥<?php echo money($row['unreviewed_amt']); ?> 未审核 ›</a></div><?php endif; ?></td>
   <td data-label="另行支付" class="text-right text-muted"><?php echo $row['separate'] > 0 ? '¥' . money($row['separate']) : '—'; ?></td>
-  <td class="text-right"><span class="btn btn-sm btn-outline-primary">明细</span></td>
+  <td class="text-right"><span class="pp-go">明细 ›</span></td>
 </tr><?php endforeach; ?>
 </tbody></table></div>
 <div class="card-body py-2 small text-muted" id="overviewEmpty" hidden>没有符合条件的合作人员</div></div>
@@ -524,6 +523,7 @@ if ($employeeId > 0) {
 })();
 </script>
 <?php endif; ?>
+</div><!-- .pp -->
 <?php if ($actor['role'] === 'finance'): ?>
 <div class="modal fade" id="modalSettlementRequests" tabindex="-1" role="dialog" aria-labelledby="modalSettlementRequestsTitle" aria-hidden="true">
   <div class="modal-dialog modal-xl modal-dialog-scrollable" role="document" style="max-width: 95vw; margin: 15px auto;">

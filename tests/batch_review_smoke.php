@@ -61,6 +61,30 @@ try {
     try { $pdo->prepare("UPDATE project_orders SET delivery_status='finished' WHERE id=?")->execute([$w]); pbr_prepare_order($w, $finance, 1, '财务'); ps_approve_order($w, $finance, $month); $pdo->commit(); $okW = true; } catch (Throwable $ex) { $pdo->rollBack(); $okW = $ex->getMessage(); }
     $check($okW === true && $st($w)['settlement_status'] === 'approved', '资源未确认+成本待审的已到账网站模板单，准备后可审核通过：' . (is_string($okW) ? $okW : 'ok'));
     $check($pdo->query("SELECT domain_mode FROM project_order_resources WHERE order_id=$w")->fetchColumn() === 'none', '资源按“无需另计”确认');
+    // 商品明细没关联成本、但订单上已有未占用的同类已审核成本：财务批量通过时自动关联后审核
+    $pdo->prepare("INSERT INTO project_orders (order_no,customer_name,project_type,order_kind,shop,contract_amount,receipt_amount,order_date,delivery_status,settlement_status,note) VALUES (?,'测试','网站模板','新订单','内部',300,300,'2026-09-15','finished','draft','测试')")->execute(['BRI' . $tag]);
+    $it = (int)$pdo->lastInsertId(); $ids[] = $it;
+    $pdo->prepare("INSERT INTO project_participants (order_id,employee_id,commission_group,role_name,group_weight) VALUES (?,?,'technical','模板技术',1)")->execute([$it, $emp]);
+    $pdo->prepare("INSERT INTO project_order_resources (order_id,source_type,domain_mode) VALUES (?,'manual','none')")->execute([$it]);
+    $pdo->prepare("INSERT INTO project_costs (order_id,category,item_name,quantity,unit,unit_price,amount,cost_kind,is_custom,reason,review_status) VALUES (?,'program','JSP展示中级版 · 1年',1,'项',100,100,'one_time',1,'测试','approved')")->execute([$it]);
+    $pdo->prepare("INSERT INTO project_order_items (order_id,item_key,item_name,category,sale_amount,resource_hint) VALUES (?,?,?,'program',300,'')")->execute([$it, 'k' . $tag, 'JSP展示中级版']);
+    [$dI, $fI] = pbr_approve($finance, 0, [$it], $emp, $month);
+    $check($dI === 1 && !$fI, '商品成本没关联但已有同类已审核成本：批量审核自动关联后通过：' . implode('；', $fI));
+
+    // 重复导入的商品明细（同名同价各 2 份、只有 1 条成本）+ 没有实收：订单列表批量审核的准备动作后可通过
+    $pdo->prepare("INSERT INTO project_orders (order_no,customer_name,project_type,order_kind,shop,contract_amount,receipt_amount,order_date,delivery_status,settlement_status,note) VALUES (?,'测试','网站模板','新订单','内部',260,0,'2026-09-16','finished','draft','测试')")->execute(['BRD' . $tag]);
+    $dp = (int)$pdo->lastInsertId(); $ids[] = $dp;
+    $pdo->prepare("INSERT INTO project_participants (order_id,employee_id,commission_group,role_name,group_weight) VALUES (?,?,'technical','模板技术',1)")->execute([$dp, $emp]);
+    $pdo->prepare("INSERT INTO project_order_resources (order_id,source_type,domain_mode) VALUES (?,'manual','none')")->execute([$dp]);
+    $pdo->prepare("INSERT INTO project_costs (order_id,category,item_name,quantity,unit,unit_price,amount,cost_kind,is_custom,reason,review_status) VALUES (?,'program','PHP · 1年 空间+域名',1,'项',170,170,'one_time',1,'测试','approved')")->execute([$dp]);
+    foreach ([1, 2] as $n) $pdo->prepare("INSERT INTO project_order_items (order_id,item_key,item_name,category,sale_amount,resource_hint) VALUES (?,?,'PHP','program',260,'')")->execute([$dp, 'd' . $n . $tag]);
+    $pdo->beginTransaction();
+    try { pbr_register_receipt($dp, $finance, 1, '财务'); pbr_prepare_order($dp, $finance, 1, '财务'); ps_approve_order($dp, $finance, $month); $pdo->commit(); $okD = true; } catch (Throwable $ex) { $pdo->rollBack(); $okD = $ex->getMessage(); }
+    $check($okD === true && $st($dp)['settlement_status'] === 'approved', '没有实收 + 重复商品明细：登记收款、去掉重复明细后可审核通过：' . (is_string($okD) ? $okD : 'ok'));
+    $check((int)$pdo->query("SELECT COUNT(*) FROM project_order_items WHERE order_id=$dp")->fetchColumn() === 1 && (int)$pdo->query("SELECT COUNT(*) FROM project_costs WHERE order_id=$dp")->fetchColumn() === 1, '只删重复的明细行，成本记录原样保留');
+    // 订单列表批量审核：勾选里已审核的订单跳过，不再报“当前订单不可审核”
+    $bulkSrc = file_get_contents(__DIR__ . '/../project/index/actions/bulk.php');
+    $check(strpos($bulkSrc, '$alreadyApproved++') !== false && strpos($bulkSrc, "'already' => $" . 'alreadyApproved') !== false, '批量审核对已审核订单计入“已跳过”，不当作失败');
     // 同一付款号的两个网站项目：财务批量通过时自动按售价登记收款并记共用付款分配核对
     require_once __DIR__ . '/../includes/ProjectSiteProjects.php';
     $site = [];
@@ -96,8 +120,6 @@ try {
     $check(count(pbr_orders($emp, $month, $sc)) >= 2 && in_array($emp, array_map('intval', array_column(pbr_employees($month, $sc), 'id')), true), '授权业务内的订单和员工可见');
     $pdo->prepare("INSERT INTO project_participants (order_id,employee_id,commission_group,role_name,group_weight) VALUES (?,?,'technical','设计',1)")->execute([$f, $dele]);
     $check(!in_array($f, array_map('intval', array_column(pbr_orders($emp, $month, pbr_scope($deleActor)), 'id')), true), '本人参与的订单不能自己审');
-    $threw = false; try { pbr_approve($deleActor, $rid, [$e]); } catch (RuntimeException $ex) { $threw = true; }
-    $check($threw, '授权人员不能处理申请');
     [$d4, $fl4] = pbr_approve($deleActor, 0, [$e, $f], $emp, $month);
     $check($d4 === 1 && $st($e)['settlement_status'] === 'approved' && $st($f)['settlement_status'] === 'draft', '授权人员直接审核：能过 1 单，本人参与那单被拒绝');
     $check((int)$pdo->query("SELECT COUNT(*) FROM project_cash_movements WHERE order_id=$e AND reviewed_by_admin IS NULL AND note LIKE '授权审核人员%'")->fetchColumn() === 1, '收款记录不冒用管理员 ID，注明授权审核人员');

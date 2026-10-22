@@ -9,7 +9,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['bulk_action'])) {
     elseif ($actor['role'] !== 'finance') { http_response_code(403); exit('无权限'); }
     $ids = array_values(array_unique(array_filter(array_map('intval', (array)($_POST['ids'] ?? [])))));
     $payrollMonth = (string)($_POST['bulk_month'] ?? '');
-    $done = 0;
+    $done = 0; $alreadyApproved = 0;
     $failed = [];
     foreach (array_slice($ids, 0, 300) as $orderId) {
         $orderNo = '#' . $orderId;
@@ -19,8 +19,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['bulk_action'])) {
                 $noQuery->execute([$orderId]);
                 $orderNo = (string)$noQuery->fetchColumn();
                 require_once (dirname(__DIR__, 2)) . '/../includes/ProjectBatchReview.php';
+                // 勾选里已经审核通过的订单：无需重复审核，不算失败（否则全选时会刷出一长串“当前订单不可审核”）
+                $stQ = db()->prepare('SELECT settlement_status FROM project_orders WHERE id=?'); $stQ->execute([$orderId]);
+                if (in_array($stQ->fetchColumn(), ['approved', 'locked'], true)) { $alreadyApproved++; continue; }
                 db()->beginTransaction(); // 准备动作与审核同成败：审核不通过则一并回滚
                 try {
+                    pbr_register_receipt($orderId, $actor, (int)$actor['id'], '财务');
                     pbr_prepare_order($orderId, $actor, (int)$actor['id'], '财务');
                     ps_approve_order($orderId, $actor, $payrollMonth);
                     db()->commit();
@@ -88,7 +92,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['bulk_action'])) {
         try { require_once (dirname(__DIR__, 3)) . '/includes/ProjectAutoReview.php'; pa_after_save($ids); } catch (Throwable $e) {}
     }
     $_SESSION['project_bulk_result'] = ['action' => ['receipt' => '确认实收', 'finish' => '标记交付完成', 'approve' => '审核并生成分成', 'delete' => '删除', 'set_kind' => '修改订单类型'][$bulkAction
-    ] ?? $bulkAction, 'done' => $done, 'failed' => $failed];
+    ] ?? $bulkAction, 'done' => $done, 'failed' => $failed, 'already' => $alreadyApproved];
     header('Location: ' . BASE_URL . '/project/index.php?' . (string)($_POST['return_query'] ?? ''));
     if (PHP_SAPI !== 'cli') exit;
 }

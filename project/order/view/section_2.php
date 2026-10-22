@@ -118,7 +118,7 @@
 
 <?php if ($canEdit && $businessDefinition && $businessDefinition['resources'] && $orderResource && $orderResource['domain_mode'] === 'pending'): ?>
 <div class="card mb-3 project-resource-pending"><div class="card-body"><h5><i class="fas fa-seedling mr-2"></i>技术提交 · 确认域名与服务器</h5><p class="text-muted mb-3">客服与技术共用此订单。技术确认后，选中的标准域名和服务器分别自动计入成本；未确认前不能审核分成。</p>
-<?php if (in_array($actor['role'], ['technical','finance'], true)): ?><form method="post" class="form-row align-items-end"><input type="hidden" name="csrf" value="<?php echo e(ps_csrf_token
+<?php if (in_array($actor['role'], ['technical','finance'], true) || !empty($canReviewOrder)): ?><form method="post" class="form-row align-items-end"><input type="hidden" name="csrf" value="<?php echo e(ps_csrf_token
     ()); ?>"><input type="hidden" name="action" value="confirm_resources"><?php if (!empty($businessDefinition['program'])): $programOptions = ps_intake_templates('program', $order
     ['project_type']); ?><div class="form-group col-md-12"><label>程序套餐（含空间 / 域名 / 商投，选中即按成本中心价入账）</label><select class="form-control" name="program_template_id" id="confirmProgram"><option value="0">不使用程序套餐</option><?php
     $lastProgram = ''; foreach ($programOptions as $programOption): if ($programOption['name'] !== $lastProgram): if ($lastProgram !== ''): ?></optgroup><?php endif; $lastProgram =

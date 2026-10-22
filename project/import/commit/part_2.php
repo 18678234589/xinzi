@@ -206,8 +206,10 @@
                     $priceSource = ($row['contract_amount'] === '' && !($selectedBusiness === '森动备案' && ($row['order_kind'] ?? '') === '二次备案')) ? 'missing' : 'manual';
                     ps_source_record($orderId, $priceSource, $row['payment_nickname'], $row['trade_status'] ?? '', $row['payment_reference'] ?? '');
                     $writeBusiness = $row['project_type'] ?? $selectedBusiness;
-                    ps_save_business_details($orderId, $writeBusiness, $actor['role'] === 'customer_service' && $writeBusiness === '网站模板' ? ps_business_details($writeBusiness
-    , []) : $row['details']);
+                    $newDetails = $actor['role'] === 'customer_service' && $writeBusiness === '网站模板' ? ps_business_details($writeBusiness, []) : $row['details'];
+                    // 客服建网站模板单时技术资料留空待技术填写，但“空间来源”是客服最清楚的（客户用自己的空间还是我们的），照写
+                    if (($row['details']['space_source'] ?? '') !== '' && array_key_exists('space_source', $newDetails)) $newDetails['space_source'] = $row['details']['space_source'];
+                    ps_save_business_details($orderId, $writeBusiness, $newDetails);
                     ps_intake_participants($orderId, $row['people'], $writeBusiness);
                     if ($departmentMode) ps_department_import_record($orderId, $actor);
                     if ($businessDefinition['resources']) ps_intake_save_resources($orderId, 'excel', (int)$row['line'], $domainTemplate, $serverTemplate, is_numeric($row['ssl_used'
@@ -302,7 +304,7 @@
     ($_SESSION['project_import_sheets'] ?? [], function ($i) { return !empty($i['used']); })), ps_import_followup_rows($remaining, $action === 'followup'));
                 if (!empty($_SESSION['project_import_file'])) {
                     ps_import_file_mark((int)$_SESSION['project_import_file'], 'imported', ['imported_count' => count($importReport['written_order_ids']), 'skipped_count' => $importReport
-    ['existing'] + $importReport['ignored'] + $importReport['pending']]);
+    ['existing'] + $importReport['ignored'] + $importReport['pending'] + $importReport['conflict']]);
                 }
                 if ($remaining) {
                     $_SESSION['project_import_preview'] = $remaining;

@@ -1,11 +1,13 @@
 <?php
 $order = ps_order($id, $actor);
+require_once __DIR__ . '/../../includes/ProjectBatchReview.php';
 $error = '';
 $success = '';
 
 /* split: project/order/actions/dispatch.php */ include (dirname(__DIR__, 1)) . '/order/actions/dispatch.php';$order = ps_order($id, $actor);
 $sourceQuery = db()->prepare('SELECT * FROM project_order_sources WHERE order_id=?');
 $sourceQuery->execute([$id]);
+$canReviewOrder = pbr_can_review_order($actor, $order); // 财务或被授权审核该业务的人员（冯超）
 $orderSource = $sourceQuery->fetch() ?: ['payment_nickname' => '', 'trade_status' => '', 'price_source' => (float)$order['contract_amount'] > 0 ? 'manual' : 'missing'];
 $resourceQuery = db()->prepare('SELECT * FROM project_order_resources WHERE order_id=?');
 $resourceQuery->execute([$id]);

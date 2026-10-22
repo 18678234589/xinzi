@@ -33,11 +33,12 @@ function ps_import_order_visible($orderId, $actor)
 
 function ps_import_result_save($fileId, $preview, $importedLines, $actor, $operator, $written = 0)
 {
-    $numbers = []; $writtenNumbers = []; $existing = 0; $pending = 0; $ignored = 0;
+    $numbers = []; $writtenNumbers = []; $existing = 0; $pending = 0; $conflict = 0; $ignored = 0;
     foreach ($preview as $row) {
         if (in_array((int)$row['line'], $importedLines, true)) { $numbers[] = $row['order_no']; $writtenNumbers[] = $row['order_no']; }
         elseif (($row['status'] ?? '') === '已导入过') { $numbers[] = $row['order_no']; $existing++; }
         elseif (($row['status'] ?? '') === '他人订单') $ignored++;
+        elseif (!empty($row['existing_snapshot']) && mb_strpos((string)($row['error'] ?? ''), '不一致') !== false) $conflict++; // 数据完整，与已导入原单冲突，需财务核对
         else $pending++;
     }
     $previous = ps_import_result_get($fileId);
@@ -50,7 +51,7 @@ function ps_import_result_save($fileId, $preview, $importedLines, $actor, $opera
     }
     $report = ['order_ids' => array_values(array_unique(array_map('intval', $ids))), 'written' => (int)$written,
         'written_order_ids' => array_values(array_unique(array_map('intval', $writtenIds))),
-        'existing' => $existing, 'pending' => $pending, 'ignored' => $ignored,
+        'existing' => $existing, 'pending' => $pending, 'conflict' => $conflict, 'ignored' => $ignored,
         'uploader' => $actor, 'operator' => $operator];
     ps_audit('import_file', (int)$fileId, 'import_result', $operator, $report);
     return $report;

@@ -1,35 +1,39 @@
 /* 首页项目报酬表：版式对齐财务月度报酬表，合计行固定在表头下方 */
-.pps-card{background:var(--app-surface,#fff);border:1px solid var(--app-line,#e7ebe3);border-radius:var(--app-radius,14px);box-shadow:var(--app-shadow,0 6px 22px rgba(45,73,58,.07));overflow:hidden}
-.pps-head{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:.75rem;padding:1rem 1.15rem;background:linear-gradient(135deg,#f3f8ef 0%,#fbf6ea 100%);border-bottom:1px solid var(--app-line,#e7ebe3)}
+.pps-card{background:#fff;border:1px solid #e7eee7;border-radius:20px;box-shadow:0 7px 24px rgba(29,65,46,.06);overflow:hidden}
+.pps-head{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:.75rem;padding:1rem 1.15rem;background:linear-gradient(115deg,#e4f3e7 0%,#f6f8ee 56%,#fff0d8 100%);border-bottom:1px solid #e1ebdc}
 .pps-title{display:flex;align-items:center;gap:.75rem}.pps-title h5{margin:0;font-weight:700;color:#234b3d;font-size:1.08rem}.pps-title small{color:var(--app-muted,#7a877f)}
-.pps-ico{display:grid;place-items:center;width:42px;height:42px;border-radius:12px;background:#2f6a52;color:#fff;font-size:1.05rem;box-shadow:0 6px 14px rgba(47,106,82,.25)}
+.pps-ico{display:grid;place-items:center;width:42px;height:42px;border-radius:13px;background:linear-gradient(135deg,#286b55,#3e8b68);color:#fff;font-size:1.05rem;box-shadow:0 6px 14px rgba(47,106,82,.25)}
 .pps-tools{display:flex;flex-wrap:wrap;align-items:center;gap:.6rem}
 .pps-state{display:inline-flex;align-items:center;gap:.35rem;padding:.22rem .7rem;border-radius:999px;font-size:.78rem;font-weight:600}
 .pps-state.is-live{background:#fdf1dc;color:#9a6512}.pps-state.is-locked{background:#e3f3ea;color:#1f6a52}
 .pps-month{border:1px solid #d7e0d3;border-radius:9px;background:#fff;padding:.28rem .6rem;font-size:.88rem;color:#26352f}
 .pps-link{font-size:.86rem;color:#2f6a52;font-weight:600;text-decoration:none}.pps-link:hover{text-decoration:underline}
-.pps-tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:.7rem;padding:.9rem 1.15rem 0}
-.pps-tiles div{padding:.65rem .9rem;border-radius:12px;background:#f7f9f4;border:1px solid #e7ebe3}
+.pps-tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:.8rem;padding:1rem 1.15rem 0}
+.pps-tiles div{padding:.75rem 1rem;border-radius:16px;background:#f7faf5;border:1px solid #eaf1e7}
 .pps-tiles small{display:block;color:var(--app-muted,#7a877f);font-size:.76rem}
-.pps-tiles strong{font-size:1.2rem;color:#263d34;font-variant-numeric:tabular-nums}
-.pps-tiles .is-main{background:linear-gradient(135deg,#2f6a52,#3d8268);border-color:transparent}.pps-tiles .is-main small{color:#cfe7d8}.pps-tiles .is-main strong{color:#fff}
-.pps-chips{display:flex;flex-wrap:wrap;gap:.4rem;padding:.8rem 1.15rem 0}
+.pps-tiles strong{font-size:1.32rem;font-weight:800;letter-spacing:-.02em;color:#263d34;font-variant-numeric:tabular-nums}
+.pps-tiles .is-main{background:linear-gradient(135deg,#286b55,#3e8b68);border-color:transparent;box-shadow:0 8px 18px rgba(40,107,85,.22)}.pps-tiles .is-main small{color:#cfe7d8}.pps-tiles .is-main strong{color:#fff}
+.pps-chips{display:flex;flex-wrap:nowrap;gap:.4rem;padding:.8rem 1.15rem .1rem;overflow-x:auto;scrollbar-width:thin}.pps-chips button{flex:none}
 .pps-chips button{border:1px solid #d7e0d3;background:#fff;color:#44574d;border-radius:999px;padding:.2rem .75rem;font-size:.82rem;cursor:pointer;transition:all .15s}
 .pps-chips button b{margin-left:.2rem;color:#2f6a52;font-weight:600}.pps-chips button:hover{border-color:#a9cfb4}
 .pps-chips button.is-on{background:#2f6a52;border-color:#2f6a52;color:#fff}.pps-chips button.is-on b{color:#cfe7d8}
-.pps-wrap{margin:.9rem 0 0;max-height:68vh;overflow:auto;border-top:1px solid var(--app-line,#e7ebe3)}
-.pps-table{border-collapse:separate;border-spacing:0;width:100%;min-width:1500px;font-size:.86rem;font-variant-numeric:tabular-nums}
-.pps-table th,.pps-table td{padding:.5rem .7rem;white-space:nowrap;border-bottom:1px solid #eef1ea;vertical-align:middle}
-.pps-table thead th{position:sticky;top:0;z-index:3;background:#eaf3e6;color:#234b3d;font-weight:700;font-size:.82rem;text-align:left}
-.pps-table thead tr.pps-total th{top:37px;z-index:3;background:#fff6dc;color:#6b4a00;font-weight:700;border-bottom:2px solid #ecd596}
+.pps-wrap{margin:1rem 0 0;max-height:72vh;overflow:auto;border-top:1px solid #e7eee7;scrollbar-width:thin;scrollbar-color:#c9d8cd transparent}
+.pps-table{border-collapse:separate;border-spacing:0;width:100%;min-width:1240px;font-size:.86rem;font-variant-numeric:tabular-nums}
+.pps-table th,.pps-table td{padding:.55rem .7rem;white-space:nowrap;border-bottom:1px solid #eef2eb;vertical-align:middle}
+.pps-table thead th{position:sticky;z-index:3;background:#f1f7ee;color:#2f5a48;font-weight:700;font-size:.8rem;text-align:left}
+.pps-table thead tr.pps-groups th{top:0;height:26px;padding:0 .7rem;font-size:.68rem;letter-spacing:.14em;color:#fff;text-align:center;border-bottom:0;border-left:2px solid #fff}
+.pps-table thead tr.pps-groups th:first-child{border-left:0}
+.pps-groups .g-who,.pps-groups .g-note{background:#f1f7ee}.pps-groups .g-main{background:#286b55}.pps-groups .g-chk{background:#7c68ad}.pps-groups .g-inc{background:#4d9b6f}.pps-groups .g-cut{background:#c0703f}.pps-groups .g-prof{background:#8a998d}
+.pps-table thead tr.pps-heads th{top:26px;height:38px;border-bottom:1px solid #dfe9db}
+.pps-table thead tr.pps-total th{top:64px;z-index:3;height:38px;background:#fff7e2;color:#6b4a00;font-weight:800;border-bottom:2px solid #ecd596}
 .pps-table .pps-n{text-align:right}
-.pps-table .pps-sticky{position:sticky;left:0;z-index:2;background:#fff;box-shadow:1px 0 0 #eef1ea}
-.pps-table thead .pps-sticky{z-index:5;background:#eaf3e6}.pps-table thead tr.pps-total .pps-sticky{background:#fff6dc}
-.pps-table tbody tr:nth-child(even) td{background:#fafbf8}.pps-table tbody tr:nth-child(even) td.pps-sticky{background:#fafbf8}
-.pps-table tbody tr:hover td{background:#f1f7ed}
+.pps-table .pps-sticky{position:sticky;left:0;z-index:2;background:#fff;box-shadow:1px 0 0 #e7eee7,6px 0 10px -8px rgba(29,65,46,.25);min-width:150px}
+.pps-table thead .pps-sticky{z-index:5;background:#f1f7ee}.pps-table thead tr.pps-total .pps-sticky{background:#fff7e2}
+.pps-table tbody tr:nth-child(even) td{background:#fbfcfa}.pps-table tbody tr:nth-child(even) td.pps-sticky{background:#fbfcfa}
+.pps-table tbody tr:hover td{background:#eef6ea!important}
 .pps-zero{color:#c4cbc3}
-.pps-key{background:#f3f8ef;font-weight:700;color:#234b3d}.pps-table tbody td.pps-key{background:#f3f8ef}
-.pps-net{color:#1f6a52;font-size:.92rem}
+.pps-key{font-weight:700;color:#234b3d}.pps-table tbody td.pps-key{background:#f3f9f2}.pps-table tbody tr:nth-child(even) td.pps-key{background:#eef6ec}
+.pps-net{color:#1f6a52;font-size:.95rem;font-weight:800}
 .pps-cut{color:#b4572e}
 .pps-dept{color:#6c7a72}
 .pps-ot{color:#b77a2c}
@@ -44,7 +48,7 @@
 @keyframes ppsShine{to{background-position:-200% 0}}
 .pps-card-no{font-family:Consolas,"SF Mono",monospace;color:#44574d;letter-spacing:.02em}
 .pps-sign{text-align:center}.pps-ok{color:#1f6a52;font-weight:700}
-.pps-parking,.pps-director{display:block;margin:.2rem 0 0 auto;border:1px solid #c7ced9;border-radius:5px;padding:1px 7px;background:#fff;color:#46546b;font-size:11px;cursor:pointer}.pps-parking:disabled,.pps-director:disabled{opacity:.45;cursor:default}.pps-save-status{padding:.7rem 1rem;border-radius:8px;background:#eef2f8;color:#35445e}
+.pps-parking,.pps-director{display:inline-block;margin:0 0 0 .4rem;vertical-align:middle;opacity:.55;transition:opacity .15s;border:1px solid #c7ced9;border-radius:5px;padding:1px 7px;background:#fff;color:#46546b;font-size:11px;cursor:pointer}.pps-table tr:hover .pps-parking,.pps-table tr:hover .pps-director,.pps-parking:focus,.pps-director:focus{opacity:1}.pps-parking:disabled,.pps-director:disabled{opacity:.3;cursor:default}.pps-save-status{padding:.7rem 1rem;border-radius:8px;background:#eef2f8;color:#35445e}
 .pps-edit{border:0;background:transparent;color:#a9b5ad;padding:0 .25rem;margin-left:.2rem;cursor:pointer;opacity:0;transition:opacity .15s}
 .pps-addcom{border:1px solid #cfe0d6;background:#f3f9f5;color:#2f6a52;border-radius:999px;padding:0 .5rem;margin-left:.3rem;font-size:.72rem;cursor:pointer}.pps-addcom:hover{background:#e3f2e9}
 .pps-table tbody tr:hover .pps-edit,.pps-edit:focus{opacity:1;color:#2f6a52}
@@ -101,3 +105,14 @@
 .pps-orow .no{display:grid;line-height:1.35}.pps-orow .no .nk{font-family:inherit;color:#7a877f;font-size:.74rem}
 .pps-mini{margin:.6rem 0 0;max-height:none;border:1px solid #e1e9e4;border-radius:12px}.pps-mini .pps-table{min-width:1400px}.pps-mini thead th{top:auto;position:static}
 .pps-recon{display:flex;flex-wrap:wrap;align-items:center;gap:.5rem;margin:.7rem 0;padding:.55rem .9rem;border-radius:12px;background:#f7f9f4;border:1px solid #e7ebe3;font-size:.86rem;color:#44574d}.pps-recon i{font-style:normal;color:#9aa69f}.pps-recon b{color:#234b3d;font-variant-numeric:tabular-nums}.pps-recon .is-claimed b{color:#b4572e}.pps-recon .is-left{padding:.1rem .7rem;border-radius:999px;background:#e3f3ea}.pps-recon .is-left b{color:#1f6a52;font-size:1rem}
+
+/* 2026-10 版式：姓名格（序号 + 姓名/部门）与行内工具 */
+.pps-whobox{display:flex;align-items:center;gap:.55rem}.pps-whobox .pps-rank{margin:0;flex:none}
+.pps-name{display:grid;line-height:1.25;min-width:0}.pps-name b{font-weight:700;color:#243a34;font-size:.92rem}.pps-name small{color:#8a998d;font-size:.72rem}
+.pps-rowtools{position:absolute;right:.35rem;top:50%;transform:translateY(-50%);display:inline-flex;align-items:center;gap:.2rem;padding:.1rem .25rem;border-radius:999px;background:rgba(238,246,234,.96);box-shadow:0 2px 8px rgba(29,65,46,.12);opacity:0;pointer-events:none;transition:opacity .15s}
+.pps-table tbody tr:hover .pps-rowtools,.pps-rowtools:focus-within{opacity:1;pointer-events:auto}
+.pps-rowtools .pps-edit{opacity:1;margin:0}.pps-rowtools .pps-addcom{margin:0;background:#fff}
+.pps-chk{white-space:nowrap}.pps-chk .pps-diff{margin-left:.35rem;padding:.05rem .4rem;font-size:.72rem}
+.pps-actcol{min-width:92px;text-align:center}
+.pps-pendlink{text-decoration:none!important;cursor:pointer;border-radius:6px;padding:0 4px;margin:1px -4px 0 auto;width:max-content;max-width:100%}.pps-pendlink:hover{background:#fdf1dc;color:#8a5a00;text-decoration:underline!important}
+.pps-itemform .pps-only-payable{grid-column:1/-1;font-size:.82rem;color:#5d6f64;display:flex;align-items:center;gap:.4rem;margin:0}.pps-itemform .pps-only-payable input{width:auto;padding:0;border:0}

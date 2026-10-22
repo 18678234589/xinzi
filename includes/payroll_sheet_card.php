@@ -12,7 +12,7 @@ if (!$ppsAll && !$ppsOwn) return;
 $ppsCssFile = dirname(__DIR__) . '/assets/css/payroll_sheet.css';
 $ppsJsFile = dirname(__DIR__) . '/assets/js/payroll_sheet.js';
 if (empty($ppsFragment)) {
-    $ppsDefault = date('Y-m', strtotime('first day of last month'));
+    $ppsDefault = pps_default_month();
     $ppsPm = in_array((string)($_GET['pm'] ?? ''), pps_months(), true) ? (string)$_GET['pm'] : $ppsDefault;
     ?>
 <link rel="stylesheet" href="<?php echo e(BASE_URL . '/assets/css/payroll_sheet.css?v=' . (is_file($ppsCssFile) ? filemtime($ppsCssFile) : 1)); ?>">
@@ -26,8 +26,8 @@ if (empty($ppsFragment)) {
 <?php
     return;
 }
-$ppsMonth = (string)($_GET['pm'] ?? date('Y-m', strtotime('first day of last month')));
-if (!in_array($ppsMonth, pps_months(), true)) $ppsMonth = date('Y-m', strtotime('first day of last month'));
+$ppsMonth = (string)($_GET['pm'] ?? pps_default_month());
+if (!in_array($ppsMonth, pps_months(), true)) $ppsMonth = pps_default_month();
 try {
     ps_payroll_extras_ensure();
     $pps = pps_sheet($ppsMonth, $ppsOwn, $ppsAll); // 结算资料（卡号等）只对财务 / 管理账号带出
@@ -61,9 +61,9 @@ foreach ($ppsFixed as $eid=>$fixedRow) {
       <select class="pps-month" aria-label="选择月份"><?php foreach (pps_months() as $m): ?><option value="<?php echo e($m); ?>"<?php echo $m === $ppsMonth ? ' selected' : ''; ?>><?php echo e($m); ?></option><?php endforeach; ?></select>
       <?php if ($ppsAll): $okGreen = 0; foreach ($pps['rows'] ?? [] as $gr) if ($gr['diff'] !== null && abs($gr['diff']) <= PPF_TOLERANCE && $gr['flag']['color'] !== 'green') $okGreen++; if ($okGreen > 0): ?><button type="button" class="pps-bulk pps-bulk-green" data-month="<?php echo e($ppsMonth); ?>" data-n="<?php echo $okGreen; ?>" data-token="<?php echo e(ps_csrf_token()); ?>"><i class="fas fa-check-double"></i> 一键标绿（差距≤5%，<?php echo $okGreen; ?> 人）</button><?php endif; endif; ?>
       <?php if ($ppsMine && ($ppsPast = psr_available_past($ppsMine)) && $ppsPast['n'] > 0): ?><button type="button" class="pps-bulk pps-settle-all" data-n="<?php echo (int)$ppsPast['n']; ?>" data-amt="<?php echo e(number_format($ppsPast['amount'], 2)); ?>" data-token="<?php echo e(ps_csrf_token()); ?>" title="按首页实结算申请往月报酬，含固定工资、全勤、提成和全部扣减；自动扣除已申请或已结算金额"><i class="fas fa-bolt"></i> 一键申请往月全部（<?php echo (int)$ppsPast['n']; ?> 个月 ¥<?php echo e(number_format($ppsPast['amount'], 2)); ?>）</button><?php endif; ?>
-      <?php if ($ppsProxyExpected): ?><form class="payroll-request-form" action="<?php echo e(BASE_URL.'/payroll_sheet.php'); ?>" method="post" data-month="<?php echo e($ppsMonth); ?>" data-amount="<?php echo e(number_format($ppsProxyTotal,2,'.','')); ?>" data-people="<?php echo e(implode("\n",$ppsProxyNames)); ?>">
+      <?php if ($ppsProxyExpected): ?><form class="payroll-request-form pps-bulkform" action="<?php echo e(BASE_URL.'/payroll_sheet.php'); ?>" method="post" data-label="一键代申请整月实结算" data-month="<?php echo e($ppsMonth); ?>" data-amount="<?php echo e(number_format($ppsProxyTotal,2,'.','')); ?>" data-people="<?php echo e(implode("\n",$ppsProxyNames)); ?>">
         <input type="hidden" name="csrf" value="<?php echo e(ps_csrf_token()); ?>"><input type="hidden" name="action" value="request_fixed_payroll"><input type="hidden" name="month" value="<?php echo e($ppsMonth); ?>"><input type="hidden" name="expected_requests" value="<?php echo e(json_encode($ppsProxyExpected,JSON_UNESCAPED_UNICODE)); ?>">
-        <button type="submit">一键代申请整月实结算 · <?php echo count($ppsProxyExpected); ?> 人 · ¥<?php echo number_format($ppsProxyTotal,2); ?></button><span class="payroll-request-message" role="status" hidden></span>
+        <button type="submit"><i class="fas fa-paper-plane"></i> 一键代申请 · <?php echo count($ppsProxyExpected); ?> 人</button><span class="payroll-request-message" role="status" hidden></span>
       </form><?php endif; ?>
       <?php if ($ppsAll): ?><a class="pps-link" href="<?php echo BASE_URL; ?>/project/payroll.php?month=<?php echo e($ppsMonth); ?>">明细与锁月 <i class="fas fa-angle-right"></i></a><?php endif; ?>
     </div>
@@ -74,7 +74,7 @@ foreach ($ppsFixed as $eid=>$fixedRow) {
   <div class="pps-empty"><?php echo e($ppsMonth); ?> 暂无报酬数据</div>
 <?php else: ?>
   <div class="pps-tiles">
-    <div><small><?php echo $ppsAll ? '涉及人数' : '姓名'; ?></small><strong data-t="count"><?php echo $ppsAll ? count($pps['rows']) : e($pps['rows'][0]['name']); ?></strong></div>
+    <div><small><?php echo $ppsAll ? '涉及人数' : '项目分成'; ?></small><strong data-t="count"><?php echo $ppsAll ? count($pps['rows']) : '¥' . number_format($ppsT['share'], 2); ?></strong></div>
     <div><small>应结算合计</small><strong data-t="payable">¥<?php echo number_format($ppsT['payable'], 2); ?></strong></div>
     <div><small>扣减合计</small><strong data-t="cut">¥<?php echo number_format($ppsT['payable'] - $ppsT['net'], 2); ?></strong></div>
     <div class="is-main"><small>实结算总计</small><strong data-t="net">¥<?php echo number_format($ppsT['net'], 2); ?></strong></div>
@@ -82,55 +82,83 @@ foreach ($ppsFixed as $eid=>$fixedRow) {
 <?php if ($ppsAll && count($ppsDepts) > 1): ?>
   <div class="pps-chips" role="tablist"><button type="button" class="is-on" data-dept="">全部 <b><?php echo count($pps['rows']); ?></b></button><?php foreach ($ppsDepts as $d => $n): ?><button type="button" data-dept="<?php echo e($d); ?>"><?php echo e($d ?: '未分部门'); ?> <b><?php echo $n; ?></b></button><?php endforeach; ?></div>
 <?php endif; ?>
+<?php
+$ppsHide = []; // 财务多人视图里，整列全为 0 的补助列不占位置
+if ($ppsAll) foreach (['mgr', 'lead', 'ins_sub'] as $hk) { $any = false; foreach ($pps['rows'] as $hr) if (abs((float)$hr[$hk]) >= 0.005) { $any = true; break; } if (!$any) $ppsHide[$hk] = true; }
+$ppsCut = ['deduct', 'parking', 'reserve', 'unit_ins', 'personal_ins'];
+$ppsCols = [['who', '姓名', '人员'], ['payable', '应结算', '结算'], ['net', '实结算', '结算'], ['act', '申请', '结算']];
+if ($ppsAll) { $ppsCols[] = ['chk', '核对', '核对']; $ppsCols[] = ['ref', '对照表实发', '核对']; }
+foreach ($ppsHeads as [$hk, $hl]) { if ($hk === 'payable' || $hk === 'net' || isset($ppsHide[$hk])) continue; $ppsCols[] = [$hk, $hl, in_array($hk, $ppsCut, true) ? '扣减' : '收入构成']; }
+if ($ppsAll) foreach ([['card', '工行卡号'], ['sup', '主管'], ['sign', '签名'], ['ins', '买保险公司'], ['resv', '已扣除预留金']] as [$hk, $hl]) $ppsCols[] = [$hk, $hl, '结算资料'];
+$ppsCols[] = ['note', '备注', '备注'];
+$ppsGroups = []; foreach ($ppsCols as $hc) { $hg = $hc[2]; $last = count($ppsGroups) - 1; if ($last >= 0 && $ppsGroups[$last][0] === $hg) $ppsGroups[$last][1]++; else $ppsGroups[] = [$hg, 1]; }
+$ppsGroupCls = ['人员' => 'g-who', '结算' => 'g-main', '核对' => 'g-chk', '收入构成' => 'g-inc', '扣减' => 'g-cut', '结算资料' => 'g-prof', '备注' => 'g-note'];
+$ppsNumeric = ['payable', 'net', 'share', 'base', 'bonus', 'mgr', 'lead', 'ins_sub', 'other', 'deduct', 'parking', 'reserve', 'unit_ins', 'personal_ins', 'ref', 'resv', 'days'];
+?>
   <div class="pps-wrap">
     <table class="pps-table">
       <thead>
-        <tr><?php if ($ppsMine || $ppsAll): ?><th class="pps-actcol">结算</th><?php endif; ?><?php if ($ppsAll): ?><th>主管</th><?php endif; ?><th class="pps-sticky">姓名</th><?php if ($ppsAll): ?><th>工行卡号</th><?php endif; ?><th>部门</th><?php foreach ($ppsHeads as [$k, $label]): ?><th class="pps-n<?php echo in_array($k, ['payable', 'net'], true) ? ' pps-key' : ''; ?>"><?php echo e($label); ?></th><?php endforeach; ?><?php if ($ppsAll): ?><th class="pps-n">对照表实发</th><th class="pps-n">差距</th><th>核对</th><th>签名</th><th>买保险公司</th><th class="pps-n">已扣除预留金</th><?php endif; ?><th class="pps-note">备注</th></tr>
-        <tr class="pps-total"><?php if ($ppsMine || $ppsAll): ?><th></th><?php endif; ?><?php if ($ppsAll): ?><th></th><?php endif; ?><th class="pps-sticky">合计</th><?php if ($ppsAll): ?><th></th><?php endif; ?><th data-t="cnt"><?php echo count($pps['rows']); ?> 人</th><th class="pps-n"></th><?php foreach ($ppsHeads as [$k, $label]): if ($k === 'days') continue; ?><th class="pps-n<?php echo in_array($k, ['payable', 'net'], true) ? ' pps-key' : ''; ?>" data-c="<?php echo e($k); ?>"><?php echo abs($ppsT[$k]) < 0.005 ? '—' : number_format($ppsT[$k], 2); ?></th><?php endforeach; ?><?php if ($ppsAll): ?><th></th><th></th><th></th><th></th><th></th><th></th><?php endif; ?><th class="pps-note"></th></tr>
+        <tr class="pps-groups"><?php foreach ($ppsGroups as [$hg, $hn]): ?><th colspan="<?php echo $hn; ?>" class="<?php echo e($ppsGroupCls[$hg] ?? ''); ?><?php echo $hg === '人员' ? ' pps-sticky' : ''; ?>"><?php echo $hg === '人员' || $hg === '备注' ? '' : e($hg); ?></th><?php endforeach; ?></tr>
+        <tr class="pps-heads"><?php foreach ($ppsCols as $hc): $ck = $hc[0]; ?><th class="<?php echo in_array($ck, $ppsNumeric, true) ? 'pps-n' : ''; ?><?php echo $ck === 'who' ? ' pps-sticky' : ''; ?><?php echo in_array($ck, ['payable', 'net'], true) ? ' pps-key' : ''; ?><?php echo $ck === 'note' ? ' pps-note' : ''; ?><?php echo $ck === 'act' ? ' pps-actcol' : ''; ?>"><?php echo e($hc[1]); ?></th><?php endforeach; ?></tr>
+        <tr class="pps-total"><?php foreach ($ppsCols as $hc): $ck = $hc[0];
+            if ($ck === 'who'): ?><th class="pps-sticky">合计 · <span data-t="cnt"><?php echo count($pps['rows']); ?> 人</span></th><?php
+            elseif (isset($ppsT[$ck]) && in_array($ck, $ppsNumeric, true) && $ck !== 'days'): ?><th class="pps-n<?php echo in_array($ck, ['payable', 'net'], true) ? ' pps-key' : ''; ?>" data-c="<?php echo e($ck); ?>"><?php echo abs($ppsT[$ck]) < 0.005 ? '—' : number_format($ppsT[$ck], 2); ?></th><?php
+            else: ?><th></th><?php endif; endforeach; ?></tr>
       </thead>
       <tbody>
 <?php
 $ppsClaim = $ppsMine ? pspr_month($ppsMine, $ppsMonth) : null; // 已申请 / 已结算的金额，本人行里从实结算扣除显示
-foreach ($pps['rows'] as $i => $r): ?>
+foreach ($pps['rows'] as $i => $r):
+    $pf = $r['profile'] ?? []; $rid = (int)$r['id']; ?>
         <tr data-dept="<?php echo e($r['department']); ?>">
-<?php if ($ppsMine || $ppsAll): ?>
-          <td class="pps-actcol"><?php if ((int)$r['id'] === $ppsMine || $ppsAll): $payrollRequestEmployee=(int)$r['id']; $payrollRequestRow=$r; $payrollRequestMonth=$ppsMonth; $payrollRequestProxy=$ppsAll && (int)$r['id']!==$ppsMine; include __DIR__ . '/payroll_request_button.php'; unset($payrollRequestRow); endif; ?></td>
-<?php endif; ?>
-<?php if ($ppsAll): $pf = $r['profile']; ?>
-          <td class="pps-dept"><?php echo $pf['supervisor'] !== '' ? e($pf['supervisor']) : '<span class="pps-zero">—</span>'; ?></td>
-          <td class="pps-sticky"><span class="pps-rank<?php echo $i < 3 ? ' top' : ''; ?>"><?php echo $i + 1; ?></span><?php echo e($r['name']); ?> <button type="button" class="pps-edit" title="编辑结算资料" data-id="<?php echo (int)$r['id']; ?>" data-name="<?php echo e($r['name']); ?>" data-profile="<?php echo e(json_encode($pf + ['items' => $r['items'], 'month' => $ppsMonth], JSON_UNESCAPED_UNICODE)); ?>"><i class="fas fa-pen"></i></button><button type="button" class="pps-addcom" title="手工添加提成 / 扣项（如留学提成、设计费）"><i class="fas fa-plus"></i> 提成</button></td>
-          <td class="pps-card-no"><?php echo $pf['bank_card'] !== '' ? e(trim(chunk_split($pf['bank_card'], 4, ' '))) : '<span class="pps-zero">—</span>'; ?></td>
-<?php else: ?>
-          <td class="pps-sticky"><span class="pps-rank"><?php echo $i + 1; ?></span><?php echo e($r['name']); ?></td>
-<?php endif; ?>
-          <td class="pps-dept"><?php echo e($r['department']); ?></td>
-          <td class="pps-n"><?php echo $r['days'] === null ? '<span class="pps-zero">—</span>' : rtrim(rtrim(number_format($r['days'], 2), '0'), '.') . ($r['ot_days'] > 0 ? '<small class="pps-ot"> +' . rtrim(rtrim(number_format($r['ot_days'], 2), '0'), '.') . '</small>' : ''); ?></td>
-<?php foreach ($ppsHeads as [$k, $label]): if ($k === 'days') continue;
-    if ($k === 'other' && isset($ppsDirectors[(int)$r['id']])) {
-        $director = $ppsDirectors[(int)$r['id']];
-        $button = '<button type="button" class="pps-director" data-id="' . (int)$r['id'] . '" data-name="' . e($r['name']) . '" data-amount="' . e($director['amount'] === null ? '' : $director['amount']) . '" title="仅核定本月董事长、董事会补助，不沿用到下月"' . ($ppsLocked ? ' disabled' : '') . '>' . ($director['confirmed'] ? '补助已核定 · 修改' : '补助本月核定') . '</button>';
-        echo str_replace('</td>', $button . '</td>', pps_cell($r['other'])), "\n";
-        continue;
-    }
-    if ($k === 'parking' && $ppsAll) {
-        $parkingButton = '<button type="button" class="pps-parking" data-id="' . (int)$r['id'] . '" data-name="' . e($r['name']) . '" data-amount="' . (float)$r['parking_setting']['amount'] . '" title="设置每月车位费"' . ($ppsLocked ? ' disabled' : '') . '>设置</button>';
-        echo str_replace('</td>', $parkingButton . '</td>', pps_cell($r['parking'], 'pps-cut')), "\n";
-        continue;
-    }
-    if ($k === 'net' && $ppsClaim && (int)$r['id'] === $ppsMine && $ppsClaim['claimed'] != 0) { echo '          ', str_replace('</td>', '<small class="pps-pend" title="已申请 / 已结算的金额自动从实结算里扣除">已申请 −' . number_format($ppsClaim['claimed'], 2) . '<br>可申请 ' . number_format($ppsClaim['amount'], 2) . '</small></td>', pps_cell($r[$k], 'pps-key pps-net')), "
-"; continue; }
-    if ($k === 'share' && $r['pending_n'] > 0) { echo '          ', str_replace('</td>', '<small class="pps-pend" title="其中 ' . (int)$r['pending_n'] . ' 单尚未审核，按系统预计分成计入">含待审预计 ' . number_format($r['pending'], 2) . '</small></td>', pps_cell($r['share'])), "
-"; continue; }
-    echo '          ', pps_cell($r[$k], in_array($k, ['payable'], true) ? 'pps-key' : ($k === 'net' ? 'pps-key pps-net' : (in_array($k, ['deduct', 'parking', 'reserve', 'unit_ins', 'personal_ins'], true) ? 'pps-cut' : ''))), "\n"; endforeach; ?>
-<?php if ($ppsAll): $fc = $r['flag']['color']; $over = $r['diff'] !== null && abs($r['diff']) > PPF_TOLERANCE; ?>
+<?php foreach ($ppsCols as $hc): $ck = $hc[0];
+    switch ($ck):
+    case 'who': ?>
+          <td class="pps-sticky pps-who"><div class="pps-whobox"><span class="pps-rank<?php echo $i < 3 ? ' top' : ''; ?>"><?php echo $i + 1; ?></span><span class="pps-name"><b><?php echo e($r['name']); ?></b><small><?php echo e($r['department']); ?></small></span><?php if ($ppsAll): ?><span class="pps-rowtools"><button type="button" class="pps-edit" title="编辑结算资料" data-id="<?php echo $rid; ?>" data-name="<?php echo e($r['name']); ?>" data-profile="<?php echo e(json_encode($pf + ['items' => $r['items'], 'month' => $ppsMonth], JSON_UNESCAPED_UNICODE)); ?>"><i class="fas fa-pen"></i></button><button type="button" class="pps-addcom" title="手工添加提成 / 扣项（如留学提成、设计费）"><i class="fas fa-plus"></i> 提成</button></span><?php endif; ?></div></td>
+<?php   break;
+    case 'act': ?>
+          <td class="pps-actcol"><?php if ($rid === $ppsMine || $ppsAll): $payrollRequestEmployee = $rid; $payrollRequestRow = $r; $payrollRequestMonth = $ppsMonth; $payrollRequestProxy = $ppsAll && $rid !== $ppsMine; $payrollRequestCompact = true; include __DIR__ . '/payroll_request_button.php'; unset($payrollRequestRow, $payrollRequestCompact); endif; ?></td>
+<?php   break;
+    case 'chk': $fc = $r['flag']['color']; $over = $r['diff'] !== null && abs($r['diff']) > PPF_TOLERANCE; ?>
+          <td class="pps-chk"><button type="button" class="pps-flag <?php echo $fc ? 'is-' . e($fc) : ($over ? 'is-over' : ''); ?>" data-id="<?php echo $rid; ?>" data-name="<?php echo e($r['name']); ?>" data-month="<?php echo e($ppsMonth); ?>" title="<?php echo e($r['flag']['reason']); ?>"><i class="fas fa-circle"></i> <?php echo $fc ? ['green' => '绿', 'yellow' => '黄', 'red' => '红'][$fc] : ($over ? '待核对' : '核对'); ?></button><?php if ($r['diff'] !== null): ?><span class="pps-diff <?php echo $over ? 'is-over' : 'is-ok'; ?>" title="系统实结算相对对照表的差距"><?php echo ($r['diff'] >= 0 ? '+' : '') . number_format($r['diff'] * 100, 1); ?>%</span><?php endif; ?></td>
+<?php   break;
+    case 'ref': ?>
           <td class="pps-n"><?php echo $r['ref'] === null ? '<span class="pps-zero">—</span>' : number_format($r['ref'], 2); ?></td>
-          <td class="pps-n"><?php echo $r['diff'] === null ? '<span class="pps-zero">—</span>' : '<span class="pps-diff ' . ($over ? 'is-over' : 'is-ok') . '">' . ($r['diff'] >= 0 ? '+' : '') . number_format($r['diff'] * 100, 1) . '%</span>'; ?></td>
-          <td><button type="button" class="pps-flag <?php echo $fc ? 'is-' . e($fc) : ($over ? 'is-over' : ''); ?>" data-id="<?php echo (int)$r['id']; ?>" data-name="<?php echo e($r['name']); ?>" data-month="<?php echo e($ppsMonth); ?>" title="<?php echo e($r['flag']['reason']); ?>"><i class="fas fa-circle"></i> <?php echo $fc ? ['green' => '绿', 'yellow' => '黄', 'red' => '红'][$fc] : ($over ? '待核对' : '核对'); ?></button></td>
-          <td class="pps-sign"><?php echo $pf['signed'] ? '<span class="pps-ok">√</span>' : '<span class="pps-zero">—</span>'; ?></td>
-          <td><?php echo $pf['insurance_company'] !== '' ? e($pf['insurance_company']) : '<span class="pps-zero">—</span>'; ?></td>
-          <td class="pps-n"><?php echo $pf['reserve_deducted'] === null ? '<span class="pps-zero">—</span>' : number_format((float)$pf['reserve_deducted'], 2); ?></td>
-<?php endif; ?>
+<?php   break;
+    case 'card': ?>
+          <td class="pps-card-no"><?php echo ($pf['bank_card'] ?? '') !== '' ? e(trim(chunk_split($pf['bank_card'], 4, ' '))) : '<span class="pps-zero">—</span>'; ?></td>
+<?php   break;
+    case 'sup': ?>
+          <td class="pps-dept"><?php echo ($pf['supervisor'] ?? '') !== '' ? e($pf['supervisor']) : '<span class="pps-zero">—</span>'; ?></td>
+<?php   break;
+    case 'sign': ?>
+          <td class="pps-sign"><?php echo !empty($pf['signed']) ? '<span class="pps-ok">√</span>' : '<span class="pps-zero">—</span>'; ?></td>
+<?php   break;
+    case 'ins': ?>
+          <td><?php echo ($pf['insurance_company'] ?? '') !== '' ? e($pf['insurance_company']) : '<span class="pps-zero">—</span>'; ?></td>
+<?php   break;
+    case 'resv': ?>
+          <td class="pps-n"><?php echo ($pf['reserve_deducted'] ?? null) === null ? '<span class="pps-zero">—</span>' : number_format((float)$pf['reserve_deducted'], 2); ?></td>
+<?php   break;
+    case 'note': ?>
           <td class="pps-note" title="<?php echo e($r['note']); ?>"><?php echo e($r['note']); ?></td>
+<?php   break;
+    case 'days': echo '          ', pps_days_cell($r), "\n"; break;
+    default: $k = $ck;
+        if ($k === 'other' && isset($ppsDirectors[$rid])) {
+            $director = $ppsDirectors[$rid];
+            $button = '<button type="button" class="pps-director" data-id="' . $rid . '" data-name="' . e($r['name']) . '" data-amount="' . e($director['amount'] === null ? '' : $director['amount']) . '" title="仅核定本月董事长、董事会补助，不沿用到下月"' . ($ppsLocked ? ' disabled' : '') . '>' . ($director['confirmed'] ? '补助已核定 · 修改' : '补助本月核定') . '</button>';
+            echo '          ', str_replace('</td>', $button . '</td>', pps_cell($r['other'], '', 'other')), "\n"; break;
+        }
+        if ($k === 'parking' && $ppsAll) {
+            $parkingButton = '<button type="button" class="pps-parking" data-id="' . $rid . '" data-name="' . e($r['name']) . '" data-amount="' . (float)$r['parking_setting']['amount'] . '" title="设置每月车位费"' . ($ppsLocked ? ' disabled' : '') . '>设置</button>';
+            echo '          ', str_replace('</td>', $parkingButton . '</td>', pps_cell($r['parking'], 'pps-cut', 'parking')), "\n"; break;
+        }
+        if ($k === 'net' && $ppsClaim && $rid === $ppsMine && $ppsClaim['claimed'] != 0) { echo '          ', str_replace('</td>', '<small class="pps-pend" title="已申请 / 已结算的金额自动从实结算里扣除">已申请 −' . number_format($ppsClaim['claimed'], 2) . '<br>可申请 ' . number_format($ppsClaim['amount'], 2) . '</small></td>', pps_cell($r[$k], pps_cell_class($k), $k)), "\n"; break; }
+        if ($k === 'share' && $r['pending_n'] > 0) { echo '          ', str_replace('</td>', '<a class="pps-pend pps-pendlink" href="' . e(BASE_URL . '/project/batch_review.php?month=' . $ppsMonth . ($ppsAll ? '&emp=' . $rid : '')) . '" title="其中 ' . (int)$r['pending_n'] . ' 单尚未审核，按系统预计分成计入。点击查看这些订单' . ($ppsAll ? '并审核' : '，卡在哪、怎么解决') . '">含待审预计 ' . number_format($r['pending'], 2) . ' ›</a></td>', pps_cell($r['share'], '', 'share')), "\n"; break; }
+        echo '          ', pps_cell($r[$k], pps_cell_class($k), $k), "\n";
+    endswitch;
+endforeach; ?>
         </tr>
 <?php endforeach; ?>
       </tbody>
@@ -220,6 +248,7 @@ foreach ($pps['rows'] as $i => $r): ?>
     <ul data-f="items"></ul>
     <form class="pps-itemform" autocomplete="off"><input type="hidden" name="csrf" value="<?php echo e(ps_csrf_token()); ?>"><input type="hidden" name="action" value="add_item"><input type="hidden" name="employee_id" value=""><input type="hidden" name="month" value="">
       <input name="label" maxlength="60" placeholder="名称，如：留学提成、小程序设计费" required><input name="amount" inputmode="decimal" placeholder="金额（扣款写负数）" required><input name="note" maxlength="200" placeholder="备注（选填）">
+      <label class="pps-only-payable"><input type="checkbox" name="payable_only" value="1"> 只调整应结算（实结算、结算申请不变）</label>
       <button type="submit">添加</button></form>
     <p class="pps-err" data-f="itemerr" hidden></p>
     <small>名称含“分成 / 提成 / 游学 / 留学”记入项目分成，含“补单”记入固定服务费，其余记入其他补助；车位、预留金写负数。锁月后不能改。</small></div></dialog>

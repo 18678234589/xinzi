@@ -107,7 +107,7 @@
                 elseif ($preview) {
                     // 全是已在库 / 他人订单也算核对完成，不能永远显示成“仅预览”。
                     $importReport = ps_import_result_save($fileId, $preview, [], $actor, $operator);
-                    if (!$importReport['pending']) ps_import_file_mark($fileId, 'imported', ['skipped_count' => count($preview)]);
+                    if (!$importReport['pending'] && !$importReport['conflict']) ps_import_file_mark($fileId, 'imported', ['skipped_count' => count($preview)]);
                     ps_import_followup_save($fileId, $actor, $selectedBusiness, $scope, array_keys(array_filter($sheetReport, function ($s) { return !empty($s['used']); })), ps_import_followup_rows
     ($preview, true));
                 }

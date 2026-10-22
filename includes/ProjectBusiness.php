@@ -9,8 +9,8 @@ require_once __DIR__ . '/ProjectWriting.php';
 function ps_business_catalog()
 {
     return [
-        'AI网站定制' => ['departments' => ['定制前端','定制后端','网站定制','定制售后'], 'resources' => true, 'requires_technical' => true, 'service_fee_rate' => 0, 'order_kinds' => [], 'fields' => []],
-        '网站模板' => ['departments' => ['网站模板','模板技术','网站技术','网站资料员'], 'resources' => true, 'requires_technical' => true, 'program' => true, 'service_fee_rate' => 0.03, 'order_kinds' => ['新订单','续费','加购/纯利润'], 'fields' => ['website_url' => '网站地址', 'template_name' => '模板名称 / 版本', 'deployment_note' => '部署与交付说明']],
+        'AI网站定制' => ['departments' => ['定制前端','定制后端','网站定制','定制售后'], 'resources' => true, 'requires_technical' => true, 'service_fee_rate' => 0, 'order_kinds' => [], 'fields' => ['space_source' => '空间来源']],
+        '网站模板' => ['departments' => ['网站模板','模板技术','网站技术','网站资料员'], 'resources' => true, 'requires_technical' => true, 'program' => true, 'service_fee_rate' => 0.03, 'order_kinds' => ['新订单','续费','加购/纯利润'], 'fields' => ['website_url' => '网站地址', 'template_name' => '模板名称 / 版本', 'deployment_note' => '部署与交付说明', 'space_source' => '空间来源']],
         '环境配置' => ['departments' => ['环境配置','服务器配置'], 'resources' => false, 'requires_technical' => true, 'service_fee_rate' => 0.03, 'order_kinds' => [], 'fields' => ['service_item' => '服务内容', 'server_info' => '服务器 / 环境说明']],
         // 旧分类只用于展示历史订单；新订单按产品类型建单，客服作为参与人加入同一订单号。
         '网站客服' => ['departments' => ['网站客服'], 'resources' => false, 'fields' => ['website_url' => '网站地址', 'service_item' => '服务事项'], 'legacy' => true],
@@ -200,7 +200,7 @@ function ps_business_import_columns($business)
         'shop' => ['店铺', '店铺名称', '店铺编码'],
         'business' => ['业务'],
         'payment_nickname' => ['付款昵称', '付款账号', '付款人', '买家昵称', '旺旺', '付款账号（旺旺）', '旺旺号', '客户旺旺', '买家旺旺', '旺旺名', '旺旺名称'],
-        'payment_reference' => ['微信交易流水号', '微信支付订单号', '支付订单号', '微信交易单号', '微信支付单号', '转账单号', '付款流水号', '支付流水号', '对公交易号', '对公流水号', '对公收款流水号', '对公转账流水号', '对公转账单号', '银行流水号'],
+        'payment_reference' => ['微信交易流水号', '对公编码', '对公号', '微信支付订单号', '支付订单号', '微信交易单号', '微信支付单号', '转账单号', '付款流水号', '支付流水号', '对公交易号', '对公流水号', '对公收款流水号', '对公转账流水号', '对公转账单号', '银行流水号'],
         'order_no' => ['订单编号', '订单号', '订单', '淘宝订单号'],
         'contract_amount' => ['售价', '金额', '订单金额', '总价（需支付至我司的价格）', '总价', '收入', '返款金额', '返现'],
         'status' => ['状态(填已完成/未完成)', '状态', '到账情况', '订单情况', '是否完成', '收发货状态', '订单状态'],
@@ -259,7 +259,7 @@ function ps_business_import_columns($business)
         $columns['detail:design_item'] = ['内容', '设计内容'];
         $columns['returning_marker'] = ['老客户'];
     }
-    if (!empty($definition['program'])) $columns['program_name'] = ['程序名称', '程序套餐'];
+    if (!empty($definition['program'])) { $columns['program_name'] = ['程序名称', '程序套餐']; $columns['program_years'] = ['年限', '购买年限', '程序年限', '年数']; }
     if (in_array($business, ['网站模板', 'AI网站定制'], true)) $columns['site_project_key'] = ['网站项目标识', '网站项目名称', '项目网站', '项目域名', '网站域名'];
     if ($definition['resources']) {
         $columns['domain_used'] = ['域名使用（写是/否）', '域名使用', '域名来源'];

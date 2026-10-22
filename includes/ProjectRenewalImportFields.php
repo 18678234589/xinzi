@@ -33,6 +33,8 @@ function pr_import_fields($head,$row,$columnMap=[])
             if (preg_match('/^(客户自有|客户自备|客户|自有|自备)/u',$value)) { $out['resources']['domain']['owner']='customer'; $note=trim(preg_replace('/^(客户自有|客户自备|客户|自有|自备)[:：\s-]*/u','',$value)); $out['resources']['domain']['owner_note']=$note!==''?$note:'上传表格标注为客户自有，需核对'; }
             elseif (preg_match('/^(我们|代管|公司|我方)/u',$value)) $out['resources']['domain']['owner']='ours';
         }
+        // 新模板已去掉重复的“域名归属”列：域名来源写“客户提供 / 客户自备 / 客户自有”＝客户自己的域名，等同原来的“域名归属＝客户自有”（不续费）；已有“域名归属”列时以它为准
+        if (preg_match('/^域名(来源|使用)$/u',$label) && preg_match('/^(客户提供|客户自备|客户自有|客户的)/u',$value) && !isset($out['resources']['domain']['owner'])) { $out['resources']['domain']['owner']='customer'; $out['resources']['domain']['owner_note']='域名来源为客户提供，上传表格标注，需核对'; }
         // 小程序新模板：业务种类写“永久”→ 服务器到期日记为永久（2099-01-01）；“续费联系方式”可写手机号或微信号
         if (preg_match('/^业务种类/u',$label) && preg_match('/永久|终身|买断|一次性/u',$value)) $permanent=true;
         if (preg_match('/^(续费|客户)?联系方式$/u',$label)) {
