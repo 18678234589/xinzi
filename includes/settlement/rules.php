@@ -61,6 +61,8 @@ function ps_rules_for_person($group, $projectType, $orderDate, $role = '', $orde
 {
     if (in_array('软件测试', ps_role_keys($role), true) && !ps_software_testing_role($role)) return [];
     $roles = ps_role_keys($role);
+    // AI定制：前后端由一个技术做，按“前端”岗位一条规则算全单（15% + 每单补助），不拆成前端 / 后端两份、也不把成本各担一半
+    if (($projectType === 'AI网站定制' || $projectType === '网站定制') && $orderKind === 'AI定制' && $group === 'technical' && in_array('前端', $roles, true) && in_array('后端', $roles, true)) { $roles = ['前端']; $role = '前端'; }
     if (count($roles) <= 1) {
         $single = ps_rule_for($group, $projectType, $orderDate, $role, $orderKind);
         return $single ? [$single] : [];

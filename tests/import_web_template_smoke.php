@@ -150,6 +150,15 @@ try {
     $check($in === 1 && $rowN && $rowN['project_type'] === '网站模板' && $rowN['order_kind'] === '新订单', '模板新建网站仍记为网站模板 / 新订单：' . json_encode($rowN, JSON_UNESCAPED_UNICODE));
     $check(ps_rule_for('technical', 'AI网站定制', '2026-09-14', '前端', 'AI定制') !== null && ps_rule_for('customer_service', 'AI网站定制', '2026-09-14', '客服', '华梦定制') !== null, '新类型暂无单独规则时沿用原 AI网站定制 规则，分成照常计算');
 
+    // 模板名称 / 版本与程序名称重复：新模板不再有这一列；老表里写了仍照常导入
+    $check(!in_array('模板名称 / 版本', ps_business_import_headers('网站模板'), true) && in_array('部署与交付说明', ps_business_import_headers('网站模板'), true), '新模板去掉“模板名称 / 版本”，保留“部署与交付说明”');
+    $nt = "33197$tag" . '00001';
+    [$pOld, $iOld, $eOld] = $importAs($song, '网站模板', "日期,店铺,付款昵称,订单编号,售价,程序名称,网站域名,续费联系方式,状态(填已完成/未完成),客服,模板技术,模板名称 / 版本,部署与交付说明
+2026.9.15,美呀美,tpl$tag,$nt,500,jsp展示中级版,tp$tag.com,13800138000,已完成,宋倩倩,张强,旧版名称V2,已部署
+");
+    $detOld = json_decode((string)$pdo->query("SELECT d.details_json FROM project_order_details d JOIN project_orders o ON o.id=d.order_id WHERE o.order_no='$nt'")->fetchColumn(), true) ?: [];
+    $check($iOld === 1, '老表带“模板名称 / 版本”列仍可导入：' . $eOld . ($pOld[0]['error'] ?? ''));
+
     // 旧版表（无续费联系方式列）提醒下载新版
     $old = "日期,店铺,付款昵称,订单编号,售价,状态(填已完成/未完成),客服,模板技术,程序名称\n2026.9.10,美呀美,old$tag,33194{$tag}00009,500,已完成,宋倩倩,张强,jsp展示中级版\n";
     $fileId = $upload($song, '网站模板', $old);

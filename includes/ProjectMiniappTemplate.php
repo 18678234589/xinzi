@@ -144,7 +144,8 @@ function pmt_web_columns($business)
     else { $cols[] = ['前端（技术）', 12, 'plain', [], false, '前端技术姓名'];  $cols[] = ['后端', 10, 'plain', [], false, '后端技术姓名']; }
     $cols[] = ['备注', 24, 'plain', [], false, '其他需要说明的内容'];
     if (!$template) $cols[] = ['微信交易流水号', 24, 'text', [], false, '微信付款订单没有订单编号时填这里'];
-    if ($template) { $cols[] = ['模板名称 / 版本', 18, 'plain', [], false, '使用的模板名称和版本']; $cols[] = ['部署与交付说明', 24, 'plain', [], false, '部署、交付情况说明']; }
+    // 模板名称 / 版本与“程序名称”重复，新模板不再带这一列（老表里写了仍照常识别）
+    if ($template) $cols[] = ['部署与交付说明', 24, 'plain', [], false, '部署、交付情况说明'];
     return $cols;
 }
 
