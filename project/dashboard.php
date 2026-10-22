@@ -5,12 +5,12 @@ require_once __DIR__ . '/../includes/ProjectPayrollSheet.php';
 require_once __DIR__ . '/../includes/ProjectWelfare.php';
 require_once __DIR__ . '/../includes/ProjectSettlementRequest.php';
 $actor = ps_require_actor();
-$month = (string)($_POST['month'] ?? $_GET['month'] ?? date('Y-m', strtotime('first day of last month')));
-if (!preg_match('/^\d{4}-(0[1-9]|1[0-2])$/', $month) || $month > date('Y-m')) $month = date('Y-m', strtotime('first day of last month'));
+$month = (string)($_POST['month'] ?? $_GET['month'] ?? pps_default_month());
+if (!preg_match('/^\d{4}-(0[1-9]|1[0-2])$/', $month) || $month > date('Y-m')) $month = pps_default_month();
 $employeeId = $actor['role'] === 'finance' ? (int)($_POST['employee_id'] ?? $_GET['employee_id'] ?? 0) : (int)$actor['employee_id'];
 $people = [];
 if ($actor['role'] === 'finance') {
-    $people = db()->query("SELECT e.id,e.name,e.department FROM employees e WHERE EXISTS (SELECT 1 FROM project_users u WHERE u.employee_id=e.id AND u.is_active=1) OR EXISTS (SELECT 1 FROM project_participants p WHERE p.employee_id=e.id) ORDER BY e.name,e.id")->fetchAll();
+    $people = db()->query("SELECT e.id,e.name,e.department FROM employees e ORDER BY e.name,e.id")->fetchAll();
     $allowed = array_column($people, null, 'id');
     if (!isset($allowed[$employeeId])) {
         [$activeFrom, $activeUntil] = ps_partner_month_bounds($month);
@@ -123,6 +123,21 @@ $settleBadge = ['settled' => ['已结算', 'ok'], 'pending' => ['已申请 · �
   <a class="pd-welfare-link" href="<?php echo BASE_URL; ?>/project/welfare.php"><span><i class="fas fa-heart"></i> 全员共创福利池 <small>季度结余自动汇入 · 好建议与 Bug 有回响</small></span><strong>¥<?php echo money($welfareBalance); ?></strong><i class="fas fa-arrow-right"></i></a>
   <div class="pd-note"><i class="fas fa-info-circle"></i> 以下按订单日期归属到所选月份，并按本人分单权重计算；跨岗位参与同一单最多计 100%。实收和退款为当前已审核累计金额，可能包含次月发生的收退款，不代表该月现金流水。</div>
 
+  <?php
+  // 各业务最新的订单上传模板：每次下载都是系统当前最新版（xlsx 模板带下拉与填写说明；没有专用模板的业务下载 csv 表头 + 示例行）
+  require_once __DIR__ . '/../includes/ProjectMiniappTemplate.php';
+  $tplBusinesses = array_values(array_filter(ps_actor_businesses($actor), function ($name) { return empty(ps_business_catalog()[$name]['legacy']); }));
+  if ($tplBusinesses): ?>
+  <section class="pd-panel" aria-label="订单表格模板下载" id="pd-templates"><h2><i class="fas fa-file-excel"></i> 订单表格模板（最新版）</h2>
+    <p class="small text-muted mb-2">上传订单前请先下载最新模板：表头、下拉选项会随业务规则更新，旧表仍可上传，系统会兼容识别。</p>
+    <div class="d-flex flex-wrap" style="gap:8px">
+    <?php foreach ($tplBusinesses as $tplName): $tplXlsx = in_array($tplName, pmt_businesses(), true); ?>
+      <a class="btn btn-outline-success btn-sm" href="<?php echo BASE_URL; ?>/project/import.php?<?php echo e(http_build_query(['business' => $tplName, 'download' => 1])); ?>"><i class="fas fa-download mr-1"></i><?php echo e($tplName); ?>模板<small class="ml-1 text-muted"><?php echo $tplXlsx ? 'xlsx' : 'csv'; ?></small></a>
+    <?php endforeach; ?>
+    </div>
+  </section>
+  <?php endif; ?>
+
   <div class="pd-section-label"><span>01 / 经营脉搏</span><small>清晰看见每一步</small></div>
   <section class="pd-kpis" aria-label="经营数据">
     <article class="pd-kpi"><b class="pd-kpi-id" aria-hidden="true">01 / ORDERS</b><span><a class="pd-order-count-link" href="<?php echo e($ordersUrl); ?>">参与订单 <i class="fas fa-arrow-right small" aria-hidden="true"></i></a></span><strong><a class="pd-order-count-link" href="<?php echo e($ordersUrl); ?>" aria-label="<?php echo e('查看' . $person['name'] . '在' . $month . '参与的' . (int)$summary['orders'] . '笔订单'); ?>"><?php echo (int)$summary['orders']; ?> <small>单</small></a></strong><em><a class="pd-order-count-link" href="<?php echo e($previousOrdersUrl); ?>">上月 <?php echo (int)$previous['orders']; ?> 单</a></em></article>
@@ -134,7 +149,7 @@ $settleBadge = ['settled' => ['已结算', 'ok'], 'pending' => ['已申请 · �
   <script src="<?php echo e(BASE_URL . '/assets/js/payroll_request.js?v=' . filemtime(dirname(__DIR__) . '/assets/js/payroll_request.js')); ?>" defer></script>
   <section class="pd-panel" aria-label="整月实结算申请"><h2>整月结算申请 · <?php echo e($month); ?></h2>
     <link rel="stylesheet" href="<?php echo e(BASE_URL . '/assets/css/payroll_sheet.css?v=' . filemtime(dirname(__DIR__) . '/assets/css/payroll_sheet.css')); ?>">
-    <?php $payrollRequestEmployee=$employeeId; $payrollRequestMonth=$month; include __DIR__ . '/../includes/payroll_row_table.php'; include __DIR__ . '/../includes/payroll_request_button.php'; ?>
+    <?php $payrollRequestEmployee=$employeeId; $payrollRequestMonth=$month; $payrollRequestRow=$payrollRow; include __DIR__ . '/../includes/payroll_row_table.php'; include __DIR__ . '/../includes/payroll_request_button.php'; unset($payrollRequestRow); ?>
   </section>
   <div class="pd-data-note"><i class="fas fa-calculator"></i> 按订单归属日期与规则中心计算预期，归入本月的跨月分成更正一并计入，不代表已审核或已发放。未确认收款按已填写售价预估；全勤奖最终以财务批准为准。<?php if ($expectedIncome['warnings']['cash']): ?> <?php echo (int)$expectedIncome['warnings']['cash']; ?> 单实收待确认。<?php endif; ?><?php if ($expectedIncome['warnings']['cost']): ?> <?php echo (int)$expectedIncome['warnings']['cost']; ?> 单资源/成本待补齐，目前仅按已知成本估算，补齐后金额可能降低。<?php endif; ?><?php if ($expectedIncome['warnings']['rule']): ?> <?php echo (int)$expectedIncome['warnings']['rule']; ?> 单分成规则未匹配，相关金额暂不计入。<?php endif; ?><?php if ($expectedIncome['warnings']['weight']): ?> <?php echo (int)$expectedIncome['warnings']['weight']; ?> 单分配权重待核对，相关分成暂不计入。<?php endif; ?><?php if ($expectedIncome['warnings']['refund']): ?> <?php echo (int)$expectedIncome['warnings']['refund']; ?> 单退款待核对，确认后会自动重算。<?php endif; ?></div>
   <details class="pd-data-note"><summary>查看结算组成与计算依据</summary>
