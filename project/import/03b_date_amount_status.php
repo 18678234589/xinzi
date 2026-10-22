@@ -85,6 +85,8 @@
                     $record['payment_nickname'] = $lookup($row, 'payment_nickname');
                     $record['contact_note'] = $lookup($row, 'contact_note');
                     // 小程序结算表的“备注”常写 新订单 / 续费 / 定制：识别为订单类型。
+                    // 网站模板表里可直接选定制类型：该行已归入 AI网站定制时，可选类型按 AI网站定制的（博山定制 / AI定制 / 华梦定制）
+                    if ($selectedBusiness === '网站模板') $orderKinds = ($record['project_type'] ?? '') === 'AI网站定制' ? array_merge(ps_business_order_kinds('网站模板'), ps_business_order_kinds('AI网站定制')) : ps_business_order_kinds('网站模板');
                     $kindText = $lookup($row, 'order_kind');
                     if ($kindText === '' && in_array($record['contact_note'], $orderKinds, true)) { $kindText = $record['contact_note']; $record['contact_note'] = ''; }
                     // 订单类型写的是下拉里的说明性名称（如“小程序商城新注册搭建”）：换回库里存的类型值

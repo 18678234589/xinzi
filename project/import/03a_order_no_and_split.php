@@ -1,6 +1,8 @@
 <?php
                     $record['project_type'] = ps_import_website_business($selectedBusiness, $lookup($row, 'program_name'), $lookup($row, 'frontend') . '/' . $lookup($row, 'backend'
     ), $allowedBusinesses);
+                    // 订单类型下拉写了“博山定制 / AI定制 / 华梦定制”：这是定制单，归入 AI网站定制（订单类型按所选记录，规则可按类型区分）
+                    if (in_array($lookup($row, 'order_kind'), ['博山定制', 'AI定制', '华梦定制'], true) && in_array('AI网站定制', $allowedBusinesses, true)) $record['project_type'] = 'AI网站定制';
                     $record['writing'] = null;
                     if (in_array($selectedBusiness, ['微信代写', '软文代写'], true)
                         && ($selectedBusiness === '微信代写' || psw_is_member((int)($actor['employee_id'] ?? 0)))) {

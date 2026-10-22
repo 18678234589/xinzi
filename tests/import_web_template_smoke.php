@@ -131,6 +131,25 @@ try {
     [$pvD, $impD] = $importAs($song, '网站模板', $csvOf('网站模板', [$dg]));
     $check($impD === 1 && strpos((string)($pvD[0]['order_no'] ?? ''), 'DG-') === 0, '老写法：不选类型、订单编号只写“对公”仍可导入');
 
+    // 订单类型下拉增加 博山定制 / AI定制 / 华梦定制：归入 AI网站定制并记录类型；普通网站模板行不受影响
+    $okKinds = (function () { foreach (pmt_columns('网站模板') as $col) if ($col[0] === '订单类型') return $col[3]; return []; })();
+    $check(!array_diff(['模板新建网站', '网站续费', '加购、补差价（纯利润）', '博山定制', 'AI定制', '华梦定制'], $okKinds), '订单类型下拉含原三项和 博山定制 / AI定制 / 华梦定制');
+    $ck = ['日期' => '2026.9.14', '店铺' => '美呀美', '售价' => '3000', $sk => '已完成', '客服' => '宋倩倩', '续费联系方式' => '13800138000', '编号类型' => '淘宝订单编号'];
+    $kn = [];
+    foreach (['博山定制', 'AI定制', '华梦定制'] as $ki => $kind) {
+        $no = "33196$tag" . '0000' . ($ki + 1); $kn[$kind] = $no;
+        $tech = $kind === 'AI定制' ? ['模板技术' => '张强'] : ['模板技术' => '张强'];
+        [$pk, $ik, $ek] = $importAs($song, '网站模板', $csvOf('网站模板', [$ck + $tech + ['付款昵称' => "k$ki$tag", '订单编号' => $no, '订单类型' => $kind, '程序名称' => $kind === 'AI定制' ? '定制开发' : 'jsp展示中级版', '网站域名' => "k$ki$tag.com"]]));
+        $check($ik === 1, "订单类型选“{$kind}”能导入：" . ($pk[0]['error'] ?? $ek) . ' ' . ($pk[0]['warning'] ?? ''));
+        $row = $pdo->query("SELECT project_type,order_kind FROM project_orders WHERE order_no='$no'")->fetch();
+        $check($row && $row['project_type'] === 'AI网站定制' && $row['order_kind'] === $kind, "“{$kind}”：业务 AI网站定制，订单类型记为 {$kind}：" . json_encode($row, JSON_UNESCAPED_UNICODE));
+    }
+    $nm = "33196$tag" . '00009';
+    [$pn, $in] = $importAs($song, '网站模板', $csvOf('网站模板', [$ck + ['模板技术' => '张强', '付款昵称' => "n$tag", '订单编号' => $nm, '订单类型' => '模板新建网站', '程序名称' => 'jsp展示中级版', '网站域名' => "n$tag.com"]]));
+    $rowN = $pdo->query("SELECT project_type,order_kind FROM project_orders WHERE order_no='$nm'")->fetch();
+    $check($in === 1 && $rowN && $rowN['project_type'] === '网站模板' && $rowN['order_kind'] === '新订单', '模板新建网站仍记为网站模板 / 新订单：' . json_encode($rowN, JSON_UNESCAPED_UNICODE));
+    $check(ps_rule_for('technical', 'AI网站定制', '2026-09-14', '前端', 'AI定制') !== null && ps_rule_for('customer_service', 'AI网站定制', '2026-09-14', '客服', '华梦定制') !== null, '新类型暂无单独规则时沿用原 AI网站定制 规则，分成照常计算');
+
     // 旧版表（无续费联系方式列）提醒下载新版
     $old = "日期,店铺,付款昵称,订单编号,售价,状态(填已完成/未完成),客服,模板技术,程序名称\n2026.9.10,美呀美,old$tag,33194{$tag}00009,500,已完成,宋倩倩,张强,jsp展示中级版\n";
     $fileId = $upload($song, '网站模板', $old);

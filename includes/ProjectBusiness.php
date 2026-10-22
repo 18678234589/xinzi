@@ -9,7 +9,7 @@ require_once __DIR__ . '/ProjectWriting.php';
 function ps_business_catalog()
 {
     return [
-        'AI网站定制' => ['departments' => ['定制前端','定制后端','网站定制','定制售后'], 'resources' => true, 'requires_technical' => true, 'service_fee_rate' => 0, 'order_kinds' => [], 'fields' => ['space_source' => '空间来源']],
+        'AI网站定制' => ['departments' => ['定制前端','定制后端','网站定制','定制售后'], 'resources' => true, 'requires_technical' => true, 'service_fee_rate' => 0, 'order_kinds' => ['博山定制', 'AI定制', '华梦定制'], 'fields' => ['space_source' => '空间来源']],
         '网站模板' => ['departments' => ['网站模板','模板技术','网站技术','网站资料员'], 'resources' => true, 'requires_technical' => true, 'program' => true, 'service_fee_rate' => 0.03, 'order_kinds' => ['新订单','续费','加购/纯利润'], 'fields' => ['website_url' => '网站地址', 'template_name' => '模板名称 / 版本', 'deployment_note' => '部署与交付说明', 'space_source' => '空间来源']],
         '环境配置' => ['departments' => ['环境配置','服务器配置'], 'resources' => false, 'requires_technical' => true, 'service_fee_rate' => 0.03, 'order_kinds' => [], 'fields' => ['service_item' => '服务内容', 'server_info' => '服务器 / 环境说明']],
         // 旧分类只用于展示历史订单；新订单按产品类型建单，客服作为参与人加入同一订单号。
