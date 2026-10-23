@@ -207,8 +207,8 @@
                     ps_source_record($orderId, $priceSource, $row['payment_nickname'], $row['trade_status'] ?? '', $row['payment_reference'] ?? '');
                     $writeBusiness = $row['project_type'] ?? $selectedBusiness;
                     $newDetails = $actor['role'] === 'customer_service' && $writeBusiness === '网站模板' ? ps_business_details($writeBusiness, []) : $row['details'];
-                    // 客服建网站模板单时技术资料留空待技术填写，但“空间来源”是客服最清楚的（客户用自己的空间还是我们的），照写
-                    if (($row['details']['space_source'] ?? '') !== '' && array_key_exists('space_source', $newDetails)) $newDetails['space_source'] = $row['details']['space_source'];
+                    // 客服建网站模板单时技术资料留空待技术填写，但“空间来源”“续费金额”“续费邮箱”是客服最清楚的（客户用自己的空间还是我们的、续费多少、怎么联系），照写
+                    foreach (['space_source', 'renew_amount', 'renew_email'] as $csKey) if (($row['details'][$csKey] ?? '') !== '' && array_key_exists($csKey, $newDetails)) $newDetails[$csKey] = $row['details'][$csKey];
                     ps_save_business_details($orderId, $writeBusiness, $newDetails);
                     ps_intake_participants($orderId, $row['people'], $writeBusiness);
                     if ($departmentMode) ps_department_import_record($orderId, $actor);

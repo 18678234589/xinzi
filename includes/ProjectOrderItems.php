@@ -45,7 +45,9 @@ function poi_template($name, $templates, $resourceHint = '')
     $key = $aliases[$key] ?? $key;
     $matches = [];
     foreach ($templates as $t) {
-        if (!in_array($t['category'], ['program','certificate','plugin'], true) || poi_name($t['name']) !== $key) continue;
+        if (!in_array($t['category'], ['program','certificate','plugin'], true)) continue;
+        // 成本中心的“青站”曾叫“青站（标准）”，新旧名称都匹配
+        if (poi_name($t['name']) !== $key && !($key === '青站(标准)' && poi_name($t['name']) === '青站')) continue;
         if (preg_match('/^(\d+)年/u', $t['specification'] ?? '', $m) && (int)$m[1] !== $years) continue;
         $matches[] = $t;
     }

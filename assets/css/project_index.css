@@ -1,0 +1,71 @@
+/* 项目订单页（project/index.php）：配色沿用合作方经营看板。只作用于 .pi */
+.pi{max-width:1560px;color:#243a34}
+.pi-hero{display:flex;flex-wrap:wrap;align-items:flex-end;justify-content:space-between;gap:16px 24px;padding:22px 30px;margin-bottom:14px;border-radius:24px;background:linear-gradient(115deg,#e4f3e7 0%,#f6f8ee 56%,#fff0d8 100%);border:1px solid #e1ebdc;box-shadow:0 14px 34px rgba(31,83,65,.08)}
+.pi-eyebrow{display:inline-flex;gap:7px;align-items:center;color:#41765d;font-size:13px;font-weight:700;letter-spacing:.04em}
+.pi-hero h2{font-size:26px;font-weight:800;letter-spacing:-.03em;margin:8px 0 6px;color:#243a34}
+.pi-hero p{margin:0;color:#64776e;font-size:14px;max-width:720px;line-height:1.6}
+.pi-note{display:inline-flex;align-items:flex-start;gap:7px;margin-top:8px;padding:5px 12px;border-radius:12px;background:rgba(255,255,255,.65);color:#5b7a6c;font-size:12px;line-height:1.5}.pi-note i{margin-top:2px;color:#4d9b6f}
+.pi-hero-tools{display:flex;flex-wrap:wrap;gap:8px}
+.pi-btn{display:inline-flex;align-items:center;gap:7px;height:38px;padding:0 16px;border:1px solid #cfe3d6;border-radius:999px;background:#fff;color:#286b55!important;font-size:13.5px;font-weight:700;text-decoration:none!important;cursor:pointer;white-space:nowrap;box-shadow:0 3px 9px #a9bdac30;transition:transform .15s,box-shadow .15s}
+.pi-btn:hover{transform:translateY(-1px);box-shadow:0 8px 18px #a9bdac55}
+.pi-btn.is-main{background:linear-gradient(135deg,#286b55,#3e8b68);border-color:transparent;color:#fff!important}
+
+/* 筛选：常用的一行，其余收进“更多筛选” */
+.pi-filterwrap{margin-bottom:14px;padding:14px 18px;border:1px solid #e7eee7;border-radius:20px;background:#fff;box-shadow:0 7px 24px rgba(29,65,46,.045)}
+.pi-filter{display:flex;flex-wrap:wrap;align-items:flex-end;gap:10px 12px;margin:0}
+.pi-f{flex:1 1 160px;min-width:140px}.pi-q{flex:2 1 260px}.pi-month{flex:1.4 1 240px}
+.pi-f label{display:block;margin:0 0 4px 2px;color:#698177;font-size:12px;font-weight:700}
+.pi-f .form-control{height:40px;border-color:#dce7d9;border-radius:12px;background-color:#fff;font-size:14px}
+.pi-f .form-control:focus{border-color:#286b55;box-shadow:0 0 0 3px #cfe7d8}
+.pi-f .input-group .btn{height:40px;border-color:#dce7d9;color:#286b55;font-weight:700;font-size:13px}
+.pi-f .input-group-append .btn:first-child{border-radius:0}.pi-f .input-group-append .btn:last-child{border-radius:0 12px 12px 0}.pi-f .input-group .form-control{border-radius:12px 0 0 12px}
+.pi-adv{display:none}.pi-filter.show-adv .pi-adv{display:block}
+.pi-go{flex:0 0 auto;display:flex;gap:8px}.pi-go .pi-btn{height:40px}
+#piAdvToggle[aria-expanded=true]{background:#e6f4ea}
+
+/* 统计卡片 */
+.pi-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin-bottom:14px}
+.pi-kpis>div{padding:14px 18px;border-radius:18px;background:#fff;border:1px solid #e9eee7;box-shadow:0 5px 16px rgba(29,65,46,.05)}
+.pi-kpis small{display:block;color:#698177;font-size:12.5px;font-weight:700}
+.pi-kpis strong{display:block;font-size:24px;font-weight:800;letter-spacing:-.02em;font-variant-numeric:tabular-nums;line-height:1.3}
+.pi-kpis>div:first-child{background:linear-gradient(135deg,#286b55,#3e8b68);border-color:#2b7057;color:#fff}.pi-kpis>div:first-child small{color:#d9efe0}
+.pi-kpis .is-alert{background:#fff8e8;border-color:#f1dfbc}.pi-kpis .is-alert strong{color:#a8650a}
+
+/* 提醒条 */
+.app-warm .pi .alert{border-radius:16px;border:1px solid transparent;padding:.7rem 1.1rem}
+.app-warm .pi .alert-info{background:#eef6fb;border-color:#d7e8f3;color:#2f5f7a}.app-warm .pi .alert-warning{background:#fff8e8;border-color:#f1dfbc;color:#7a5010}
+.app-warm .pi .alert-success{background:#e8f6ec;border-color:#cfe7d6;color:#226444}.app-warm .pi .alert-danger{background:#fdeee8;border-color:#f1cdbd;color:#a8431f}
+
+/* 订单列表 */
+.app-warm .pi .card{border:1px solid #e7eee7;border-radius:20px;box-shadow:0 7px 24px rgba(29,65,46,.045)}
+.app-warm .pi .card.pi-list{overflow:visible}
+.pi-list>.card-header{position:sticky;top:0;z-index:15;border-radius:20px 20px 0 0;background:linear-gradient(180deg,#fbfdfa,#f1f7ee);border-bottom:1px solid #e1ebdc;padding:.75rem 1.2rem;font-weight:800;color:#2f5a48;box-shadow:0 8px 18px -14px rgba(29,65,46,.35)}
+.pi-list .table-responsive{border-radius:0 0 20px 20px}
+.pi .project-order-table{font-size:.88rem}
+.pi .project-order-table thead th{background:#f1f7ee;color:#2f5a48;font-size:.78rem;font-weight:700;border-top:0;border-bottom:1px solid #dfe9db;white-space:nowrap;padding:.6rem .8rem}
+.pi .project-order-table td{padding:.75rem .8rem;border-top:1px solid #eef2eb;vertical-align:middle}
+.pi .project-order-table tbody tr{transition:background .12s}.pi .project-order-table tbody tr:hover{background:#eef6ea}
+.pi .project-order-table td:nth-child(2) strong,.pi .project-order-table td:first-child strong{font-size:.92rem;color:#1f3b32;letter-spacing:.01em}
+.pi .project-order-table input[type=checkbox]{width:17px;height:17px;accent-color:#286b55;cursor:pointer}
+.pi .badge{border-radius:999px;font-weight:700;padding:.32em .75em}
+.pi .badge-light.border{background:#f4f7f2;border-color:#e1ebdc!important;color:#6c7a72}
+.pi .project-order-table .btn-sm,.pi .project-bulk-bar .btn-sm{border-radius:999px;font-weight:700;padding:.2rem .85rem}
+.pi .project-order-table .btn-outline-primary{color:#286b55;border-color:#b9dcc7}.pi .project-order-table .btn-outline-primary:hover{background:#286b55;border-color:#286b55;color:#fff}
+.pi .project-bulk-bar .form-control{height:32px;border-radius:999px;border-color:#dce7d9}
+.pi .pagination .page-link{border:0;margin:0 3px;border-radius:999px;color:#286b55;font-weight:700;min-width:36px;text-align:center}.pi .pagination .active .page-link{background:#286b55;color:#fff}
+.pi-sec{display:flex;align-items:center;gap:12px;margin:30px 2px 12px;color:#41765d;font-size:12px;font-weight:800;letter-spacing:.12em}.pi-sec::after{content:"";flex:1;height:1px;background:linear-gradient(90deg,#d5e3d6,transparent)}
+
+/* 在线录单表单 */
+.app-warm .pi .project-form-card{border-radius:22px;border:1px solid #cfe3d6;box-shadow:0 16px 36px rgba(31,83,65,.1)}
+.pi .project-form-card .form-control{border-radius:12px;border-color:#dce7d9}.pi .project-form-card .form-control:focus{border-color:#286b55;box-shadow:0 0 0 3px #cfe7d8}
+.pi .project-form-card .form-control-lg{height:46px;font-size:1rem}
+.pi .project-form-card label{color:#40554d;font-weight:700;font-size:.84rem}
+.pi .project-form-card .btn-success{border-radius:999px;background:linear-gradient(135deg,#286b55,#3e8b68);border-color:transparent;font-weight:700;padding-left:1.4rem;padding-right:1.4rem}
+.pi .project-form-card .btn-outline-success{border-radius:999px;font-weight:700;color:#286b55;border-color:#b9dcc7}
+
+@media(max-width:700px){.pi-hero{padding:18px;border-radius:20px}.pi-hero h2{font-size:22px}.pi-f,.pi-q,.pi-month{flex:1 1 100%}.pi-go{width:100%}.pi-go .pi-btn{flex:1;justify-content:center}.pi-kpis{grid-template-columns:repeat(2,1fr)}}
+.pi-q{order:-2}.pi-month{order:-1}
+.pi .project-order-table tbody td:last-child{white-space:normal!important;width:132px;max-width:132px}
+.pi .project-order-table tbody td:last-child .btn{display:block;width:100%;margin:0 0 5px!important;text-align:center}
+.pi-f{flex:1 1 130px;min-width:120px}.pi-q{flex:2 1 220px}.pi-month{flex:1.2 1 210px}
+.pi .project-order-table td a.pi-ono{color:#1f3b32!important;text-decoration:none}.pi .project-order-table td a.pi-ono:hover strong{color:#286b55;text-decoration:underline}

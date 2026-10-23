@@ -18,6 +18,15 @@ function pg_store_evidence($recordId, $actor, $file)
     return pg_save_evidence_file($recordId, $actor, $tmp, (string)($file['name'] ?? '举证材料'), true);
 }
 
+/** 一次保存表单里的多个举证文件（evidence_files[]，兼容旧的单文件 evidence_file）；已落盘路径累积在 $paths，失败时调用方据此清理。 */
+function pg_store_evidence_many($recordId, $actor, array &$paths)
+{
+    foreach (array_merge(pg_uploaded_files($_FILES['evidence_files'] ?? []), pg_uploaded_files($_FILES['evidence_file'] ?? [])) as $file) {
+        if ($path = pg_store_evidence($recordId, $actor, $file)) $paths[] = $path;
+    }
+    return $paths;
+}
+
 /** 落盘并登记一个举证文件；$uploaded=false 用于历史补录（复制本地文件）。 */
 function pg_save_evidence_file($recordId, $actor, $source, $originalName, $uploaded = false)
 {

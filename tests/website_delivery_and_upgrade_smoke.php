@@ -2,6 +2,13 @@
 /**
  * 网站订单交付核验、产品升级与财务审核人分工测试
  */
+if (PHP_SAPI !== 'cli') { http_response_code(403); exit; }
+require_once __DIR__ . '/../config/database.php';
+if (DB_HOST !== '127.0.0.1' || (string)DB_PORT !== '13399' || !preg_match('/_(test|ci|sandbox)$/i', DB_NAME)) {
+    fwrite(STDERR, "拒绝运行：仅允许本地 13399 隔离测试库\n"); exit(2);
+}
+require_once __DIR__ . '/require_isolated_database.php';
+require_isolated_test_database(db());
 require_once __DIR__ . '/../includes/ProjectIntake.php';
 require_once __DIR__ . '/../includes/ProjectBusiness.php';
 require_once __DIR__ . '/../includes/ProjectSettlement.php';
@@ -165,17 +172,18 @@ try {
     ]);
 
     // 调用系统自动完成功能
+    // 现行政策（证据自动核对）：旧的“满 N 天自动完成”入口不再按天数推断交付、不按售价补实收、不替人通过交付申请
     $autoRes = ps_auto_finish_trade_success_orders(10);
-    assert($autoRes['finished'] >= 1, '自动完成应至少处理1笔订单');
+    assert($autoRes['finished'] === 0, '兼容入口不再按天数自动完成订单');
 
     $order3Row = db()->query("SELECT settlement_status, delivery_status, receipt_amount FROM project_orders WHERE id=" . $orderId3)->fetch();
-    assert($order3Row['delivery_status'] === 'finished', '满10天交易成功订单交付状态应自动变为 finished');
-    assert($order3Row['settlement_status'] === 'approved', '满10天交易成功订单应自动完成提成审核');
-    assert((float)$order3Row['receipt_amount'] == 888.00, '实收应自动补足为888元');
+    assert($order3Row['delivery_status'] !== 'finished', '满10天交易成功订单不能仅凭天数变为 finished');
+    assert($order3Row['settlement_status'] !== 'approved', '满10天交易成功订单不能仅凭天数自动审核');
+    assert((float)$order3Row['receipt_amount'] != 888.00, '不能按售价自动补足实收');
 
     $req3Row = db()->query("SELECT status FROM project_order_requests WHERE id=" . $reqId3)->fetch();
-    assert($req3Row['status'] === 'approved', '挂起的交付申请应自动通过');
-    echo "✔ 5. 交易成功满10天无人审核自动完成测试通过\n";
+    assert($req3Row['status'] !== 'approved', '挂起的交付申请不能被兼容入口自动通过');
+    echo "✔ 5. 满10天交易成功订单不再被天数自动完成（证据自动核对政策）测试通过\n";
 
 } finally {
     db()->rollBack();

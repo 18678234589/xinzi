@@ -131,6 +131,19 @@ function pse_parse($file, $sheetName, $actor, $sheets = null)
     return ['head' => $head, 'kinds' => $kinds, 'width' => $total, 'rows' => $data, 'orderCol' => $orderCol === false ? null : $orderCol, 'virtual' => $virtual, 'truncated' => $truncated];
 }
 
+/** 在线编辑的下拉列：表头与该业务 Excel 模板的下拉列同名时给同样的选项（[列序号 => 选项数组]）；其余列仍是文本。 */
+function pse_column_options($business, array $head)
+{
+    require_once __DIR__ . '/ProjectMiniappTemplate.php';
+    if (!in_array($business, pmt_businesses(), true)) return [];
+    $byName = [];
+    foreach (pmt_columns($business) as $c) if (in_array($c[2], ['list', 'list_soft', 'list_sheet'], true) && $c[3]) $byName[$c[0]] = array_values($c[3]);
+    if ($business === '网站模板') $byName['订单类型'] = ['模板新建网站', '网站续费', '加购、补差价（纯利润）', '博山定制', 'AI定制', '华梦定制']; // 老模板的订单类型列
+    $out = [];
+    foreach ($head as $i => $h) if (isset($byName[trim((string)$h)])) $out[(int)$i] = $byName[trim((string)$h)];
+    return $out;
+}
+
 function pse_editable_kind($kind) { return in_array($kind, ['phone', 'wechat', 'domain', 'domain_owner', 'server_expiry', 'amount', 'shop', 'nick'], true); }
 
 /** 全部原表列可修改；文件权限仍由 ps_import_file_get 校验。 */
@@ -205,7 +218,7 @@ function pse_load($fileId, $sheet, $actor)
     $orig = [];
     foreach ($p['rows'] as $no => $cells) $orig[$no] = $cells;
     $_SESSION['pse_cache'][(int)$file['id'] . '|' . $sheet] = ['head' => $p['head'], 'kinds' => $p['kinds'], 'width' => $p['width'], 'orig' => $orig];
-    return ['head' => $p['head'], 'kinds' => $p['kinds'], 'editable' => $editable, 'canEdit' => pse_can_edit($file, $actor), 'rows' => $rows, 'rowNos' => $rowNos, 'orderCol' => $p['orderCol'], 'virtual' => $p['virtual'], 'truncated' => $p['truncated'], 'pending' => $pending, 'changed' => $changed,
+    return ['head' => $p['head'], 'kinds' => $p['kinds'], 'editable' => $editable, 'options' => pse_column_options((string)$file['business_name'], $p['head']), 'canEdit' => pse_can_edit($file, $actor), 'rows' => $rows, 'rowNos' => $rowNos, 'orderCol' => $p['orderCol'], 'virtual' => $p['virtual'], 'truncated' => $p['truncated'], 'pending' => $pending, 'changed' => $changed,
             'file' => ['id' => (int)$file['id'], 'name' => $file['original_name'], 'business' => $file['business_name']]];
 }
 

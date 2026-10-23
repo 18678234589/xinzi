@@ -1,6 +1,7 @@
 <?php
 // 合作人员“我的账号”：首次登录绑定手机号（之后可用手机号登录）、修改密码。
 require_once __DIR__ . '/../includes/ProjectSettlement.php';
+require_once __DIR__ . '/../includes/AuthRemember.php';
 $actor = ps_require_actor();
 if ($actor['type'] !== 'employee') { header('Location: ' . BASE_URL . '/project/system.php'); exit; }
 $error = '';
@@ -40,11 +41,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $change = db()->prepare('UPDATE project_users SET password_hash=?,password_changed_at=NOW(),auth_version=auth_version+1 WHERE id=? AND auth_version=? AND password_hash=?');
             $change->execute([password_hash($new, PASSWORD_DEFAULT), $actor['id'], (int)$user['auth_version'], $user['password_hash']]);
             if ($change->rowCount() !== 1) throw new RuntimeException('账号信息已变更，请重新登录后操作');
+            auth_remember_revoke_user('employee', $actor['id']);
             $_SESSION['auth_version'] = (int)$user['auth_version'] + 1;
             $_SESSION['vault_pw_ok'] = auth_password_is_strong($new);
+            unset($_SESSION['weak_password']);
+            unset($_SESSION['remember_default_pw_notice']);
             session_regenerate_id(true);
             ps_audit('account', $actor['id'], 'change_password', $actor, []);
-            $success = '密码已修改，请记住新密码';
+            $success = '密码已修改，下次登录即可支持「7天内免登录」';
         } else throw new RuntimeException('操作无效');
     } catch (Throwable $e) { $error = $e instanceof PDOException ? '保存失败，请稍后再试' : $e->getMessage(); }
 }
@@ -61,8 +65,10 @@ $csrf = e(ps_csrf_token());
 <?php if (ps_is_management($actor)): ?><div class="alert alert-info">管理职务：<?php echo e($actor['management_title'] ?: '管理'); ?> · 管理范围：<?php echo e(ps_management_company($actor) ? '全公司所有业务' : implode('、', ps_actor_businesses($actor))); ?></div><?php endif; ?>
 <?php if ($error): ?><div class="alert alert-danger"><?php echo e($error); ?></div><?php endif; ?>
 <?php if ($success): ?><div class="alert alert-success"><?php echo e($success); ?></div><?php endif; ?>
-<?php if (isset($_GET['bound'])): ?><div class="alert alert-success">手机号绑定成功。<?php if (auth_staff_needs_password_change($me)): ?>接下来请修改初始密码，即可开始使用。<?php else: ?><a href="<?php echo BASE_URL . e(auth_staff_destination($me)); ?>">进入我的工作台 →</a><?php endif; ?></div><?php endif; ?>
-<?php if (!$needPhone && auth_staff_needs_password_change($me)): ?><div class="alert alert-warning">已经登录成功。为保护你的订单与报酬，请先把初始密码改为仅自己知道的新密码；修改后即可进入工作台。</div><?php endif; ?>
+<?php if (!empty($_SESSION['remember_default_pw_notice'])): ?><div class="alert alert-warning"><i class="fas fa-info-circle mr-1"></i> <?php echo e($_SESSION['remember_default_pw_notice']); ?></div><?php unset($_SESSION['remember_default_pw_notice']); endif; ?>
+<?php if (!empty($_SESSION['weak_password']) && !$needPhone): ?><div class="alert alert-danger"><strong>请立即修改密码：</strong>你的密码和登录名相同，任何人都可能猜到。请在下方“修改密码”里改成只有自己知道的新密码（至少 8 位，不能与登录名相同）。修改后登录即可开启7天内免登录。</div><?php endif; ?>
+<?php if (isset($_GET['bound'])): ?><div class="alert alert-success">手机号绑定成功。<?php if (auth_staff_needs_password_change($me)): ?>接下来请修改初始密码，即可开始使用，且下次登录支持7天内免登录。<?php else: ?><a href="<?php echo BASE_URL . e(auth_staff_destination($me)); ?>">进入我的工作台 →</a><?php endif; ?></div><?php endif; ?>
+<?php if (!$needPhone && auth_staff_needs_password_change($me)): ?><div class="alert alert-warning">已经登录成功。为保护你的订单与报酬，请先把初始密码改为仅自己知道的新密码；修改后即可进入工作台，且登录支持7天内免登录。</div><?php endif; ?>
 <?php if (!$needPhone && !auth_staff_needs_password_change($me) && $me['role'] !== 'governance'): ?><a class="btn btn-success mb-3" href="<?php echo BASE_URL . e(auth_staff_destination($me)); ?>">进入我的工作台 →</a><?php endif; ?>
 <?php if ($me['role'] === 'governance' && !empty($me['password_changed_at'])): ?><a class="btn btn-success mb-3" href="<?php echo BASE_URL; ?>/project/governance_ideas.php">进入管理层工作台 →</a><?php endif; ?>
 
@@ -80,7 +86,10 @@ $csrf = e(ps_csrf_token());
 <div class="form-group col-md-4"><label for="pwCurrent">当前密码</label><input class="form-control" id="pwCurrent" type="password" name="current_password" required autocomplete="current-password"></div>
 <div class="form-group col-md-4"><label for="pwNew">新密码（至少 8 位）</label><input class="form-control" id="pwNew" type="password" name="new_password" minlength="8" required autocomplete="new-password"></div>
 <div class="form-group col-md-4"><label for="pwConfirm">再输一次</label><input class="form-control" id="pwConfirm" type="password" name="confirm_password" minlength="8" required autocomplete="new-password"></div>
-<div class="col-12"><button class="btn btn-outline-primary">修改密码</button></div>
+<div class="col-12 mt-2">
+    <button class="btn btn-outline-primary"><i class="fas fa-key mr-1"></i> 修改密码</button>
+    <small class="form-text text-muted mt-2"><i class="fas fa-shield-alt text-success mr-1"></i> 修改为非默认密码后，登录时可勾选「7天内免登录」。</small>
+</div>
 </form></div></div>
 <?php endif; ?>
 </div>

@@ -1,6 +1,23 @@
 <?php
 require_once __DIR__ . '/includes/auth.php';
 
+if (is_logged_in()) {
+    header('Location: ' . BASE_URL . '/index.php');
+    exit;
+} elseif (!empty($_SESSION['project_user_id'])) {
+    try {
+        $staffStmt = db()->prepare('SELECT * FROM project_users WHERE id=? AND is_active=1 LIMIT 1');
+        $staffStmt->execute([(int)$_SESSION['project_user_id']]);
+        $staffMe = $staffStmt->fetch();
+        if ($staffMe) {
+            header('Location: ' . BASE_URL . auth_staff_destination($staffMe));
+            exit;
+        }
+    } catch (Throwable $e) {}
+    header('Location: ' . BASE_URL . '/project/index.php');
+    exit;
+}
+
 $error = '';
 $passwordResetSuccess = !empty($_SESSION['password_reset_success']);
 unset($_SESSION['password_reset_success']);
@@ -36,8 +53,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $_SESSION['admin_username'] = $admin['username'];
             $_SESSION['auth_version'] = (int)($admin['auth_version'] ?? 0);
             $_SESSION['vault_pw_ok'] = auth_password_is_strong($password);
+            // 默认密码（= 登录名）：每次登录都先带去改密页，改完前页头持续提醒
+            $weak = strcasecmp($password, (string)$admin['username']) === 0;
+            if ($weak) $_SESSION['weak_password'] = 1; else unset($_SESSION['weak_password']);
+
+            $rememberMe = !empty($_POST['remember_me']);
+            $isDefault = auth_is_default_password('admin', $admin, $password);
+            if ($rememberMe) {
+                if ($isDefault) {
+                    $_SESSION['remember_default_pw_notice'] = '使用默认密码不支持7天内免登录，修改密码后可支持7天内免登录。';
+                } else {
+                    auth_remember_create('admin', $admin['id'], (int)($admin['auth_version'] ?? 0));
+                }
+            } else {
+                auth_remember_clear();
+            }
+
             session_regenerate_id(true);
-            header('Location: ' . BASE_URL . '/index.php');
+            header('Location: ' . BASE_URL . ($weak ? '/project/system.php?weak=1#my-password' : '/index.php'));
             exit;
         } else {
             // 项目结算合作人员账户与旧管理员账户隔离；合作人员只能进入项目模块。
@@ -54,8 +87,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $_SESSION['auth_version'] = (int)($staff['auth_version'] ?? 0);
                     $_SESSION['vault_pw_ok'] = auth_password_is_strong($password);
                     unset($_SESSION['rip_shown']); // 每次登录都重新提醒补录续费资料
+
+                    $rememberMe = !empty($_POST['remember_me']);
+                    $isDefault = auth_is_default_password('employee', $staff, $password);
+                    if ($rememberMe) {
+                        if ($isDefault) {
+                            $_SESSION['remember_default_pw_notice'] = '使用默认密码不支持7天内免登录，修改密码后可支持7天内免登录。';
+                        } else {
+                            auth_remember_create('employee', $staff['id'], (int)($staff['auth_version'] ?? 0));
+                        }
+                    } else {
+                        auth_remember_clear();
+                    }
+
                     session_regenerate_id(true);
                     $destination = auth_staff_destination($staff);
+                    if (strcasecmp($password, (string)$staff['username']) === 0) {
+                        $_SESSION['weak_password'] = 1;
+                        if (!empty($staff['phone'])) $destination = '/project/profile.php?password=1&weak=1'; // 没绑手机的先走绑定流程
+                    } else {
+                        unset($_SESSION['weak_password']);
+                    }
                     header('Location: ' . BASE_URL . $destination);
                     exit;
                 }
@@ -130,6 +182,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         </div>
                     </div>
                 </div>
+                <div class="form-group mb-3">
+                    <div class="custom-control custom-checkbox">
+                        <input type="checkbox" class="custom-control-input" id="rememberMe" name="remember_me" value="1">
+                        <label class="custom-control-label small" for="rememberMe" style="cursor:pointer; user-select:none;">7天内免登录</label>
+                    </div>
+                    <div id="rememberTip" class="small mt-1" style="line-height:1.4;">
+                        <span id="rememberTipDefault" class="text-danger d-none"><i class="fas fa-exclamation-circle mr-1"></i>使用默认密码不支持7天内免登录，修改密码后可支持7天内免登录</span>
+                        <span id="rememberTipNormal" class="text-muted"><i class="fas fa-shield-alt mr-1"></i>不使用默认密码可勾选；公共电脑请勿勾选</span>
+                    </div>
+                </div>
                 <button type="submit" class="btn btn-primary btn-block btn-lg"><i class="fas fa-sign-in-alt"></i> 登 录</button>
             </form>
             <div class="text-center mt-3"><a href="<?php echo BASE_URL; ?>/forgot_password.php">忘记密码？短信找回</a></div>
@@ -155,6 +217,35 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     document.getElementById('captchaImg').addEventListener('click', function() {
         this.src = 'captcha.php?t=' + Date.now();
     });
+    // 7天内免登录与默认密码实时提示
+    (function () {
+        var uInput = document.querySelector('input[name="username"]');
+        var pInput = document.getElementById('loginPassword');
+        var remBox = document.getElementById('rememberMe');
+        var tipDefault = document.getElementById('rememberTipDefault');
+        var tipNormal = document.getElementById('rememberTipNormal');
+
+        function checkDefault() {
+            if (!uInput || !pInput || !tipDefault || !tipNormal) return;
+            var u = (uInput.value || '').trim().toLowerCase();
+            var p = (pInput.value || '').trim();
+            var isDefault = (u !== '' && p !== '' && u === p.toLowerCase()) || p === '123456' || p === 'admin123';
+            if (isDefault) {
+                tipDefault.classList.remove('d-none');
+                tipNormal.classList.add('d-none');
+            } else {
+                tipDefault.classList.add('d-none');
+                tipNormal.classList.remove('d-none');
+            }
+        }
+
+        if (uInput && pInput) {
+            uInput.addEventListener('input', checkDefault);
+            pInput.addEventListener('input', checkDefault);
+            if (remBox) remBox.addEventListener('change', checkDefault);
+            checkDefault();
+        }
+    })();
     </script>
 </body>
 </html>

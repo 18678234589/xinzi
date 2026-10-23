@@ -1,5 +1,14 @@
 <?php
 
+function pg_idea_reward_amount($value = null)
+{
+    if ($value !== null && !is_scalar($value)) throw new RuntimeException('请选择有效的脑洞奖励金额');
+    $value = trim((string)$value);
+    if ($value === '') return 300;
+    if (!in_array($value, ['200','300','400','500'], true)) throw new RuntimeException('脑洞奖励请选择 200、300、400 或 500 元');
+    return (int)$value;
+}
+
 function pg_idea_policy()
 {
     $rule = db()->query("SELECT cadence_note,penalty_amount,rule_state FROM project_governance_rules WHERE rule_code='chair_idea' LIMIT 1")->fetch();
@@ -109,7 +118,7 @@ function pg_sync_reminders($date = null)
     $pending->execute([(new DateTimeImmutable($today))->modify('-1 day')->format('Y-m-d 00:00:00')]);
     foreach ($pending->fetchAll() as $idea) foreach ($committee as $memberId) {
         if ((int)$memberId === (int)$idea['owner_employee_id'] || (int)$memberId === (int)$idea['created_by_employee_id']) continue;
-        $sent += pg_message($memberId, 'idea_review', $idea['name'] . ' 的三天脑洞等待评审', '有一条三天脑洞已提交超过 1 天还没有评审，请尽快给出结论（通过留空金额按 +¥100 计）。'
+        $sent += pg_message($memberId, 'idea_review', $idea['name'] . ' 的三天脑洞等待评审', '有一条三天脑洞已提交超过 1 天还没有评审，请尽快给出结论（通过后可选 ¥200、¥300、¥400 或 ¥500，默认 ¥300）。'
     , $link . '#idea-' . (int)$idea['id'], 'idea-review:' . (int)$idea['id']);
     }
     return $sent;

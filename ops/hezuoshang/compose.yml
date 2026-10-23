@@ -1,6 +1,6 @@
 services:
   php:
-    image: hezuoshang-php:7.4
+    image: hezuoshang-php:8.5
     container_name: hezuoshang-php
     restart: unless-stopped
     environment:

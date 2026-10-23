@@ -21,8 +21,8 @@
     cols.forEach(function (c) { sum[c] = 0; });
     [].forEach.call(card.querySelectorAll('tbody tr'), function (tr) {
       var show = dept === '' || tr.getAttribute('data-dept') === dept; tr.hidden = !show; if (!show) return;
-      n++; var tds = tr.querySelectorAll('td.pps-n[data-v]');
-      cols.forEach(function (c, i) { sum[c] += parseFloat(tds[i].getAttribute('data-v')) || 0; });
+      n++;
+      cols.forEach(function (c) { var td = tr.querySelector('td[data-c="' + c + '"]'); if (td) sum[c] += parseFloat(td.getAttribute('data-v')) || 0; });
     });
     cols.forEach(function (c) { var th = card.querySelector('th[data-c="' + c + '"]'); if (th) th.textContent = money(sum[c]); });
     card.querySelector('[data-t="cnt"]').textContent = n + ' 人';

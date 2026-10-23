@@ -137,7 +137,7 @@
     . '”技术业务，已照常记录，请财务在账号管理中开通以免漏算提成';
                     }
                     if ($resourceSelection && !$record['resource_locked'] && $usesProgram && $record['program_name'] !== '') {
-                        $programSuggestion = ps_intake_program_suggestion($record['program_name'], $programTemplates);
+                        $programSuggestion = ps_intake_program_suggestion($record['program_name'], $programTemplates, (bool)preg_match('/^(客户提供|客户自备|客户自有|客户的)/u', trim((string)$record['domain_used'])));
                         if ($programSuggestion) $record['program_template_id'] = (int)$programSuggestion['id'];
                         else $record['warning'] .= ($record['warning'] ? '；' : '') . '程序名称“' . $record['program_name'] . '”未唯一匹配套餐，请在下方选择'
     ;

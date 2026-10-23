@@ -23,9 +23,10 @@ function ps_intake_template($id, $category)
 }
 
 /** 按“程序名称”原文（如“5年JSP展示中级版”“PHP”）匹配程序套餐；无法唯一确定时返回 null 交给人工选择。 */
-function ps_intake_program_suggestion($text, $templates)
+function ps_intake_program_suggestion($text, $templates, $ownDomain = false)
 {
-    $matched = poi_template($text, $templates);
+    // 域名来源写“客户提供”（客户自备域名）：优先选不含域名的“空间”档，不计域名成本
+    $matched = poi_template($text, $templates, $ownDomain ? '空间' : '');
     if ($matched && $matched['category'] === 'program') return $matched;
     $text = preg_replace('/\s+/u', '', (string)$text);
     if ($text === '') return null;

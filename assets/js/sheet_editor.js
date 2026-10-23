@@ -3,6 +3,69 @@
   'use strict';
   function esc(t) { return String(t == null ? '' : t).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
 
+  // ---- 金额求和：选中区域 / 整列求和（编辑视图与只读视图共用） ----
+  var SheetSum = window.SheetSum = {
+    // 把 ¥1,234.50、1234.5元 这类写法转成数字；订单号 / 手机号这种超长整数不当金额。
+    num: function (v) {
+      if (v == null) return null;
+      var s = String(v).replace(/[\s,，¥￥$元]/g, '');
+      if (!/^[-+]?(\d+\.?\d*|\.\d+)$/.test(s)) return null;
+      if (s.replace(/^[-+]/, '').split('.')[0].length >= 11) return null;
+      return parseFloat(s);
+    },
+    stats: function (values) {
+      var st = { cells: 0, count: 0, sum: 0, max: -Infinity, min: Infinity };
+      values.forEach(function (v) {
+        if (v == null || String(v).trim() === '') return;
+        st.cells++;
+        var x = SheetSum.num(v); if (x === null) return;
+        st.count++; st.sum += x; if (x > st.max) st.max = x; if (x < st.min) st.min = x;
+      });
+      st.sum = Math.round(st.sum * 100) / 100; st.avg = st.count ? st.sum / st.count : 0;
+      return st;
+    },
+    fmt: function (v) { return Number(v).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); },
+    // 数字占多数的列才进“整列求和”下拉
+    isAmountColumn: function (values) {
+      var n = 0, k = 0; values.forEach(function (v) { if (v == null || String(v).trim() === '') return; n++; if (SheetSum.num(v) !== null) k++; });
+      return k > 0 && k / n >= 0.6;
+    },
+    bar: function (mount) {
+      var el = document.createElement('div'); el.className = 'se-sumbar'; el.setAttribute('aria-live', 'polite');
+      el.innerHTML = '<div class="se-sum-main"><span class="se-sum-icon">Σ</span><span class="se-sum-text se-sum-hint">拖选一片单元格（或点列标题选整列），这里显示金额求和</span></div>' +
+        '<div class="se-sum-col"><label>整列求和</label><select aria-label="选择要求和的列"><option value="">选择金额列…</option></select><b class="se-sum-colval"></b></div>';
+      mount(el);
+      var text = el.querySelector('.se-sum-text'), sel = el.querySelector('select'), colVal = el.querySelector('.se-sum-colval'), cols = [];
+      function copy(t, node) {
+        var done = function () { var o = node.getAttribute('data-t') || node.textContent; node.setAttribute('data-t', o); node.textContent = '已复制'; setTimeout(function () { node.textContent = o; }, 900); };
+        if (navigator.clipboard && window.isSecureContext) navigator.clipboard.writeText(t).then(done); else { var a = document.createElement('textarea'); a.value = t; a.style.cssText = 'position:fixed;opacity:0'; document.body.appendChild(a); a.select(); try { document.execCommand('copy'); done(); } catch (e) {} document.body.removeChild(a); }
+      }
+      text.addEventListener('click', function (e) { var b = e.target.closest('b[data-copy]'); if (b) copy(b.getAttribute('data-copy'), b); });
+      colVal.addEventListener('click', function () { if (colVal.getAttribute('data-copy')) copy(colVal.getAttribute('data-copy'), colVal); });
+      function showCol() {
+        var c = cols[Number(sel.value)]; if (sel.value === '' || !c) { colVal.textContent = ''; colVal.removeAttribute('data-copy'); return; }
+        var st = SheetSum.stats(c.get()); colVal.textContent = '¥' + SheetSum.fmt(st.sum) + '（' + st.count + ' 行）'; colVal.setAttribute('data-copy', String(st.sum)); colVal.removeAttribute('data-t');
+      }
+      sel.addEventListener('change', showCol);
+      return {
+        showSel: function (values, desc) {
+          var st = SheetSum.stats(values);
+          if (!st.cells) { text.className = 'se-sum-text se-sum-hint'; text.textContent = '拖选一片单元格（或点列标题选整列），这里显示金额求和'; return; }
+          text.className = 'se-sum-text';
+          text.innerHTML = (desc ? '<span class="se-sum-desc">' + esc(desc) + '</span>' : '') + '已选 ' + st.cells + ' 格' +
+            (st.count ? ' · 数字 ' + st.count + ' 个 · 求和 <b data-copy="' + st.sum + '" title="点击复制">¥' + SheetSum.fmt(st.sum) + '</b> · 平均 ' + SheetSum.fmt(st.avg) + ' · 最大 ' + SheetSum.fmt(st.max) + ' · 最小 ' + SheetSum.fmt(st.min) : ' · 没有可求和的数字');
+        },
+        setColumns: function (list) {
+          cols = list; var keep = sel.value; sel.innerHTML = '<option value="">选择金额列…</option>';
+          list.forEach(function (c, i) { var o = document.createElement('option'); o.value = String(i); o.textContent = c.label; sel.appendChild(o); });
+          if (keep !== '' && list[Number(keep)]) sel.value = keep;
+          showCol();
+        },
+        refresh: showCol
+      };
+    }
+  };
+
   window.SheetEditor = function (root) {
     var cfg = { api: root.getAttribute('data-api'), csrf: root.getAttribute('data-csrf'), file: root.getAttribute('data-file'), sheet: root.getAttribute('data-sheet'), canEdit: root.getAttribute('data-can-edit') === '1' };
     var gridEl = root.querySelector('.se-grid'), statusEl = root.querySelector('.se-status'), submitBtn = root.querySelector('.se-submit'), modal = root.querySelector('.se-modal');
@@ -47,6 +110,26 @@
     }
     function schedule() { clearTimeout(timer); setStatus('有修改，稍后自动保存…', 'text-warning'); timer = setTimeout(function () { flush().catch(function () {}); }, 900); }
 
+    // 选中区域 → 金额求和；同时沿用单元格编辑框
+    var sumBar = SheetSum.bar(function (el) { var body = root.querySelector('.se-body'); body.parentNode.insertBefore(el, body.nextSibling); });
+    function onSelect(instance, x1, y1, x2, y2) {
+      selectCell(instance, x1, y1);
+      if (!table) return;
+      var xa = Math.min(x1, x2), xb = Math.max(x1, x2), ya = Math.min(y1, y2), yb = Math.max(y1, y2), vals = [], data = table.options.data;
+      for (var y = ya; y <= yb; y++) for (var x = xa; x <= xb; x++) if (data[y]) vals.push(data[y][x]);
+      var wholeCol = ya === 0 && yb >= data.length - 1 && xa === xb;
+      sumBar.showSel(vals, wholeCol ? '整列「' + (meta.head[meta.order[xa]] || ('列' + (xa + 1))) + '」' : '');
+    }
+    function refreshColumns() {
+      if (!table) return;
+      var data = table.options.data, list = [];
+      meta.head.forEach(function (h, i) {
+        var x = meta.inv[i]; if (meta.kinds[i] === 'order_no') return;
+        var vals = []; for (var y = 0; y < data.length; y++) if (data[y]) vals.push(data[y][x]);
+        if (SheetSum.isAmountColumn(vals)) list.push({ label: h || ('列' + (i + 1)), get: (function (xx) { return function () { return table.options.data.map(function (r) { return r ? r[xx] : ''; }); }; })(x) });
+      });
+      sumBar.setColumns(list);
+    }
     function selectCell(instance, x, y) {
       if (!table || !meta || !cellInput || !meta.rowNos[y]) return;
       selected = { x: Number(x), y: Number(y) };
@@ -95,7 +178,7 @@
         mark(y, dx, false); any = true;
         if (selected && selected.x === dx && selected.y === y && cellInput) cellInput.value = v;
       });
-      if (any) { updateSubmit(); schedule(); }
+      if (any) { updateSubmit(); schedule(); sumBar.refresh(); }
     }
 
     function build(sheet) {
@@ -110,6 +193,13 @@
       meta.order = order; meta.inv = inv;
       var cols = order.map(function (i) {
         var h = sheet.head[i], kind = sheet.kinds[i], w = kind === 'order_no' ? 190 : (kind === 'date' ? 100 : (sheet.editable[i] ? 140 : Math.min(220, Math.max(80, (h.length || 3) * 18 + 30))));
+        var opts = sheet.options && sheet.options[i];
+        // 与 Excel 模板同名的下拉列：点单元格出下拉（原表里不在选项内的旧值照样显示，不会被清掉）
+        if (opts && opts.length) {
+          var src = opts.slice(), seen = {}; src.forEach(function (v) { seen[v] = 1; });
+          sheet.rows.forEach(function (r) { var v = r[i] == null ? '' : String(r[i]); if (v !== '' && !seen[v]) { seen[v] = 1; src.push(v); } }); // 原表里不在选项内的旧值也列出来，否则下拉格会显示成空白
+          return { type: 'dropdown', source: src, autocomplete: true, title: h || ('列' + (i + 1)), width: Math.max(w, 130), readOnly: !cfg.canEdit || !sheet.editable[i], wordWrap: false };
+        }
         return { type: 'text', title: h || ('列' + (i + 1)), width: w, readOnly: !cfg.canEdit || !sheet.editable[i], wordWrap: false };
       });
       var rows = sheet.rows.map(function (r) { return order.map(function (o) { return r[o]; }); });
@@ -122,7 +212,7 @@
         columnSorting: false, allowInsertRow: false, allowManualInsertRow: false, allowInsertColumn: false, allowManualInsertColumn: false,
         allowDeleteRow: false, allowDeleteColumn: false, allowRenameColumn: false, allowComments: false, allowExport: false,
         selectionCopy: true, search: true, defaultColWidth: 110, rowResize: false, columnResize: true,
-        contextMenu: function () { return []; }, onafterchanges: onAfterChanges, onselection: selectCell, onresizecolumn: resizeGrid,
+        contextMenu: function () { return []; }, onafterchanges: onAfterChanges, onselection: onSelect, onresizecolumn: resizeGrid,
         text: { search: '在表中查找…', showingPage: '第 {0} / {1} 页', entries: '', noRecordsFound: '没有找到' }
       });
       var content = gridEl.querySelector('.jexcel_content');
@@ -153,6 +243,7 @@
       heads.forEach(function (td) { var x = parseInt(td.getAttribute('data-x'), 10); if (sheet.editable[order[x]] && cfg.canEdit) td.classList.add('se-edit-head'); });
       (sheet.changed || []).forEach(function (c) { mark(c[0], inv[c[1]], c[2] === 1); });
       var note = root.querySelector('.se-trunc'); if (note) note.hidden = !sheet.truncated;
+      refreshColumns();
       updateSubmit(); setStatus(cfg.canEdit ? '全部字段可编辑，修改会自动保存' : '只读（你没有编辑权限）', 'text-muted');
     }
 

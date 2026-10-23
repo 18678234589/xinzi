@@ -9,7 +9,7 @@
 
 ## 红线
 
-- 生产 PHP 7.4，不引入命名空间、Composer 或自动加载，不使用 PHP 8 专属语法。
+- 生产 PHP 8.5（2026-10-23 由 7.4 升级；回滚镜像 `hezuoshang-php:7.4` 保留，步骤见 `ops/hezuoshang/README.md`）。不引入命名空间、Composer 或自动加载；回滚窗口内仍不使用 PHP 8 专属语法。`config/database.php` 的 `AppPDO` 保持 7.4 对“DDL 隐式提交后 commit / rollBack”的宽容行为，新代码仍应把建表放在事务之前。
 - 测试写入仅允许本地隔离数据库（库名以 `_test`、`_ci` 或 `_sandbox` 结尾），不能通过默认连接运行写入测试。
 - 当前生产：`vps4` / `58.58.97.174:5024`，目录 `/myprograms/hezuoshang`；PHP 在 `hezuoshang-php` 容器运行。旧 `ai` 入口只转发，不能再向旧目录部署。
 - 部署使用 `python tools/deploy_hezuoshang.py`；先 `fetch` 保存哈希基线，再 `push --manifest <清单> --dry-run`，验证后正式推送。见 `ops/hezuoshang/README.md`。
@@ -18,7 +18,7 @@
 - 页面分片在原作用域加载；不能把入口级 `return` 移进分片。`continue` / `break` 及控制结构必须留在所属循环中。
 - 搬运须校正 `__DIR__` 的基准，保留加载顺序、函数修饰符、引用参数及静态变量。
 - 同时只拆一个大文件。先在下表登记；其他会话应避开正在拆分的入口及其分片。
-- 验证：`php tools/verify_split.php`、相关测试、同数据渲染对比及 PHP 7.4 语法检查。
+- 验证：`php tools/verify_split.php`、相关测试、同数据渲染对比及生产版本（容器内）PHP 语法检查。
 - `tools/split_manifest.json` 是本次搬运基线；后续功能修改应独立提交，不要为让检查通过而重置基线。
 
 ## 对外用语（内部规则，勿写进任何用户可见页面）

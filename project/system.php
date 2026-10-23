@@ -1,6 +1,7 @@
 <?php
 require_once __DIR__ . '/../includes/ProjectBusiness.php';
 require_once __DIR__ . '/../includes/ProjectAiFallback.php';
+require_once __DIR__ . '/../includes/AuthRemember.php';
 $actor = ps_require_finance();
 $error = '';
 $success = '';
@@ -28,11 +29,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $change = db()->prepare('UPDATE admins SET password=?,auth_version=auth_version+1 WHERE id=? AND auth_version=? AND password=?');
             $change->execute([password_hash($new, PASSWORD_DEFAULT), $actor['id'], (int)$admin['auth_version'], $admin['password']]);
             if ($change->rowCount() !== 1) throw new RuntimeException('账号信息已变更，请重新登录后操作');
+            auth_remember_revoke_user('admin', $actor['id']);
             $_SESSION['auth_version'] = (int)$admin['auth_version'] + 1;
             $_SESSION['vault_pw_ok'] = auth_password_is_strong($new);
+            unset($_SESSION['weak_password']);
+            unset($_SESSION['remember_default_pw_notice']);
             session_regenerate_id(true);
             ps_audit('admin', $actor['id'], 'change_password', $actor, []);
-            $success = '登录密码已修改，请记住新密码';
+            $success = '登录密码已修改，下次登录即可支持「7天内免登录」';
         } elseif ($action === 'contact') {
             $policy = [];
             foreach (array_keys(ps_contact_roles()) as $role) {
@@ -185,6 +189,8 @@ $aiLabels = ps_ai_labels() + ['import_columns_error' => '表头识别失败', 'i
 <?php if (!$aiLogs): ?><tr><td colspan="8" class="text-center text-muted py-3">还没有 AI 托底记录。上传的表格系统识别不了时，会由 AI 给出方案并记在这里。</td></tr><?php endif; ?>
 </tbody></table></div></div></div>
 <div id="my-password" class="card mb-3"><div class="card-header">我的登录密码</div><div class="card-body">
+<?php if (!empty($_SESSION['remember_default_pw_notice'])): ?><div class="alert alert-warning"><i class="fas fa-info-circle mr-1"></i> <?php echo e($_SESSION['remember_default_pw_notice']); ?></div><?php unset($_SESSION['remember_default_pw_notice']); endif; ?>
+<?php if (!empty($_SESSION['weak_password'])): ?><div class="alert alert-danger"><strong>请立即修改密码：</strong>你的密码和登录名相同，任何人都可能猜到。改成只有自己知道的新密码（至少 8 位，不能与登录名相同）后，此提醒才会消失，且下次登录即可支持7天内免登录。</div><?php endif; ?>
 <p><a class="btn btn-outline-success" href="<?php echo BASE_URL; ?>/recovery_phone.php">验证 / 绑定短信找回手机号</a></p>
 <p class="small text-muted">财务 / 管理员账号能看到所有人的订单与报酬，默认密码是登录名（姓名拼音），请尽快改成只有自己知道的密码。</p>
 <form method="post" class="form-row align-items-end"><input type="hidden" name="csrf" value="<?php echo e(ps_csrf_token()); ?>"><input type="hidden" name="action" value="my_password">
@@ -192,5 +198,6 @@ $aiLabels = ps_ai_labels() + ['import_columns_error' => '表头识别失败', 'i
 <div class="form-group col-md-3"><label for="myNew">新密码（至少 8 位）</label><input class="form-control" id="myNew" type="password" name="new_password" minlength="8" required autocomplete="new-password"></div>
 <div class="form-group col-md-3"><label for="myConfirm">再输一次</label><input class="form-control" id="myConfirm" type="password" name="confirm_password" minlength="8" required autocomplete="new-password"></div>
 <div class="form-group col-md-3"><button class="btn btn-primary btn-block">修改密码</button></div>
+<div class="col-12 mt-1"><small class="form-text text-muted"><i class="fas fa-shield-alt text-success mr-1"></i> 修改为非默认密码后，下次登录可勾选「7天内免登录」。</small></div>
 </form></div></div>
 <?php include __DIR__ . '/../includes/footer.php'; ?>

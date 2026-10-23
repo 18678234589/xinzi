@@ -51,6 +51,16 @@ function ensure_ssh_tunnel(): bool
 }
 
 /**
+ * PHP 8 起，MySQL 的 DDL（建表/改表）隐式提交事务后，commit() / rollBack() 会抛“没有活动事务”；
+ * PHP 7.4 不会。这里保持 7.4 的宽容行为，避免升级后“先建表再提交”的老流程报错。
+ */
+class AppPDO extends PDO
+{
+    public function commit(): bool { return $this->inTransaction() ? parent::commit() : true; }
+    public function rollBack(): bool { return $this->inTransaction() ? parent::rollBack() : true; }
+}
+
+/**
  * 获取PDO数据库连接
  */
 function db()
@@ -59,7 +69,7 @@ function db()
     if ($pdo === null) {
         $makePdo = function () {
             $dsn = sprintf('mysql:host=%s;port=%s;dbname=%s;charset=utf8mb4', DB_HOST, DB_PORT, DB_NAME);
-            return new PDO($dsn, DB_USER, DB_PASS, [
+            return new AppPDO($dsn, DB_USER, DB_PASS, [
                 PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION,
                 PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
                 PDO::ATTR_EMULATE_PREPARES   => false,

@@ -80,7 +80,7 @@
                 $head = $raw ? array_map(function ($v) { return trim((string)$v); }, array_shift($raw)) : [];
                 if ($head) $head[0] = preg_replace('/^\xEF\xBB\xBF/', '', $head[0] ?? '');
                 $entry = ['raw' => $raw, 'head' => $head, 'map' => null, 'reason' => '', 'ai' => '', 'line_base' => 2];
-                // 新模板“编号类型”下拉（淘宝订单编号 / 微信交易流水号 / 对公转账编号）+ 订单编号列粘贴编号：按类型归到对应字段。
+                // 新模板“编号类型”下拉（美呀美旗舰店 / 清风易软件专营店 / 微信交易流水号 / 对公转账编号 / 美丽街旗舰店 / 美啊美设计旗舰店）+ 订单编号列粘贴编号：按类型归到对应字段。
                 // 微信交易流水号、对公转账编号 → 编号进“支付流水号”（对公再把订单编号写成“对公”）；淘宝订单编号 / 没选类型 → 照旧当订单号。没有这一列的老表不受影响。
                 $numKindIdx = array_search('编号类型', $head, true);
                 if ($numKindIdx !== false) {
@@ -89,14 +89,40 @@
                     if ($numIdx !== false) {
                         $virtualRef = $refIdx === false;
                         if ($virtualRef) { $refIdx = count($head); $head[] = '微信交易流水号'; }
-                        $raw = array_map(function ($r) use ($numKindIdx, $numIdx, $refIdx) {
+                        // 编号类型下拉也可直接选店铺（美呀美旗舰店 / 清风易软件专营店）：按店铺订单号处理，并把店铺记进“店铺”列（没有该列就补一列）
+                        $shopIdx = array_search('店铺', $head, true);
+                        if ($shopIdx === false) { $shopIdx = count($head); $head[] = '店铺'; }
+                        $raw = array_map(function ($r) use ($numKindIdx, $numIdx, $refIdx, $shopIdx) {
                             if (!is_array($r)) return $r;
-                            $r = array_pad(array_values($r), $refIdx + 1, '');
+                            $r = array_pad(array_values($r), max($refIdx, $shopIdx) + 1, '');
                             $kind = trim((string)$r[$numKindIdx]); $code = trim((string)$r[$numIdx]);
+                            if ($kind !== '' && !preg_match('/微信|流水|对公|编号/u', $kind) && trim((string)$r[$shopIdx]) === '') $r[$shopIdx] = $kind;
                             if ($kind !== '' && $code !== '' && !preg_match('/^(对公|公对公|公账)/u', $code)) {
                                 if (preg_match('/对公/u', $kind)) { $r[$refIdx] = $code; $r[$numIdx] = '对公'; }
                                 elseif (preg_match('/微信|流水/u', $kind)) { $r[$refIdx] = $code; $r[$numIdx] = ''; }
                             } elseif ($kind !== '' && $code === '' && preg_match('/对公/u', $kind)) { $r[$numIdx] = '对公'; }
+                            return $r;
+                        }, $raw);
+                        $entry['raw'] = $raw; $entry['head'] = $head;
+                    }
+                }
+                // 店铺写“微信 / 对公”的行：订单编号列里粘贴的是微信交易流水号 / 对公编码，不是店铺订单号——编号归到“支付流水号”，订单编号按“对公”或留空，由系统生成内部号。
+                // 只在表里没有单独的流水号列时生效；库里已经有同号订单（历史上就把这个编号当订单号导过）时保持原样，避免对不上老订单。
+                if (in_array($selectedBusiness, ['小程序开发', 'AI网站定制', '网站模板'], true) && array_search('编号类型', $head, true) === false) {
+                    $chanShopIdx = array_search('店铺', $head, true);
+                    $chanNumIdx = false; foreach (['订单编号', '订单号'] as $numHead) { $found = array_search($numHead, $head, true); if ($found !== false) { $chanNumIdx = $found; break; } }
+                    $chanHasRef = false; foreach (['微信交易流水号', '对公编码', '支付流水号', '付款流水号', '对公交易号', '微信支付订单号', '支付订单号'] as $refHead) if (array_search($refHead, $head, true) !== false) $chanHasRef = true;
+                    if ($chanShopIdx !== false && $chanNumIdx !== false && !$chanHasRef) {
+                        $chanRefIdx = count($head); $head[] = '微信交易流水号';
+                        $chanExists = db()->prepare('SELECT 1 FROM project_orders WHERE order_no=? LIMIT 1');
+                        $raw = array_map(function ($r) use ($chanShopIdx, $chanNumIdx, $chanRefIdx, $chanExists) {
+                            if (!is_array($r)) return $r;
+                            $r = array_pad(array_values($r), $chanRefIdx + 1, '');
+                            $shop = trim((string)$r[$chanShopIdx]); $code = trim((string)$r[$chanNumIdx]);
+                            if ($code === '' || !preg_match('/微信|对公|公账|扫码收款/u', $shop) || preg_match('/^(对公|公对公|公账)/u', $code) || preg_match('/^(示例|样例)/u', $code)) return $r;
+                            $chanExists->execute([$code]);
+                            if ($chanExists->fetchColumn()) return $r;
+                            $r[$chanRefIdx] = $code; $r[$chanNumIdx] = preg_match('/对公|公账/u', $shop) ? '对公' : '';
                             return $r;
                         }, $raw);
                         $entry['raw'] = $raw; $entry['head'] = $head;
@@ -183,7 +209,7 @@
                     // 表头按别名匹配：原 AI 定制模板、部门现有表（付款账号 / 接单日期 / 到账情况 / 程序名称…）都可直接上传。
                     try { $entry['map'] = ps_business_import_map($selectedBusiness, $head, $requirePeople); } catch (RuntimeException $e) { $entry['reason'] = $e->getMessage(); }
                     // 网站模板 / AI网站定制 旧版模板没有“续费联系方式”列：提醒下载带域名、到期日期、联系方式的新版
-                    if ($entry['map'] !== null && in_array($selectedBusiness, ['网站模板', 'AI网站定制'], true) && !in_array('续费联系方式', $head, true)) $entry['ai'] = trim($entry['ai'] . ' 这张表是旧版模板，没有“网站域名 / 域名到期日期 / 服务器到期日期 / 续费联系方式”列，导入后续费提醒要财务另行补录。请点“下载此业务模板”获取新版（Excel，带下拉选择）。');
+                    if ($entry['map'] !== null && in_array($selectedBusiness, ['网站模板', 'AI网站定制'], true) && !array_filter($head, function ($h) { return strpos((string)$h, '续费联系方式') === 0; })) $entry['ai'] = trim($entry['ai'] . ' 这张表是旧版模板，没有“网站域名 / 域名到期日期 / 服务器到期日期 / 续费联系方式”列，导入后续费提醒要财务另行补录。请点“下载此业务模板”获取新版（Excel，带下拉选择）。');
                     // 小程序旧版模板没有“订单类型”列：提醒下载新版（新订单 = 小程序商城新注册搭建，每单 20 元补助；其他订单没有）
                     if ($entry['map'] !== null && $selectedBusiness === '小程序开发' && !isset($entry['map']['order_kind'])) $entry['ai'] = trim($entry['ai'] . ' 这张表没有“订单类型”列（旧版模板）：未写类型的行只按“业务 / 制作要求”文字猜，描述不清一律按“注册公众号、认证等其他服务”（无 20 元补助）。请点“下载此业务模板”获取新版，在小程序商城新注册搭建的订单，在“订单类型”列选“小程序商城新注册搭建”。');
                 }

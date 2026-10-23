@@ -3,7 +3,10 @@ require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/SalaryCalculator.php';
 require_once __DIR__ . '/../includes/ProjectPartnerProfile.php';
 require_login();
-ensureCsPerfSchema(); // 保证 employees.wangwang 等客服绩效相关字段/表存在
+// 列表只依赖旺旺字段，保存时再检查完整绩效结构。
+if ($_SERVER['REQUEST_METHOD'] === 'POST' || !db()->query("SHOW COLUMNS FROM employees LIKE 'wangwang'")->fetch()) {
+    ensureCsPerfSchema();
+}
 
 $page_title = '合作人员管理';
 $success = '';
@@ -80,11 +83,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 $filter_dept = $_GET['department'] ?? '';
 $keyword     = trim($_GET['keyword'] ?? '');
 
-$sql = "SELECT * FROM employees WHERE 1=1";
+$where = " FROM employees WHERE 1=1";
 $params = [];
-if ($filter_dept) { $sql .= " AND department = ?"; $params[] = $filter_dept; }
-if ($keyword) { $sql .= " AND name LIKE ?"; $params[] = "%{$keyword}%"; }
-$sql .= " ORDER BY department, name";
+if ($filter_dept) { $where .= " AND department = ?"; $params[] = $filter_dept; }
+if ($keyword) { $where .= " AND name LIKE ?"; $params[] = "%{$keyword}%"; }
+$stmt = db()->prepare('SELECT COUNT(*)' . $where);
+$stmt->execute($params);
+$total = (int)$stmt->fetchColumn();
+$page_size = 25;
+$page_count = max(1, (int)ceil($total / $page_size));
+$page = max(1, min($page_count, (int)($_GET['page'] ?? 1)));
+$offset = ($page - 1) * $page_size;
+$sql = 'SELECT id,name,department,wangwang,base_salary,commission_rate' . $where
+    . " ORDER BY department, name, id LIMIT $page_size OFFSET $offset";
 
 $stmt = db()->prepare($sql);
 $stmt->execute($params);
@@ -144,7 +155,7 @@ include __DIR__ . '/../includes/header.php';
                     </tr>
                 </thead>
                 <tbody>
-                <?php if ($employees): foreach ($employees as $emp): ?>
+                <?php if ($employees): foreach ($employees as $emp): $has_algorithm = SalaryCalculator::hasCustomAlgorithm($emp['id']); ?>
                     <tr>
                         <td><?php echo $emp['id']; ?></td>
                         <td><?php echo e($emp['name']); ?></td>
@@ -154,8 +165,8 @@ include __DIR__ . '/../includes/header.php';
                             <a href="<?php echo BASE_URL; ?>/orders/index.php?employee_id=<?php echo $emp['id']; ?>" class="btn btn-sm btn-outline-success" title="为该合作人员上传订单">
                                 <i class="fas fa-file-upload"></i> 上传订单
                             </a>
-                            <a href="<?php echo BASE_URL; ?>/employees/algorithm.php?employee_id=<?php echo $emp['id']; ?>" class="btn btn-sm btn-outline-<?php echo SalaryCalculator::hasCustomAlgorithm($emp['id']) ? 'warning' : 'secondary'; ?>" title="项目报酬算法设置">
-                                <i class="fas fa-code"></i> <?php echo SalaryCalculator::hasCustomAlgorithm($emp['id']) ? '专属算法' : '算法设置'; ?>
+                            <a href="<?php echo BASE_URL; ?>/employees/algorithm.php?employee_id=<?php echo $emp['id']; ?>" class="btn btn-sm btn-outline-<?php echo $has_algorithm ? 'warning' : 'secondary'; ?>" title="项目报酬算法设置">
+                                <i class="fas fa-code"></i> <?php echo $has_algorithm ? '专属算法' : '算法设置'; ?>
                             </a>
                             <button class="btn btn-sm btn-outline-primary" onclick='editEmp(<?php echo json_encode($emp + ['profile' => $profiles[(int)$emp['id']] ?? null], JSON_UNESCAPED_UNICODE | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP); ?>)'>
                                 <i class="fas fa-edit"></i> 编辑
@@ -173,6 +184,16 @@ include __DIR__ . '/../includes/header.php';
                 </tbody>
             </table>
         </div>
+        <nav class="d-flex justify-content-between align-items-center mt-3" aria-label="合作人员分页">
+            <span class="text-muted">共 <?php echo $total; ?> 人，第 <?php echo $page; ?> / <?php echo $page_count; ?> 页</span>
+            <div>
+                <?php foreach ([$page - 1 => '上一页', $page + 1 => '下一页'] as $target_page => $label): ?>
+                    <?php if ($target_page >= 1 && $target_page <= $page_count): ?>
+                        <a class="btn btn-sm btn-outline-secondary" href="?<?php echo e(http_build_query(['department' => $filter_dept, 'keyword' => $keyword, 'page' => $target_page])); ?>"><?php echo $label; ?></a>
+                    <?php endif; ?>
+                <?php endforeach; ?>
+            </div>
+        </nav>
     </div>
 </div>
 

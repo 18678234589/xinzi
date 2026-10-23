@@ -148,7 +148,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
                 $itemTemplates = $itemTemplates ?? ps_intake_templates(null, $selectedBusiness);
                 $record['items'] = !empty($businessDefinition['program']) ? poi_from_row($record['program_name'], empty($record['amount_from_shop']) ? $record['contract_amount'] :
-    null, $head, $row, $itemTemplates, $record['line'], $record['resource_note'] ?? '') : [];
+    null, $head, $row, $itemTemplates, $record['line'], (preg_match('/^(客户提供|客户自备|客户自有|客户的)/u', trim((string)($record['domain_used'] ?? ''))) && trim((string)($record['resource_note'] ?? '')) === '') ? '空间' : ($record['resource_note'] ?? '')) : []; // 域名来源写“客户提供”：选不含域名的“空间”档
                 if (!$record['resource_locked']) foreach ($record['items'] as $item) if ($item['category'] === 'program' && $item['template_id']) { $record['program_template_id'] =
     (int)$item['template_id']; break; }
                 // 同一订单号保留全部商品明细；收款只落在主单，不给证书另建一笔收入。

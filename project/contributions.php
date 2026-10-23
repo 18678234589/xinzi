@@ -1,5 +1,5 @@
 <?php
-require_once __DIR__ . '/../includes/ProjectGovernance.php';
+require_once __DIR__ . '/../includes/ProjectWelfare.php';
 // 建议 / Bug / 主动做事奖励台账：对应原表“建议、bug、做事记录”。财务与监委会录入、补凭证、登记发放；
 // 奖金是独立台账，不自动进入项目报酬，也不计入董事长目标额度。
 [$actor, $editorName, $isFinance] = pg_require_contribution_editor();
@@ -34,7 +34,7 @@ $readForm = function ($input) use ($selfEmployeeId, $conclusions) {
         if (!preg_match('/^-?\d{1,6}(?:\.\d{1,2})?$/', $amountText)) throw new RuntimeException('奖金格式不正确');
         $amount = round((float)$amountText, 2);
     }
-    if ($amount !== null && $state !== 'approved') throw new RuntimeException('只有“已完成”的事项才能填写奖金');
+    if ($amount !== null && $amount !== 0.0 && $state !== 'approved') throw new RuntimeException('只有“已完成”的事项才能填写非零奖金');
     $paid = (string)($input['reward_status'] ?? '') === 'paid';
     $paidOn = $paid ? pg_validate_date($input['reward_paid_on'] ?? '') : null;
     if ($paid && ($amount === null || $amount <= 0)) throw new RuntimeException('登记“奖励已发”前请先填写奖金');
@@ -75,6 +75,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $notice = 'paid';
             } else {
                 $data = $readForm($_POST);
+                pw_validate_linked_contribution($id, $data);
                 $reviewedAt = $data['review_state'] === 'pending' ? null : ($before['review_state'] === $data['review_state'] && $before['reviewed_at'] ? $before['reviewed_at'] : date('Y-m-d H:i:s'));
                 db()->prepare('UPDATE project_governance_records SET owner_employee_id=?,record_date=?,category=?,description=?,due_date=?,outcome_status=?,reviewer_employee_id=?,bonus_delta=?,flow_note=?,reward_status=?,reward_paid_on=?,review_state=?,reviewed_at=? WHERE id=?')
                     ->execute([$data['owner_employee_id'], $data['record_date'], $data['category'], $data['description'], $data['due_date'], $data['outcome_status'], $data['reviewer_employee_id'], $data['bonus_delta'], $data['flow_note'], $data['reward_status'], $data['reward_paid_on'], $data['review_state'], $reviewedAt, $id]);
@@ -150,7 +151,7 @@ $fields = function ($row, $prefix) use ($personOptions, $selfEmployeeId, $conclu
     <div class="form-group"><label>具体内容描述</label><textarea class="form-control" name="description" rows="2" maxlength="12000" placeholder="可不填，默认同上"><?php echo e(isset($row['description']) && $row['description'] !== ($row['category'] ?? '') ? $row['description'] : ''); ?></textarea></div>
     <div class="form-row">
       <div class="form-group col-md-4"><label>（推动解决）完成状态</label><select class="form-control" name="conclusion"><?php foreach ($conclusions as $key => $label): ?><option value="<?php echo $key; ?>"<?php echo $state === $key ? ' selected' : ''; ?>><?php echo $label; ?></option><?php endforeach; ?></select></div>
-      <div class="form-group col-md-4"><label>奖金变动（元）</label><input class="form-control" name="bonus_delta" inputmode="decimal" value="<?php echo isset($row['bonus_delta']) && $row['bonus_delta'] !== null ? e(rtrim(rtrim((string)$row['bonus_delta'], '0'), '.')) : ''; ?>" placeholder="已完成时填写，如 300"></div>
+      <div class="form-group col-md-4"><label>奖金变动（元）</label><input class="form-control" name="bonus_delta" inputmode="decimal" value="<?php echo isset($row['bonus_delta']) && $row['bonus_delta'] !== null ? e((string)$row['bonus_delta']) : ''; ?>" placeholder="无奖励填 0，已完成时可填写奖金"></div>
       <div class="form-group col-md-4"><label>评判人</label><select class="form-control" name="reviewer_employee_id"><?php echo $personOptions($reviewer, true, true); ?></select></div>
     </div>
     <div class="form-row">

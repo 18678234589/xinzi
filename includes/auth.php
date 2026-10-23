@@ -2,13 +2,31 @@
 /**
  * 认证与会话管理
  */
-session_start();
+if (session_status() === PHP_SESSION_NONE) {
+    if (!empty($_COOKIE['remember_token'])) {
+        @ini_set('session.gc_maxlifetime', 604800);
+        $isHttps = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
+            || (isset($_SERVER['SERVER_PORT']) && (int)$_SERVER['SERVER_PORT'] === 443)
+            || (isset($_SERVER['HTTP_X_FORWARDED_PROTO']) && strtolower($_SERVER['HTTP_X_FORWARDED_PROTO']) === 'https');
+        session_set_cookie_params([
+            'lifetime' => 604800,
+            'path' => '/',
+            'domain' => '',
+            'secure' => $isHttps,
+            'httponly' => true,
+            'samesite' => 'Lax'
+        ]);
+    }
+    session_start();
+}
 
 require_once __DIR__ . '/../config/database.php';
 require_once __DIR__ . '/functions.php';
 require_once __DIR__ . '/AuthPassword.php';
 require_once __DIR__ . '/AuthStaff.php';
 require_once __DIR__ . '/AuthThrottle.php';
+require_once __DIR__ . '/AuthRemember.php';
+auth_remember_check();
 auth_session_validate();
 
 /**

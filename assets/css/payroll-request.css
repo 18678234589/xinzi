@@ -1,3 +1,24 @@
 .payroll-request-form{margin:.6rem 0;max-width:600px;white-space:normal}.payroll-request-form button{border:0;border-radius:9px;padding:.65rem 1rem;background:#315b54;color:#fff;font-weight:600;cursor:pointer}.payroll-request-form button:disabled{background:#edf0f3;color:#5e6974;cursor:default}.payroll-request-form small{display:block;margin-top:.35rem;font-size:12px;line-height:1.5;color:#68766f}.payroll-request-reason,.payroll-request-message{margin:.4rem 0 0;font-size:12px;line-height:1.6;color:#876222;overflow-wrap:anywhere}.pps-actcol .payroll-request-form{min-width:180px;max-width:260px}.pps-actcol .payroll-request-form button{padding:.4rem .6rem;font-size:12px}
 
 .payroll-request-state{display:block;padding:.55rem 0;color:#57656e;font-size:13px}
+
+/* 申请按钮：小巧的胶囊，金额与说明放在悬停提示和确认弹窗里 */
+.payroll-request-form button[type=submit]{border:0;border-radius:999px;padding:.38rem 1.05rem;background:linear-gradient(135deg,#286b55,#3e8b68);color:#fff;font-size:13px;font-weight:700;box-shadow:0 4px 10px rgba(40,107,85,.22);transition:transform .15s,box-shadow .15s}
+.payroll-request-form button[type=submit]:hover:not(:disabled){transform:translateY(-1px);box-shadow:0 8px 16px rgba(40,107,85,.28)}
+.payroll-request-form.is-proxy button[type=submit]{background:#fff;color:#286b55;border:1px solid #b9dcc7;box-shadow:none}.payroll-request-form.is-proxy button[type=submit]:hover:not(:disabled){background:#e6f4ea}
+.payroll-request-form.is-sync button[type=submit]{background:#fff8e8;color:#8a5a00;border:1px solid #f1dfbc;box-shadow:none}
+.payroll-request-form.is-compact{margin:0;min-width:0;max-width:none;white-space:nowrap}.payroll-request-form.is-compact .pr-detail{display:none}
+.payroll-request-form.is-compact button[type=submit]{padding:.22rem .8rem;font-size:12px}
+.payroll-request-form.is-compact .payroll-request-message{margin:.2rem 0 0;font-size:11px;white-space:nowrap}
+.pps-actcol .payroll-request-form{min-width:0;max-width:none}
+.payroll-request-form.is-compact .payroll-request-state{display:inline-block;padding:.12rem .6rem;border-radius:999px;background:#eef1ea;color:#6c7a72;font-size:12px;font-weight:600}
+.payroll-request-form:not(.is-compact){display:flex;flex-wrap:wrap;align-items:center;gap:.4rem .9rem;max-width:none}.payroll-request-form:not(.is-compact) .pr-detail{flex:1 1 280px}
+.pr-dialog{border:0;border-radius:20px;padding:0;width:min(440px,92vw);box-shadow:0 24px 60px rgba(38,70,55,.28)}.pr-dialog::backdrop{background:rgba(38,53,47,.35);backdrop-filter:blur(2px)}
+.pr-dialog form{padding:1.3rem 1.4rem;display:grid;gap:.9rem}
+.pr-d-head{display:flex;align-items:center;gap:.8rem}.pr-d-head h6{margin:0;font-weight:800;color:#234b3d}.pr-d-head small{color:#7a877f}
+.pr-d-ico{display:grid;place-items:center;width:40px;height:40px;border-radius:13px;background:linear-gradient(135deg,#286b55,#3e8b68);color:#fff}
+.pr-d-amount{padding:.8rem 1rem;border-radius:16px;background:linear-gradient(115deg,#e4f3e7,#fff0d8);border:1px solid #e1ebdc}.pr-d-amount small{display:block;color:#698177;font-size:.78rem}.pr-d-amount b{font-size:1.7rem;color:#1f6a52;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+.pr-d-notes{margin:0;padding-left:1.1rem;color:#5b6d63;font-size:.82rem;line-height:1.65}
+.pr-d-people{white-space:pre-line;max-height:160px;overflow:auto;padding:.6rem .8rem;border-radius:12px;background:#f7faf5;border:1px solid #eaf1e7;font-size:.82rem;color:#3a5346}
+.pr-d-act{display:flex;justify-content:flex-end;gap:.6rem}.pr-d-act button{border-radius:999px;padding:.42rem 1.2rem;font-weight:700;cursor:pointer;border:1px solid #d7e0d3;background:#fff;color:#44574d}.pr-d-act .pr-d-ok{background:linear-gradient(135deg,#286b55,#3e8b68);border-color:transparent;color:#fff;box-shadow:0 4px 10px rgba(40,107,85,.22)}
+.pps-bulkform{display:inline-block!important;margin:0!important}.pps-bulkform button[type=submit]{padding:.3rem .9rem;font-size:.82rem}

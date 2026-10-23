@@ -37,6 +37,8 @@ function pr_import_fields($head,$row,$columnMap=[])
         if (preg_match('/^域名(来源|使用)$/u',$label) && preg_match('/^(客户提供|客户自备|客户自有|客户的)/u',$value) && !isset($out['resources']['domain']['owner'])) { $out['resources']['domain']['owner']='customer'; $out['resources']['domain']['owner_note']='域名来源为客户提供，上传表格标注，需核对'; }
         // 小程序新模板：业务种类写“永久”→ 服务器到期日记为永久（2099-01-01）；“续费联系方式”可写手机号或微信号
         if (preg_match('/^业务种类/u',$label) && preg_match('/永久|终身|买断|一次性/u',$value)) $permanent=true;
+        if (preg_match('/^续费联系方式(电话|手机|手机号)$/u',$label)) { $phone=pr_import_phone_value($value); if ($phone!=='') $out['phone']=$phone; continue; }
+        if (preg_match('/^续费联系方式微信(号)?$/u',$label)) { try { $wx=pr_wechat($value); } catch (RuntimeException $e) { $wx=''; } if ($wx!=='') $out['wechat']=$wx; continue; }
         if (preg_match('/^(续费|客户)?联系方式$/u',$label)) {
             $compact=preg_replace('/[\s\-()]+/u','',$value);
             if (pr_import_phone_value($value)!=='') { $out['phone']=pr_import_phone_value($value); }

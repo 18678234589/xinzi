@@ -1,6 +1,7 @@
 <?php
 require_once __DIR__ . '/../includes/ProjectGovernance.php';
-[$actor, $member] = pg_require_member();
+[$actor, $member] = pg_require_member(true);
+$isFinanceView = $member['governance_role'] === 'finance';
 pg_sync_idea_penalties();
 pg_sync_oversight_penalties();
 pg_sync_reminders();
@@ -9,7 +10,7 @@ $success = '';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     ps_check_csrf();
-    $storedPath = null;
+    $storedPaths = [];
     try {
         $action = (string)($_POST['action'] ?? '');
         if ($action === 'create') {
@@ -40,7 +41,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $save = db()->prepare('INSERT INTO project_governance_records (record_kind,owner_employee_id,record_date,category,description,commitment_note,due_date,due_note,evidence_text,parent_record_id,created_by_employee_id) VALUES (?,?,?,?,?,?,?,?,?,?,?)');
             $save->execute([$kind, $ownerId, $recordDate, $category, $description, $commitment, $dueDate, $dueNote, $evidence ?: null, $parentId ?: null, (int)$actor['employee_id']]);
             $id = (int)db()->lastInsertId();
-            $storedPath = pg_store_evidence($id, $actor, $_FILES['evidence_file'] ?? []);
+            pg_store_evidence_many($id, $actor, $storedPaths);
             ps_audit('governance_record', $id, 'create', $actor, ['kind' => $kind, 'owner_employee_id' => $ownerId, 'record_date' => $recordDate, 'parent_id' => $parentId]);
             db()->commit();
             header('Location: ' . BASE_URL . '/project/governance.php?created=' . $id . '#record-' . $id);
@@ -61,13 +62,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
             $flow = mb_substr(trim((string)($_POST['flow_note'] ?? '')), 0, 255);
             $note = mb_substr(trim((string)($_POST['review_note'] ?? '')), 0, 500);
-            if ($decision === 'approved' && $amount !== null && $amount != 0 && $flow === '') throw new RuntimeException('有奖惩金额时请填写奖金池或流向说明');
             if ($decision === 'rejected' && $note === '') throw new RuntimeException('退回时请写明原因');
             db()->beginTransaction();
-            $q = db()->prepare('SELECT id,owner_employee_id,created_by_employee_id,review_state FROM project_governance_records WHERE id=? FOR UPDATE');
+            $q = db()->prepare('SELECT id,owner_employee_id,created_by_employee_id,review_state,record_kind,category FROM project_governance_records WHERE id=? FOR UPDATE');
             $q->execute([$id]);
             $record = $q->fetch();
             if (!$record || !pg_can_review($member, $record)) throw new RuntimeException('仅其他监委会成员可核验待审事项');
+            if ($decision === 'approved' && $record['record_kind'] === 'chair' && $record['category'] === '三天脑洞') {
+                $amount = pg_idea_reward_amount($_POST['bonus_delta'] ?? null);
+                if ($flow === '') $flow = '董事长奖金池';
+            }
+            if ($decision === 'approved' && $amount !== null && $amount != 0 && $flow === '') throw new RuntimeException('有奖惩金额时请填写奖金池或流向说明');
             db()->prepare('UPDATE project_governance_records SET review_state=?,outcome_status=?,reviewer_employee_id=?,bonus_delta=?,flow_note=?,review_note=?,reviewed_at=NOW() WHERE id=? AND review_state=\'pending\'')
                 ->execute([$decision, $decision === 'approved' ? $status : '已退回', (int)$actor['employee_id'], $decision === 'approved' ? $amount : null, $decision === 'approved' ? $flow : '', $note, $id]);
             ps_audit('governance_record', $id, 'review', $actor, ['decision' => $decision, 'status' => $status, 'bonus_delta' => $amount]);
@@ -78,7 +83,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         throw new RuntimeException('操作无效');
     } catch (Throwable $e) {
         if (db()->inTransaction()) db()->rollBack();
-        if ($storedPath && is_file($storedPath)) @unlink($storedPath);
+        foreach ($storedPaths as $storedPath) if (is_file($storedPath)) @unlink($storedPath);
         $error = $e->getMessage();
     }
 }
@@ -112,7 +117,7 @@ $quarterStmt->execute([$quarterStart, $quarterEnd]);
 $quarterRows = $quarterStmt->fetchAll();
 $penaltySql = "SELECT p.chair_employee_id AS owner_employee_id,e.name,COUNT(*) AS record_count,COALESCE(SUM(p.amount),0) AS amount FROM project_governance_penalties p JOIN employees e ON e.id=p.chair_employee_id WHERE p.state='applied' AND p.window_end>=? AND p.window_end<?";
 $penaltyParams = [$quarterStart,$quarterEnd];
-if ($member['governance_role'] !== 'committee') { $penaltySql .= ' AND p.chair_employee_id=?'; $penaltyParams[] = (int)$actor['employee_id']; }
+if (!$isFinanceView && $member['governance_role'] !== 'committee') { $penaltySql .= ' AND p.chair_employee_id=?'; $penaltyParams[] = (int)$actor['employee_id']; }
 $penaltyStmt = db()->prepare($penaltySql . ' GROUP BY p.chair_employee_id,e.name');
 $penaltyStmt->execute($penaltyParams);
 $quarterByPerson = [];
@@ -138,17 +143,20 @@ $page_title = '管理层激励考核';
 include __DIR__ . '/../includes/header.php';
 ?>
 <div class="governance-page">
-  <section class="governance-hero"><div><span class="governance-kicker">CO-CREATION / 治理与共创</span><h1>管理层激励考核</h1><p>承诺、监督和改进都有记录。事项先提交、再由监委会核验；奖惩经确认后留在独立台账，不自动改动项目报酬。</p></div><span class="governance-role"><?php echo $member['governance_role'] === 'chair' ? '轮值董事长' : '监委会成员'; ?></span></section>
+  <section class="governance-hero"><div><span class="governance-kicker">CO-CREATION / 治理与共创</span><h1>管理层激励考核</h1><p>承诺、监督和改进都有记录。事项先提交、再由监委会核验；奖惩经确认后留在独立台账，不自动改动项目报酬。</p></div><span class="governance-role"><?php echo $isFinanceView ? '财务查看' : ($member['governance_role'] === 'chair' ? '轮值董事长' : '监委会成员'); ?></span></section>
   <nav class="governance-tabs" aria-label="管理层栏目"><a href="<?php echo BASE_URL; ?>/project/governance_ideas.php">三天脑洞</a><a class="active" aria-current="page" href="<?php echo BASE_URL; ?>/project/governance.php">事项台账</a><a href="<?php echo BASE_URL; ?>/project/rules.php?domain=governance">规则中心</a></nav>
   <?php if ($error): ?><div class="alert alert-danger mt-3"><?php echo e($error); ?></div><?php endif; ?>
   <?php if (isset($_GET['created'])): ?><div class="alert alert-success mt-3">事项已提交，等待监委会核验。</div><?php endif; ?>
   <?php if (isset($_GET['reviewed'])): ?><div class="alert alert-success mt-3">核验结果已记入台账。</div><?php endif; ?>
-  <div class="governance-stats"><div><small>我的身份</small><strong><?php echo $member['governance_role'] === 'chair' ? '轮值董事长' : '监督评议'; ?></strong></div><div><small>待核验事项</small><strong><?php echo $pendingCount; ?></strong></div><div><small>本任期本人奖惩变动</small><strong>¥<?php echo money($myQuarter); ?></strong></div></div>
+  <div class="governance-stats"><div><small>我的身份</small><strong><?php echo $isFinanceView ? '财务查看' : ($member['governance_role'] === 'chair' ? '轮值董事长' : '监督评议'); ?></strong></div><div><small>待核验事项</small><strong><?php echo $pendingCount; ?></strong></div><div><small><?php echo $isFinanceView ? '本任期奖惩合计' : '本任期本人奖惩变动'; ?></small><strong>¥<?php echo money($isFinanceView ? array_sum(array_column($quarterRows,'amount')) : $myQuarter); ?></strong></div></div>
+  <?php if ($isFinanceView): ?><div class="alert alert-info">财务查看模式：可查看事项、评审结果与举证材料；提交与评审由对应管理层成员完成。</div><?php endif; ?>
   <div class="governance-grid">
+    <?php if (!$isFinanceView): ?>
     <section class="governance-card" id="new-record"><h2>快速登记</h2><p class="governance-hint">选类型、写内容即可提交。日期默认今天；截止时间和举证可以按需补充。跟进原事项时填父记录编号，不覆盖旧记录。</p>
       <form method="post" enctype="multipart/form-data"><input type="hidden" name="csrf" value="<?php echo e(ps_csrf_token()); ?>"><input type="hidden" name="action" value="create">
         <div class="governance-quick-kind"><label><input type="radio" name="record_kind" value="<?php echo e($member['governance_role']); ?>" checked> <?php echo e(pg_kind_label($member['governance_role'])); ?></label><label><input type="radio" name="record_kind" value="contribution"> 建议 / Bug / 主动做事</label></div>
         <div class="form-group"><label>具体内容</label><textarea class="form-control" name="description" rows="4" maxlength="12000" required placeholder="写下承诺、监督结果，或发现的问题与改进建议"></textarea></div>
+        <div class="governance-quick-upload"><?php $dzId = 'govQuickFiles'; include __DIR__ . '/../includes/governance/evidence_dropzone.php'; ?></div>
         <button class="btn btn-success" type="submit">提交待核验</button>
         <details class="governance-advanced"><summary>补充日期、当事人、截止节点或举证材料（可选）</summary>
           <div class="form-row"><div class="form-group col-md-6"><label>记录日期</label><input class="form-control" type="date" name="record_date" value="<?php echo date('Y-m-d'); ?>" required></div><div class="form-group col-md-6"><label>事项类别 / 标题</label><input class="form-control" name="category" maxlength="120" placeholder="例如：业务改进、日常监督、平台 Bug"></div></div>
@@ -156,19 +164,19 @@ include __DIR__ . '/../includes/header.php';
           <div class="form-row"><div class="form-group col-md-6"><label>承诺节点 / 发生时间</label><input class="form-control" name="commitment_note" maxlength="160" placeholder="例如：会议当日、每周复盘"></div><div class="form-group col-md-6"><label>截止日期</label><input class="form-control" type="date" name="due_date"></div></div>
           <div class="form-row"><div class="form-group col-md-6"><label>其他时效说明</label><input class="form-control" name="due_note" maxlength="160" placeholder="例如：长期实施"></div><div class="form-group col-md-6"><label>父记录编号（跟进原事项时填写）</label><input class="form-control" type="number" min="1" name="parent_record_id" placeholder="可不填"></div></div>
           <div class="form-group"><label>举证 / 执行结果</label><textarea class="form-control" name="evidence_text" rows="2" maxlength="4000" placeholder="可写结果或内部证据链接；不要填写账号密码"></textarea></div>
-          <div class="form-group"><label>举证文件</label><input class="form-control-file" type="file" name="evidence_file" accept=".png,.jpg,.jpeg,.webp,.pdf"><small class="form-text text-muted">图片或 PDF，最多 8 MB；文件保存在网站目录外，只有本栏目成员能查看。</small></div>
         </details>
       </form>
     </section>
+    <?php endif; ?>
     <aside class="governance-card"><h2>成员与机制</h2><p class="governance-hint">以下名单来自原表“人员配置”；栏目权限按员工 ID 绑定，不按页面输入的姓名判断。</p><div class="governance-member-list"><?php foreach ($members as $person): ?><div><span><?php echo e($person['name']); ?><small><?php echo $person['governance_role'] === 'chair' ? '轮值董事长' : '监委会'; ?></small></span><?php if (!$person['user_id']): ?><em>尚未开通登录账号</em><?php endif; ?></div><?php endforeach; ?></div><div class="governance-note"><strong>结算边界</strong><p>自 2026-Q4 起：董事长每季度目标 ¥10,000，监委会每人 ¥1,000、三人合计 ¥3,000。季度轮值、事项及豁免完成核验后，未获得的额度自动结转<a href="<?php echo BASE_URL; ?>/project/welfare.php">全员福利池</a>；本页记录不等于实际发放。历史季度仍需人工核对，不自动追溯。</p></div></aside>
   </div>
   <section class="governance-card" id="records"><div class="governance-heading"><div><h2>考核与共创台账</h2><p class="governance-hint">最多显示最近 150 条；已核验记录不可覆盖，需要更正时新建跟进记录。</p></div><form method="get" class="governance-filters"><input class="form-control" type="month" name="month" value="<?php echo e($month); ?>" aria-label="筛选月份"><select class="form-control" name="kind" aria-label="筛选类型"><option value="">全部类型</option><?php foreach (['chair','committee','contribution'] as $kind): ?><option value="<?php echo $kind; ?>" <?php echo $kindFilter === $kind ? 'selected' : ''; ?>><?php echo e(pg_kind_label($kind)); ?></option><?php endforeach; ?></select><button class="btn btn-outline-success" type="submit">筛选</button></form></div>
     <?php if (!$records): ?><div class="governance-empty">还没有符合条件的记录。可以从上方登记第一条。</div><?php endif; ?>
-    <div class="governance-records"><?php foreach ($records as $row): ?><article class="governance-record" id="record-<?php echo (int)$row['id']; ?>"><div class="governance-record-top"><span class="governance-tag"><?php echo e(pg_kind_label($row['record_kind'])); ?></span><span class="governance-status <?php echo e($row['review_state']); ?>"><?php echo e(pg_review_label($row['review_state'])); ?></span><small>#<?php echo (int)$row['id']; ?> · <?php echo e($row['record_date']); ?> · <?php echo e($row['owner_name']); ?></small></div><h3><?php echo e($row['category'] ?: '未命名事项'); ?></h3><p class="governance-description"><?php echo nl2br(e($row['description'])); ?></p><div class="governance-meta"><?php if ($row['commitment_note']): ?><span>承诺 / 发生：<?php echo e($row['commitment_note']); ?></span><?php endif; ?><?php if ($row['due_date'] || $row['due_note']): ?><span>截止 / 时效：<?php echo e($row['due_date'] ?: $row['due_note']); ?></span><?php endif; ?><?php if ($row['parent_record_id']): ?><a href="#record-<?php echo (int)$row['parent_record_id']; ?>">跟进 #<?php echo (int)$row['parent_record_id']; ?></a><?php endif; ?><button class="governance-followup" type="button" data-governance-followup="<?php echo (int)$row['id']; ?>">＋ 跟进此事</button></div>
+    <div class="governance-records"><?php foreach ($records as $row): ?><article class="governance-record" id="record-<?php echo (int)$row['id']; ?>"><div class="governance-record-top"><span class="governance-tag"><?php echo e(pg_kind_label($row['record_kind'])); ?></span><span class="governance-status <?php echo e($row['review_state']); ?>"><?php echo e(pg_review_label($row['review_state'])); ?></span><small>#<?php echo (int)$row['id']; ?> · <?php echo e($row['record_date']); ?> · <?php echo e($row['owner_name']); ?></small></div><h3><?php echo e($row['category'] ?: '未命名事项'); ?></h3><p class="governance-description"><?php echo nl2br(e($row['description'])); ?></p><div class="governance-meta"><?php if ($row['commitment_note']): ?><span>承诺 / 发生：<?php echo e($row['commitment_note']); ?></span><?php endif; ?><?php if ($row['due_date'] || $row['due_note']): ?><span>截止 / 时效：<?php echo e($row['due_date'] ?: $row['due_note']); ?></span><?php endif; ?><?php if ($row['parent_record_id']): ?><a href="#record-<?php echo (int)$row['parent_record_id']; ?>">跟进 #<?php echo (int)$row['parent_record_id']; ?></a><?php endif; ?><?php if (!$isFinanceView): ?><button class="governance-followup" type="button" data-governance-followup="<?php echo (int)$row['id']; ?>">＋ 跟进此事</button><?php endif; ?></div>
       <?php if ($row['evidence_text']): ?><div class="governance-evidence"><strong>举证与结果</strong><p><?php echo nl2br(e($row['evidence_text'])); ?></p></div><?php endif; ?>
       <?php foreach ($evidenceByRecord[(int)$row['id']] ?? [] as $proof): ?><a class="governance-proof" href="<?php echo BASE_URL; ?>/project/governance_evidence.php?id=<?php echo (int)$proof['id']; ?>" target="_blank" rel="noopener noreferrer"><i class="fas fa-paperclip"></i> <?php echo e($proof['original_name']); ?></a><?php endforeach; ?>
       <?php if ($row['review_state'] !== 'pending'): ?><div class="governance-result">核验：<?php echo e($row['outcome_status']); ?> · <?php echo e($row['reviewer_name'] ?: '—'); ?><?php if ($row['bonus_delta'] !== null): ?> · 奖惩变动 <strong class="<?php echo (float)$row['bonus_delta'] < 0 ? 'negative' : ''; ?>"><?php echo (float)$row['bonus_delta'] >= 0 ? '+' : '−'; ?>¥<?php echo money(abs((float)$row['bonus_delta'])); ?></strong><?php endif; ?><?php if ($row['flow_note']): ?> · <?php echo e($row['flow_note']); ?><?php endif; ?><?php if ($row['review_note']): ?><div><?php echo e($row['review_note']); ?></div><?php endif; ?></div><?php endif; ?>
-      <?php if (pg_can_review($member, $row)): ?><details class="governance-review"><summary>监委会核验此事项</summary><form method="post"><input type="hidden" name="csrf" value="<?php echo e(ps_csrf_token()); ?>"><input type="hidden" name="action" value="review"><input type="hidden" name="record_id" value="<?php echo (int)$row['id']; ?>"><div class="form-row"><div class="form-group col-md-4"><label>核验结论</label><select class="form-control" name="decision"><option value="approved">确认记录</option><option value="rejected">退回补充</option></select></div><div class="form-group col-md-4"><label>事项状态</label><select class="form-control" name="outcome_status"><?php foreach (['有效提出','进行中','完整闭环','推进中','及时干预','严重逾期','无效方案','有效监督','待补证据'] as $status): ?><option value="<?php echo e($status); ?>"><?php echo e($status); ?></option><?php endforeach; ?></select></div><div class="form-group col-md-4"><label>奖惩变动（可留空）</label><input class="form-control" name="bonus_delta" type="number" step="0.01" placeholder="奖励填正数，处罚填负数"></div></div><div class="form-row"><div class="form-group col-md-6"><label>奖金池 / 流向</label><input class="form-control" name="flow_note" maxlength="255" placeholder="例如：董事长奖金池 / 全员福利池"></div><div class="form-group col-md-6"><label>核验说明</label><input class="form-control" name="review_note" maxlength="500" placeholder="退回时必填；也可写明判定依据"></div></div><button class="btn btn-sm btn-success" type="submit">确认核验</button></form></details><?php endif; ?></article><?php endforeach; ?></div>
+      <?php if (pg_can_review($member, $row)): ?><details class="governance-review"><summary>监委会核验此事项</summary><form method="post"><input type="hidden" name="csrf" value="<?php echo e(ps_csrf_token()); ?>"><input type="hidden" name="action" value="review"><input type="hidden" name="record_id" value="<?php echo (int)$row['id']; ?>"><div class="form-row"><div class="form-group col-md-4"><label>核验结论</label><select class="form-control" name="decision"><option value="approved">确认记录</option><option value="rejected">退回补充</option></select></div><div class="form-group col-md-4"><label>事项状态</label><select class="form-control" name="outcome_status"><?php foreach (['有效提出','进行中','完整闭环','推进中','及时干预','严重逾期','无效方案','有效监督','待补证据'] as $status): ?><option value="<?php echo e($status); ?>"><?php echo e($status); ?></option><?php endforeach; ?></select></div><div class="form-group col-md-4"><label>奖惩变动（可留空）</label><?php if ($row['record_kind'] === 'chair' && $row['category'] === '三天脑洞'): ?><select class="form-control" name="bonus_delta"><?php foreach ([200,300,400,500] as $reward): ?><option value="<?php echo $reward; ?>"<?php echo $reward === 300 ? ' selected' : ''; ?>>¥<?php echo $reward; ?></option><?php endforeach; ?></select><?php else: ?><input class="form-control" name="bonus_delta" type="number" step="0.01" placeholder="奖励填正数，处罚填负数"><?php endif; ?></div></div><div class="form-row"><div class="form-group col-md-6"><label>奖金池 / 流向</label><input class="form-control" name="flow_note" maxlength="255" placeholder="例如：董事长奖金池 / 全员福利池"></div><div class="form-group col-md-6"><label>核验说明</label><input class="form-control" name="review_note" maxlength="500" placeholder="退回时必填；也可写明判定依据"></div></div><button class="btn btn-sm btn-success" type="submit">确认核验</button></form></details><?php endif; ?></article><?php endforeach; ?></div>
   </section>
   <section class="governance-card" id="quarter"><h2>本任期奖惩变动</h2><p class="governance-hint"><?php echo e($quarterStart); ?> 至 <?php echo e((new DateTimeImmutable($quarterEnd))->modify('-1 day')->format('Y-m-d')); ?>，汇总已核验金额与未豁免的自动扣减；不是可发放余额，也不自动进入项目报酬。奖金池期初与余额见<a href="<?php echo BASE_URL; ?>/project/governance_ideas.php#pool">三天脑洞</a>。</p><?php if (!$quarterRows): ?><div class="governance-empty">本任期暂无已核验的奖惩变动。</div><?php else: ?><div class="table-responsive"><table class="table table-sm governance-summary"><thead><tr><th>当事人</th><th>记录数</th><th>已记账变动</th></tr></thead><tbody><?php foreach ($quarterRows as $row): ?><tr><td><?php echo e($row['name']); ?></td><td><?php echo (int)$row['record_count']; ?></td><td class="<?php echo (float)$row['amount'] < 0 ? 'negative' : ''; ?>"><?php echo (float)$row['amount'] >= 0 ? '+' : '−'; ?>¥<?php echo money(abs((float)$row['amount'])); ?></td></tr><?php endforeach; ?></tbody></table></div><?php endif; ?></section>
 </div>

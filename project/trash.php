@@ -1,4 +1,5 @@
 <?php
+require_once __DIR__ . '/../includes/ProjectSettlement.php';
 require_once __DIR__ . '/../includes/ProjectOrderTrash.php';
 // 订单回收站：删除的订单保留 30 天，期内可一键还原（财务看全部，其他人看自己删除的）。
 $actor = ps_require_actor();

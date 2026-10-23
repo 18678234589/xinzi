@@ -1,6 +1,6 @@
 <?php
 
-/** 本栏目只认已登录合作人员对应的员工 ID；财务管理员身份不自动取得权限。 */
+/** 提交与评审权限按已登录合作人员的员工 ID 绑定。 */
 function pg_member($actor)
 {
     if (!$actor || ($actor['type'] ?? '') !== 'employee' || (int)($actor['employee_id'] ?? 0) < 1) return null;
@@ -10,10 +10,16 @@ function pg_member($actor)
     return $q->fetch() ?: null;
 }
 
-function pg_require_member()
+function pg_require_member($allowFinanceView = false)
 {
     $actor = ps_require_actor();
     $member = pg_member($actor);
+    if (!$member && $allowFinanceView && (($actor['type'] ?? '') === 'admin' || ($actor['role'] ?? '') === 'finance')) {
+        if (!in_array($_SERVER['REQUEST_METHOD'] ?? 'GET', ['GET','HEAD'], true)) {
+            http_response_code(403); exit('财务仅可查看，提交与评审请使用对应管理层成员账号');
+        }
+        $member = ['employee_id'=>0, 'governance_role'=>'finance', 'name'=>'财务 / 管理员'];
+    }
     if (!$member) { http_response_code(403); exit('无权限查看管理层激励考核'); }
     return [$actor, $member];
 }

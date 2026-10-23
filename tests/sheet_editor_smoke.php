@@ -20,6 +20,8 @@ try {
     $sheet = (string)array_keys(ps_import_file_sheets($file))[0];
     $loaded = pse_load($id, $sheet, $actor);
     $check(count(array_filter($loaded['editable'])) === count($loaded['head']), '订单号、日期和任意附加列全部可编辑');
+    $opts = pse_column_options('网站模板', ['日期', '程序名称', '年限', '空间来源', '备注', '状态(填已完成/未完成)']);
+    $check(array_keys($opts) === [1, 2, 3, 5] && count($opts[1]) === 31 && in_array('森动中级版', $opts[1], true) && $opts[3] === ['我们的空间', '客户自有空间'] && pse_column_options('设计', ['程序名称']) === [], '与 Excel 模板同名的列（程序名称 / 年限 / 空间来源 / 状态）在线编辑也有下拉，其他列和其他业务没有');
     $long = str_repeat('完整备注', 90);
     $edits = [['row' => 1, 'col' => 0, 'v' => '2026-10-08'], ['row' => 1, 'col' => 2, 'v' => '0098765432109876543210'], ['row' => 1, 'col' => 5, 'v' => $long], ['row' => 1, 'col' => 6, 'v' => '新附加内容']];
     $check(pse_save($id, $sheet, $edits, $actor) === 4, '全部字段保存成功');

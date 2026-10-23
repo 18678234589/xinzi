@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . '/ProjectGovernance.php';
+require_once __DIR__ . '/WelfareContribution.php';
 
 function pw_policy()
 {
@@ -148,7 +149,7 @@ function pw_close_quarter($quarter)
     } catch (Throwable $e) { if (db()->inTransaction()) db()->rollBack(); throw $e; }
 }
 
-/** 审核完成的贡献按 1/3/5 点分享最多 30% 余额；个人不超本次预算 30%。 */
+/** 季度结算仅补齐未预留的核验奖励；每点 50 元，不重复按比例分配。 */
 function pw_award_quarter($quarter)
 {
     [$from,$until] = pw_bounds($quarter);
@@ -174,23 +175,12 @@ function pw_award_quarter($quarter)
         $pending = db()->prepare("SELECT COUNT(*) FROM project_welfare_contributions WHERE occurred_on>=? AND occurred_on<? AND status='pending'");
         $pending->execute([$from,$until]);
         if ((int)$pending->fetchColumn()) throw new RuntimeException('本季度还有待核验的建议或 Bug');
-        $q = db()->prepare("SELECT employee_id,SUM(points) AS points FROM project_welfare_contributions WHERE occurred_on>=? AND occurred_on<? AND status='approved' GROUP BY employee_id ORDER BY employee_id");
+        $q = db()->prepare("SELECT c.id FROM project_welfare_contributions c LEFT JOIN project_welfare_ledger l ON l.source_key=CONCAT('contribution:',c.id) WHERE c.occurred_on>=? AND c.occurred_on<? AND c.status='approved' AND l.id IS NULL ORDER BY c.id");
         $q->execute([$from,$until]);
-        $people = $q->fetchAll();
-        $totalPoints = array_sum(array_map(static fn($p)=>(int)$p['points'],$people));
-        if ($totalPoints < 1) { db()->commit(); return false; }
-        $budgetCents = (int)floor(max(0,min(pw_balance(),pw_balance_as_of($quarter))) * (float)$lock['quarterly_award_rate'] * 100 + .0001);
-        $capCents = (int)floor($budgetCents * (float)$lock['quarterly_person_cap_rate'] + .0001);
-        foreach ($people as $person) {
-            $cents = min($capCents,(int)floor($budgetCents * (int)$person['points'] / $totalPoints));
-            if ($cents < 1) continue;
-            $amount = $cents / 100;
-            db()->prepare("INSERT INTO project_welfare_awards (award_type,period_key,employee_id,points,amount) VALUES ('quarterly',?,?,?,?)")
-                ->execute([$quarter,(int)$person['employee_id'],(int)$person['points'],$amount]);
-            pw_ledger('quarterly:' . $quarter . ':' . $person['employee_id'],'quarterly_award',-$amount,$quarter,(int)$person['employee_id'],'季度建议与 Bug 共创奖励，已预留待财务发放');
-        }
+        $ids = $q->fetchAll(PDO::FETCH_COLUMN);
+        foreach ($ids as $id) pw_sync_contribution((int)$id,['type'=>'system','id'=>0]);
         db()->commit();
-        return true;
+        return (bool)$ids;
     } catch (Throwable $e) { if (db()->inTransaction()) db()->rollBack(); throw $e; }
 }
 
@@ -215,7 +205,7 @@ function pw_award_year($year)
         $q = db()->prepare("SELECT COUNT(*) FROM project_welfare_contributions WHERE occurred_on>=? AND occurred_on<? AND status='pending'");
         $q->execute([$yearFrom,$yearUntil]);
         if ((int)$q->fetchColumn()) throw new RuntimeException('本年度仍有待核验的建议或 Bug');
-        $q = db()->prepare("SELECT COUNT(*) FROM project_welfare_contributions WHERE occurred_on>=? AND occurred_on<? AND status='approved'");
+        $q = db()->prepare("SELECT COUNT(*) FROM project_welfare_contributions c LEFT JOIN project_welfare_ledger l ON l.source_key=CONCAT('contribution:',c.id) WHERE c.occurred_on>=? AND c.occurred_on<? AND c.status='approved' AND l.id IS NULL");
         $awardCheck = db()->prepare("SELECT 1 FROM project_welfare_awards WHERE award_type='quarterly' AND period_key=? LIMIT 1");
         for ($i=1; $i<=4; $i++) {
             $key = $year . '-Q' . $i;

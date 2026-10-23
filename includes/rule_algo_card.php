@@ -19,12 +19,6 @@ if ($raActor):
 endif;
 if (!empty($raOk)):
 ?>
-<?php
-$raTesting = $raAdmin;
-foreach (($raData ?? []) as $raBusiness) foreach ($raBusiness['groups'] as $raGroup) foreach ($raGroup['roles'] as $raRole) if (ps_software_testing_role($raRole)) $raTesting = true;
-if ($raTesting): ?>
-<div class="mb-3"><a class="btn btn-primary" href="<?php echo BASE_URL; ?>/project/testing.php">软件测试 · 订单与5%提成</a><span class="text-muted small ml-2">2026-10-01起按明确指派的测试订单独立计提</span></div>
-<?php endif; ?>
 <link rel="stylesheet" href="<?php echo ra_asset('css/rule_algo.css'); ?>">
 <?php if ($raAdmin): ?>
 <section class="ra" aria-label="分成算法更正申请">

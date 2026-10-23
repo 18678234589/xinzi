@@ -93,7 +93,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if ($shop !== '' && empty($business['free_shop']) && !in_array($shop, $shops, true)) throw new RuntimeException('请选择店铺列表中的店铺');
         $details = ps_business_details($projectType, $actor['role'] === 'customer_service' && $projectType === '网站模板' ? [] : ($_POST['details'] ?? []));
         // 客服建网站模板单时技术资料留空，但“空间来源”由客服填（客户用自己的空间还是我们的）
-        if (array_key_exists('space_source', $details)) $details['space_source'] = mb_substr(trim((string)($_POST['details']['space_source'] ?? '')), 0, 300);
+        foreach (['space_source', 'renew_amount', 'renew_email'] as $csKey) if (array_key_exists($csKey, $details)) $details[$csKey] = mb_substr(trim((string)($_POST['details'][$csKey] ?? '')), 0, 300);
         if (mb_strlen($customer) > 200 || mb_strlen($shop) > 150 || mb_strlen($projectType) > 100) throw new RuntimeException('客户、店铺或业务类型过长');
         $paymentNickname = trim((string)($_POST['payment_nickname'] ?? ''));
         $tradeStatus = trim((string)($_POST['trade_status'] ?? ''));

@@ -179,6 +179,12 @@
                         // “小额”分表没有状态列：返款已完成，按已完成计
                         if ($kindText === '小额返款' && !isset($columnMap['status'])) $record['delivery_status'] = 'finished';
                     }
+                    // 新版网站模板没有“订单类型”列：程序名称里的 博山定制 / AI定制 / 华梦定制 / 纯利润 / 补差价 / 域名注册 / SSL证书 直接决定订单类型
+                    if ($kindText === '' && $selectedBusiness === '网站模板') {
+                        require_once (dirname(__DIR__, 2)) . '/includes/ProjectMiniappTemplate.php';
+                        $programKind = pmt_program_kind($lookup($row, 'program_name'));
+                        if ($programKind !== '' && in_array($programKind, $orderKinds, true)) $kindText = $programKind;
+                    }
                     $record['kind_missing'] = false;
                     // 森动备案：表格没写订单类型时按工作表 / 店铺判断——“二次备案”分表 → 二次备案；淘宝店铺 → 备案-淘宝；其余 → 备案
                     // 森动备案：“业务”列直接写了订单类型（备案 / 二次备案）就以它为准；淘宝店铺的“备案”记为备案-淘宝

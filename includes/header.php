@@ -76,7 +76,7 @@ $is_settle      = ($_rel === 'salaries/settle.php');
 $is_query       = ($_rel === 'salaries/query.php');
 $is_insurance   = (strpos($_rel, 'insurance/') === 0);
 $is_project     = (strpos($_rel, 'project/') === 0);
-$is_project_orders = $is_project && !in_array($_rel, ['project/dashboard.php', 'project/payroll.php', 'project/settings.php', 'project/system.php', 'project/rules.php', 'project/profile.php', 'project/files.php', 'project/refunds.php', 'project/governance.php', 'project/governance_ideas.php', 'project/governance_election.php', 'project/governance_evidence.php', 'project/welfare.php', 'project/contributions.php', 'project/messages.php', 'project/holidays.php', 'project/vault.php', 'project/corrections.php', 'project/dup_feedback.php', 'project/rule_requests.php', 'project/preview_as.php', 'project/order_fixes.php'], true);
+$is_project_orders = $is_project && !in_array($_rel, ['project/dashboard.php', 'project/payroll.php', 'project/settlement_requests.php', 'project/settings.php', 'project/system.php', 'project/rules.php', 'project/profile.php', 'project/files.php', 'project/refunds.php', 'project/governance.php', 'project/governance_ideas.php', 'project/governance_election.php', 'project/governance_evidence.php', 'project/welfare.php', 'project/contributions.php', 'project/messages.php', 'project/holidays.php', 'project/vault.php', 'project/corrections.php', 'project/dup_feedback.php', 'project/rule_requests.php', 'project/preview_as.php', 'project/order_fixes.php'], true);
 if (strpos($_rel, 'project/knowledge') === 0) $is_project_orders = false;
 if (in_array($_rel, ['project/renewals.php','project/renewal_sms.php','project/service_performance.php','project/dup_appeals.php','project/batch_review.php'], true)) $is_project_orders = false;
 // 合并栏目：同类页面在侧栏只占一个入口，进入后顶部页签切换。
@@ -105,8 +105,8 @@ $nav = function ($href, $icon, $label, $active) {
     <link href="<?php echo BASE_URL; ?>/assets/css/knowledge.css?v=20261002.3" rel="stylesheet">
     <style>
     .phone-bind-reminder{display:flex;align-items:center;justify-content:space-between;gap:1rem;padding:1rem 1.25rem;margin-bottom:1rem;border:2px solid #e0a330;border-radius:12px;background:#fff6db;color:#6e4600;box-shadow:0 0 0 2px #f7d578;animation:phone-bind-glow 1.8s ease-in-out 4}
-    .phone-bind-reminder a{display:inline-block;white-space:nowrap;padding:.5rem .85rem;border-radius:8px;background:#8d5200;color:#fff;font-weight:700;text-decoration:none}
-    .phone-bind-reminder a:hover,.phone-bind-reminder a:focus{background:#694000;color:#fff}
+    .phone-bind-reminder a{display:inline-block;white-space:nowrap;padding:.5rem .85rem;border-radius:8px;background:#8d5200;color:#fff!important;font-weight:700;text-decoration:none}
+    .phone-bind-reminder a:hover,.phone-bind-reminder a:focus{background:#694000;color:#fff!important}
     @keyframes phone-bind-glow{50%{box-shadow:0 0 0 7px #f3bd55,0 0 22px #e7a62a}}
     @media(max-width:575px){.phone-bind-reminder{align-items:flex-start;flex-direction:column}}
     @media(prefers-reduced-motion:reduce){.phone-bind-reminder{animation:none}}
@@ -116,7 +116,7 @@ $nav = function ($href, $icon, $label, $active) {
     body.is-embedded .main-content { margin-left: 0 !important; padding: 12px 16px 24px !important; max-width: 100% !important; }
     body.is-embedded { background: #f8fafc; }
     </style>
-    <?php if (in_array(($_rel ?? ''), ['project/governance.php','project/governance_ideas.php','project/governance_election.php','project/contributions.php','project/messages.php','project/holidays.php'], true) || (($_rel ?? '') === 'project/rules.php' && ($_GET['domain'] ?? $_POST['domain'] ?? '') === 'governance')): ?><link href="<?php echo BASE_URL; ?>/assets/css/governance.css" rel="stylesheet"><?php endif; ?>
+    <?php if (in_array(($_rel ?? ''), ['project/governance.php','project/governance_ideas.php','project/governance_election.php','project/contributions.php','project/messages.php','project/holidays.php'], true) || (($_rel ?? '') === 'project/rules.php' && ($_GET['domain'] ?? $_POST['domain'] ?? '') === 'governance')): ?><link href="<?php echo BASE_URL; ?>/assets/css/governance.css?v=<?php echo filemtime(__DIR__ . '/../assets/css/governance.css'); ?>" rel="stylesheet"><?php endif; ?>
     <?php if (($_rel ?? '') === 'project/dashboard.php'): ?><link href="<?php echo BASE_URL; ?>/assets/css/partner-dashboard.css" rel="stylesheet"><?php endif; ?>
     <?php if (($_rel ?? '') === 'project/dashboard.php'): ?><link href="<?php echo BASE_URL; ?>/assets/css/partner-dashboard-future.css" rel="stylesheet"><?php endif; ?>
     <?php if (($_rel ?? '') === 'project/welfare.php' || (($_rel ?? '') === 'project/rules.php' && ($_GET['domain'] ?? '') === 'welfare')): ?><link href="<?php echo BASE_URL; ?>/assets/css/welfare.css" rel="stylesheet"><?php endif; ?>
@@ -141,12 +141,14 @@ $nav = function ($href, $icon, $label, $active) {
     <?php if ($project_staff['role'] === 'vault'): ?>
     <div class="sidebar-project-label">管理</div>
     <?php echo $nav('/index.php', 'fa-home', '工作台首页', $is_home); ?>
+    <?php echo $nav('/project/dashboard.php', 'fa-chart-line', '我的经营看板', $_rel === 'project/dashboard.php'); ?>
     <?php if ($vault_nav): echo $nav('/project/vault.php', 'fa-key', '平台与服务器信息', $_rel === 'project/vault.php'); endif; ?>
     <?php echo $nav('/project/messages.php', 'fa-envelope', '我的站内信' . ($unread_messages ? '（' . $unread_messages . '）' : ''), $_rel === 'project/messages.php'); ?>
     <?php echo $nav('/project/profile.php', 'fa-user-cog', '我的账号', $_rel === 'project/profile.php'); ?>
     <?php elseif ($project_staff['role'] === 'governance'): ?>
     <div class="sidebar-project-label">管理层工作台</div>
     <?php echo $nav('/index.php', 'fa-home', '工作台首页', $is_home); ?>
+    <?php echo $nav('/project/dashboard.php', 'fa-chart-line', '我的经营看板', $_rel === 'project/dashboard.php'); ?>
     <?php if (ps_governance_has_business(['id' => (int)($_SESSION['project_user_id'] ?? 0)])) echo $nav('/project/index.php', 'fa-file-circle-plus', '提交订单 / 我的订单', $_rel === 'project/index.php' || $_rel === 'project/order.php'); ?>
     <?php echo $nav('/project/governance_ideas.php', 'fa-lightbulb', '三天脑洞', $_rel === 'project/governance_ideas.php'); ?>
     <?php echo $nav('/project/messages.php', 'fa-envelope', '我的站内信' . ($unread_messages ? '（' . $unread_messages . '）' : ''), $_rel === 'project/messages.php'); ?>
@@ -164,6 +166,7 @@ $nav = function ($href, $icon, $label, $active) {
     <?php echo $nav('/index.php', 'fa-home', '工作台首页', $is_home); ?>
     <?php echo $nav('/project/dashboard.php', 'fa-chart-line', '我的经营看板', $_rel === 'project/dashboard.php'); ?>
     <?php echo $nav('/project/index.php', 'fa-folder-open', '我的项目订单', $is_project_orders); ?>
+    <?php try { $stActor = ps_actor() ?: []; if (function_exists('ps_software_tester_can_join') && !empty($stActor['employee_id']) && ps_software_tester_can_join((int)$stActor['employee_id'])) echo $nav('/project/testing.php', 'fa-vial', '我的软件测试提成', $_rel === 'project/testing.php'); } catch (Throwable $e) {} ?>
     <?php try { if (function_exists('ptd_can_review') && ptd_can_review(ps_actor() ?: [])) { $tmN = ptd_count(); echo $nav('/project/trademark_costs.php', 'fa-copy', '商标成本核对' . ($tmN ? '（' . $tmN . '）' : ''), $_rel === 'project/trademark_costs.php'); } } catch (Throwable $e) { } ?>
     <?php if ($department_upload_nav): echo $nav('/project/import.php?scope=department&business=' . rawurlencode($department_upload_business), 'fa-users', '部门订单上传', $_rel === 'project/import.php' && ($_GET['scope'] ?? $_POST['scope'] ?? '') === 'department'); endif; ?>
     <?php echo $nav('/project/payroll.php', 'fa-wallet', '我的项目报酬', $_rel === 'project/payroll.php'); ?>
@@ -181,9 +184,11 @@ $nav = function ($href, $icon, $label, $active) {
     <div class="sidebar-project-label">日常办公</div>
     <?php echo $nav('/project/dashboard.php', 'fa-chart-line', '合作方经营看板', $_rel === 'project/dashboard.php'); ?>
     <?php echo $nav('/project/index.php', 'fa-folder-open', '项目订单', $is_project_orders); ?>
+    <?php echo $nav('/project/testing.php', 'fa-vial', '软件测试订单', $_rel === 'project/testing.php'); ?>
     <?php echo $nav('/project/completion_sync.php', 'fa-check-double', '网站订单完成同步', $_rel === 'project/completion_sync.php'); ?>
     <?php echo $nav('/project/import.php?scope=department&business=网站续费', 'fa-users', '网站售后部门订单', $_rel === 'project/import.php' && ($_GET['scope'] ?? $_POST['scope'] ?? '') === 'department'); ?>
     <?php echo $nav('/project/payroll.php', 'fa-wallet', '项目报酬结算', $_rel === 'project/payroll.php'); ?>
+    <?php try { $srN = (int)db()->query("SELECT COUNT(*) FROM project_settlement_requests WHERE status='pending'")->fetchColumn(); } catch (Throwable $e) { $srN = 0; } echo $nav('/project/settlement_requests.php', 'fa-hand-holding-usd', '结算申请' . ($srN ? '（' . $srN . '）' : ''), $_rel === 'project/settlement_requests.php'); ?>
     <?php echo $nav('/project/welfare.php', 'fa-heart', '全员福利池', $_rel === 'project/welfare.php'); ?>
     <?php echo $nav('/project/contributions.php', 'fa-bug', '建议 / Bug 奖励', $_rel === 'project/contributions.php'); ?>
     <?php echo $nav('/project/holidays.php', 'fa-calendar-day', '法定节假日', $_rel === 'project/holidays.php'); ?>
@@ -198,6 +203,11 @@ $nav = function ($href, $icon, $label, $active) {
     <?php echo $nav('/salaries/settle.php', 'fa-calculator', '原系统结算', $group_active === 'legacy'); ?>
     <?php echo $nav('/project/system.php', 'fa-sliders-h', '系统设置', $_rel === 'project/system.php'); ?>
     <?php if ($vault_nav): echo $nav('/project/vault.php', 'fa-key', '平台与服务器信息', $_rel === 'project/vault.php'); endif; ?>
+    <?php endif; ?>
+    <?php if ($current_admin || (($project_staff['role'] ?? '') === 'finance' && !$governance_nav)): ?>
+    <div class="sidebar-project-label">管理层记录</div>
+    <?php echo $nav('/project/governance_ideas.php', 'fa-lightbulb', '三天脑洞', $_rel === 'project/governance_ideas.php'); ?>
+    <?php echo $nav('/project/governance.php', 'fa-clipboard-check', '事项与评审', $_rel === 'project/governance.php'); ?>
     <?php endif; ?>
     <?php if ($project_staff): require_once __DIR__ . '/ProjectCompletionSync.php'; if (pcs_can_access(ps_actor() ?: [])) echo $nav('/project/completion_sync.php', 'fa-check-double', '网站订单完成同步', $_rel === 'project/completion_sync.php'); endif; ?>
     <?php include __DIR__ . '/renewal_nav.php'; ?>
@@ -232,6 +242,15 @@ if ($current_admin && ($_rel ?? '') !== 'project/system.php') {
     if ($pwdCheck->fetchColumn() === md5((string)$current_admin['username'])) echo '<div class="alert alert-warning">你的财务账号还在使用默认密码（登录名），它能看到所有人的订单与报酬，请<a href="' . BASE_URL . '/project/system.php#my-password">现在修改</a>。</div>';
 }
 ?>
+<?php if (!empty($_SESSION['remember_default_pw_notice'])): ?>
+<div class="alert alert-warning alert-dismissible fade show mb-3" role="alert">
+    <i class="fas fa-exclamation-triangle mr-1"></i> <?php echo e($_SESSION['remember_default_pw_notice']); ?>
+    <a href="<?php echo BASE_URL . ($current_admin ? '/project/system.php#my-password' : '/project/profile.php?password=1'); ?>" class="alert-link font-weight-bold ml-1">立即修改密码 →</a>
+    <button type="button" class="close" data-dismiss="alert" aria-label="Close"><span aria-hidden="true">&times;</span></button>
+</div>
+<?php unset($_SESSION['remember_default_pw_notice']); ?>
+<?php endif; ?>
+<?php if (!empty($_SESSION['weak_password']) && !$current_admin && ($_rel ?? '') !== 'project/profile.php'): ?><div class="alert alert-danger"><i class="fas fa-key mr-1"></i> 你的密码和登录名相同，很不安全。<a href="<?php echo BASE_URL; ?>/project/profile.php?password=1&amp;weak=1" class="alert-link">现在修改密码 →</a></div><?php endif; ?>
 <?php include __DIR__ . '/spot_check_banner.php'; ?>
 <?php if (!$project_staff && $group_active): ?><nav class="app-tabs mb-3" aria-label="同类页面"><?php foreach ($nav_groups[$group_active] as $item): ?><a href="<?php echo BASE_URL . $item[0]; ?>" class="<?php echo $item[3] ? 'active' : ''; ?>"<?php echo $item[3] ? ' aria-current="page"' : ''; ?>><i class="fas <?php echo $item[1]; ?>"></i> <?php echo $item[2]; ?></a><?php endforeach; ?></nav><?php endif; ?>
 <script>

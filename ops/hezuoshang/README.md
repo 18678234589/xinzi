@@ -9,7 +9,7 @@
 ## 运行服务
 
 - `hezuoshang-nginx`：只绑定 `10.99.0.4:80`，应用文件只读；配置、私有上传、工具和隐藏文件拒绝公网读取。
-- `hezuoshang-php`：PHP 7.4，连接 `1panel-network`；导入和图片所需扩展已安装。
+- `hezuoshang-php`：PHP 8.5（2026-10-23 由 7.4 升级；回滚把 compose 的镜像改回 `hezuoshang-php:7.4` 再 `docker compose up -d php` 并重载 Nginx，`Dockerfile.74` 保留），连接 `1panel-network`；导入和图片所需扩展已安装。
 - `hezuoshang-php:8.3`：独立 CLI 镜像供订单同步及自动审核任务使用。
 - `laibangwo-workbench.service`：保留 `/studio/` 工作台，站外 SSO 配置和密钥在 `/etc/laibangwo-workbench`，队列和用户数据在 `/var/lib/laibangwo-workbench`。
 - `hezuoshang-etmll-bridge.service`：上游 `jujian` 仍在旧机更新，使用专用受限 SSH 密钥读取，目标 `172.17.0.1:13307`。项目主库使用新机 `xinzi`。新机同时保留 `jujian` 快照；上游确认迁移后再修改此连接并停用隧道。
@@ -38,6 +38,6 @@ python tools/deploy_hezuoshang.py smoke
 python tools/deploy_hezuoshang.py rollback <发布备份名称>
 ```
 
-部署会校验主机、完整基线哈希、PHP 7.4 语法、上传哈希，以及相对 `__DIR__` 的静态 `require` / `require_once` 依赖，再备份并替换；缺失依赖或并行修改会中止。依赖文件必须已经在线上存在，或与引用它的文件一起发布。原 `tools/deploy_live.sh` 转调新工具，`push` 必须显式传入拉取清单。工具仅接受应用 PHP/JS/CSS，不接受配置、数据库、私有上传或测试目录。
+部署会校验主机、完整基线哈希、容器内 PHP 语法（当前 8.5）、上传哈希，以及相对 `__DIR__` 的静态 `require` / `require_once` 依赖，再备份并替换；缺失依赖或并行修改会中止。依赖文件必须已经在线上存在，或与引用它的文件一起发布。原 `tools/deploy_live.sh` 转调新工具，`push` 必须显式传入拉取清单。工具仅接受应用 PHP/JS/CSS，不接受配置、数据库、私有上传或测试目录。
 
 仅检查登录页 200 或业务页匿名访问 302，无法发现登录后页头加载失败。修改公共页头及其依赖后，还必须验证已登录的首页和受影响业务页；权限变更要同时验证允许账号与被拒账号。临时诊断会话只在私有测试进程内使用，完成后立即销毁，不输出会话凭据，不修改合作人员密码或账号资料。

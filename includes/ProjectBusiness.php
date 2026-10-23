@@ -10,8 +10,8 @@ function ps_business_catalog()
 {
     return [
         'AI网站定制' => ['departments' => ['定制前端','定制后端','网站定制','定制售后'], 'resources' => true, 'requires_technical' => true, 'service_fee_rate' => 0, 'order_kinds' => ['博山定制', 'AI定制', '华梦定制'], 'fields' => ['space_source' => '空间来源']],
-        '网站模板' => ['departments' => ['网站模板','模板技术','网站技术','网站资料员'], 'resources' => true, 'requires_technical' => true, 'program' => true, 'service_fee_rate' => 0.03, 'order_kinds' => ['新订单','续费','加购/纯利润'], 'fields' => ['website_url' => '网站地址', 'template_name' => '模板名称 / 版本', 'deployment_note' => '部署与交付说明', 'space_source' => '空间来源']],
-        '环境配置' => ['departments' => ['环境配置','服务器配置'], 'resources' => false, 'requires_technical' => true, 'service_fee_rate' => 0.03, 'order_kinds' => [], 'fields' => ['service_item' => '服务内容', 'server_info' => '服务器 / 环境说明']],
+        '网站模板' => ['departments' => ['网站模板','模板技术','网站技术','网站资料员'], 'resources' => true, 'requires_technical' => true, 'program' => true, 'service_fee_rate' => 0.03, 'order_kinds' => ['新订单','续费','加购/纯利润'], 'fields' => ['website_url' => '网站地址', 'template_name' => '模板名称 / 版本', 'deployment_note' => '部署与交付说明', 'space_source' => '空间来源', 'renew_amount' => '续费金额', 'renew_email' => '续费联系方式邮箱']],
+        '环境配置' => ['departments' => ['环境配置','服务器配置'], 'resources' => false, 'requires_technical' => true, 'service_fee_rate' => 0.03, 'order_kinds' => [], 'import_cost' => true, 'cost_label' => '成本', 'fields' => ['service_item' => '服务内容', 'server_info' => '服务器 / 环境说明']],
         // 旧分类只用于展示历史订单；新订单按产品类型建单，客服作为参与人加入同一订单号。
         '网站客服' => ['departments' => ['网站客服'], 'resources' => false, 'fields' => ['website_url' => '网站地址', 'service_item' => '服务事项'], 'legacy' => true],
         '小程序开发' => ['departments' => ['小程序技术','小程序','标书小程序'], 'resources' => false, 'requires_technical' => true, 'service_fee_rate' => 0.03, 'order_kinds' => ['新订单','开发定制','定制','续费','技术服务'], 'kind_required' => true, 'fields' => ['miniapp_name' => '小程序名称', 'make_requirement' => '制作要求', 'customer_wechat' => '客户微信', 'service_term' => '业务种类']],
@@ -219,6 +219,7 @@ function ps_business_import_columns($business)
         $columns['unit_marker'] = ['提成'];
         $columns['pay_mode'] = ['模式'];
     }
+    if ($business === '环境配置') $columns['direct_cost'] = ['成本', '实际成本', '直接成本', '服务器成本'];
     if (in_array($business, ['微信代写', '软文代写'], true)) {
         $columns['writing_source'] = ['接单方式', '订单来源', '参与方式'];
         $columns['writing_channel'] = ['收款方式', '付款方式'];
@@ -323,7 +324,7 @@ function ps_business_import_columns($business)
 /** 按岗位给网站类模板追加的列：客服 / 售后补“客户手机号”，技术补“客户域名”（便于到期提醒和续费联系）。 */
 function ps_import_role_extras($business, $actor, array $headers = [])
 {
-    foreach ($headers as $h) if (trim((string)$h) === '续费联系方式') return []; // 新版 xlsx 模板已自带联系方式 / 域名 / 到期日期列
+    foreach ($headers as $h) if (preg_match('/^续费联系方式/u', trim((string)$h))) return []; // 新版 xlsx 模板已自带联系方式 / 域名 / 到期日期列（含拆成电话 / 邮箱 / 微信的网站模板）
     if ($actor && $business === '小程序开发' && ($actor['role'] ?? '') !== 'finance') {
         foreach ($headers as $h) if (preg_match('/服务器.*(到期|有效期)|(到期|有效期).*服务器|^到期日期$/u', (string)$h)) return [];
         return ['服务器到期日']; // 小程序订单需提供服务器到期日，用于续费提醒和续费分成
@@ -368,7 +369,8 @@ function ps_business_import_headers_base($business)
     $columns = ps_business_import_columns($business);
     $order = ['order_date','shop','business','payment_nickname','order_no','contract_amount','status','contact_note','customer_service','frontend','domain_used','ssl_used','backend','resource_note','order_kind','program_name'];
     if (in_array($business, ['网站模板', 'AI网站定制'], true)) $order[] = 'site_project_key';
-    if ($business !== 'AI网站定制') $order[] = 'payment_reference'; // 原 AI 定制 14 列模板不变，额外列仍可识别。
+    if ($business === '环境配置') array_splice($order, array_search('contract_amount', $order, true) + 1, 0, ['direct_cost']); // 成本紧跟售价
+    if ($business !== 'AI网站定制' && $business !== '环境配置') $order[] = 'payment_reference'; // 原 AI 定制 14 列模板不变，额外列仍可识别；环境配置：微信 / 对公写在“店铺”，编码写在“订单编号”，不单设流水号列（老表里有这列仍识别）
     // 精简模板：订单类型会自动识别；协作技术仅定制前后端需要；名称 / 制作要求 / 客户微信等由“业务”“备注”“付款昵称”自动补全。
     // 这些列写了仍会识别，只是不再放进下载模板，避免重复填写。
     $optional = ['order_kind', 'detail:miniapp_name', 'detail:make_requirement', 'detail:customer_wechat', 'detail:service_item', 'detail:design_item', 'detail:renew_item'];
@@ -376,6 +378,7 @@ function ps_business_import_headers_base($business)
     $headers = [];
     foreach ($order as $key) if (isset($columns[$key]) && !in_array($key, $optional, true)) $headers[] = $columns[$key][0];
     foreach ($columns as $key => $aliases) if (strpos($key, 'detail:') === 0 && !in_array($key, $optional, true)) $headers[] = $aliases[0];
+    if ($business === '环境配置') { $headers = array_values(array_diff($headers, [$columns['contact_note'][0]])); $headers[] = $columns['contact_note'][0]; } // 备注放在最后一列
     // 小程序技术表：新订单有每单 ¥20 补助、其他订单没有——模板带上“订单类型”列（新订单 / 其他订单 / 定制 / 续费），避免靠系统猜
     if ($business === '小程序开发' && isset($columns['order_kind'])) {
         $at = array_search($columns['business'][0], $headers, true);
@@ -419,7 +422,7 @@ function ps_import_delivery_status($text, $business = '')
 {
     $text = trim((string)$text);
     if ($text === '') return 'unfinished';
-    if (ps_is_website_order($business) && (in_array($text, ['已发货', '发货'], true) || preg_match('/^(发货|已发货)\d*(?:\.\d+)?$/u', $text))) {
+    if (ps_is_website_order($business) && (in_array($text, ['已发货', '发货'], true) || preg_match('/^(?:\d+\s*天)?(发货|已发货)\d*(?:\.\d+)?$/u', $text))) { // 含“3天发货”这类平台履约写法
         return 'unfinished';
     }
     if (in_array($text, ['已完成','完成','已发货','已交','到账','已到账','交易成功','售后返','发货'], true)) return 'finished';

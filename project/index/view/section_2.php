@@ -49,10 +49,23 @@
       <div class="form-group col-md-3" data-for="web"><label for="intakeWechat">海外客户微信号（与手机号二选一）</label><input class="form-control" id="intakeWechat" name="customer_wechat" maxlength="60" value="<?php echo e($_POST['customer_wechat'] ?? ''); ?>" placeholder="填写实际微信号，不是昵称"><small class="text-muted">两者至少填写一项；微信号不发送短信</small></div>
       <div class="form-group col-md-3" data-for="web"><label for="intakeDomain">域名 <span class="text-danger info-star" data-role="technical" hidden>*</span></label><input class="form-control" id="intakeDomain" name="customer_domain" maxlength="120" value="<?php
     echo e($_POST['customer_domain'] ?? ''); ?>" placeholder="如 example.com"></div>
+      <div class="form-group col-md-3" data-for="tpl"><label for="intakeRenewAmount">续费金额（选填）</label><div class="input-group"><div class="input-group-prepend"><span class="input-group-text">¥</span></div><input class="form-control" id="intakeRenewAmount" name="details[renew_amount]" type="number" step="0.01" min="0" value="<?php
+    echo e($_POST['details']['renew_amount'] ?? ''); ?>" placeholder="到期续费金额"></div></div>
+      <div class="form-group col-md-3" data-for="tpl"><label for="intakeRenewEmail">续费联系方式邮箱（选填）</label><input class="form-control" id="intakeRenewEmail" name="details[renew_email]" type="email" maxlength="120" value="<?php
+    echo e($_POST['details']['renew_email'] ?? ''); ?>" placeholder="仅记录，不发短信"></div>
       <div class="form-group col-md-3" data-for="mini"><label for="intakeServerExpiry">服务器到期日 <span class="text-danger info-star" data-role="*" hidden>*</span></label><input class="form-control" id="intakeServerExpiry" type="date" name="server_expiry" value="<?php
     echo e($_POST['server_expiry'] ?? ''); ?>"></div>
       <div class="form-group col-md-6 d-flex align-items-end"><label class="mb-2 small text-muted" id="intakeInfoLaterWrap"><input type="checkbox" name="info_later" value="1" <?php
     echo !empty($_POST['info_later']) ? 'checked' : ''; ?>> 暂时拿不到，稍后补充（<strong class="text-danger">未补充将不会获得本订单的续费分成</strong>）</label></div>
+    </div>
+    <?php require_once (dirname((dirname(__DIR__, 1)), 1)) . '/../includes/ProjectMiniappTemplate.php'; $tplSpaceNow = (string)($_POST['details']['space_source'] ?? ''); ?>
+    <div class="form-row" id="intakeTplRow" hidden>
+      <div class="form-group col-md-3"><label for="tplNumKind">编号类型</label><select class="form-control" id="tplNumKind"><option value="">请选择</option><?php foreach (['美呀美旗舰店', '清风易软件专营店', '微信交易流水号', '对公转账编号', '美丽街旗舰店', '美啊美设计旗舰店'] as $numKind): ?><option><?php echo e($numKind); ?></option><?php endforeach; ?></select><small class="text-muted">选后自动对应下面的订单号 / 流水号栏</small></div>
+      <div class="form-group col-md-3" data-tpl-tech><label for="tplProgram">程序名称</label><select class="form-control" id="tplProgram"><option value="">请选择</option><?php foreach (pmt_program_choices() as $programChoice): ?><option><?php echo e($programChoice); ?></option><?php endforeach; ?></select></div>
+      <div class="form-group col-md-2" data-tpl-tech><label for="tplYears">年限</label><select class="form-control" id="tplYears"><option value="">按 1 年</option><?php foreach (range(1, 10) as $yearChoice): ?><option><?php echo $yearChoice; ?>年</option><?php endforeach; ?></select></div>
+      <div class="form-group col-md-2" data-tpl-tech><label for="tplDomainSource">域名来源</label><select class="form-control" id="tplDomainSource"><option value="">请选择</option><option>客户提供</option><option>我们注册</option></select></div>
+      <div class="form-group col-md-2"><label for="tplSpaceSource">空间来源</label><select class="form-control" id="tplSpaceSource" name="details[space_source]"><option value="">不填（按我们的空间）</option><?php foreach (['我们的空间', '客户自有空间'] as $spaceChoice): ?><option value="<?php echo e($spaceChoice); ?>" <?php echo $tplSpaceNow === $spaceChoice ? 'selected' : ''; ?>><?php echo e($spaceChoice); ?></option><?php endforeach; ?></select></div>
+      <div class="col-12"><small class="text-muted" id="tplHint">下拉与网站模板 Excel 模板一致：选了程序名称 + 年限，会自动选好下面的“程序套餐”；域名来源选“客户提供”＝不计域名成本。</small></div>
     </div>
     <script><?php /* split: project/index/view/js_1.php */ include (dirname((dirname(__DIR__, 1)), 1)) . '/index/view/js_1.php'; ?></script>
     <div id="intakeLookup" class="project-lookup" hidden aria-live="polite"></div>
@@ -105,7 +118,7 @@
     ); ?>" data-price="<?php echo e($t['price']); ?>" <?php echo (int)($_POST['outsource_template_id'] ?? 0) === (int)$t['id'] ? 'selected' : ''; ?>><?php echo e($t['name'] . ' · '
     . ($t['price_mode'] === 'percent' ? '成本 = 售价 × ' . rtrim(rtrim($t['price'], '0'), '.') . '%' : '成本 ¥' . money($t['price']))); ?></option><?php endforeach; ?></select><small class="text-muted">如华梦定制：成本按售价的比例自动计入，客服无需指定本公司技术，客服分成照常计算。</small></div></div><?php
     endif; ?>
-    <?php foreach ($allowedBusinesses as $businessName): $specificFields = $businessCatalog[$businessName]['fields']; if (!$specificFields || ($actor['role'] === 'customer_service'
+    <?php foreach ($allowedBusinesses as $businessName): $specificFields = $businessCatalog[$businessName]['fields']; if ($businessName === '网站模板') unset($specificFields['space_source'], $specificFields['renew_amount'], $specificFields['renew_email']); if (!$specificFields || ($actor['role'] === 'customer_service'
     && $businessName === '网站模板')) continue; ?>
     <div class="project-business-fields" data-business="<?php echo e($businessName); ?>"><div class="project-divider"></div><div class="project-mini-title"><?php echo e($businessName
     ); ?>专属信息</div><div class="form-row"><?php foreach ($specificFields as $fieldKey => $fieldLabel): ?><div class="form-group col-md-4"><label><?php echo e($fieldLabel); ?></label><?php if ($fieldKey === 'space_source'): $spaceNow = (string)($_POST['details']['space_source'] ?? ''); ?><select class="form-control" name="details[space_source]"><option value="">不填（按我们的空间）</option><?php foreach (['我们的空间', '客户自有空间'] as $spaceOpt): ?><option value="<?php echo e($spaceOpt); ?>" <?php echo $spaceNow === $spaceOpt ? 'selected' : ''; ?>><?php echo e($spaceOpt); ?></option><?php endforeach; ?></select><?php else: ?><input class="form-control" name="details[<?php

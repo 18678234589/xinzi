@@ -23,6 +23,7 @@ $departments = array_values(array_unique(array_filter(array_column($staff,'depar
 sort($departments);
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     ps_check_csrf();
+    $stored = [];
     try {
         $action = (string)($_POST['action'] ?? '');
         if ($action === 'contribute') {
@@ -43,10 +44,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $q = db()->prepare("SELECT 1 FROM project_welfare_contributions WHERE employee_id=? AND kind=? AND title=? AND occurred_on=? AND status<>'rejected' LIMIT 1");
             $q->execute([$owner,$kind,$title,$occurred]);
             if ($q->fetchColumn()) throw new RuntimeException('相同人员、日期、标题的记录已存在，请勿重复登记');
+            db()->beginTransaction();
             db()->prepare('INSERT INTO project_welfare_contributions (employee_id,created_by_employee_id,created_by_admin_id,department,kind,title,description,evidence_text,occurred_on) VALUES (?,?,?,?,?,?,?,?,?)')
                 ->execute([$owner,$finance?null:$me,$finance?(int)$actor['id']:null,$byId[$owner]['department'],$kind,$title,$description,$evidence ?: null,$occurred]);
-            ps_audit('welfare_contribution',(int)db()->lastInsertId(),'create',$actor,['employee_id'=>$owner,'kind'=>$kind,'title'=>$title]);
-            $success = '已提交，等待财务核验；审核通过后才计入季度奖励。';
+            $id = (int)db()->lastInsertId();
+            $recordId = pw_sync_contribution($id,$actor);
+            pg_store_evidence_many($recordId,$actor,$stored);
+            ps_audit('welfare_contribution',$id,'create',$actor,['employee_id'=>$owner,'kind'=>$kind,'title'=>$title,'record_id'=>$recordId,'files'=>count($stored)]);
+            db()->commit();
+            $success = '已提交并同步到贡献台账，等待财务核验；每个核验点奖励 50 元。';
         } elseif ($action === 'review') {
             if (!$finance) throw new RuntimeException('仅财务可审核');
             $id = (int)($_POST['id'] ?? 0);
@@ -55,17 +61,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $note = trim((string)($_POST['review_note'] ?? ''));
             if (!in_array($status,['approved','rejected'],true) || !in_array($tier,['normal','implemented','major'],true) || mb_strlen($note)<4 || mb_strlen($note)>500) throw new RuntimeException('请选择结论、等级并写明至少 4 字核验依据');
             db()->beginTransaction();
-            $q = db()->prepare('SELECT status,occurred_on,employee_id,evidence_text FROM project_welfare_contributions WHERE id=? FOR UPDATE');
+            db()->query('SELECT id FROM project_welfare_policy WHERE id=1 FOR UPDATE')->fetch();
+            $q = db()->prepare('SELECT status,occurred_on,employee_id,evidence_text,governance_record_id FROM project_welfare_contributions WHERE id=? FOR UPDATE');
             $q->execute([$id]);
             $row = $q->fetch();
             if (!$row || $row['status'] !== 'pending') throw new RuntimeException('这条记录已处理，请刷新');
-            if ($status==='approved' && $tier==='major' && trim((string)$row['evidence_text'])==='') throw new RuntimeException('重大贡献需先补充可核对的结果证据');
+            if ($status==='approved' && $tier==='major' && trim((string)$row['evidence_text'])==='') {
+                $proof = db()->prepare('SELECT 1 FROM project_governance_evidence WHERE record_id=? LIMIT 1');
+                $proof->execute([(int)$row['governance_record_id']]);
+                if (!$proof->fetchColumn()) throw new RuntimeException('重大贡献需先补充可核对的结果证据');
+            }
             $points = $status === 'approved' ? ['normal'=>1,'implemented'=>3,'major'=>5][$tier] : 0;
             db()->prepare('UPDATE project_welfare_contributions SET status=?,impact_tier=?,points=?,review_note=?,reviewed_by_admin_id=?,reviewed_at=NOW() WHERE id=?')
                 ->execute([$status,$tier,$points,$note,(int)$actor['id'],$id]);
             ps_audit('welfare_contribution',$id,'review',$actor,['status'=>$status,'points'=>$points,'note'=>$note]);
+            pw_sync_contribution($id,$actor);
             db()->commit();
-            $success = '审核结果已记录。';
+            $success = $status === 'approved' ? '核验通过，已从福利池预留 ¥' . money($points * 50) . ' 奖励，待财务发放。' : '审核结果已记录。';
         } elseif ($action === 'manager') {
             if (!$finance) throw new RuntimeException('仅财务可设置主管');
             $owner = (int)($_POST['employee_id'] ?? 0);
@@ -140,7 +152,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             ps_audit('welfare_award',$id,'paid',$actor,[]);
             $success = '已标记发放；资金台账不重复扣除。';
         } else throw new RuntimeException('操作无效');
-    } catch (Throwable $e) { if (db()->inTransaction()) db()->rollBack(); $error = $e->getMessage(); }
+    } catch (Throwable $e) { if (db()->inTransaction()) db()->rollBack(); foreach ($stored as $path) @unlink($path); $error = $e->getMessage(); }
 }
 $balance = pw_balance();
 $closures = db()->query('SELECT * FROM project_welfare_closures ORDER BY quarter_key DESC LIMIT 8')->fetchAll();
@@ -148,7 +160,10 @@ $totalIn = (float)db()->query('SELECT COALESCE(SUM(amount),0) FROM project_welfa
 $totalOut = abs((float)db()->query('SELECT COALESCE(SUM(amount),0) FROM project_welfare_ledger WHERE amount<0')->fetchColumn());
 $managers = $finance ? db()->query('SELECT m.*,e.name FROM project_welfare_managers m JOIN employees e ON e.id=m.employee_id ORDER BY m.department,e.name')->fetchAll() : [];
 $where = $finance ? '' : 'WHERE c.employee_id=' . $me . ' OR c.created_by_employee_id=' . $me;
-$contributions = db()->query('SELECT c.*,e.name AS person_name FROM project_welfare_contributions c JOIN employees e ON e.id=c.employee_id ' . $where . ' ORDER BY c.id DESC LIMIT 80')->fetchAll();
+$contributions = db()->query('SELECT c.*,e.name AS person_name,g.bonus_delta,g.reward_status FROM project_welfare_contributions c JOIN employees e ON e.id=c.employee_id LEFT JOIN project_governance_records g ON g.id=c.governance_record_id ' . $where . ' ORDER BY c.id DESC LIMIT 80')->fetchAll();
+$evidenceByContribution = [];
+$recordIds = array_filter(array_map('intval',array_column($contributions,'governance_record_id')));
+if ($recordIds) foreach (db()->query('SELECT id,record_id,original_name FROM project_governance_evidence WHERE record_id IN (' . implode(',',$recordIds) . ') ORDER BY id')->fetchAll() as $proof) $evidenceByContribution[(int)$proof['record_id']][] = $proof;
 $awards = $finance ? db()->query('SELECT a.*,e.name FROM project_welfare_awards a JOIN employees e ON e.id=a.employee_id ORDER BY a.id DESC LIMIT 80')->fetchAll() : [];
 $yearRoster = $finance ? db()->query('SELECT r.year_key,r.employee_id,r.eligible_months,r.confirmed_at,e.name,e.department FROM project_welfare_year_roster r JOIN employees e ON e.id=r.employee_id ORDER BY r.year_key DESC,e.department,e.name LIMIT 250')->fetchAll() : [];
 $myAwards = [];
@@ -169,6 +184,7 @@ for ($y = max(2026, (int)date('Y') - 2); $y <= (int)date('Y') + 1; $y++) {
 $page_title = '全员福利池';
 include __DIR__ . '/../includes/header.php';
 ?>
+<link rel="stylesheet" href="<?php echo BASE_URL; ?>/assets/css/governance.css">
 <div class="welfare-page">
   <section class="welfare-hero"><div><span>CO-CREATION / ALL-TEAM BENEFITS</span><h1>全员福利池</h1><p>把节省下来的额度，变成大家一起成长的支持。每条好建议、每个被找到并修复的问题，都值得认真看见。</p></div><div class="welfare-balance"><small>可分配余额</small><strong>¥<?php echo money($balance); ?></strong><em>季度结转自动入账 · 奖励预留实时扣减</em></div></section>
   <?php if ($error): ?><div class="alert alert-danger"><?php echo e($error); ?></div><?php endif; ?>
@@ -176,13 +192,15 @@ include __DIR__ . '/../includes/header.php';
   <div class="welfare-term-note"><i class="fas fa-calendar-check" aria-hidden="true"></i><span>当前任期 <strong><?php echo e($currentQuarter); ?></strong> · <?php echo e($currentTermBounds[0]); ?>—<?php echo e((new DateTimeImmutable($currentTermBounds[1]))->modify('-1 day')->format('Y-m-d')); ?>。董事长每届 ¥<?php echo money($policy['chair_quarter_target']); ?> 目标额度独立封顶，不跨给下一任；每届未获得的额度核验后转入全员福利池，池余额跨任期累计。</span></div>
   <div class="welfare-kpis"><div><small>累计结转</small><strong>¥<?php echo money($totalIn); ?></strong></div><div><small>已预留奖励</small><strong>¥<?php echo money($totalOut); ?></strong></div><div><small>每届贡献奖励上限</small><strong><?php echo number_format((float)$policy['quarterly_award_rate']*100,0); ?>%</strong></div><div><small>年终余额</small><strong>待名单核准</strong></div></div>
   <div class="welfare-layout"><section class="welfare-card"><h2>＋ 记录建议或 Bug</h2><p>本人随时可以录入；已授权的部门主管也可以替本部门同伴代录。财务核验后才产生奖励点数。</p>
-    <form method="post"><input type="hidden" name="csrf" value="<?php echo e(ps_csrf_token()); ?>"><input type="hidden" name="action" value="contribute">
+    <form method="post" enctype="multipart/form-data"><input type="hidden" name="csrf" value="<?php echo e(ps_csrf_token()); ?>"><input type="hidden" name="action" value="contribute">
       <div class="form-row"><div class="form-group col-md-6"><label>贡献人</label><select class="form-control" name="employee_id" required><?php foreach ($staff as $person): if (!$finance && (int)$person['id'] !== $me && !in_array($person['department'],$managed,true)) continue; ?><option value="<?php echo (int)$person['id']; ?>" <?php echo (int)$person['id']===$me?'selected':''; ?>><?php echo e($person['name'].' · '.$person['department']); ?></option><?php endforeach; ?></select></div><div class="form-group col-md-3"><label>类型</label><select class="form-control" name="kind"><option value="suggestion">改进建议</option><option value="bug">发现 Bug</option></select></div><div class="form-group col-md-3"><label>发现日期</label><input class="form-control" type="date" name="occurred_on" value="<?php echo date('Y-m-d'); ?>" max="<?php echo date('Y-m-d'); ?>" required></div></div>
       <div class="form-group"><label>一句话主题</label><input class="form-control" name="title" minlength="4" maxlength="160" placeholder="例如：订单导入时自动提醒重复流水" required></div>
       <div class="form-group"><label>具体问题与改善办法</label><textarea class="form-control" name="description" minlength="10" maxlength="10000" rows="4" required placeholder="发生了什么？影响了谁？你建议怎么改？"></textarea></div>
-      <div class="form-group"><label>证据 / 链接 / 复现步骤（可选）</label><textarea class="form-control" name="evidence_text" maxlength="4000" rows="2" placeholder="不填客户隐私、密码或支付信息"></textarea></div><button class="btn btn-success" type="submit">提交，等待核验</button>
+      <div class="form-group"><label>证据 / 链接 / 复现步骤（可选）</label><textarea class="form-control" name="evidence_text" maxlength="4000" rows="2" placeholder="不填客户隐私、密码或支付信息"></textarea></div>
+      <?php $dzId = 'welfareEvidence'; include __DIR__ . '/../includes/governance/evidence_dropzone.php'; ?>
+      <button class="btn btn-success mt-3" type="submit">提交，等待核验</button>
     </form></section>
-    <section class="welfare-card"><h2>规则一眼看懂</h2><p>自 <?php echo e($policy['effective_quarter']); ?> 对应任期起，每届董事长目标 ¥<?php echo money($policy['chair_quarter_target']); ?>；监委会每人每届 ¥<?php echo money($policy['committee_person_target']); ?>，三人共 ¥<?php echo money((float)$policy['committee_person_target']*3); ?>。任期目标独立重置；任期结束并核验后，未获得的额度逐届结转，累加到同一个全员福利池。</p><p>经财务核实的建议或 Bug：有效 1 点、落地或修复 3 点、重大贡献 5 点。每届最多使用池余额的 <?php echo number_format((float)$policy['quarterly_award_rate']*100,0); ?>%，每人最多占本次预算的 <?php echo number_format((float)$policy['quarterly_person_cap_rate']*100,0); ?>%。未分配部分留在池内，年终按财务确认的参与月份分配。</p><a href="<?php echo BASE_URL; ?>/project/rules.php?domain=welfare">查看完整福利池规则 →</a></section></div>
+    <section class="welfare-card"><h2>规则一眼看懂</h2><p>自 <?php echo e($policy['effective_quarter']); ?> 对应任期起，每届董事长目标 ¥<?php echo money($policy['chair_quarter_target']); ?>；监委会每人每届 ¥<?php echo money($policy['committee_person_target']); ?>，三人共 ¥<?php echo money((float)$policy['committee_person_target']*3); ?>。任期目标独立重置；任期结束并核验后，未获得的额度逐届结转，累加到同一个全员福利池。</p><p>经财务核实的建议或 Bug：有效 1 点、落地或修复 3 点、重大贡献 5 点。每个核验点奖励 ¥50：1 点 ¥50、3 点 ¥150、5 点 ¥250。核验通过即从福利池预留，登记在贡献台账中，由财务确认发放；季度不重复分配。未分配部分留在池内，年终按财务确认的参与月份分配。</p><a href="<?php echo BASE_URL; ?>/project/rules.php?domain=welfare">查看完整福利池规则 →</a></section></div>
   <section class="welfare-card"><h2>任期结转</h2><?php if (!$closures): ?><p class="text-muted">尚无已结转任期。当前任期于 <?php echo e((new DateTimeImmutable($currentTermBounds[1]))->modify('-1 day')->format('Y-m-d')); ?> 结束，完成核验后才会自动入账。</p><?php else: ?><div class="table-responsive"><table class="table table-sm"><thead><tr><th>任期</th><th>董事长额度</th><th>监委会额度</th><th>已获得</th><th>转入福利池</th><th>完成时间</th></tr></thead><tbody><?php foreach ($closures as $c): [$rowFrom,$rowUntil]=pw_bounds($c['quarter_key']); ?><tr><td><?php echo e($c['quarter_key']); ?><small class="d-block text-muted"><?php echo e($rowFrom); ?>—<?php echo e((new DateTimeImmutable($rowUntil))->modify('-1 day')->format('Y-m-d')); ?></small></td><td>¥<?php echo money($c['chair_funding']); ?></td><td>¥<?php echo money($c['committee_funding']); ?></td><td>¥<?php echo money((float)$c['chair_earned']+(float)$c['committee_earned']); ?></td><td><strong>¥<?php echo money($c['remainder_transfer']); ?></strong></td><td><?php echo e($c['closed_at']); ?></td></tr><?php endforeach; ?></tbody></table></div><?php endif; ?></section>
   <?php if ($finance): ?><section class="welfare-card"><h2>财务核验与结算</h2><p>先核对本届轮值、监委人数与待审事项；完成任期结转后核验建议／Bug，再生成奖励。定时任务会自动尝试，资料不齐时只提示待核对。</p>
     <?php if ($settlementQuarter === $currentQuarter): ?><div class="alert alert-info">第一届任期仍在进行中，结束后才可结转；现在可以先审核建议与 Bug。</div><?php endif; ?>
@@ -199,7 +217,11 @@ include __DIR__ . '/../includes/header.php';
     <form method="post" class="welfare-inline"><input type="hidden" name="csrf" value="<?php echo e(ps_csrf_token()); ?>"><input type="hidden" name="action" value="award_year"><input class="form-control" type="number" name="year" min="2026" max="<?php echo date('Y'); ?>" value="<?php echo date('Y'); ?>" required><button class="btn btn-success" type="submit">生成 / 核对年终福利</button></form>
     <?php if ($awards): ?><h3>奖励发放</h3><div class="table-responsive"><table class="table table-sm"><thead><tr><th>归属</th><th>人员</th><th>金额</th><th>状态</th></tr></thead><tbody><?php foreach ($awards as $a): ?><tr><td><?php echo e($a['period_key'].' · '.($a['award_type']==='annual'?'年终':'季度')); ?></td><td><?php echo e($a['name']); ?></td><td>¥<?php echo money($a['amount']); ?></td><td><?php if ($a['status']==='paid'): ?>已发放<?php else: ?><form method="post"><input type="hidden" name="csrf" value="<?php echo e(ps_csrf_token()); ?>"><input type="hidden" name="action" value="paid"><input type="hidden" name="id" value="<?php echo (int)$a['id']; ?>"><button class="btn btn-sm btn-outline-success" type="submit">确认已发放</button></form><?php endif; ?></td></tr><?php endforeach; ?></tbody></table></div><?php endif; ?>
   </section><?php else: ?><section class="welfare-card"><h2>我的贡献与奖励</h2><?php if (!$myAwards): ?><p class="text-muted">还没有已生成的福利奖励。一起把点子变成改变。</p><?php else: ?><?php foreach ($myAwards as $a): ?><div class="welfare-line"><span><?php echo e($a['period_key'].' · '.($a['award_type']==='annual'?'年终福利':'季度奖励')); ?></span><strong>¥<?php echo money($a['amount']); ?></strong><small><?php echo $a['status']==='paid'?'已发放':'待发放'; ?></small></div><?php endforeach; ?><?php endif; ?></section><?php endif; ?>
-  <section class="welfare-card"><h2><?php echo $finance?'最近贡献记录':'我的提交记录'; ?></h2><?php if (!$contributions): ?><p class="text-muted">还没有记录，期待你的第一个好想法。</p><?php endif; foreach ($contributions as $c): ?><div class="welfare-line"><span><?php echo e($c['person_name'].' · '.$c['title']); ?></span><small><?php echo e($c['occurred_on']); ?> · <?php echo $c['status']==='approved'?'已核验 '.$c['points'].' 点':($c['status']==='rejected'?'已退回':'待核验'); ?></small></div><?php endforeach; ?></section>
+  <section class="welfare-card"><h2><?php echo $finance?'最近贡献记录':'我的提交记录'; ?></h2><?php if (!$contributions): ?><p class="text-muted">还没有记录，期待你的第一个好想法。</p><?php endif; foreach ($contributions as $c): ?><div class="welfare-line"><span><?php echo e($c['person_name'].' · '.$c['title']); ?>
+    <?php if ($c['status'] === 'approved' && $c['bonus_delta'] !== null): ?><small>奖励 ¥<?php echo money($c['bonus_delta']); ?> · <?php echo $c['reward_status'] === 'paid' ? '已发放' : '已预留，待发放'; ?></small><?php endif; ?>
+    <?php foreach ($evidenceByContribution[(int)$c['governance_record_id']] ?? [] as $proof): ?><a class="d-inline-block mr-2" target="_blank" rel="noopener" href="<?php echo BASE_URL; ?>/project/governance_evidence.php?id=<?php echo (int)$proof['id']; ?>"><i class="fas fa-paperclip"></i> <?php echo e($proof['original_name']); ?></a><?php endforeach; ?>
+    <?php if ($finance && $c['governance_record_id']): ?><a class="d-block" href="<?php echo BASE_URL; ?>/project/contributions.php#c-<?php echo (int)$c['governance_record_id']; ?>">查看贡献台账 / 登记发放</a><?php endif; ?>
+    </span><small><?php echo e($c['occurred_on']); ?> · <?php echo $c['status']==='approved'?'已核验 '.$c['points'].' 点':($c['status']==='rejected'?'已退回':'待核验'); ?></small></div><?php endforeach; ?></section>
 </div>
 <script>
 (function () {
