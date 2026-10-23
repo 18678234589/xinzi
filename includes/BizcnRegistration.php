@@ -18,7 +18,7 @@ function br_tld_rules()
 {
     return [
         'com' => ['first_year_cents' => 5800, 'renew_cents' => 8600],
-        'cn'  => ['first_year_cents' => 2900, 'renew_cents' => 3500],
+        'cn'  => ['first_year_cents' => 3500, 'renew_cents' => 3700],
         'net' => ['first_year_cents' => 9300, 'renew_cents' => 9700],
     ];
 }
@@ -55,14 +55,8 @@ function br_price($domain)
         }
         $rule = br_match_tld_rule($domain);
         if ($rule) {
-            $firstYear = $rule['first_year_cents'];
-            if (preg_match('/\.cn$/', $domain)) {
-                if ($apiCents !== 3500 && $apiCents !== 2900) $firstYear = max(100, $rule['first_year_cents'] + ($apiCents - 3500));
-            } else if (preg_match('/\.com$/', $domain)) {
-                if ($apiCents !== 5800) $firstYear = $apiCents;
-            } else if (preg_match('/\.net$/', $domain)) {
-                if ($apiCents !== 9300) $firstYear = $apiCents;
-            }
+            // 提交时把首年价作为 price 传给 addDomainByID，必须不低于商务中国当前的单年价，否则注册会被拒绝：取规则价与接口价较大者。
+            $firstYear = max($rule['first_year_cents'], $apiCents);
             return ['price_cents' => $firstYear, 'renew_price_cents' => $rule['renew_cents'], 'api_price_cents' => $apiCents, 'premium' => false];
         }
         return ['price_cents' => $apiCents, 'renew_price_cents' => $apiCents, 'api_price_cents' => $apiCents, 'premium' => false];

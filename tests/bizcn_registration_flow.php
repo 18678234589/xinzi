@@ -89,10 +89,14 @@ bt($p->query("SELECT source FROM bizcn_order_domains WHERE order_id=1 AND domain
 $mockPrice='58.00';$mockResult=['status'=>'1','orderid'=>'multi-order'];
 $q5=br_dispatch('registration_quote',['domain'=>'fiveyears.example.com','template_id'=>'f2','term'=>'5'],$a);
 bt($q5['quote']['term']===5&&$q5['quote']['unit_price_cents']===5800&&$q5['quote']['renew_price_cents']===8600&&$q5['quote']['price_cents']===40200,'5-year quote total = 58 + 86 * 4 = 402');
-// 测试 cn 域名首年 29，续费 35
+// .cn 域名首年 35，续费 37（接口价 35）；接口价高于规则价时跟随接口价，低于规则价时不低于规则价，保证提交的 price 不低于接口价
 $mockPrice='35.00';
 $qCn=br_dispatch('registration_quote',['domain'=>'mytest.cn','template_id'=>'f2','term'=>'5'],$a);
-bt($qCn['quote']['unit_price_cents']===2900&&$qCn['quote']['renew_price_cents']===3500&&$qCn['quote']['price_cents']===16900,'5-year .cn quote total = 29 + 35 * 4 = 169');
+bt($qCn['quote']['unit_price_cents']===3500&&$qCn['quote']['renew_price_cents']===3700&&$qCn['quote']['price_cents']===18300,'5-year .cn quote total = 35 + 37 * 4 = 183');
+$purchaseBefore=$calls;$mockResult=['status'=>'1','orderid'=>'cn-order'];br_dispatch('registration_submit',['token'=>$qCn['token'],'confirm'=>'mytest.cn','ack'=>'1'],$a);
+bt($calls===$purchaseBefore+1&&$purchaseArgs['price']==='183.00'&&$purchaseArgs['term']===5,'.cn purchase sends the quoted total');
+$mockPrice='29.00';$qCn2=br_dispatch('registration_quote',['domain'=>'lowapi.cn','template_id'=>'f2','term'=>'1'],$a);bt($qCn2['quote']['price_cents']===3500,'.cn first year never below 35 even if provider price is lower');
+$mockPrice='40.00';$qCn3=br_dispatch('registration_quote',['domain'=>'highapi.cn','template_id'=>'f2','term'=>'1'],$a);bt($qCn3['quote']['price_cents']===4000&&$qCn3['quote']['price_cents']>=4000,'.cn first year follows a higher provider price');
 // 测试 net 域名首年 93，续费 97
 $mockPrice='93.00';
 $qNet=br_dispatch('registration_quote',['domain'=>'mytest.net','template_id'=>'f2','term'=>'5'],$a);
