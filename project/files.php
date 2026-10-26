@@ -4,6 +4,7 @@ require_once __DIR__ . '/../includes/ProjectIntake.php';
 require_once __DIR__ . '/../includes/ProjectBusiness.php';
 require_once __DIR__ . '/../includes/ProjectImportResult.php';
 require_once __DIR__ . '/../includes/ProjectSheetEdit.php';
+require_once __DIR__ . '/../includes/ProjectImportUndoRequests.php';
 $actor = ps_require_actor();
 $isFinance = $actor['role'] === 'finance';
 $isManagement = ps_is_management($actor);
@@ -70,6 +71,8 @@ $reportIds = array_map('intval', array_column($files, 'id'));
 if ($reportIds) foreach (db()->query("SELECT entity_id,details_json FROM project_audit_logs WHERE entity_type='import_file' AND action='import_result' AND entity_id IN (" . implode(',', $reportIds) . ') ORDER BY id DESC') as $r) {
     if (!isset($resultReports[(int)$r['entity_id']])) $resultReports[(int)$r['entity_id']] = json_decode($r['details_json'], true) ?: [];
 }
+$undoPending = piu_pending_by_file(array_column($files, 'id')); // 撤销上传：哪些表格有待财务同意的申请
+$undoPendingTotal = $isFinance ? piu_pending_count() : 0;
 $pendingFiles = count(array_filter($files, function ($f) use ($resultReports) { return $f['status'] === 'preview' || (!empty($resultReports[(int)$f['id']]['pending']) || !empty($resultReports[(int)$f['id']]['conflict'])) || (empty($resultReports[(int)$f['id']]) && (int)$f['skipped_count'] > 0); }));
 $uploaders = ($isFinance || $isManagement) ? db()->query('SELECT DISTINCT e.id,e.name,e.department FROM project_import_files f JOIN employees e ON e.id=f.employee_id ORDER BY e.department,e.name')->fetchAll() : [];
 $businesses = array_keys(array_filter(ps_business_catalog(), function ($d) { return empty($d['legacy']); }));
@@ -88,6 +91,7 @@ include __DIR__ . '/../includes/header.php';
 <?php foreach ($tplBusinesses as $tb): ?><a class="list-group-item list-group-item-action" href="<?php echo BASE_URL; ?>/project/import.php?business=<?php echo rawurlencode($tb); ?>&amp;scope=personal&amp;download=1"><?php echo e($tb); ?> 模板</a><?php endforeach; ?></div></div></details><?php endif; ?></div></div>
 <?php if ($error): ?><div class="alert alert-danger"><?php echo e($error); ?></div><?php endif; ?>
 <?php if (!empty($_GET['deleted'])): ?><div class="alert alert-success">原始表格已删除。</div><?php endif; ?>
+<?php if ($undoPendingTotal): ?><div class="alert alert-warning d-flex flex-wrap align-items-center justify-content-between" style="gap:8px"><span><i class="fas fa-rotate-left mr-1"></i>有 <strong><?php echo (int)$undoPendingTotal; ?></strong> 条<strong>撤销上传申请</strong>等你同意（合作人员传错表、订单已被系统自动核对，自己撤不了）。</span><a class="btn btn-sm btn-warning" href="<?php echo BASE_URL; ?>/project/import_undo_requests.php">去同意 / 处理</a></div><?php endif; ?>
 <div class="alert alert-<?php echo $pendingFiles ? 'warning' : 'info'; ?>">上传时间不等于订单日期；上传完成后，请看这里的导入回执。<?php if ($pendingFiles): ?>当前列表有 <strong><?php echo $pendingFiles; ?> 份</strong>表格待导入或补全，点“继续导入”即可读取已保存原件，无需重传。<?php else: ?>已核对表格可点“对应订单”，直接查看本人有权限的订单，不受月份影响。<?php endif; ?></div>
 
 <?php if ($viewFile): $viewReport = ps_import_result_get((int)$viewFile['id']); $sheetNames = array_keys($sheets); $current = (string)($_GET['sheet'] ?? ($sheetNames[0] ?? '')); if (!isset($sheets[$current])) $current = (string)($sheetNames[0] ?? ''); $rowsToShow = $sheets[$current] ?? []; ?>
@@ -177,7 +181,7 @@ include __DIR__ . '/../includes/header.php';
   <td data-label="上传时间" class="text-nowrap"><?php echo e(substr($f['created_at'], 0, 16)); ?></td>
   <td data-label="工作表" class="small"><?php echo e($f['sheets_used'] ?: '—'); ?></td>
   <td data-label="结果"><?php $report = $resultReports[(int)$f['id']] ?? []; if ($report): ?><span class="badge badge-<?php echo ($report['pending'] || !empty($report['conflict'])) ? 'warning' : 'success'; ?>"><?php echo ($report['pending'] || !empty($report['conflict'])) ? trim(($report['pending'] ? '待补全 ' . (int)$report['pending'] . ' 行 ' : '') . (!empty($report['conflict']) ? '与原单不一致，待财务核对 ' . (int)$report['conflict'] . ' 行' : '')) : '核对完成'; ?></span><div class="small text-muted">对应 <?php echo count($report['order_ids']); ?> 单 · 本次写入 <?php echo (int)$report['written']; ?> · 已在库 <?php echo (int)$report['existing']; ?></div><?php else: ?><?php echo $f['status'] === 'imported' ? '<span class="badge badge-success">已导入 ' . (int)$f['imported_count'] . ' 单</span>' . ((int)$f['skipped_count'] ? ' <span class="small text-muted">跳过 ' . (int)$f['skipped_count'] . '</span>' : '') : '<span class="badge badge-warning">待确认导入 · 仅预览</span>'; ?><?php endif; ?></td>
-  <td class="text-nowrap"><div class="mb-2"><?php if ($f['status'] === 'preview' || !empty($report['pending']) || !empty($report['conflict']) || (!$report && (int)$f['skipped_count'] > 0)): ?><a class="btn btn-sm btn-warning" href="<?php echo BASE_URL; ?>/project/import.php?resume_file=<?php echo (int)$f['id']; ?>">继续导入</a><?php endif; ?><?php if (!empty($report['order_ids'])): ?> <a class="btn btn-sm btn-success" href="<?php echo BASE_URL; ?>/project/index.php?import_file=<?php echo (int)$f['id']; ?>">对应订单</a><?php endif; ?></div><a class="btn btn-sm btn-outline-primary" href="<?php echo BASE_URL; ?>/project/files.php?<?php echo e(http_build_query(array_merge($_GET, ['view' => (int)$f['id']]))); ?>">查看</a> <a class="btn btn-sm btn-outline-secondary" href="<?php echo BASE_URL; ?>/project/files.php?download=<?php echo (int)$f['id']; ?>">下载</a> <form method="post" class="d-inline" onsubmit="return confirmFileDelete(this, <?php echo (int)$f['imported_count']; ?>);"><input type="hidden" name="csrf" value="<?php echo e(ps_csrf_token()); ?>"><input type="hidden" name="action" value="delete_file"><input type="hidden" name="file_id" value="<?php echo (int)$f['id']; ?>"><button class="btn btn-sm btn-outline-danger" type="submit" title="只删除原始表格文件，不动已导入的订单">删除原件</button></form><?php if (!empty($report['written_order_ids'])): ?> <button type="button" class="btn btn-sm btn-outline-warning js-undo-upload" data-file="<?php echo (int)$f['id']; ?>" title="撤回这张表格新建的、还没结算的订单">撤销上传</button><?php endif; ?></td>
+  <td class="text-nowrap"><div class="mb-2"><?php if ($f['status'] === 'preview' || !empty($report['pending']) || !empty($report['conflict']) || (!$report && (int)$f['skipped_count'] > 0)): ?><a class="btn btn-sm btn-warning" href="<?php echo BASE_URL; ?>/project/import.php?resume_file=<?php echo (int)$f['id']; ?>">继续导入</a><?php endif; ?><?php if (!empty($report['order_ids'])): ?> <a class="btn btn-sm btn-success" href="<?php echo BASE_URL; ?>/project/index.php?import_file=<?php echo (int)$f['id']; ?>">对应订单</a><?php endif; ?></div><a class="btn btn-sm btn-outline-primary" href="<?php echo BASE_URL; ?>/project/files.php?<?php echo e(http_build_query(array_merge($_GET, ['view' => (int)$f['id']]))); ?>">查看</a> <a class="btn btn-sm btn-outline-secondary" href="<?php echo BASE_URL; ?>/project/files.php?download=<?php echo (int)$f['id']; ?>">下载</a> <form method="post" class="d-inline" onsubmit="return confirmFileDelete(this, <?php echo (int)$f['imported_count']; ?>);"><input type="hidden" name="csrf" value="<?php echo e(ps_csrf_token()); ?>"><input type="hidden" name="action" value="delete_file"><input type="hidden" name="file_id" value="<?php echo (int)$f['id']; ?>"><button class="btn btn-sm btn-outline-danger" type="submit" title="只删除原始表格文件，不动已导入的订单">删除原件</button></form><?php if (!empty($report['written_order_ids'])): ?> <button type="button" class="btn btn-sm btn-outline-warning js-undo-upload" data-file="<?php echo (int)$f['id']; ?>" title="撤回这张表格新建的、还没结算的订单">撤销上传</button><?php if (isset($undoPending[(int)$f['id']])): ?> <span class="badge badge-warning" title="已提交撤销申请，等财务同意">撤销待财务同意</span><?php endif; ?><?php endif; ?></td>
 </tr><?php endforeach; ?>
 <?php if (!$files): ?><tr><td colspan="7" class="text-center text-muted py-4">还没有上传过的表格。合作人员在“拖拽上传 Excel”上传后会自动出现在这里。</td></tr><?php endif; ?>
 </tbody></table></div></div>
@@ -212,21 +216,40 @@ function confirmFileDelete(form, importedCount) {
   var body = document.getElementById('undoBody'), foot = document.getElementById('undoFoot'), go = document.getElementById('undoGo'), fileId = 0, plan = null;
   function esc(t) { return String(t == null ? '' : t).replace(/[&<>"']/g, function (c) { return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
   function call(payload) {
-    payload.csrf = CSRF; payload.file_id = fileId;
+    payload.csrf = CSRF; payload.file_id = payload.file_id || fileId;
     return fetch(API, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload), credentials: 'same-origin' })
       .then(function (r) { return r.json().then(function (d) { if (!r.ok) throw new Error(d.error || '操作失败'); return d; }); });
   }
+  function rowText(o, p) {
+    if (o.removable) return '<span class="text-success">可撤销</span>';
+    if (o.approvable) return p.is_finance ? '<span class="text-success">系统已自动核对，将一并撤销（进回收站，30 天内可还原）</span>' : '<span class="text-warning">系统已自动核对，你自己撤不了：可申请财务同意</span>';
+    return '保留：' + esc((o.hard && o.hard.length ? o.hard : o.reasons).join('、'));
+  }
   function render(p) {
-    plan = p; var rows = '';
+    plan = p; var rows = '', direct = p.removable, appr = p.approvable, hard = p.kept - p.approvable;
     p.orders.forEach(function (o) {
-      rows += '<div class="undo-row ' + (o.removable ? '' : 'keep') + '"><div><b>' + esc(o.order_no) + '</b> <span class="text-muted">' + esc(o.customer_name) + ' · ¥' + o.contract_amount + '</span></div><div class="undo-why">' + (o.removable ? '<span class="text-success">可撤销</span>' : '保留：' + esc(o.reasons.join('、'))) + '</div></div>';
+      rows += '<div class="undo-row ' + ((o.removable || (p.is_finance && o.approvable)) ? '' : 'keep') + '"><div><b>' + esc(o.order_no) + '</b> <span class="text-muted">' + esc(o.customer_name) + ' · ¥' + o.contract_amount + '</span></div><div class="undo-why">' + rowText(o, p) + '</div></div>';
     });
-    var head = '<div class="mb-2"><strong>' + esc(p.file.name) + '</strong> <span class="text-muted small">· ' + esc(p.file.business) + ' · ' + esc(String(p.file.created_at).slice(0, 16)) + ' 上传</span></div>';
-    if (!p.supported || !p.removable) { body.innerHTML = head + '<div class="alert alert-info mb-0">' + esc(p.message || '没有可以撤销的订单：这张表格对应的订单都已有收款、退款或进入了结算，不能直接撤销。需要处理请联系财务。') + '</div>' + (p.orders.length ? '<div class="undo-list mt-3">' + rows + '</div>' : ''); foot.style.display = 'none'; return; }
-    body.innerHTML = head + '<div class="undo-sum"><div class="undo-chip"><b>' + p.removable + ' 单</b>将被撤销</div><div class="undo-chip keep"><b>' + p.kept + ' 单</b>保留不动</div></div><div class="undo-list">' + rows + '</div>'
-      + '<div class="undo-tip">撤销后订单、成本和参与人会一起移除，业务页面不再显示；删除前已完整备份到操作日志。<br>已有收款/退款/结算的订单不会被撤，保持原样。撤销后重新上传正确的表格即可。' + (p.kept ? '<br><strong>有 ' + p.kept + ' 单保留，原始表格也会保留，方便你核对。</strong>' : '') + '</div>';
-    document.getElementById('undoDelWrap').style.display = p.kept ? 'none' : '';
-    go.textContent = '确认撤销 ' + p.removable + ' 单'; go.disabled = false; foot.style.display = '';
+    var head = '<div class="mb-2"><strong>' + esc(p.file.name) + '</strong> <span class="text-muted small">· ' + esc(p.file.business) + ' · ' + esc(String(p.file.created_at).slice(0, 16)) + (p.file.deleted ? ' 删除原件' : ' 上传') + '</span></div>';
+    var willNow = p.is_finance ? direct + appr : direct;      // 当前账号现在就能撤的订单数
+    var reqPanel = '';
+    if (!p.is_finance && appr > 0) {
+      reqPanel = p.pending_request
+        ? '<div class="alert alert-warning mt-3 mb-0"><i class="fas fa-hourglass-half mr-1"></i>已提交撤销申请（' + esc(String(p.pending_request).slice(0, 16)) + '），等财务同意后会自动撤销，并给你发站内信。</div>'
+        : '<div class="undo-req mt-3 p-3" style="background:#fff8e6;border:1px solid #f3dca4;border-radius:12px"><div class="mb-2"><strong>有 ' + appr + ' 单已被系统自动核对 / 自动登记收款，需要财务同意才能撤销。</strong><div class="small text-muted">财务在“分成更正申请 → 撤销上传”里一键同意，同意后系统自动撤销，订单进回收站（30 天内可还原）。</div></div>'
+          + '<textarea id="undoReason" class="form-control mb-2" rows="2" maxlength="500" placeholder="说明一下为什么要撤销（选填），如：传错了表 / 传重了"></textarea><button type="button" class="btn btn-warning" id="undoReq">申请财务同意撤销 ' + appr + ' 单</button> <span class="small text-muted" id="undoReqMsg"></span></div>';
+    }
+    if (!p.supported || (!willNow && !(appr > 0 && !p.is_finance))) {
+      body.innerHTML = head + '<div class="alert alert-info mb-0">' + esc(p.message || (p.is_finance ? '没有可以撤销的订单：这些订单有人工登记的收退款、已申请结算，或所在月份已核算 / 锁定，不能撤销。' : '没有可以撤销的订单：这张表格对应的订单已有人工登记的收退款、已申请结算，或所在月份已核算 / 锁定，不能撤销。需要处理请联系财务。')) + '</div>' + (p.orders.length ? '<div class="undo-list mt-3">' + rows + '</div>' : '');
+      foot.style.display = 'none'; return;
+    }
+    var chips = '<div class="undo-chip"><b>' + willNow + ' 单</b>' + (p.is_finance ? '将被撤销' : '可直接撤销') + '</div>'
+      + (!p.is_finance && appr > 0 ? '<div class="undo-chip keep"><b>' + appr + ' 单</b>需财务同意</div>' : '')
+      + (hard > 0 ? '<div class="undo-chip keep"><b>' + hard + ' 单</b>保留不动</div>' : '');
+    body.innerHTML = head + '<div class="undo-sum">' + chips + '</div><div class="undo-list">' + rows + '</div>'
+      + '<div class="undo-tip">撤销后订单、成本和参与人会一起移除，业务页面不再显示；删除前已完整备份到操作日志。' + (p.is_finance && appr > 0 ? '<br>系统已自动核对的订单会进回收站（30 天内可还原）。' : '') + '<br>有人工登记的收退款、已申请结算、所在月份已核算 / 锁定的订单不会被撤，保持原样。撤销后重新上传正确的表格即可。' + (hard ? '<br><strong>有 ' + hard + ' 单保留，原始表格也会保留，方便你核对。</strong>' : '') + '</div>' + reqPanel;
+    document.getElementById('undoDelWrap').style.display = (hard > 0 || (!p.is_finance && appr > 0) || p.file.deleted) ? 'none' : '';
+    if (willNow > 0) { go.textContent = '确认撤销 ' + willNow + ' 单'; go.disabled = false; foot.style.display = ''; } else { foot.style.display = 'none'; }
   }
   document.querySelectorAll('.js-undo-upload').forEach(function (btn) {
     btn.addEventListener('click', function () {
@@ -235,9 +258,16 @@ function confirmFileDelete(form, importedCount) {
       call({ action: 'plan' }).then(function (d) { render(d.plan); }).catch(function (e) { body.innerHTML = '<div class="alert alert-danger mb-0">' + esc(e.message) + '</div>'; });
     });
   });
+  body.addEventListener('click', function (ev) {
+    if (!ev.target || ev.target.id !== 'undoReq') return;
+    var b = ev.target, msg = document.getElementById('undoReqMsg'); b.disabled = true; msg.textContent = '正在提交…';
+    call({ action: 'request', reason: document.getElementById('undoReason').value, delete_file: true }).then(function () {
+      msg.textContent = ''; b.outerHTML = '<div class="alert alert-success mb-0">已提交，财务同意后会自动撤销并给你发站内信。</div>'; setTimeout(function () { location.reload(); }, 1500);
+    }).catch(function (e) { msg.textContent = e.message; b.disabled = false; });
+  });
   go.addEventListener('click', function () {
     go.disabled = true; go.textContent = '正在撤销…';
-    call({ action: 'run', delete_file: document.getElementById('undoDelFile').checked }).then(function (d) {
+    call({ action: 'run', delete_file: document.getElementById('undoDelFile').checked, with_approved: !!(plan && plan.is_finance) }).then(function (d) {
       var r = d.result; body.innerHTML = '<div class="alert alert-success mb-0">已撤销 ' + r.removed + ' 单' + (r.kept ? '，保留 ' + r.kept + ' 单' : '') + (r.file_deleted ? '，原始表格已删除' : '') + '。</div>'; foot.style.display = 'none';
       setTimeout(function () { location.reload(); }, 1200);
     }).catch(function (e) { body.innerHTML = '<div class="alert alert-danger mb-0">' + esc(e.message) + '</div>'; foot.style.display = 'none'; });

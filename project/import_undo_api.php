@@ -1,6 +1,6 @@
 <?php
-require_once __DIR__ . '/../includes/ProjectImportUndo.php';
-// 撤销上传接口：plan 只预演不改数据；run 才真正撤销（JSON + CSRF）。
+require_once __DIR__ . '/../includes/ProjectImportUndoRequests.php';
+// 撤销上传接口：plan 只预演不改数据；run 才真正撤销（财务可带上“自动核对”的订单）；request 合作人员申请财务同意；handle 财务同意 / 不同意（JSON + CSRF）。
 $actor = ps_require_actor();
 $reply = function ($data, $status = 200) { http_response_code($status); header('Content-Type: application/json; charset=utf-8'); echo json_encode($data, JSON_UNESCAPED_UNICODE); exit; };
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') { http_response_code(405); exit; }
@@ -12,10 +12,14 @@ try {
     $action = (string)($in['action'] ?? '');
     if ($action === 'plan') {
         $plan = pu_plan($fileId, $actor);
-        $plan['file'] = ['id' => (int)$plan['file']['id'], 'name' => $plan['file']['original_name'], 'business' => $plan['file']['business_name'], 'created_at' => $plan['file']['created_at']];
+        $plan['file'] = ['id' => (int)$plan['file']['id'], 'name' => $plan['file']['original_name'], 'business' => $plan['file']['business_name'], 'created_at' => $plan['file']['created_at'], 'deleted' => !empty($plan['file']['deleted'])];
+        $plan['is_finance'] = ($actor['role'] ?? '') === 'finance';
+        $plan['pending_request'] = piu_pending_by_file([$fileId])[$fileId] ?? null;
         $reply(['ok' => true, 'plan' => $plan]);
     }
-    if ($action === 'run') $reply(['ok' => true, 'result' => pu_execute($fileId, $actor, !empty($in['delete_file']))]);
+    if ($action === 'run') $reply(['ok' => true, 'result' => pu_execute($fileId, $actor, !empty($in['delete_file']), !empty($in['with_approved']))]);
+    if ($action === 'request') $reply(['ok' => true, 'request' => piu_submit($fileId, $actor, (string)($in['reason'] ?? ''), !isset($in['delete_file']) || !empty($in['delete_file']))]);
+    if ($action === 'handle') $reply(['ok' => true, 'result' => piu_handle((int)($in['id'] ?? 0), (string)($in['decision'] ?? ''), (string)($in['note'] ?? ''), $actor)]);
     $reply(['error' => '未知操作'], 400);
 } catch (RuntimeException $e) {
     $reply(['error' => $e->getMessage()], 422);
