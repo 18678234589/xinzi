@@ -1,6 +1,8 @@
 <?php
 $order = ps_order($id, $actor);
 require_once __DIR__ . '/../../includes/ProjectBatchReview.php';
+require_once __DIR__ . '/../../includes/ProjectOrderPayments.php';
+pop_ensure(); // 建表是 DDL，须在事务之前
 $error = '';
 $success = '';
 

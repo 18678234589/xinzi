@@ -20,8 +20,10 @@ if ($importFileId > 0) {
 } elseif ($keyword !== '') {
     $credentialHits = pv_search_order_hits($keyword);
     $credentialSql = $credentialHits ? ' OR o.id IN (' . implode(',', array_map('intval', array_keys($credentialHits))) . ')' : '';
-    $where[] = '(o.order_no LIKE ? OR o.customer_name LIKE ? OR s.payment_nickname LIKE ?' . $credentialSql . ')';
-    array_push($params, '%' . $keyword . '%', '%' . $keyword . '%', '%' . $keyword . '%');
+    // 一笔销售拍成多个订单号：搜任一个关联付款订单号也能找到这张订单
+    require_once __DIR__ . '/ProjectOrderPayments.php'; pop_ensure();
+    $where[] = '(o.order_no LIKE ? OR o.customer_name LIKE ? OR s.payment_nickname LIKE ? OR o.id IN (SELECT pp.order_id FROM project_order_payments pp WHERE pp.payment_no LIKE ?)' . $credentialSql . ')';
+    array_push($params, '%' . $keyword . '%', '%' . $keyword . '%', '%' . $keyword . '%', '%' . $keyword . '%');
 } elseif ($filterState === 'missing_price') {
     // 首页“售价待补”：未审核且没有售价来源的订单，不受月份限制（和首页统计口径一致）
     $where[] = "o.settlement_status IN ('draft','review') AND COALESCE(s.price_source,'missing')='missing'";

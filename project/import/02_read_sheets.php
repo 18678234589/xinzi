@@ -145,18 +145,36 @@
                     }, $raw);
                     $entry['raw'] = $raw; $entry['head'] = $head;
                 }
-                // 回购订单（督导）：每行一张回购订单；表尾还有“单量 / 金额 / 提成 / 基本工资 / 全勤奖”汇总行（没有日期），不能当订单，置空忽略。
-                // 订单编号加 HG- 前缀单独建单：这些号多半已作为店铺订单存在，不加前缀会把她挂进别人的订单、改动对方的分成。
+                // 回购订单（督导）：每行一张回购订单，提成每单 30 元。按“序号”识别每一单（同一人、同一月、同一序号 = 同一张回购订单，重传不重复），
+                // 表里的“订单编号”只当备注记录、不参与任何匹配——这些号多半已是网站 / 小程序的店铺订单，按号识别会把她挂进别人的订单、改动对方的分成。
+                // 表尾还有“单量 / 金额 / 提成 / 基本工资 / 全勤奖”汇总行（没有日期），不能当订单，置空忽略。
                 if ($selectedBusiness === '回购订单' && $head && $raw) {
                     $hgDate = array_search('日期', $head, true); $hgNo = array_search('订单编号', $head, true);
-                    if ($hgDate !== false && $hgNo !== false) $entry['raw'] = $raw = array_map(function ($r) use ($hgDate, $hgNo) {
-                        if (!is_array($r)) return $r;
-                        $r = array_values($r);
-                        $no = trim((string)($r[$hgNo] ?? '')); $date = trim((string)($r[$hgDate] ?? ''));
-                        if ($no === '' || $date === '') return array_fill(0, count($r), '');
-                        $r[$hgNo] = 'HG-' . ltrim($no, "'");
-                        return $r;
-                    }, $raw);
+                    $hgSeq = false; foreach (['序号', '序列号', '编号', '序列'] as $hgAlias) { $hgSeq = array_search($hgAlias, $head, true); if ($hgSeq !== false) break; }
+                    $hgNote = array_search('备注', $head, true);
+                    if ($hgDate !== false && $hgNo !== false) {
+                        if ($hgNote === false) { $head[] = '备注'; $hgNote = count($head) - 1; }
+                        $hgOwner = (int)($actor['employee_id'] ?? 0) ?: 'F';
+                        $hgUsed = [];
+                        $entry['raw'] = $raw = array_map(function ($r) use ($hgDate, $hgNo, $hgSeq, $hgNote, $hgOwner, &$hgUsed, $head) {
+                            if (!is_array($r)) return $r;
+                            $r = array_pad(array_values($r), count($head), '');
+                            $no = trim((string)($r[$hgNo] ?? '')); $date = trim((string)($r[$hgDate] ?? ''));
+                            $rawSeq = $hgSeq !== false ? trim((string)($r[$hgSeq] ?? '')) : '';
+                            if ($date === '' || ($no === '' && $rawSeq === '')) return array_fill(0, count($r), '');
+                            $ymd = ps_import_date($date);
+                            $month = $ymd ? str_replace('-', '', substr($ymd, 0, 7)) : 'NODATE';
+                            $seq = $rawSeq;
+                            $seq = $seq !== '' ? (ctype_digit($seq) ? str_pad($seq, 3, '0', STR_PAD_LEFT) : $seq) : ($no !== '' ? ltrim($no, "'") : 'R' . count($hgUsed));
+                            $key = 'HG-' . $hgOwner . '-' . $month . '-' . $seq;
+                            if (isset($hgUsed[$key])) $key .= '-' . (++$hgUsed[$key]); else $hgUsed[$key] = 1;
+                            $oldNote = trim((string)($r[$hgNote] ?? ''));
+                            $r[$hgNote] = trim(($oldNote !== '' ? $oldNote . '；' : '') . ($no !== '' ? '原订单编号：' . ltrim($no, "'") : ''));
+                            $r[$hgNo] = $key;
+                            return $r;
+                        }, $raw);
+                        $entry['head'] = $head;
+                    }
                 }
                 // 森动备案：①“二次备案”分表按“2026年N月份”标题分段，每行取该月最后一天为日期（订单号带月份，同域名不同月份不合并）；
                 //   已核算月份及以前的段落不导入。②“备案状态=未备案”且无订单号 / 日期的占位行直接忽略（备案完成后再传）。行号保持不变，忽略的行置空。

@@ -15,6 +15,8 @@ require_once (dirname(__DIR__, 1)) . '/../includes/ProjectImportClassification.p
 require_once (dirname(__DIR__, 1)) . '/../includes/ProjectSheetEdit.php';
 require_once (dirname(__DIR__, 1)) . '/../classes/SimpleXLSX.php';
 pos_ensure();
+require_once (dirname(__DIR__, 1)) . '/../includes/ProjectOrderPayments.php';
+pop_ensure(); pop_run_map(); // 建表是 DDL，须在事务之前
 $actor = ps_require_actor();
 $operator = $actor;
 $resumeFileId = (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST' && ($_POST['action'] ?? '') === 'preview') ? 0 : (int)($_GET['resume_file'] ?? ($_POST['resume_file'] ?? 0));

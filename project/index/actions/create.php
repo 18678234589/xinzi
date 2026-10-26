@@ -3,7 +3,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     ps_check_csrf();
     if (!in_array($actor['role'], ['finance', 'customer_service', 'technical'], true)) { http_response_code(403); exit('无权限'); }
     try {
-        $no = ps_order_no_resolve($_POST['order_no'] ?? '');
+        require_once (dirname(__DIR__, 2)) . '/../includes/ProjectOrderPayments.php'; pop_ensure(); // 建表是 DDL，须在事务之前
+        // 一笔销售拍成多个订单号：订单号栏里写几个都行（空格 / 逗号 / 换行分隔），第一个是主订单号，其余并入同一张订单
+        [$noMain, $extraNos] = pop_split_numbers($_POST['order_no'] ?? '');
+        $no = pop_resolve(ps_order_no_resolve($noMain));
+        if ($extraNos) { [$extraNos, $extraProblems] = pop_check_extras($no, $extraNos); if ($extraProblems) throw new RuntimeException($extraProblems[0]); }
         $date = trim((string)($_POST['order_date'] ?? ''));
         $paymentReference = trim((string)($_POST['payment_reference'] ?? ''));
         $contract = trim((string)($_POST['contract_amount'] ?? ''));
@@ -201,6 +205,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     )
                 ->execute([$id, $business['cost_label'] ?? '成本', $costAmount, $costAmount, abs($costAmount) <= 500 ? 'approved' : 'pending', $actor['employee_id'] ?? null]);
         }
+        foreach ($extraNos as $extraNo) pop_add($id, $extraNo, null, $actor, '在线录入订单号栏');
         ps_audit('order', $id, 'create', $actor, ['order_no' => $no, 'order_kind' => $orderKind, 'program_template_id' => $programTemplate['id'] ?? null, 'domain_template_id' => $domainTemplate
     ['id'] ?? null, 'server_template_id' => $serverTemplate['id'] ?? null, 'receipt_unconfirmed' => $actor['role'] !== 'finance']);
         if (!($projectType === '微信代写' && $orderKind === '编辑对接')) ps_sync_existing_shop_order($id, $no, $shop);

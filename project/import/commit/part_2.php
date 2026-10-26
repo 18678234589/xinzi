@@ -163,6 +163,7 @@
                         }
                         ps_audit('order', $orderId, 'import_supplement', $actor, ['line' => $row['line'], 'order_no' => $row['order_no']]);
                         if ($departmentMode) ps_department_import_record($orderId, $actor);
+                        foreach (($row['extra_order_nos'] ?? []) as $extraNo) pop_add($orderId, $extraNo, null, $actor, '上传表格订单编号格');
                         $imported++;
                         continue;
                     }
@@ -232,6 +233,7 @@
                             ->execute([$orderId, $costItemName, $costAmount, $costAmount, 'Excel 第' . $row['line'] . '行导入', $costStatus, $actor['employee_id'] ?? null]);
                     }
                     if ($writeBusiness === '森动备案' && ($row['direct_cost'] ?? '') === '') pfc_apply($orderId, $row['order_kind'] ?? '', $actor, 'Excel 第' . $row['line'] . '行');
+                    foreach (($row['extra_order_nos'] ?? []) as $extraNo) pop_add($orderId, $extraNo, null, $actor, '上传表格订单编号格');
                     ps_audit('order', $orderId, 'import', $actor, ['line' => $row['line'], 'order_no' => $row['order_no'], 'domain_template_id' => $domainTemplate['id'] ?? null]);
                     $imported++;
                 }

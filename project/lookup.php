@@ -8,6 +8,8 @@ $orderNo = trim((string)($_GET['order_no'] ?? ''));
 if ($orderNo === '' || strlen($orderNo) > 100) { echo json_encode(['ok' => false]); exit; }
 
 $result = ['ok' => true, 'project' => null, 'shop_orders' => []];
+require_once __DIR__ . '/../includes/ProjectOrderPayments.php';
+$orderNo = pop_resolve($orderNo); // 关联付款订单号 → 原订单
 $q = db()->prepare('SELECT id,project_type FROM project_orders WHERE order_no=?');
 $q->execute([$orderNo]);
 $existing = $q->fetch();

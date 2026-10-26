@@ -4,6 +4,21 @@
 <?php if (in_array(ps_business_normalize($order['project_type']), ['网站模板', 'AI网站定制'], true)): ?><div class="mb-3"><a class="btn btn-outline-primary btn-sm" href="<?php
     echo BASE_URL; ?>/project/site_group.php?id=<?php echo $id; ?>">网站项目与同号付款分配</a></div><?php endif; ?>
 <?php if ($error): ?><div class="alert alert-danger"><?php echo e($error); ?></div><?php endif; ?>
+<?php $payNos = pop_list($id); $isFinanceView = $actor['role'] === 'finance'; if ($payNos || $canEdit): ?>
+<div class="card mb-3"><div class="card-body py-2">
+  <strong><i class="fas fa-link mr-1"></i>关联付款订单号</strong>
+  <span class="small text-muted">一笔生意在店铺里拍成了几个订单号（客户限额、优惠券等），都记在这一张订单里，单量只算 1 单，售价写合计。</span>
+  <?php if ($payNos): ?><ul class="small mb-2 mt-1"><?php foreach ($payNos as $pn): ?><li><?php echo e($pn['payment_no']); ?><?php echo $pn['amount'] !== null ? ' · ¥' . money($pn['amount']) : ''; ?><?php echo $pn['note'] !== '' ? '（' . e($pn['note']) . '）' : ''; ?></li><?php endforeach; ?></ul><?php else: ?><div class="small text-muted mt-1">还没有关联订单号。</div><?php endif; ?>
+  <?php if ($canEdit): ?>
+  <form method="post" class="form-inline mt-1"><input type="hidden" name="csrf" value="<?php echo e(ps_csrf_token()); ?>"><input type="hidden" name="action" value="add_payment_no">
+    <input class="form-control form-control-sm mr-2" name="payment_no" maxlength="100" placeholder="另一个订单号" required style="min-width:240px"><input class="form-control form-control-sm mr-2" name="payment_amount" placeholder="该号金额（选填）" style="width:130px"><button class="btn btn-sm btn-outline-primary">添加关联订单号</button></form>
+  <?php if ($isFinanceView): ?>
+  <form method="post" class="form-inline mt-2" onsubmit="return confirm('把这张订单并入本单？它会进回收站（30 天内可还原），订单号变成本单的关联订单号。')"><input type="hidden" name="csrf" value="<?php echo e(ps_csrf_token()); ?>"><input type="hidden" name="action" value="merge_payment_order">
+    <input class="form-control form-control-sm mr-2" name="other_order_no" maxlength="100" placeholder="已被单独录成一单的订单号" required style="min-width:240px"><label class="small mr-2 mb-0"><input type="checkbox" name="add_amount" value="1" checked> 把它的售价加到本单</label><button class="btn btn-sm btn-outline-danger">并入另一张订单</button></form>
+  <?php endif; ?>
+  <?php endif; ?>
+</div></div>
+<?php endif; ?>
 <?php if (strpos((string)$order['order_no'], 'WX-') === 0 && $canEdit): ?>
 <div class="alert alert-warning d-flex flex-wrap align-items-center justify-content-between" style="gap:8px"><span><i class="fas fa-link mr-1"></i><strong>这是没有订单号的订单（系统生成了内部号）。</strong>拿到客户的真实订单号后，在这里补录，退款和店铺流水才能自动对上。</span>
 <form method="post" class="form-inline" onsubmit="return confirm('确认把订单号改成所填内容？')"><input type="hidden" name="csrf" value="<?php echo e(ps_csrf_token());

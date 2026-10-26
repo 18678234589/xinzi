@@ -33,8 +33,8 @@
     </div>
     <?php endif; ?>
     <div class="form-row">
-      <div class="form-group col-md-4"><label for="intakeOrderNo">店铺订单号（有则填）</label><input class="form-control form-control-lg" id="intakeOrderNo" name="order_no" maxlength="100" value="<?php
-    echo e($_POST['order_no'] ?? ''); ?>" placeholder="淘宝/店铺订单号" autofocus><div class="form-check mt-1"><input class="form-check-input" type="checkbox" name="no_order_no" value="1" id="noOrderNo" <?php
+      <div class="form-group col-md-4"><label for="intakeOrderNo">店铺订单号（有则填）</label><input class="form-control form-control-lg" id="intakeOrderNo" name="order_no" maxlength="300" value="<?php
+    echo e($_POST['order_no'] ?? ''); ?>" placeholder="淘宝/店铺订单号；一笔拍成几个订单就都写上，用空格分隔，售价填合计" autofocus><div class="form-check mt-1"><input class="form-check-input" type="checkbox" name="no_order_no" value="1" id="noOrderNo" <?php
     echo !empty($_POST['no_order_no']) ? 'checked' : ''; ?>><label class="form-check-label small" for="noOrderNo">没有订单号（微信付款，客服也没拿到单号）</label></div></div>
       <div class="form-group col-md-3"><label for="intakeBusiness">业务类型 *</label><select class="form-control form-control-lg" id="intakeBusiness" name="project_type" required><?php
     foreach ($allowedBusinesses as $businessName): ?><option value="<?php echo e($businessName); ?>" <?php echo $selectedBusiness === $businessName ? 'selected' : ''; ?>><?php echo

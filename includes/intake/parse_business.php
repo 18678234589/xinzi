@@ -40,6 +40,17 @@ function ps_import_business_detect($fileRow, $allowedBusinesses, $selectedBusine
 {
     if (count($allowedBusinesses) <= 1) return ['business' => $selectedBusiness, 'reason' => '账户唯一业务'];
     $explicit = []; $orderNos = []; $signatures = []; $scores = array_fill_keys($allowedBusinesses, 0);
+    // 回购订单表（序号 + 旺旺号 + 订单编号，没有售价）：订单编号多半已是网站 / 小程序的店铺订单，不能按“已有关联订单号”把整张表归到那些业务，
+    // 也不能被“本人同版式历史导入”带偏。账号有回购订单业务、或本次明确选了回购订单时，一律按回购订单（每行一单、按序号识别）。
+    if (in_array('回购订单', $allowedBusinesses, true)) {
+        if ($selectedBusiness === '回购订单') return ['business' => '回购订单', 'reason' => '你选择的业务'];
+        foreach (array_slice(ps_import_file_sheets($fileRow), 0, 5, true) as $sheetRows) {
+            $firstRow = is_array($sheetRows) ? reset($sheetRows) : null;
+            if (!is_array($firstRow)) continue;
+            $h = array_map(function ($value) { return trim((string)$value); }, $firstRow);
+            if (in_array('序号', $h, true) && (in_array('旺旺号', $h, true) || in_array('返现', $h, true)) && !array_intersect(['售价', '金额', '订单金额'], $h)) return ['business' => '回购订单', 'reason' => '回购订单表（序号 + 旺旺号）'];
+        }
+    }
     foreach (array_slice(ps_import_file_sheets($fileRow), 0, 5, true) as $sheetName => $rows) {
         if (count($rows) < 2) continue;
         $head = array_map(function ($value) { return trim((string)$value); }, array_shift($rows));

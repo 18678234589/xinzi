@@ -1,4 +1,10 @@
 <?php
+                    // 订单编号格里写了多个订单号（一笔生意拍成几个订单）：第一个是主订单号，其余并入同一张订单（单量算 1 单），售价写合计
+                    $record['extra_order_nos'] = []; $multiNoExtras = [];
+                    if (isset($columnMap['order_no'])) {
+                        [$multiMain, $multiNoExtras] = pop_split_numbers($row[$columnMap['order_no']] ?? '');
+                        if ($multiNoExtras) $row[$columnMap['order_no']] = $multiMain;
+                    }
                     $record['project_type'] = ps_import_website_business($selectedBusiness, $lookup($row, 'program_name'), $lookup($row, 'frontend') . '/' . $lookup($row, 'backend'
     ), $allowedBusinesses);
                     // 订单类型下拉写了“博山定制 / AI定制 / 华梦定制”：这是定制单，归入 AI网站定制（订单类型按所选记录，规则可按类型区分）
@@ -13,6 +19,15 @@
                     if ($record['project_type'] !== $selectedBusiness) $record['warning'] .= ($record['warning'] ? '；' : '') . '按产品/技术岗位自动归入“' . $record['project_type'
     ] . '”分成方案';
                     $record['order_no'] = ps_order_no_resolve($lookup($row, 'order_no'));
+                    $record['order_no'] = pop_resolve($record['order_no']); // 用关联付款订单号上传时，对应到原订单
+                    $multiNoExtras = array_values(array_diff($multiNoExtras, [$record['order_no']])); // 顺序写反（第二个号在前）时，主号不再当“其余号”
+                    if ($multiNoExtras) {
+                        [$extraOk, $extraProblems] = pop_check_extras($record['order_no'], $multiNoExtras);
+                        if ($extraProblems) { $record['resource_locked'] = $record['resource_locked'] ?? false; throw new RuntimeException($extraProblems[0]); }
+                        $record['extra_order_nos'] = $extraOk;
+                        foreach ($extraOk as $extraNo) pop_run_map($extraNo, $record['order_no']);
+                        $record['warning'] .= ($record['warning'] ? '；' : '') . '订单编号格含 ' . (count($extraOk) + 1) . ' 个订单号（' . $record['order_no'] . '、' . implode('、', $extraOk) . '），按同一张订单计算，单量算 1 单；售价请写这几个订单的合计';
+                    }
                     // 对公收款：订单号格子写“对公”，无需店铺订单号，只认对公交易号（可写在订单号格“对公 xxxx”、交易号列，或在预览页补填）
                     $publicReference = '';
                     if (ps_import_public_transfer($lookup($row, 'order_no'), $publicReference)) {
@@ -109,17 +124,6 @@
                     if ($record['order_no'] === '' && trim((string)($fixOrderNos[$record['line']] ?? '')) !== '') {
                         $record['order_no'] = trim((string)$fixOrderNos[$record['line']]);
                         $record['warning'] = '订单号由上传人在预览中补填，请核对原始交易记录';
-                    }
-                    // 对公收款没有店铺订单号：订单编号写“对公”（或留空、店铺写对公）即可，没有交易流水号时按“日期 + 付款昵称 + 售价 + 序号”生成稳定的内部号（DG-…），重传不重复建单
-                    if ($record['order_no'] === '' && $record['payment_reference'] === '' && trim((string)($fixOrderNos[$record['line']] ?? '')) === '' && (!empty($record['public_transfer']) || preg_match('/对公|公账/u', (string)$lookup($row, 'shop')))) {
-                        $dgDate = ps_import_date($lookup($row, 'order_date')); $dgNick = trim((string)$lookup($row, 'payment_nickname')); $dgAmt = preg_replace('/[^\d.]/', '', (string)$lookup($row, 'contract_amount'));
-                        if ($dgDate && $dgNick !== '' && $dgAmt !== '') {
-                            $dgKey = $selectedBusiness . '|' . $dgDate . '|' . mb_strtolower($dgNick) . '|' . (float)$dgAmt;
-                            $wxSeq['dg|' . $dgKey] = ($wxSeq['dg|' . $dgKey] ?? 0) + 1;
-                            $record['order_no'] = 'DG-' . strtoupper(substr(hash('sha256', $dgKey . '|' . $wxSeq['dg|' . $dgKey]), 0, 12));
-                            $record['public_transfer'] = true;
-                            $record['warning'] .= ($record['warning'] ? '；' : '') . '对公收款没有填对公编码：已按“日期 + 付款昵称 + 售价”临时生成内部关联号，请在“流水号/对公编码”列补上对公编码（对账用）';
-                        }
                     }
                     if ($record['order_no'] === '' && $record['payment_reference'] !== '') {
                         $record['order_no'] = ps_payment_reference_order_no($selectedBusiness, $record['payment_reference']);
