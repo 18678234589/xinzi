@@ -48,7 +48,7 @@ const server = http.createServer((req, res) => {
       if (width < 500) {
         const cdp = await context.newCDPSession(page);
         const bounds = await page.locator('.jexcel_content').boundingBox();
-        const y = Math.min(700, bounds.y + 90);
+        const y = Math.min(Math.max(bounds.y + 90, 20), bounds.y + Math.min(bounds.height, 850 - bounds.y) - 30); // 工具栏变高后表格可能被推到屏幕下半部，触点要落在可见的表格内
         await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: 310, y }] });
         for (const x of [270, 210, 140, 70]) await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x, y }] });
         await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });

@@ -54,3 +54,8 @@
 .project-sheet td.is-sel { background: #d9efe0 !important; box-shadow: inset 0 0 0 1px #4d9b6f; }
 .project-sheet td { cursor: cell; }
 .project-sheet tr.is-head td { cursor: pointer; }
+/* 我的在线表格：自动同步，不需要“核对并提交 / 提交更正”按钮 */
+.se-card[data-online="1"] .se-import,.se-card[data-online="1"] .se-submit,.se-card[data-online="1"] .se-save{display:none!important}
+.se-addbar{display:inline-flex;align-items:center;gap:4px;font-size:.8rem;color:#51635b}
+.se-sync-status{margin-right:.5rem}
+.se-card:not([data-online="1"]) .se-sync-status,.se-card:not([data-online="1"]) .se-sync{display:none}

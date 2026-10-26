@@ -123,6 +123,7 @@ $settleBadge = ['settled' => ['已结算', 'ok'], 'pending' => ['已申请 · �
   <a class="pd-welfare-link" href="<?php echo BASE_URL; ?>/project/welfare.php"><span><i class="fas fa-heart"></i> 全员共创福利池 <small>季度结余自动汇入 · 好建议与 Bug 有回响</small></span><strong>¥<?php echo money($welfareBalance); ?></strong><i class="fas fa-arrow-right"></i></a>
   <div class="pd-note"><i class="fas fa-info-circle"></i> 以下按订单日期归属到所选月份，并按本人分单权重计算；跨岗位参与同一单最多计 100%。实收和退款为当前已审核累计金额，可能包含次月发生的收退款，不代表该月现金流水。</div>
 
+  <?php if (($actor['role'] ?? '') !== 'finance') { require __DIR__ . '/../includes/online_sheet_entry.php'; } ?>
   <?php
   // 各业务最新的订单上传模板：每次下载都是系统当前最新版（xlsx 模板带下拉与填写说明；没有专用模板的业务下载 csv 表头 + 示例行）
   require_once __DIR__ . '/../includes/ProjectMiniappTemplate.php';

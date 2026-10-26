@@ -5,6 +5,7 @@ require_once __DIR__ . '/../includes/ProjectBusiness.php';
 require_once __DIR__ . '/../includes/ProjectImportResult.php';
 require_once __DIR__ . '/../includes/ProjectSheetEdit.php';
 require_once __DIR__ . '/../includes/ProjectImportUndoRequests.php';
+require_once __DIR__ . '/../includes/ProjectOnlineSheets.php';
 $actor = ps_require_actor();
 $isFinance = $actor['role'] === 'finance';
 $isManagement = ps_is_management($actor);
@@ -30,6 +31,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'delet
         header('Location: ' . BASE_URL . '/project/files.php?' . http_build_query(array_merge($_GET, ['deleted' => 1])));
         exit;
     } catch (Throwable $e) { $error = $e instanceof RuntimeException ? $e->getMessage() : '删除失败，请重试'; }
+}
+
+// 我的在线表格：选月份 + 业务，没有就新建，然后进入在线编辑
+if (isset($_GET['online'])) {
+    try { header('Location: ' . BASE_URL . '/project/files.php?view=' . pols_open($actor, (string)($_GET['business'] ?? ''), (string)($_GET['month'] ?? date('Y-m')))); exit; }
+    catch (RuntimeException $e) { $error = $e->getMessage(); }
 }
 
 $viewFile = null;
@@ -81,7 +88,7 @@ foreach (db()->query('SELECT id,username FROM admins')->fetchAll() as $a) $admin
 $sizeText = function ($bytes) { return $bytes >= 1048576 ? round($bytes / 1048576, 1) . ' MB' : max(1, round($bytes / 1024)) . ' KB'; };
 $uploaderText = function ($f) use ($admins) { return $f['uploaded_by_type'] === 'admin' ? '财务 ' . ($admins[(int)$f['uploaded_by_id']] ?? '') : ($f['employee_name'] ?? '—'); };
 
-$page_title = $isFinance ? '原始表格' : ($isManagement ? '业务表格管理' : '我上传的表格');
+$page_title = $isFinance ? '原始表格' : ($isManagement ? '业务表格管理' : '我的表格');
 include __DIR__ . '/../includes/header.php';
 ?>
 <div class="project-intake-page">
@@ -90,11 +97,12 @@ include __DIR__ . '/../includes/header.php';
 <div class="card shadow" style="position:absolute;right:0;z-index:30;min-width:240px;color:#222"><div class="list-group list-group-flush"><div class="list-group-item small text-muted">按你的岗位自带需要的列（手机号 / 域名 / 服务器到期日）</div>
 <?php foreach ($tplBusinesses as $tb): ?><a class="list-group-item list-group-item-action" href="<?php echo BASE_URL; ?>/project/import.php?business=<?php echo rawurlencode($tb); ?>&amp;scope=personal&amp;download=1"><?php echo e($tb); ?> 模板</a><?php endforeach; ?></div></div></details><?php endif; ?></div></div>
 <?php if ($error): ?><div class="alert alert-danger"><?php echo e($error); ?></div><?php endif; ?>
+<?php if (!$viewFile && !$isFinance && !$isManagement) { require __DIR__ . '/../includes/online_sheet_entry.php'; } ?>
 <?php if (!empty($_GET['deleted'])): ?><div class="alert alert-success">原始表格已删除。</div><?php endif; ?>
 <?php if ($undoPendingTotal): ?><div class="alert alert-warning d-flex flex-wrap align-items-center justify-content-between" style="gap:8px"><span><i class="fas fa-rotate-left mr-1"></i>有 <strong><?php echo (int)$undoPendingTotal; ?></strong> 条<strong>撤销上传申请</strong>等你同意（合作人员传错表、订单已被系统自动核对，自己撤不了）。</span><a class="btn btn-sm btn-warning" href="<?php echo BASE_URL; ?>/project/import_undo_requests.php">去同意 / 处理</a></div><?php endif; ?>
 <div class="alert alert-<?php echo $pendingFiles ? 'warning' : 'info'; ?>">上传时间不等于订单日期；上传完成后，请看这里的导入回执。<?php if ($pendingFiles): ?>当前列表有 <strong><?php echo $pendingFiles; ?> 份</strong>表格待导入或补全，点“继续导入”即可读取已保存原件，无需重传。<?php else: ?>已核对表格可点“对应订单”，直接查看本人有权限的订单，不受月份影响。<?php endif; ?></div>
 
-<?php if ($viewFile): $viewReport = ps_import_result_get((int)$viewFile['id']); $sheetNames = array_keys($sheets); $current = (string)($_GET['sheet'] ?? ($sheetNames[0] ?? '')); if (!isset($sheets[$current])) $current = (string)($sheetNames[0] ?? ''); $rowsToShow = $sheets[$current] ?? []; ?>
+<?php if ($viewFile): $onlineMeta = pols_by_file((int)$viewFile['id']); if ($onlineMeta && (int)$onlineMeta['employee_id'] !== (int)($actor['employee_id'] ?? 0)) $onlineMeta = null; $viewReport = ps_import_result_get((int)$viewFile['id']); $sheetNames = array_keys($sheets); $current = (string)($_GET['sheet'] ?? ($sheetNames[0] ?? '')); if (!isset($sheets[$current])) $current = (string)($sheetNames[0] ?? ''); $rowsToShow = $sheets[$current] ?? []; ?>
 <div class="card mb-3 project-file-view"><div class="card-header d-flex justify-content-between align-items-center flex-wrap" style="gap:8px">
   <div><strong><?php echo e($viewFile['original_name']); ?></strong><div class="small text-muted"><?php echo e($viewFile['business_name']); ?> · <?php echo e($uploaderText($viewFile + ['employee_name' => db()->query('SELECT name FROM employees WHERE id=' . (int)$viewFile['employee_id'])->fetchColumn() ?: '—'])); ?> · <?php echo e($viewFile['created_at']); ?> · <?php echo $viewReport ? '对应 ' . count($viewReport['order_ids']) . ' 单 · 已在库 ' . (int)$viewReport['existing'] . ' 单' . ($viewReport['pending'] ? ' · 待补全 ' . (int)$viewReport['pending'] . ' 行' : ' · 核对完成') : ($viewFile['status'] === 'imported' ? '已导入 ' . (int)$viewFile['imported_count'] . ' 单' : '待确认导入 · 仅预览'); ?></div></div>
   <div class="d-flex" style="gap:6px"><a class="btn btn-sm btn-outline-secondary" href="<?php echo BASE_URL; ?>/project/files.php?<?php echo e(http_build_query(array_diff_key($_GET, ['view' => 1, 'sheet' => 1]))); ?>">返回列表</a><?php if (!$isFinance): ?><a class="btn btn-sm btn-outline-success" href="<?php echo BASE_URL; ?>/project/import.php?business=<?php echo rawurlencode((string)$viewFile['business_name']); ?>&amp;scope=personal&amp;download=1" title="按你的岗位带手机号 / 域名 / 服务器到期日列"><i class="fas fa-download mr-1"></i>下载本业务模板</a><?php endif; ?><a class="btn btn-sm btn-primary" href="<?php echo BASE_URL; ?>/project/files.php?download=<?php echo (int)$viewFile['id']; ?>">下载原文件</a></div>
@@ -103,9 +111,9 @@ include __DIR__ . '/../includes/header.php';
   <?php $canEditSheet = pse_can_edit($viewFile, $actor); ?>
   <link href="<?php echo BASE_URL; ?>/assets/lib/jspreadsheet/jsuites.css" rel="stylesheet"><link href="<?php echo BASE_URL; ?>/assets/lib/jspreadsheet/jspreadsheet.css" rel="stylesheet"><link href="<?php echo BASE_URL; ?>/assets/css/sheet_editor.css?v=<?php echo @filemtime(__DIR__ . '/../assets/css/sheet_editor.css'); ?>" rel="stylesheet">
   <div class="d-flex flex-wrap align-items-center mb-2" style="gap:8px"><button type="button" class="btn btn-sm btn-success" id="seModeEdit" style="color:#fff">在线编辑 / 提交更正</button><button type="button" class="btn btn-sm btn-outline-secondary" id="seModeView">只读查看（可搜索）</button></div>
-  <div class="se-card" id="seRoot" data-api="<?php echo BASE_URL; ?>/project/file_sheet_api.php" data-import-url="<?php echo BASE_URL; ?>/project/import.php" data-csrf="<?php echo e(ps_csrf_token()); ?>" data-file="<?php echo (int)$viewFile['id']; ?>" data-sheet="<?php echo e($current); ?>" data-can-edit="<?php echo $canEditSheet ? '1' : '0'; ?>">
-    <div class="se-head"><div class="se-title"><i class="fas fa-table"></i>全部字段在线编辑</div><div class="se-actions"><span class="se-status small text-muted"></span><button class="btn btn-sm btn-outline-success se-save" type="button" disabled>保存修改</button><button class="se-import" type="button" disabled>核对并提交到系统</button><button class="se-submit" type="button" disabled>更正已导入订单资料</button></div></div>
-    <div class="se-hint">全部原表字段都可编辑，包括订单号、日期、参与人和备注。双击单元格，或点选后在下方输入；支持从 Excel 复制粘贴。修改自动保存，改好后点“核对并提交到系统”，确认核对结果后导入，无需下载重传。已有订单的售价 / 店铺 / 昵称及续费资料可用“更正已导入订单资料”处理，其他订单字段按导入核对规则处理。<span class="se-legend"></span>黄色 = 待提交。<span class="se-legend done"></span>绿色 = 已提交。原始附件保留。</div>
+  <div class="se-card" id="seRoot" data-api="<?php echo BASE_URL; ?>/project/file_sheet_api.php" data-import-url="<?php echo BASE_URL; ?>/project/import.php" data-csrf="<?php echo e(ps_csrf_token()); ?>" data-online="<?php echo $onlineMeta ? '1' : '0'; ?>" data-file="<?php echo (int)$viewFile['id']; ?>" data-sheet="<?php echo e($current); ?>" data-can-edit="<?php echo $canEditSheet ? '1' : '0'; ?>">
+    <div class="se-head"><div class="se-title"><i class="fas fa-table"></i>全部字段在线编辑</div><div class="se-actions"><span class="se-status small text-muted"></span><span class="se-sync-status small text-muted"></span><span class="se-addbar">新增行：<button class="btn btn-sm btn-outline-secondary se-add" type="button" data-n="1">+1 行</button><button class="btn btn-sm btn-outline-secondary se-add" type="button" data-n="10">+10 行</button><button class="btn btn-sm btn-outline-secondary se-add" type="button" data-n="50">+50 行</button></span><?php if ($onlineMeta): ?><button class="btn btn-sm btn-success se-sync" type="button" style="color:#fff">立即同步到系统</button><?php endif; ?><button class="btn btn-sm btn-outline-success se-save" type="button" disabled>保存修改</button><button class="se-import" type="button" disabled>核对并提交到系统</button><button class="se-submit" type="button" disabled>更正已导入订单资料</button></div></div>
+    <?php if ($onlineMeta): ?><div class="se-hint"><strong><?php echo e($onlineMeta['month']); ?> · <?php echo e($onlineMeta['business_name']); ?></strong>：像 Excel 一样直接填。点下拉格会展开选项；从电脑上的 Excel 复制一片内容，点中要贴的第一格按 Ctrl+V 即可，超出的行会自动新增，也可以点上面的“新增行”。改动自动保存，停手约 8 秒后自动同步到系统，每一行的结果看最右边的“系统状态”列：<b>✓ 已同步</b>、<b>… 还没填完整</b>、<b>✗ 需处理</b>（写明原因，改好会自动重新同步）。订单号写错了直接改，还没审核的旧订单会自动撤销；不要的行把内容清空即可（已同步的订单要删请到订单页）。</div><?php else: ?><div class="se-hint">全部原表字段都可编辑，包括订单号、日期、参与人和备注。双击单元格，或点选后在下方输入；支持从 Excel 复制粘贴。修改自动保存，改好后点“核对并提交到系统”，确认核对结果后导入，无需下载重传。已有订单的售价 / 店铺 / 昵称及续费资料可用“更正已导入订单资料”处理，其他订单字段按导入核对规则处理。<span class="se-legend"></span>黄色 = 待提交。<span class="se-legend done"></span>绿色 = 已提交。原始附件保留。</div><?php endif; ?>
     <div class="se-cell-editor"><label class="se-cell-label" for="seCellInput">点选单元格后编辑</label><textarea id="seCellInput" class="form-control se-cell-input" rows="1" disabled placeholder="选中任意字段后在这里修改"></textarea><button class="btn btn-sm btn-outline-success se-cell-apply" type="button">写入单元格</button></div>
     <div class="se-scroll-tools"><button class="btn btn-sm btn-light" type="button" data-se-scroll="-1" aria-label="向左滚动表格">← 向左</button><span class="small text-muted">拖动滚动条或触屏左右滑动查看全部字段</span><button class="btn btn-sm btn-light" type="button" data-se-scroll="1" aria-label="向右滚动表格">向右 →</button></div><div class="se-scrollbar" tabindex="0" aria-label="表格横向滚动条"><div class="se-scroll-space"></div></div>
     <div class="se-body"><div class="se-grid"></div></div><div class="se-trunc" hidden>为保证流畅只载入前 3000 行，完整内容请下载原文件。</div>

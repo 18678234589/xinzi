@@ -51,6 +51,7 @@ function ps_import_file_delete($id, $actor)
     if (!$row) throw new RuntimeException('原始表格不存在');
     if ($actor['role'] !== 'finance' && ((int)$row['employee_id'] !== (int)($actor['employee_id'] ?? 0) || $row['uploaded_by_type'] !== $actor['type'])) throw new RuntimeException(
     '只能删除本人上传的表格');
+    try { if ($actor['role'] !== 'finance' && db()->query('SELECT 1 FROM project_online_sheets WHERE file_id=' . (int)$row['id'])->fetchColumn()) throw new RuntimeException('在线表格不能删除原件；不要的行清空即可'); } catch (PDOException $e) { /* 在线表格表还没建：不是在线表格 */ }
     $pdo = db();
     $nested = $pdo->inTransaction();
     if ($nested) $pdo->exec('SAVEPOINT project_import_file_delete');

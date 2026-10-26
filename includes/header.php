@@ -171,7 +171,7 @@ $nav = function ($href, $icon, $label, $active) {
     <?php if ($department_upload_nav): echo $nav('/project/import.php?scope=department&business=' . rawurlencode($department_upload_business), 'fa-users', '部门订单上传', $_rel === 'project/import.php' && ($_GET['scope'] ?? $_POST['scope'] ?? '') === 'department'); endif; ?>
     <?php echo $nav('/project/payroll.php', 'fa-wallet', '我的项目报酬', $_rel === 'project/payroll.php'); ?>
     <?php echo $nav('/project/welfare.php', 'fa-heart', '全员福利池', $_rel === 'project/welfare.php'); ?>
-    <?php echo $nav('/project/files.php', 'fa-file-excel', '我上传的表格', $_rel === 'project/files.php'); ?>
+    <?php echo $nav('/project/files.php', 'fa-file-excel', '我的表格', $_rel === 'project/files.php'); ?>
     <?php if ($vault_nav): echo $nav('/project/vault.php', 'fa-key', '平台与服务器信息', $_rel === 'project/vault.php'); endif; ?>
     <?php if (!$governance_nav): echo $nav('/project/messages.php', 'fa-envelope', '我的站内信' . ($unread_messages ? '（' . $unread_messages . '）' : ''), $_rel === 'project/messages.php'); endif; ?>
     <?php echo $nav('/project/refunds.php', 'fa-undo-alt', '退款与返现', $_rel === 'project/refunds.php'); ?>

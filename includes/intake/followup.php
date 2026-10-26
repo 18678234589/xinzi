@@ -4,6 +4,7 @@
 function ps_import_followup_save($fileId, $actor, $business, $scope, $sheets, $rows)
 {
     if (($actor['type'] ?? '') !== 'employee' || !$fileId) return null;
+    if (!empty($GLOBALS['project_import_online'])) return null; // 在线表格：问题直接写在该行的“系统状态”里，不弹“待补全”窗口、不发站内信
     try {
         if (!$rows) { db()->prepare("UPDATE project_import_followups SET status='done' WHERE file_id=?")->execute([(int)$fileId]); return null; }
         $existing = db()->prepare('SELECT id,status FROM project_import_followups WHERE file_id=?');

@@ -67,11 +67,12 @@
   };
 
   window.SheetEditor = function (root) {
-    var cfg = { api: root.getAttribute('data-api'), csrf: root.getAttribute('data-csrf'), file: root.getAttribute('data-file'), sheet: root.getAttribute('data-sheet'), canEdit: root.getAttribute('data-can-edit') === '1' };
+    var cfg = { api: root.getAttribute('data-api'), csrf: root.getAttribute('data-csrf'), file: root.getAttribute('data-file'), sheet: root.getAttribute('data-sheet'), canEdit: root.getAttribute('data-can-edit') === '1', online: root.getAttribute('data-online') === '1' };
     var gridEl = root.querySelector('.se-grid'), statusEl = root.querySelector('.se-status'), submitBtn = root.querySelector('.se-submit'), modal = root.querySelector('.se-modal');
     var importBtn = root.querySelector('.se-import'), saveBtn = root.querySelector('.se-save'), cellInput = root.querySelector('.se-cell-input'), cellLabel = root.querySelector('.se-cell-label');
     var scrollBar = root.querySelector('.se-scrollbar'), scrollSpace = root.querySelector('.se-scroll-space'), selected = null, saving = null, submitting = false;
     var table = null, meta = null, queue = {}, timer = null, inflight = false, pendingCount = 0, localChanged = {};
+    var needTotal = false, syncTimer = null, syncing = false, statusX = -1, syncEl = root.querySelector('.se-sync-status'), syncBtn = root.querySelector('.se-sync');
 
     function setStatus(text, kind) { statusEl.textContent = text; statusEl.className = 'se-status small ' + (kind || 'text-muted'); }
     function call(payload) {
@@ -93,15 +94,17 @@
     // ---- 自动保存：合并连续编辑，停手 0.9 秒后一次提交；保存中的新编辑排队，不丢 ----
     function flush() {
       if (saving) return saving.then(flush);
-      var keys = Object.keys(queue).slice(0, 500); if (!keys.length) return Promise.resolve();
+      var keys = Object.keys(queue).slice(0, 500); if (!keys.length && !needTotal) return Promise.resolve();
       var edits = keys.map(function (k) { var ed = queue[k]; delete queue[k]; return ed; });
+      var total = needTotal && table ? table.options.data.length : null; needTotal = false; // 新增行：把当前总行数一起告诉服务器
       inflight = true; setStatus('正在保存…');
-      saving = call({ action: 'save', edits: edits }).then(function (d) {
+      saving = call({ action: 'save', edits: edits, total: total }).then(function (d) {
         inflight = false; saving = null; setStatus('已保存 ' + d.at, 'text-success');
-        if (!Object.keys(queue).length && typeof d.pending === 'number') { pendingCount = d.pending; updateSubmit(); }
+        if (!Object.keys(queue).length && typeof d.pending === 'number' && !cfg.online) { pendingCount = d.pending; updateSubmit(); }
+        if (cfg.online && !Object.keys(queue).length && !needTotal) scheduleSync();
         return flush();
       }, function (e) {
-        inflight = false; saving = null; edits.forEach(function (ed) { var k = ed.row + ':' + ed.col; if (!queue[k]) queue[k] = ed; });
+        inflight = false; saving = null; if (total !== null) needTotal = true; edits.forEach(function (ed) { var k = ed.row + ':' + ed.col; if (!queue[k]) queue[k] = ed; });
         setStatus('保存失败：' + e.message + '（修改还在，5 秒后自动重试）', 'text-danger');
         clearTimeout(timer); timer = setTimeout(function () { flush().catch(function () {}); }, 5000);
         throw e;
@@ -112,6 +115,20 @@
 
     // 选中区域 → 金额求和；同时沿用单元格编辑框
     var sumBar = SheetSum.bar(function (el) { var body = root.querySelector('.se-body'); body.parentNode.insertBefore(el, body.nextSibling); });
+    // 下拉格：鼠标 / 手指在格子上点一下（松开后），选中的是这一个格子就展开选项，和 Excel 的下拉格一样；松开后再开，才不会被表格自己的“点击关闭编辑”顶掉
+    function maybeOpenDropdown(e) {
+      var td = e.target && e.target.closest && e.target.closest('td[data-x]');
+      if (!td || e.target.closest('.jdropdown, .jdropdown-container, .jdropdown-content, .jdropdown-item')) return;
+      var x = parseInt(td.getAttribute('data-x'), 10), y = parseInt(td.getAttribute('data-y'), 10);
+      setTimeout(function () {
+        if (!table || !cfg.canEdit || table.edition) return;
+        var col = table.options.columns[x]; if (!col || col.type !== 'dropdown' || col.readOnly) return;
+        var sel = table.selectedCell; if (!sel || Number(sel[0]) !== x || Number(sel[2]) !== x || Number(sel[1]) !== y || Number(sel[3]) !== y) return; // 只在选中单个格子时
+        try { td.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true })); } catch (err) { /* 打不开时仍可双击 */ }
+      }, 40);
+    }
+    gridEl.addEventListener('mouseup', maybeOpenDropdown, true);
+    gridEl.addEventListener('touchend', maybeOpenDropdown, { capture: true, passive: true });
     function onSelect(instance, x1, y1, x2, y2) {
       selectCell(instance, x1, y1);
       if (!table) return;
@@ -169,17 +186,81 @@
       records.forEach(function (r) {
         if (!r) return; // 只读单元格没有记录
         var dx = parseInt(r.x, 10), y = parseInt(r.y, 10);
+        if (dx === statusX) return; // “系统状态”列只读展示，不保存
         var x = meta.order[dx]; // 显示列 → 原始列
         if (!meta.editable[x]) return;
         var nv = r.newValue !== undefined ? r.newValue : r.value;
         var v = nv == null ? '' : String(nv).trim();
         queue[meta.rowNos[y] + ':' + x] = { row: meta.rowNos[y], col: x, v: v };
-        var key = y + ':' + x; if (!localChanged[key]) { localChanged[key] = 1; pendingCount++; }
-        mark(y, dx, false); any = true;
+        var key = y + ':' + x; if (!cfg.online && !localChanged[key]) { localChanged[key] = 1; pendingCount++; }
+        if (!cfg.online) mark(y, dx, false);
+        any = true;
         if (selected && selected.x === dx && selected.y === y && cellInput) cellInput.value = v;
       });
-      if (any) { updateSubmit(); schedule(); sumBar.refresh(); }
+      if (any) { updateSubmit(); schedule(); sumBar.refresh(); if (cfg.online) { clearTimeout(syncTimer); setSync('有修改，保存后自动同步到系统…', 'text-warning'); } }
     }
+
+    // ---- 新增行：粘贴超出末行时表格会自动加行；也可以点“新增行”按钮。行号按顺序接在后面，保存时把总行数告诉服务器 ----
+    function onInsertRow(instance, rowNumber, numOfRows) {
+      var base = meta.rowNos.length;
+      for (var i = 0; i < numOfRows; i++) meta.rowNos.push(base + i + 1);
+      needTotal = true; schedule();
+    }
+    function addRows(n) {
+      if (!table || !cfg.canEdit) return;
+      finishEditing();
+      var have = table.options.data.length;
+      if (have + n > 3000) { setStatus('一张表最多 3000 行', 'text-danger'); return; }
+      var y0 = have; table.insertRow(n);
+      try { table.updateSelectionFromCoords(0, y0, 0, y0); var row = table.rows[y0], c = gridEl.querySelector('.jexcel_content'); if (row && c) c.scrollTop = Math.max(0, row.offsetTop - 60); } catch (e) { /* 选中失败不影响新增 */ }
+      setStatus('已新增 ' + n + ' 行，填写后自动保存', 'text-muted');
+    }
+    root.querySelectorAll('.se-add').forEach(function (b) { b.addEventListener('click', function () { addRows(parseInt(b.getAttribute('data-n'), 10) || 1); }); });
+
+    // ---- 在线表格：自动同步到系统，每行的结果显示在“系统状态”列 ----
+    function setSync(text, kind) { if (syncEl) { syncEl.textContent = text; syncEl.className = 'se-sync-status small ' + (kind || 'text-muted'); } }
+    function stateText(st) { return ({ ok: '✓ ', bad: '✗ ', wait: '… ', retry: '… ', cleared: '— ' }[st.s] || '') + st.t; }
+    var stateColor = { ok: '#1f7a4d', bad: '#b4332f', wait: '#8a6d1f', retry: '#8a6d1f', cleared: '#6a7a75' };
+    function applyStates(states) {
+      if (!table || statusX < 0 || !states) return;
+      var inv = {}; meta.rowNos.forEach(function (no, y) { inv[no] = y; });
+      var ok = 0, bad = 0, wait = 0;
+      Object.keys(states).forEach(function (no) {
+        var st = states[no], y = inv[no]; if (y == null) return;
+        if (st.s === 'ok') ok++; else if (st.s === 'bad') bad++; else if (st.s === 'wait' || st.s === 'retry') wait++;
+        var name = jspreadsheet.getColumnNameFromId([statusX, y]);
+        table.setValueFromCoords(statusX, y, stateText(st), true);
+        table.setStyle(name, 'color', stateColor[st.s] || '#333');
+      });
+      meta.syncCounts = { ok: ok, bad: bad, wait: wait };
+      setSync('已同步 ' + ok + ' 行' + (bad ? ' · 需处理 ' + bad + ' 行（看“系统状态”列）' : '') + (wait ? ' · 还没填完整 ' + wait + ' 行' : ''), bad ? 'text-danger' : 'text-success');
+    }
+    function scheduleSync() {
+      if (!cfg.online || !cfg.canEdit) return;
+      clearTimeout(syncTimer); setSync('已保存，约 8 秒后自动同步到系统…', 'text-warning');
+      syncTimer = setTimeout(function () { syncNow().catch(function () {}); }, 8000);
+    }
+    function syncNow() {
+      if (!cfg.online) return Promise.resolve();
+      clearTimeout(syncTimer);
+      return flush().then(function () {
+        if (syncing) return null;
+        syncing = true; setSync('正在同步到系统…', 'text-muted'); if (syncBtn) syncBtn.disabled = true;
+        return call({ action: 'sync' }).then(function (d) {
+          syncing = false; if (syncBtn) syncBtn.disabled = false;
+          if (d.busy) { setSync('系统正在处理上一次同步，稍后自动重试…', 'text-warning'); syncTimer = setTimeout(function () { syncNow().catch(function () {}); }, 5000); return d; }
+          applyStates(d.states);
+          if (Object.keys(queue).length || needTotal) scheduleSync();
+          return d;
+        }, function (e) {
+          syncing = false; if (syncBtn) syncBtn.disabled = false;
+          setSync('同步失败：' + e.message + '（修改已保存，30 秒后自动重试）', 'text-danger');
+          syncTimer = setTimeout(function () { syncNow().catch(function () {}); }, 30000);
+          throw e;
+        });
+      });
+    }
+    if (syncBtn) syncBtn.addEventListener('click', function () { finishEditing(); syncNow().catch(function () {}); });
 
     function build(sheet) {
       if (table) { try { jspreadsheet.destroy(gridEl, true); } catch (e) { /* 重新载入时先销毁旧表 */ } gridEl.innerHTML = ''; table = null; }
@@ -191,7 +272,10 @@
       for (var i2 = 0; i2 < n; i2++) order.push(i2);
       var inv = []; order.forEach(function (orig, pos) { inv[orig] = pos; });
       meta.order = order; meta.inv = inv;
+      statusX = -1;
+      if (cfg.online) { order.push(n); inv[n] = n; statusX = n; sheet.editable.push(false); sheet.kinds.push(''); }  // 在线表格：末尾加一列只读的“系统状态”
       var cols = order.map(function (i) {
+        if (cfg.online && i === n) return { type: 'text', title: '系统状态', width: 320, readOnly: true, wordWrap: false };
         var h = sheet.head[i], kind = sheet.kinds[i], w = kind === 'order_no' ? 190 : (kind === 'date' ? 100 : (sheet.editable[i] ? 140 : Math.min(220, Math.max(80, (h.length || 3) * 18 + 30))));
         var opts = sheet.options && sheet.options[i];
         // 与 Excel 模板同名的下拉列：点单元格出下拉（原表里不在选项内的旧值照样显示，不会被清掉）
@@ -202,17 +286,21 @@
         }
         return { type: 'text', title: h || ('列' + (i + 1)), width: w, readOnly: !cfg.canEdit || !sheet.editable[i], wordWrap: false };
       });
-      var rows = sheet.rows.map(function (r) { return order.map(function (o) { return r[o]; }); });
+      var rows = sheet.rows.map(function (r, y) {
+        var line = order.map(function (o) { return r[o]; });
+        if (statusX >= 0) { var st = sheet.online && sheet.online.states && sheet.online.states[sheet.rowNos[y]]; line[statusX] = st ? stateText(st) : ''; }
+        return line;
+      });
       pendingCount = sheet.pending || 0;
       var h = Math.max(320, (window.innerHeight || 700) - 330);
       table = jspreadsheet(gridEl, {
         data: rows.length ? rows : [[]], columns: cols, freezeColumns: 0,
         tableOverflow: true, tableWidth: Math.max(160, root.clientWidth - 2) + 'px', tableHeight: h + 'px', lazyLoading: true, loadingSpin: true,
         parseFormulas: false, autoCasting: false,
-        columnSorting: false, allowInsertRow: false, allowManualInsertRow: false, allowInsertColumn: false, allowManualInsertColumn: false,
+        columnSorting: false, allowInsertRow: !!cfg.canEdit, allowManualInsertRow: false, allowInsertColumn: false, allowManualInsertColumn: false,
         allowDeleteRow: false, allowDeleteColumn: false, allowRenameColumn: false, allowComments: false, allowExport: false,
         selectionCopy: true, search: true, defaultColWidth: 110, rowResize: false, columnResize: true,
-        contextMenu: function () { return []; }, onafterchanges: onAfterChanges, onselection: onSelect, onresizecolumn: resizeGrid,
+        contextMenu: function () { return []; }, onafterchanges: onAfterChanges, onselection: onSelect, onresizecolumn: resizeGrid, oninsertrow: onInsertRow,
         text: { search: '在表中查找…', showingPage: '第 {0} / {1} 页', entries: '', noRecordsFound: '没有找到' }
       });
       var content = gridEl.querySelector('.jexcel_content');
@@ -243,8 +331,14 @@
       heads.forEach(function (td) { var x = parseInt(td.getAttribute('data-x'), 10); if (sheet.editable[order[x]] && cfg.canEdit) td.classList.add('se-edit-head'); });
       (sheet.changed || []).forEach(function (c) { mark(c[0], inv[c[1]], c[2] === 1); });
       var note = root.querySelector('.se-trunc'); if (note) note.hidden = !sheet.truncated;
+      if (statusX >= 0 && sheet.online && sheet.online.states) {
+        var stc = {}; Object.keys(sheet.online.states).forEach(function (no) { stc[no] = sheet.online.states[no]; });
+        var inv0 = {}; sheet.rowNos.forEach(function (no, y) { inv0[no] = y; });
+        Object.keys(stc).forEach(function (no) { var y = inv0[no]; if (y != null) table.setStyle(jspreadsheet.getColumnNameFromId([statusX, y]), 'color', stateColor[stc[no].s] || '#333'); });
+      }
       refreshColumns();
       updateSubmit(); setStatus(cfg.canEdit ? '全部字段可编辑，修改会自动保存' : '只读（你没有编辑权限）', 'text-muted');
+      if (cfg.online && sheet.online) { var cnt = { ok: 0, bad: 0, wait: 0 }; Object.keys(sheet.online.states || {}).forEach(function (no) { var k = sheet.online.states[no].s; if (k === 'ok') cnt.ok++; else if (k === 'bad') cnt.bad++; else if (k === 'wait' || k === 'retry') cnt.wait++; }); setSync('已同步 ' + cnt.ok + ' 行' + (cnt.bad ? ' · 需处理 ' + cnt.bad + ' 行' : '') + (cnt.wait ? ' · 还没填完整 ' + cnt.wait + ' 行' : ''), cnt.bad ? 'text-danger' : 'text-success'); syncNow().catch(function () {}); }
     }
 
     function load() {
@@ -302,6 +396,6 @@
     });
     window.addEventListener('beforeunload', function (e) { if (Object.keys(queue).length || inflight) { e.preventDefault(); e.returnValue = ''; } });
     load();
-    return { reload: load, flush: flush };
+    return { reload: load, flush: flush, sync: syncNow, addRows: addRows };
   };
 })();

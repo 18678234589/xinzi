@@ -34,6 +34,25 @@ function pse_ensure()
     $done = true;
 }
 
+/** 这张工作表现在有多少数据行：取原表行数与“新增行”容量的较大者（在线新增的行存在 row_no=0,col_idx=1）。 */
+function pse_capacity($fileId, $sheet, $baseRows = 0)
+{
+    pse_ensure();
+    $q = db()->prepare('SELECT value FROM project_import_edits WHERE file_id=? AND sheet=? AND row_no=0 AND col_idx=1');
+    $q->execute([(int)$fileId, (string)$sheet]);
+    $v = $q->fetchColumn();
+    return min(PSE_MAX_ROWS, max((int)$baseRows, $v === false ? 0 : (int)$v));
+}
+
+/** 把数据行总数提到 $total（只增不减）。调用方负责权限。 */
+function pse_set_capacity($fileId, $sheet, $total, array $actor)
+{
+    $total = min(PSE_MAX_ROWS, (int)$total);
+    pse_ensure();
+    db()->prepare('INSERT INTO project_import_edits (file_id,sheet,row_no,col_idx,value,applied_value,updated_by_type,updated_by_id) VALUES (?,?,0,1,?,?,?,?) ON DUPLICATE KEY UPDATE value=GREATEST(CAST(value AS UNSIGNED),CAST(VALUES(value) AS UNSIGNED)),applied_value=value')
+        ->execute([(int)$fileId, (string)$sheet, (string)$total, (string)$total, $actor['type'] ?? '', (int)($actor['id'] ?? 0)]);
+}
+
 /** 文件访问：财务看全部，其他人只能是本人上传的（由 ps_import_file_get 校验）。 */
 function pse_file($fileId, $actor)
 {
@@ -127,8 +146,12 @@ function pse_parse($file, $sheetName, $actor, $sheets = null)
         }
         $data[$i] = $cells;
     }
+    // 在线新增的行（原表没有）：补空行到容量
+    $baseRows = max(count($rows) - 1, 0);
+    $capacity = pse_capacity((int)$file['id'], $sheetName, $baseRows);
+    for ($n = $baseRows + 1; $n <= $capacity && count($data) < PSE_MAX_ROWS; $n++) $data[$n] = array_fill(0, $total, '');
     $orderCol = array_search('order_no', $kinds, true);
-    return ['head' => $head, 'kinds' => $kinds, 'width' => $total, 'rows' => $data, 'orderCol' => $orderCol === false ? null : $orderCol, 'virtual' => $virtual, 'truncated' => $truncated];
+    return ['head' => $head, 'kinds' => $kinds, 'width' => $total, 'rows' => $data, 'orderCol' => $orderCol === false ? null : $orderCol, 'virtual' => $virtual, 'truncated' => $truncated, 'baseRows' => $baseRows];
 }
 
 /** 在线编辑的下拉列：表头与该业务 Excel 模板的下拉列同名时给同样的选项（[列序号 => 选项数组]）；其余列仍是文本。 */
@@ -162,11 +185,17 @@ function pse_import_sheets($file, $actor)
         if (!$rows) continue;
         $rows = array_values(array_filter($rows, 'is_array'));
         $rows[0] = $p['head'];
+        for ($n = count($rows); $n <= count($p['rows']); $n++) if (!isset($rows[$n])) $rows[$n] = array_fill(0, $p['width'], '');
         foreach (pse_overlay((int)$file['id'], (string)$name) as $no => $cells) {
             if ($no < 1 || !isset($rows[$no])) continue;
             foreach ($cells as $col => $edit) if ($col >= 0 && $col < $p['width']) $rows[$no][$col] = $edit['value'];
             ksort($rows[$no]);
             $rows[$no] = array_replace(array_fill(0, $p['width'], ''), $rows[$no]);
+        }
+        // 在线表格自动同步：只让有改动的行进入导入，其余行置空忽略（状态沿用上次同步结果）
+        if (isset($GLOBALS['pse_only_rows'][(string)$name])) {
+            $only = array_flip($GLOBALS['pse_only_rows'][(string)$name]);
+            foreach ($rows as $no => $r) if ($no >= 1 && !isset($only[$no])) $rows[$no] = array_fill(0, $p['width'], '');
         }
     }
     unset($rows);
@@ -223,7 +252,7 @@ function pse_load($fileId, $sheet, $actor)
 }
 
 /** 自动保存：edits = [['row'=>源表行号,'col'=>列,'v'=>值]…]。与原值相同则撤销该格编辑。 */
-function pse_save($fileId, $sheet, array $edits, $actor)
+function pse_save($fileId, $sheet, array $edits, $actor, $totalRows = null)
 {
     $file = pse_file($fileId, $actor);
     if (!pse_can_edit($file, $actor)) throw new RuntimeException('没有编辑这份表格的权限');
@@ -237,6 +266,13 @@ function pse_save($fileId, $sheet, array $edits, $actor)
         $_SESSION['pse_cache'][$key] = $cache;
     }
     pse_ensure();
+    // 在线新增行：客户端带上当前总行数，服务器把容量提上去，并给缓存补空行
+    if ($totalRows !== null && (int)$totalRows > count($cache['orig'])) {
+        $totalRows = min(PSE_MAX_ROWS, (int)$totalRows);
+        pse_set_capacity((int)$file['id'], $sheet, $totalRows, $actor);
+        for ($n = count($cache['orig']) + 1; $n <= $totalRows; $n++) if (!array_key_exists($n, $cache['orig'])) $cache['orig'][$n] = array_fill(0, (int)$cache['width'], '');
+        $_SESSION['pse_cache'][$key] = $cache;
+    }
     $up = db()->prepare('INSERT INTO project_import_edits (file_id,sheet,row_no,col_idx,value,updated_by_type,updated_by_id) VALUES (?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE value=VALUES(value),updated_by_type=VALUES(updated_by_type),updated_by_id=VALUES(updated_by_id)');
     $del = db()->prepare('DELETE FROM project_import_edits WHERE file_id=? AND sheet=? AND row_no=? AND col_idx=?');
     $saved = 0;
@@ -400,6 +436,7 @@ function pse_submit($fileId, $sheet, $actor, $dry = false)
     $find = db()->prepare('SELECT id,order_no,shop,contract_amount FROM project_orders WHERE order_no=?');
     $mark = db()->prepare('UPDATE project_import_edits SET applied_value=value WHERE file_id=? AND sheet=? AND row_no=? AND col_idx=?');
     foreach ($over as $no => $cells) {
+        if ($no < 1) continue; // row 0 存的是列布局 / 行容量标记
         $pendingCells = [];
         foreach ($cells as $c => $o) if (($o['applied'] === null || $o['applied'] !== $o['value']) && isset($p['kinds'][$c]) && pse_editable_kind($p['kinds'][$c])) $pendingCells[$c] = $o['value'];
         if (!$pendingCells) continue;
