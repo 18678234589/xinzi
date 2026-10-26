@@ -73,7 +73,10 @@ try {
     $assert(array_sum(array_column($results,'amount')) === 3600.0 && count($results)===4, '王姿涵四项薪酬引擎计算错误');
     $ctx['inputs']=[];
     $results=ps_monthly_results('2096-01',true,$ctx);
-    $assert(array_sum(array_column($results,'amount')) === 3400.0 && strpos($results[1]['detail'],'待财务批准')!==false, '全勤奖未经批准就计入报酬');
+    fwrite(STDERR,'DBG '.json_encode([array_sum(array_column($results,'amount')),array_column($results,'detail')],JSON_UNESCAPED_UNICODE)."
+");
+    // 现行规则：满勤（无缺勤）由考勤记录自动审核全勤奖，不再需要财务逐月批准；有缺勤时才看财务的批准输入（下面的请假场景）
+    $assert(array_sum(array_column($results,'amount')) === 3600.0 && strpos($results[1]['detail'],'考勤自动审核')!==false, '满勤应按考勤自动审核全勤奖');
     $ctx['attendance'][$eid]=['work'=>200,'absent'=>8];$ctx['inputs']=[80001=>[$eid=>['value'=>0,'note'=>'请假一天']]];
     $results=ps_monthly_results('2096-01',true,$ctx);
     $assert(round(array_sum(array_column($results,'amount')),2) === 3306.67, '请假一天工资与固定补助计算错误');

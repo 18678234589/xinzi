@@ -6,6 +6,10 @@ if (PHP_SAPI !== 'cli') { http_response_code(403); exit; }
 require_once __DIR__ . '/../includes/ProjectIntake.php';
 
 $pdo = db();
+// 导入提交含建表（隐式提交），上次中途失败会留下测试订单：先清掉，保证可重复运行
+require_once __DIR__ . '/../includes/ProjectOrderDelete.php';
+foreach ($pdo->query("SELECT id FROM project_orders WHERE order_no LIKE 'FOLLOW-TEST-%'")->fetchAll(PDO::FETCH_COLUMN) as $leftoverId) pod_delete_rows((int)$leftoverId);
+$pdo->exec("DELETE f FROM project_import_followups f JOIN project_import_files i ON i.id=f.file_id WHERE i.original_name='待补全测试.csv'"); // 上次失败遗留的待补全
 $pdo->beginTransaction();
 $stored = null;
 $check = function ($ok, $label) { if (!$ok) throw new RuntimeException('未通过：' . $label); echo "  [OK] $label\n"; };
@@ -32,7 +36,7 @@ try {
     $check(!isset($byLine[5]) && mb_strpos($html, '已自动略过 1 行') !== false, '只写了技术姓名、没有订单号和金额的空白行自动略过并提示');
     $check(!empty($byLine[3]['base_valid']) && $byLine[3]['order_date'] === '2026-09-01' && isset($byLine[3]['people']['customer_service']) && count($byLine[3]['people']['customer_service']) === 1 && mb_strpos($byLine[3]['warning'], '沿用第 2 行') !== false, '只写订单号的续行：日期、客服、技术沿用上一行');
     $check(!empty($byLine[6]['base_valid']) && $byLine[6]['delivery_status'] === 'finished' && mb_strpos($byLine[6]['warning'], '金额“740”') !== false, '状态列写金额 740：按已到账处理');
-    $check(empty($byLine[4]['base_valid']) && empty($byLine[7]['base_valid']) && empty($byLine[8]['base_valid']), '缺订单号（第 4、8 行）/ 缺日期（第 7 行）的行未通过');
+    $check(empty($byLine[4]['base_valid']) && empty($byLine[7]['base_valid']) && empty($byLine[8]['base_valid']), '缺订单号（第 4、8 行）/ 缺日期（第 7 行）的行未通过（第 4、8 行没有付款昵称 / 联系方式 / 客服，无法生成内部订单号；有这些信息的行会自动生成 WX- 内部号，见 import_replay_fixes_smoke）：' . json_encode(array_map(function ($n) use ($byLine) { return [$n, !empty($byLine[$n]['base_valid']), $byLine[$n]['order_no'] ?? '', $byLine[$n]['error'] ?? '']; }, [4, 7, 8]), JSON_UNESCAPED_UNICODE));
 
     [$error, $imported] = $page(['action' => 'commit']);
     $check($error === '' && $imported === 3, '先导入 3 行合格订单（' . $error . '）');
@@ -55,7 +59,7 @@ try {
     $orders = $pdo->query("SELECT order_no,order_date FROM project_orders WHERE order_no LIKE 'FOLLOW-TEST-%' ORDER BY order_no")->fetchAll(PDO::FETCH_KEY_PAIR);
     $check(array_keys($orders) === ['FOLLOW-TEST-001', 'FOLLOW-TEST-002', 'FOLLOW-TEST-004', 'FOLLOW-TEST-005', 'FOLLOW-TEST-006'] && $orders['FOLLOW-TEST-006'] === '2026-09-03', '订单入库：补填的订单号与日期都已生效，“不是订单”的行未入库');
     ob_start(); include __DIR__ . '/../includes/import_followup_modal.php'; $modal = ob_get_clean();
-    $check(trim($modal) === '', '处理完后不再显示弹窗');
+    $check(mb_strpos($modal, '待补全测试.csv') === false, '处理完后本表不再显示弹窗（该账号在其他表格里的待补全不受影响）');
 
     $pdo->rollBack();
     echo "\n=== 上传后待补全全部通过，测试数据已回滚 ===\n";

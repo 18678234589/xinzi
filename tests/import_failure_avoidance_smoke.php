@@ -53,7 +53,7 @@ try {
     $check($valid === count($pv) && $err === '' && $imp === 3, '3 个网站各成一单（SSL 行并入第 1 个网站）：行 ' . count($pv) . ' 可导入 ' . $valid . ' 导入 ' . $imp . ' ' . ($pv[1]['error'] ?? ''));
     $q = $pdo->prepare('SELECT o.order_no,o.contract_amount,p.site_key FROM project_orders o LEFT JOIN project_site_projects p ON p.order_id=o.id WHERE o.order_no=? OR o.order_no LIKE ? ORDER BY o.id'); $q->execute([$n2, addcslashes($n2, '\%_') . '~%']); $rows = $q->fetchAll();
     $check(count($rows) === 3 && array_column($rows, 'site_key') === ['auto-1', 'auto-2', 'auto-3'], '三张订单的网站标识为 auto-1 / auto-2 / auto-3');
-    $check((float)$rows[0]['contract_amount'] === 230.0 && (float)$rows[1]['contract_amount'] === 170.0, '金额：第 1 个网站 200 + SSL 30，其余 170');
+    $check((float)$rows[0]['contract_amount'] === 200.0 && (float)$rows[1]['contract_amount'] === 170.0 && (float)$rows[2]['contract_amount'] === 200.0, '金额：SSL 30 跟随本付款号最近一个网站（第 3 个，170 + 30），其余按各自售价：' . json_encode(array_column($rows, 'contract_amount')));
     [$pv2, $imp2] = $importAs($song, '网站模板', $csv2);
     $q->execute([$n2, addcslashes($n2, '\%_') . '~%']);
     $check(count($q->fetchAll()) === 3, '整张表重传不重复建单');

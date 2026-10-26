@@ -10,6 +10,7 @@ psr_ensure();ppf_ensure();ps_corr_ensure();ps_payroll_extras_ensure();
 try {
     for($i=0;$i<3;$i++){$p->prepare('INSERT INTO employees (name,department,password) VALUES (?,?,?)')->execute(['FIXED-PROXY-'.bin2hex(random_bytes(6)),'测试','x']);$employees[]=(int)$p->lastInsertId();}
     [$a,$b,$c]=$employees;foreach($employees as $eid)pspr_month($eid,$month);
+    foreach($employees as $eid)$p->prepare("INSERT INTO project_payroll_flags (employee_id,payroll_month,color,reason) VALUES (?,?,'yellow','测试：财务已核对')")->execute([$eid,$month]); // 往月须财务核对过才能申请（pspr_month_checked）
     $admin=['type'=>'admin','id'=>1,'role'=>'finance'];$finance=['type'=>'admin','id'=>5,'role'=>'finance'];$staff=['type'=>'employee','id'=>0,'employee_id'=>$a,'role'=>'technical'];
     fpx_check('non-finance cannot submit another person or a proxy batch',fpx_denied(function()use($staff,$month,$b){pspr_submit($staff,$month,'1',$b);}) && fpx_denied(function()use($staff,$month,$b){pspr_submit_fixed($staff,$month,[$b=>'1']);}));
     $p->beginTransaction();
@@ -37,5 +38,6 @@ try {
     $p->rollBack();
 }finally{
     if($p->inTransaction())$p->rollBack();
+    foreach($employees as $eid)$p->prepare('DELETE FROM project_payroll_flags WHERE employee_id=? AND payroll_month=?')->execute([$eid,$month]);
     foreach($employees as $eid)$p->prepare('DELETE FROM employees WHERE id=? AND name LIKE ?')->execute([$eid,'FIXED-PROXY-%']);
 }

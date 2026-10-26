@@ -128,11 +128,11 @@ try {
     $check((string)($pG2[0]['order_no'] ?? '') === $noG && (int)$pdo->query("SELECT COUNT(*) FROM project_orders WHERE order_no='" . $noG . "'")->fetchColumn() === 1, '同一对公编码重传：不重复建单');
     // 对公类型但没粘贴编号：仍可导入，临时内部号并提示补编码
     [$pG3, $iG3] = $importAs($song, '网站模板', $csvOf('网站模板', [$common + ['付款昵称' => "h$tag", '店铺' => '对公转账/启硕', '网站域名' => "h$tag.com", '编号类型' => '对公转账编号', '订单编号' => '']]));
-    $check($iG3 === 1 && strpos((string)($pG3[0]['order_no'] ?? ''), 'DG-') === 0 && strpos((string)($pG3[0]['warning'] ?? ''), '没有填对公编码') !== false, '选了对公转账编号但没粘贴编号：临时内部号并提示补上');
+    $check($iG3 === 1 && strpos((string)($pG3[0]['order_no'] ?? ''), 'WX-') === 0 && strpos((string)($pG3[0]['warning'] ?? ''), '对公') !== false, '选了对公转账编号但没粘贴编号：临时内部号（WX-）并提示');
     // 老写法兼容：没有“编号类型”列，订单编号写“对公”也行
     $dg = ['日期' => '2026.9.13', '店铺' => '对公转账/启硕', '付款昵称' => "公司$tag", '订单编号' => '对公', '售价' => '1250', $sk => '已完成', '客服' => '宋倩倩', '模板技术' => '张强', '程序名称' => 'jsp展示中级版', '年限' => '1年', '网站域名' => "dg$tag.com", '续费联系方式' => '13800138000'];
     [$pvD, $impD] = $importAs($song, '网站模板', $csvOf('网站模板', [$dg]));
-    $check($impD === 1 && strpos((string)($pvD[0]['order_no'] ?? ''), 'DG-') === 0, '老写法：不选类型、订单编号只写“对公”仍可导入');
+    $check($impD === 1 && strpos((string)($pvD[0]['order_no'] ?? ''), 'WX-') === 0, '老写法：不选类型、订单编号只写“对公”仍可导入');
 
     // 新模板没有“订单类型”列：程序名称下拉含 博山定制 / AI定制 / 华梦定制 / 纯利润 / 补差价 / 域名注册 / SSL证书，直接决定订单类型；老写法（订单类型列）仍可识别
     $progCol = (function () { foreach (pmt_columns('网站模板') as $col) if ($col[0] === '程序名称') return $col; return null; })();
@@ -238,6 +238,81 @@ try {
 ");
     $refO = (string)$pdo->query("SELECT s.payment_reference FROM project_order_sources s JOIN project_orders o ON o.id=s.order_id WHERE s.payment_reference='" . $oldWx . "'")->fetchColumn();
     $check($iO === 1 && $refO === $oldWx, '老表带单独的微信交易流水号列：照旧识别');
+
+    // 一笔销售拍成多个订单号：订单编号格里写几个都行，仍是一张订单（单量算 1 单），售价写合计
+    require_once __DIR__ . '/../includes/ProjectOrderPayments.php';
+    $check(pop_split_numbers("5127817428063033942
+5127877909056089133") === ['5127817428063033942', ['5127877909056089133']] && pop_split_numbers('5127817428063033942, 5127877909056089133 ，5127877909056089134')[1] === ['5127877909056089133', '5127877909056089134'], '订单编号格拆分：换行 / 逗号 / 空格分隔的多个订单号');
+    $check(pop_split_numbers('对公 GS123456789') === ['对公 GS123456789', []] && pop_split_numbers('5127817428063033942') === ['5127817428063033942', []] && pop_split_numbers('订单号：5127817428063033942 备注') === ['订单号：5127817428063033942 备注', []], '“对公 xxx”、单个订单号、带备注的写法不会被误拆');
+    $mA = "51278$tag" . '00000001'; $mB = "51278$tag" . '00000002'; $mC = "51278$tag" . '00000003'; $mD = "51278$tag" . '00000004';
+    $mrow = ['日期' => '2026.10.20', '店铺' => '清风易', '付款昵称' => "m$tag", '售价' => '550', $sk => '已完成', '客服' => '张光萍', '前端（技术）' => '李子晖', '续费联系方式' => '13800138000', '网站域名' => "m$tag.com", '域名到期日期' => '2027-10-01', '服务器到期日期' => '2027-10-01'];
+    $cnt = function ($like) use ($pdo) { $q = $pdo->prepare('SELECT COUNT(*) FROM project_orders WHERE order_no LIKE ?'); $q->execute([$like]); return (int)$q->fetchColumn(); };
+    [$pM, $iM, $eM] = $importAs($zg, 'AI网站定制', $csvOf('AI网站定制', [$mrow + ['订单编号' => "\"$mA
+$mB\""]]));
+    $mainNo = (string)($pM[0]['order_no'] ?? '');
+    $mainId = (int)$pdo->query("SELECT id FROM project_orders WHERE order_no='" . $mainNo . "'")->fetchColumn();
+    $check($iM === 1 && strpos($mainNo, $mA) === 0 && $mainId && $cnt("51278$tag%") === 1, '两个订单号一行：只建 1 张订单（单量 1 单），主订单号是第一个：' . $mainNo . ' ' . $eM . ($pM[0]['error'] ?? ''));
+    $linked = array_column(pop_list($mainId), 'payment_no');
+    $check($linked === [$mB], '第二个订单号记为关联付款订单号：' . json_encode($linked));
+    $amtM = (float)$pdo->query('SELECT contract_amount FROM project_orders WHERE id=' . $mainId)->fetchColumn();
+    $check(abs($amtM - 550) < 0.01, '售价按表里写的合计 550：' . $amtM);
+    [$pM2, $iM2] = $importAs($zg, 'AI网站定制', $csvOf('AI网站定制', [$mrow + ['订单编号' => $mB]]));
+    $check((string)($pM2[0]['order_no'] ?? '') === $mainNo && $cnt("51278$tag%") === 1, '之后只写第二个订单号上传：对应到原订单，不新建：' . ($pM2[0]['order_no'] ?? ''));
+    [$pM3, $iM3] = $importAs($zg, 'AI网站定制', $csvOf('AI网站定制', [$mrow + ['订单编号' => "\"$mB
+$mA\""]]));
+    $check((string)($pM3[0]['order_no'] ?? '') === $mainNo && $iM3 === 1 && $cnt("51278$tag%") === 1, '顺序换过来写（第二个在前）也对应同一张订单，且能正常导入');
+    // 其中一个订单号已经被单独录成了一张订单：上传时提示先合并；财务合并后单量只剩 1 单
+    [$pS, $iS] = $importAs($zg, 'AI网站定制', $csvOf('AI网站定制', [array_merge($mrow, ['付款昵称' => "s$tag", '网站域名' => "s$tag.com", '售价' => '300', '订单编号' => $mC])]));
+    $sepNo = (string)($pS[0]['order_no'] ?? '');
+    $check($iS === 1 && $cnt("$mC%") === 1, '先把 ' . $mC . ' 单独录成一单');
+    [$pX, $iX] = $importAs($zg, 'AI网站定制', $csvOf('AI网站定制', [array_merge($mrow, ['付款昵称' => "x$tag", '网站域名' => "x$tag.com", '订单编号' => "\"$mD
+$mC\""])]));
+    $check($iX === 0 && mb_strpos((string)($pX[0]['error'] ?? ''), '已经是另一张独立订单') !== false, '订单号已是另一张独立订单：上传时提示先合并，不会重复计单：' . ($pX[0]['error'] ?? ''));
+    $fin = ['type' => 'admin', 'id' => 1, 'role' => 'finance', 'employee_id' => 0];
+    $mergeInto = (int)$pdo->query("SELECT id FROM project_orders WHERE order_no='" . $mainNo . "'")->fetchColumn();
+    $res = pop_merge($mergeInto, $sepNo, true, $fin);
+    $amtAfter = (float)$pdo->query('SELECT contract_amount FROM project_orders WHERE id=' . $mergeInto)->fetchColumn();
+    $check($cnt("$mC%") === 0 && in_array($sepNo, array_column(pop_list($mergeInto), 'payment_no'), true) && abs($amtAfter - 850) < 0.01, '财务并入：独立订单进回收站，订单号变成关联号，售价 550 + 300 = 850：' . $amtAfter);
+    $threw = false; try { pop_merge($mergeInto, $mainNo, true, ['role' => 'customer_service']); } catch (RuntimeException $ex) { $threw = true; }
+    $check($threw, '非财务不能合并');
+
+    // 网站模板：3-4 个订单号写在同一格（空格 / 换行 / 逗号混着写）也是 1 单；程序 + SSL 两行，加购行只写其中一个号也并入同一单
+    $nA = "61278$tag" . '00000001'; $nB = "61278$tag" . '00000002'; $nC = "61278$tag" . '00000003'; $nD = "61278$tag" . '00000004';
+    $wrow = ['日期' => '2026.10.22', '店铺' => '美呀美', '付款昵称' => "w$tag", $sk => '已完成', '客服' => '宋倩倩', '模板技术' => '张强', '年限' => '1年', '续费联系方式' => '13800138000', '网站域名' => "w$tag.com", '域名到期日期' => '2027-10-01', '服务器到期日期' => '2027-10-01'];
+    [$pW, $iW, $eW] = $importAs($song, '网站模板', $csvOf('网站模板', [
+        $wrow + ['订单编号' => "\"$nA $nB,$nC\n$nD\"", '售价' => '750', '程序名称' => 'jsp展示中级版'],
+        array_merge($wrow, ['网站域名' => '', '订单编号' => $nC, '售价' => '200', '程序名称' => 'SSL证书']),
+    ]));
+    $wNo = (string)($pW[0]['order_no'] ?? ''); $wId = (int)$pdo->query("SELECT id FROM project_orders WHERE order_no='" . $wNo . "'")->fetchColumn();
+    $wAmt = $wId ? (float)$pdo->query('SELECT contract_amount FROM project_orders WHERE id=' . $wId)->fetchColumn() : 0;
+    $check($iW >= 1 && $wId && $cnt("61278$tag%") === 1, '4 个订单号 + 加购 SSL 行（只写其中一个号）：只建 1 张订单：' . $wNo . ' imported=' . $iW . ' ' . $eW . ' ' . ($pW[1]['error'] ?? ''));
+    $check(array_column(pop_list($wId), 'payment_no') === [$nB, $nC, $nD] && abs($wAmt - 950) < 0.01, '其余 3 个号都记为关联订单号，售价 750 + 200 = 950：' . json_encode(array_column(pop_list($wId), 'payment_no')) . ' ' . $wAmt);
+    [$pW2] = $importAs($song, '网站模板', $csvOf('网站模板', [$wrow + ['订单编号' => $nD, '售价' => '750', '程序名称' => 'jsp展示中级版']]));
+    $check((string)($pW2[0]['order_no'] ?? '') === $wNo && $cnt("61278$tag%") === 1, '之后用第 4 个号上传：对应到原订单，不新建');
+    // 加购行写第二个号（主行写“第一 + 第二”）：同一张表里也能对上
+    $oA = "71278$tag" . '00000001'; $oB = "71278$tag" . '00000002';
+    [$pV, $iV, $eV] = $importAs($song, '网站模板', $csvOf('网站模板', [
+        $wrow + ['付款昵称' => "v$tag", '网站域名' => "v$tag.com", '订单编号' => "\"$oA $oB\"", '售价' => '750', '程序名称' => 'jsp展示中级版'],
+        array_merge($wrow, ['付款昵称' => "v$tag", '网站域名' => '', '订单编号' => $oB, '售价' => '200', '程序名称' => 'SSL证书']),
+    ]));
+    $vId = (int)$pdo->query("SELECT id FROM project_orders WHERE order_no LIKE '" . $oA . "%' LIMIT 1")->fetchColumn();
+    $check($vId && (int)$pdo->query("SELECT COUNT(*) FROM project_orders WHERE order_no LIKE '71278$tag%'")->fetchColumn() === 1 && abs((float)$pdo->query('SELECT contract_amount FROM project_orders WHERE id=' . $vId)->fetchColumn() - 950) < 0.01, '加购行写第二个号：同一张表里对到同一张订单，合计 950：' . $eV . ' ' . ($pV[1]['error'] ?? ''));
+
+    // 用 / 分隔（5127546926252003848/5127816996248003848）也是 1 单
+    $sA = "81278$tag" . '00000001'; $sB = "81278$tag" . '00000002';
+    [$pSl, $iSl, $eSl] = $importAs($song, '网站模板', $csvOf('网站模板', [$wrow + ['付款昵称' => "sl$tag", '网站域名' => "sl$tag.com", '订单编号' => "$sA/$sB", '售价' => '550', '程序名称' => 'jsp展示中级版']]));
+    $slId = (int)$pdo->query("SELECT id FROM project_orders WHERE order_no LIKE '" . $sA . "%' LIMIT 1")->fetchColumn();
+    $check($iSl === 1 && $slId && $cnt("81278$tag%") === 1 && array_column(pop_list($slId), 'payment_no') === [$sB], '用 / 分隔两个订单号：1 张订单，第二个号记为关联号：' . $eSl . ($pSl[0]['error'] ?? ''));
+
+    // 订单页添加关联订单号：已是独立订单 / 已关联到别的订单的号不能再加
+    $sepMsg = ''; try { pop_add($mainId, $mainNo, null, $fin); } catch (RuntimeException $ex) { $sepMsg = $ex->getMessage(); }
+    $check(mb_strpos($sepMsg, '这就是本单的订单号') !== false, '不能把本单自己的订单号再加一遍');
+    $dupMsg = ''; $otherId = (int)$pdo->query("SELECT id FROM project_orders WHERE order_no LIKE '" . $mD . "%' LIMIT 1")->fetchColumn();
+    $pdo->prepare("INSERT INTO project_orders (order_no,customer_name,project_type,order_kind,shop,contract_amount,receipt_amount,order_date,delivery_status,settlement_status,note) VALUES (?,'测试','AI网站定制','','内部',100,0,'2026-10-21','unfinished','draft','测试')")->execute(["51278$tag" . '00000009']);
+    $otherId = (int)$pdo->lastInsertId();
+    try { pop_add($otherId, $mB, null, $fin); } catch (RuntimeException $ex) { $dupMsg = $ex->getMessage(); }
+    $check(mb_strpos($dupMsg, '已关联到订单') !== false, '已关联到别的订单的号不能再加到另一张订单');
+    $check(pop_add($otherId, "51278$tag" . '00000010', 25, $fin) === true && pop_add($otherId, "51278$tag" . '00000010', 25, $fin) === false, '新号可以添加，重复添加不报错也不重复');
 
     // 旧版表（无续费联系方式列）提醒下载新版
     $old = "日期,店铺,付款昵称,订单编号,售价,状态(填已完成/未完成),客服,模板技术,程序名称\n2026.9.10,美呀美,old$tag,33194{$tag}00009,500,已完成,宋倩倩,张强,jsp展示中级版\n";

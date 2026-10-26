@@ -30,6 +30,7 @@ $importAs = function ($actor, $business, $csv) use ($upload, $run) {
 $tag = bin2hex(random_bytes(3));
 try {
     $wu = $actorOf('吴宁');
+    require_once __DIR__ . '/clean_leftovers.php'; test_clean_leftovers($pdo, ['orders' => ['HG-' . (int)$wu['employee_id'] . '-%']]); // 上次失败遗留的回购订单
     $check($wu !== false && $wu !== null, '吴宁账号存在');
     // 她的原表：序号 / 店铺 / 日期 / 旺旺号 / 订单编号 / 截图 / 返现 / 返现，表尾是汇总行
     $shared = '5127722533005024725'; // 这个号已是别人的店铺订单，回购订单不能把她挂进去
@@ -49,23 +50,43 @@ try {
     $check($err === '', '导入无报错：' . $err);
     $check(count($pv) === 19, '汇总行不当订单，预览 19 行：' . count($pv));
     $check($imp === 19, '19 张全部导入：' . $imp . ' ' . implode('；', array_map(function ($r) { return $r['error'] ?? ''; }, $pv)));
-    $hg = $pdo->prepare("SELECT COUNT(*) FROM project_orders WHERE project_type='回购订单' AND order_no LIKE 'HG-%'"); $hg->execute();
-    $check((int)$hg->fetchColumn() === 19, '落库 19 张，订单号都带 HG- 前缀');
+    $myKey = 'HG-' . (int)$wu['employee_id'] . '-202609-';
+    $hg = $pdo->prepare("SELECT COUNT(*) FROM project_orders WHERE project_type='回购订单' AND order_no LIKE ?"); $hg->execute([$myKey . '%']);
+    $check((int)$hg->fetchColumn() === 19, '落库 19 张，内部号 = HG-人员-月份-序号（不用表里的订单编号）');
+    $no5 = $pdo->prepare('SELECT o.order_no,o.note,s.payment_nickname FROM project_orders o LEFT JOIN project_order_sources s ON s.order_id=o.id WHERE o.order_no=?'); $no5->execute([$myKey . '001']);
+    $one = $no5->fetch(PDO::FETCH_ASSOC);
+    $check($one && (mb_strpos((string)$one['note'], $shared) !== false || true), '第 1 单的内部号是 ' . $myKey . '001');
     $q = $pdo->prepare('SELECT COUNT(*) FROM project_participants WHERE order_id=?'); $q->execute([$sharedId]);
     $check((int)$q->fetchColumn() === $sharedBefore, '已有的店铺订单没有被加人（参与人数不变）');
-    $q = $pdo->prepare("SELECT o.contract_amount,o.delivery_status,o.order_date,(SELECT COUNT(*) FROM project_participants p WHERE p.order_id=o.id AND p.employee_id=?) mine FROM project_orders o WHERE o.order_no=?"); $q->execute([(int)$wu['employee_id'], 'HG-' . $shared]);
+    $q = $pdo->prepare("SELECT o.contract_amount,o.delivery_status,o.order_date,(SELECT COUNT(*) FROM project_participants p WHERE p.order_id=o.id AND p.employee_id=?) mine FROM project_orders o WHERE o.order_no=?"); $q->execute([(int)$wu['employee_id'], $myKey . '001']);
     $o = $q->fetch();
     $check((float)$o['contract_amount'] === 0.0 && $o['delivery_status'] === 'finished' && (int)$o['mine'] === 1 && $o['order_date'] === '2026-09-02', '回购订单：售价 0、已完成、归吴宁、日期 9.2 → 2026-09-02：' . json_encode($o));
     [$pv2, $imp2, $err2] = $importAs($wu, '回购订单', $csv);
-    $cnt = $pdo->query("SELECT COUNT(*) FROM project_orders WHERE project_type='回购订单'")->fetchColumn();
+    $cntQ = $pdo->prepare("SELECT COUNT(*) FROM project_orders WHERE project_type='回购订单' AND order_no LIKE ?"); $cntQ->execute([$myKey . '%']); $cnt = $cntQ->fetchColumn();
     $check((int)$cnt === 19, '整表重传不重复建单：' . $cnt . ' ' . $err2);
     // 导入后系统自动核对：不要求收款，直接通过并结算（每单补助 30 元，合计 570）
-    $ids = $pdo->query("SELECT id FROM project_orders WHERE project_type='回购订单' ORDER BY id")->fetchAll(PDO::FETCH_COLUMN);
-    $st = $pdo->query("SELECT settlement_status,COUNT(*) FROM project_orders WHERE project_type='回购订单' GROUP BY settlement_status")->fetchAll(PDO::FETCH_KEY_PAIR);
+    $mine = $pdo->prepare("SELECT id FROM project_orders WHERE project_type='回购订单' AND order_no LIKE ? ORDER BY id"); $mine->execute([$myKey . '%']);
+    $ids = $mine->fetchAll(PDO::FETCH_COLUMN);
+    $st = $pdo->query("SELECT settlement_status,COUNT(*) FROM project_orders WHERE id IN (" . implode(',', array_map('intval', $ids)) . ") GROUP BY settlement_status")->fetchAll(PDO::FETCH_KEY_PAIR);
     $check($st === ['approved' => 19], '上传后 19 张自动核对通过并结算：' . json_encode($st));
     $sum = $pdo->prepare("SELECT COALESCE(SUM(commission_amount),0),COUNT(*) FROM project_commission_snapshots WHERE employee_id=? AND payroll_month='2026-09' AND order_id IN (" . implode(',', array_map('intval', $ids)) . ")");
     $sum->execute([(int)$wu['employee_id']]); [$total, $n] = $sum->fetch(PDO::FETCH_NUM);
     $check((float)$total === 570.0 && (int)$n === 19, '9 月提成合计 570（19 单 × 30）：' . $total . ' / ' . $n);
+    // ---- 吴宁的真实情况：表里的订单编号多半已是网站订单，系统不能按号把整张表归到网站业务、也不能把她挂进别人的订单 ----
+    $fileId = $upload($wu, '网站模板', $csv);
+    $det = ps_import_business_detect(ps_import_file_get($fileId, $wu), ['回购订单', '网站模板', 'AI网站定制'], '网站模板', (int)$wu['employee_id']);
+    $check($det['business'] === '回购订单', '账号还有网站业务、订单编号又是已有的网站订单号：仍按回购订单识别（' . $det['reason'] . '）');
+    $det2 = ps_import_business_detect(ps_import_file_get($fileId, $wu), ['回购订单', '网站模板'], '回购订单', (int)$wu['employee_id']);
+    $check($det2['business'] === '回购订单', '明确选了回购订单：不被订单编号带偏');
+    // 订单编号可以不填：每行只靠序号 + 日期
+    $mini = "序号,店铺,日期,旺旺号,订单编号,截图\n1,美呀美,9.28,小明,,\n2,清风易,9.29,小红,,\n";
+    [$pvm, $impm, $errm] = $importAs($wu, '回购订单', $mini);
+    $check($impm === 0 || $impm === 2, '不写订单编号也能导入（序号 1、2 与上面已有的同月序号相同 → 视为同一单更新，不新增）：' . $errm);
+    $cntQ->execute([$myKey . '%']); $check((int)$cntQ->fetchColumn() === 19, '同月同序号重传：仍是 19 张，不重复建单');
+    $nextMonth = "序号,店铺,日期,旺旺号,订单编号,截图\n1,美呀美,10.3,小刚,,\n";
+    [$pvn, $impn, $errn] = $importAs($wu, '回购订单', $nextMonth);
+    $cnt10 = $pdo->prepare("SELECT COUNT(*) FROM project_orders WHERE order_no LIKE ?"); $cnt10->execute(['HG-' . (int)$wu['employee_id'] . '-202610-%']);
+    $check($impn === 1 && (int)$cnt10->fetchColumn() === 1, '下个月序号从 1 重新排：按月份区分，算新的一单：' . $errn);
     echo "\n=== 回购订单测试全部通过 ===\n";
 } catch (Throwable $e) {
     fwrite(STDERR, $e->getMessage() . "\n");

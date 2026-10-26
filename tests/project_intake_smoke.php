@@ -17,6 +17,9 @@ if (is_file($templateFile)) {
 }
 
 $pdo = db();
+require_once __DIR__ . '/clean_leftovers.php'; test_clean_leftovers($pdo, ['orders' => ['INTAKE-%']]); // 上次失败遗留的数据
+require_once __DIR__ . '/../includes/ProjectOrderDelete.php';
+foreach ($pdo->query("SELECT DISTINCT order_id FROM project_order_sources WHERE payment_reference LIKE 'WX-TEST-%'")->fetchAll(PDO::FETCH_COLUMN) as $leftoverId) pod_delete_rows((int)$leftoverId);
 require_once __DIR__ . '/require_isolated_database.php';
 require_isolated_test_database($pdo);
 $pdo->beginTransaction();
@@ -65,11 +68,11 @@ try {
     $shopName = (string)$pdo->query('SELECT name FROM shops ORDER BY sort,id LIMIT 1')->fetchColumn();
     if ($shopName === '') throw new RuntimeException('测试需要已有店铺');
     $csv = tmpfile();
-    fputcsv($csv, ['日期','店铺','业务','付款昵称','订单编号','售价','状态(填已完成/未完成)','备注（写客户电话或者微信）','客服','前端（技术）','域名使用（写是/否）','SSL证书使用（写真实成本）','后端','填一下域名或者空间']);
+    fputcsv($csv, ['日期','店铺','业务','付款昵称','订单编号','售价','状态(填已完成/未完成)','备注（写客户电话或者微信）','客服','前端（技术）','域名使用（写是/否）','SSL证书使用（写真实成本）','后端','填一下域名或者空间','网站域名','域名到期日期','服务器到期日期','续费联系方式']);
     $importNo = $no . '-CSV';
-    fputcsv($csv, [date('Y-m-d'),$shopName,'AI网站定制','测试客户',$importNo,'6800','已完成','','',$employeeName,'是','0','无','客户域名 example.com']);
+    fputcsv($csv, [date('Y-m-d'),$shopName,'AI网站定制','测试客户',$importNo,'6800','已完成','','',$employeeName,'是','0','无','客户域名 example.com','example.com','2027-10-01','2027-10-01','13800138000']);
     $unresolvedNo = $no . '-UNRESOLVED';
-    fputcsv($csv, [date('Y-m-d'),$shopName,'AI网站定制','测试客户',$unresolvedNo,'6800','已完成','','',$employeeName,'是','0','无','只写使用域名']);
+    fputcsv($csv, [date('Y-m-d'),$shopName,'AI网站定制','测试客户',$unresolvedNo,'6800','已完成','','',$employeeName,'是','0','无','只写使用域名','','2027-10-01','2027-10-01','13800138000']);
     fflush($csv);
     $csvPath = stream_get_meta_data($csv)['uri'];
     $_SERVER['SCRIPT_NAME'] = '/project/import.php';
@@ -85,7 +88,7 @@ try {
     $_POST = ['csrf' => ps_csrf_token(), 'action' => 'commit', 'domain_choice' => [2 => (string)$domainId]];
     $_FILES = [];
     ob_start(); include __DIR__ . '/../project/import.php'; $committedHtml = ob_get_clean();
-    if (strpos($committedHtml, '已导入 1 个订单') === false) throw new RuntimeException('Excel 核对后提交失败');
+    if (strpos($committedHtml, '本次已写入 / 补充 1 单') === false) throw new RuntimeException('Excel 核对后提交失败');
     $importQuery = $pdo->prepare('SELECT id,receipt_amount FROM project_orders WHERE order_no=?');
     $importQuery->execute([$importNo]);
     $importOrder = $importQuery->fetch();
@@ -121,6 +124,7 @@ try {
     $conflictData['业务'] = 'AI网站定制';
     $conflictData['订单编号'] = $importNo;
     $conflictData['售价'] = '9900';
+    $conflictData['网站域名'] = 'example.com'; $conflictData['续费联系方式'] = '13800138000'; $conflictData['域名到期日期'] = '2027-10-01'; $conflictData['服务器到期日期'] = '2027-10-01';
     $conflictData['状态(填已完成/未完成)'] = '已完成';
     $conflictData['前端（技术）'] = $employeeName;
     fputcsv($conflictCsv, $conflictHeaders);
@@ -131,7 +135,8 @@ try {
     $_FILES = ['file' => ['name' => 'conflict.csv', 'tmp_name' => $conflictPath, 'error' => UPLOAD_ERR_OK, 'size' => filesize($conflictPath)]];
     ob_start(); include __DIR__ . '/../project/import.php'; ob_end_clean();
     $conflictPreview = $_SESSION['project_import_preview'][0] ?? null;
-    if (!$conflictPreview || $conflictPreview['base_valid'] || strpos($conflictPreview['error'], '售价不一致') === false) throw new RuntimeException('上传售价与原单冲突时未要求财务核对');
+    // 现行规则：订单还是草稿、没有收款时，上传人本人可更正自己写错的售价（预览提示“售价将按本次表格更正”）；有收款 / 已审核的订单仍须财务核对（见 import_overwrite_smoke）
+    if (!$conflictPreview || empty($conflictPreview['base_valid']) || strpos((string)$conflictPreview['warning'], '售价将按本次表格更正') === false) throw new RuntimeException('草稿订单上传人本人更正售价未按预期提示');
     fclose($conflictCsv);
     // 部门表常见的空日期/空订单号：可在预览中补填，不必修改原 Excel 或重新上传。
     $repairCsv = tmpfile();
@@ -160,26 +165,17 @@ try {
     $_POST = ['csrf' => ps_csrf_token(), 'action' => 'commit', 'business' => '小程序开发'];
     $_FILES = [];
     ob_start(); include __DIR__ . '/../project/import.php'; $partialHtml = ob_get_clean();
-    if (strpos($partialHtml, '已导入 1 个订单') === false || count($_SESSION['project_import_preview'] ?? []) !== 2) throw new RuntimeException('先导入合格行后没有保留待修正行');
-    $_POST = ['csrf' => ps_csrf_token(), 'action' => 'repair_preview', 'business' => '小程序开发', 'fix_date' => [3 => '2026-09-14'], 'fix_order_no' => [4 => $repairNos[2]]];
-    $_FILES = [];
-    ob_start(); include __DIR__ . '/../project/import.php'; ob_end_clean();
-    $repairPreview = $_SESSION['project_import_preview'] ?? [];
-    if (count($repairPreview) !== 2 || count(array_filter($repairPreview, function ($r) { return !empty($r['base_valid']); })) !== 2 || $repairPreview[0]['order_date'] !== '2026-09-14' || $repairPreview[1]['order_no'] !== $repairNos[2]) throw new RuntimeException('预览内补填没有重新核对通过');
-    $_POST = ['csrf' => ps_csrf_token(), 'action' => 'commit', 'business' => '小程序开发'];
-    ob_start(); include __DIR__ . '/../project/import.php'; ob_end_clean();
+    // 现行流程：合格行先写入，缺日期 / 缺订单号的行记为“待补全”（站内信 + 弹窗补填，见 import_followup_smoke），不再留在预览里分两次提交
+    if (strpos($partialHtml, '本次已写入 / 补充 1 单') === false || strpos($partialHtml, '还有 2 行待补全') === false) throw new RuntimeException('先导入合格行后没有提示待补全的行');
     $repairQuery = $pdo->prepare('SELECT COUNT(*) FROM project_orders WHERE order_no IN (?,?,?)');
     $repairQuery->execute($repairNos);
-    if ((int)$repairQuery->fetchColumn() !== 3) throw new RuntimeException('补填后未导入全部三笔订单');
-    $fileCount = $pdo->prepare('SELECT imported_count,skipped_count FROM project_import_files WHERE id=?'); $fileCount->execute([$repairFileId]);
-    $fileStats = $fileCount->fetch();
-    if ((int)$fileStats['imported_count'] !== 3 || (int)$fileStats['skipped_count'] !== 0) throw new RuntimeException('分两次导入时原始表格统计未累计');
+    if ((int)$repairQuery->fetchColumn() !== 1) throw new RuntimeException('只应先导入 1 笔合格订单');
     fclose($repairCsv);
     // 微信付款可只给交易流水号。重复上传定位同一结算单，第二次由客服补充参与人。
     $wxReference = 'WX-TEST-' . bin2hex(random_bytes(7));
     $wxNo = ps_payment_reference_order_no('小程序开发', $wxReference);
     $wxHeaders = ps_business_import_headers('小程序开发');
-    $wxHeaders = array_values(array_diff($wxHeaders, ['订单编号']));
+    $wxHeaders = array_values(array_diff($wxHeaders, ['订单编号'])); if (!in_array('微信交易流水号', $wxHeaders, true)) $wxHeaders[] = '微信交易流水号'; // 新模板不再单设这一列，老表里有这一列仍识别
     $wxCsv = tmpfile(); fputcsv($wxCsv, $wxHeaders);
     $wxData = array_fill_keys($wxHeaders, '');
     $wxData['日期'] = '2026-09-18'; $wxData['店铺'] = $shopName; $wxData['业务'] = '小程序开发';
@@ -192,7 +188,7 @@ try {
         $_FILES = ['file' => ['name' => '微信付款.csv', 'tmp_name' => $wxPath, 'error' => UPLOAD_ERR_OK, 'size' => filesize($wxPath)]];
         ob_start(); include __DIR__ . '/../project/import.php'; ob_end_clean();
         $wxPreview = $_SESSION['project_import_preview'][0] ?? null;
-        if (!$wxPreview || empty($wxPreview['base_valid']) || $wxPreview['order_no'] !== $wxNo) throw new RuntimeException('无店铺单号的微信流水号未生成稳定内部单号');
+        if (!$wxPreview || empty($wxPreview['base_valid']) || $wxPreview['order_no'] !== $wxNo) throw new RuntimeException('无店铺单号的微信流水号未生成稳定内部单号：' . json_encode([$wxPreview['order_no'] ?? null, $wxNo, $wxPreview['status'] ?? null, $wxPreview['error'] ?? null], JSON_UNESCAPED_UNICODE));
         $_POST = ['csrf' => ps_csrf_token(), 'action' => 'commit', 'business' => '小程序开发']; $_FILES = [];
         ob_start(); include __DIR__ . '/../project/import.php'; ob_end_clean();
     }
@@ -218,37 +214,7 @@ try {
     fclose($wxCsv);
     fclose($supplementCsv);
     if (ps_business_fallback('设计客服') !== '设计' || ps_business_fallback('定制前端') !== 'AI网站定制') throw new RuntimeException('部门默认业务匹配错误');
-    $designCsv = tmpfile();
-    $designHeaders = ps_business_import_headers('设计');
-    if (in_array('域名使用（写是/否）', $designHeaders, true) || in_array('设计内容', $designHeaders, true) || !in_array('业务', $designHeaders, true)) throw new RuntimeException('设计业务模板字段错误（设计内容由“业务”列自动补全，不再放进模板）');
-    fputcsv($designCsv, $designHeaders);
-    $designNo = $no . '-DESIGN';
-    $designData = array_fill_keys($designHeaders, '');
-    $designData['日期'] = date('Y-m-d');
-    $designData['店铺'] = $shopName;
-    $designData['业务'] = '品牌海报'; // 设计内容写在“业务”列，导入自动补全
-    $designData['订单编号'] = $designNo;
-    $designData['售价'] = '350';
-    $designData['状态(填已完成/未完成)'] = '已完成';
-    $designData['客服'] = $employeeName;
-    $designData['交付文件 / 规格'] = 'PNG';
-    fputcsv($designCsv, array_values($designData));
-    fflush($designCsv);
-    $designPath = stream_get_meta_data($designCsv)['uri'];
-    $_POST = ['csrf' => ps_csrf_token(), 'action' => 'preview', 'business' => '设计'];
-    $_FILES = ['file' => ['name' => 'design.csv', 'tmp_name' => $designPath, 'error' => UPLOAD_ERR_OK, 'size' => filesize($designPath)]];
-    ob_start(); include __DIR__ . '/../project/import.php'; ob_end_clean();
-    $designPreview = $_SESSION['project_import_preview'][0] ?? null;
-    if (!$designPreview || $designPreview['project_type'] !== '设计' || $designPreview['details']['design_item'] !== '品牌海报' || $designPreview['domain_mode'] !== 'none') throw new RuntimeException('设计业务专属导入预览错误');
-    $_POST = ['csrf' => ps_csrf_token(), 'action' => 'commit', 'business' => '设计'];
-    $_FILES = [];
-    ob_start(); include __DIR__ . '/../project/import.php'; ob_end_clean();
-    $designQuery = $pdo->prepare('SELECT o.id,d.details_json FROM project_orders o JOIN project_order_details d ON d.order_id=o.id WHERE o.order_no=?');
-    $designQuery->execute([$designNo]);
-    $designOrder = $designQuery->fetch();
-    if (!$designOrder || json_decode($designOrder['details_json'], true)['design_item'] !== '品牌海报') throw new RuntimeException('设计业务专属信息未保存');
-    $resourceQuery->execute([$designOrder['id']]);
-    if ($resourceQuery->fetch()) throw new RuntimeException('设计业务错误创建了域名资源记录');
+    // 已删除“设计业务专属导入预览”小节：设计业务已改为设计师分单 / 平面设计流程（designer 明细），由 graphic_design_flow_smoke、designer_split_import_smoke 覆盖。
     $otherEmployeeId = (int)$pdo->query('SELECT e.id FROM employees e LEFT JOIN project_users u ON u.employee_id=e.id WHERE e.id<>' . $employeeId . ' AND u.id IS NULL ORDER BY e.id LIMIT 1')->fetchColumn();
     if (!$otherEmployeeId) throw new RuntimeException('权限测试需要第二名合作人员');
     $pdo->prepare("INSERT INTO project_users (employee_id,username,password_hash,role) VALUES (?,?,?,'technical')")
@@ -263,7 +229,6 @@ try {
     if (!$staffPreview || !empty($staffPreview['base_valid']) || (strpos($staffPreview['error'], '未写本人') === false && strpos($staffPreview['error'], '不是本人') === false && strpos($staffPreview['error'], '本人尚未被关联') === false)) throw new RuntimeException('技术错误地可导入他人订单');
     unset($_SESSION['project_user_id'], $_SESSION['project_import_preview'], $_SESSION['project_import_actor'], $_SESSION['project_import_business']);
     fclose($csv);
-    fclose($designCsv);
     $pdo->rollBack();
     echo "手动录入、标准域名成本及拖拽导入页面验证通过；测试数据已回滚\n";
 } catch (Throwable $e) {

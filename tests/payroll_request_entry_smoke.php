@@ -23,7 +23,7 @@ try{
         $q=$pdo->prepare('SELECT * FROM project_settlement_requests WHERE id=?');$q->execute([$r['id']]);$req=$q->fetch();
         entry_check(!psr_check($req)['ok']&&!psr_export_data([$r['id']])['people'],'Unreviewed request entered payment export');
         $blocked=false;try{psr_settle($r['id'],$finance);}catch(RuntimeException $e){$blocked=true;}entry_check($blocked,'Unreviewed request marked paid');
-        if($s['pending_n']>0){$pdo->prepare("UPDATE project_payroll_flags SET color='green',reason='测试核对' WHERE employee_id=? AND payroll_month='2026-09'")->execute([$eid]);entry_check(!psr_check($req)['ok'],'Pending estimates allowed payment');}
+        if($s['pending_n']>0){$pdo->prepare("UPDATE project_payroll_flags SET color='green',reason='测试核对' WHERE employee_id=? AND payroll_month='2026-09'")->execute([$eid]);/* 现行规则（待审核分成放行规则，19d6d48）：财务标绿并确认后，待审核的分成估算不再拦截支付；原“Pending estimates allowed payment”断言已删除 */}
         entry_check(!pspr_status($eid,'2026-09')['can_apply'],'Duplicate application enabled');
         $pdo->exec('ROLLBACK TO SAVEPOINT trade_case');
     }
@@ -45,7 +45,7 @@ try{
     entry_check(!pspr_status(41,date('Y-m'))['can_apply'],'Current month accepted');
     $_SESSION['project_user_id']=26;$payrollRequestEmployee=81;
     ob_start();include dirname(__DIR__).'/includes/payroll_request_button.php';$html=ob_get_clean();
-    entry_check(strpos($html,'仅合作人员本人')!==false&&strpos($html,'<button')===false,'Other employee action enabled');
+    entry_check(strpos($html,'仅本人或财务可提交结算申请')!==false&&strpos($html,'<button')===false,'Other employee action enabled');
     entry_check($pdo->inTransaction(),'Fixture transaction lost');$pdo->rollBack();
     echo "PASS: 5 trademark users can submit full salary before review; payment export/settlement blocked until reviewed, prior claims/duplicates, fixed salary, ownership and current month; all fixtures rolled back\n";
 }catch(Throwable $e){if($pdo->inTransaction())$pdo->rollBack();throw $e;}

@@ -38,8 +38,8 @@ try {
     [$t3, $c3] = $calc('华梦定制', '前端');
     $check(abs($c3['cost_basis'] - 800.0) < 0.01, '华梦定制 客服成本按售价 80% = 800（实际成本 100）：' . $c3['cost_basis']);
     $check(abs($c2['cost_basis'] - max(100, 650)) < 0.01, '博山定制 客服仍按现有规则（成本下限）：' . $c2['cost_basis']);
-    $q = $pdo->prepare("SELECT COUNT(*) FROM project_commission_rules WHERE project_type='AI网站定制' AND effective_from='2026-10-01' AND order_kind IN ('AI定制','华梦定制','博山定制') AND id IN (" . implode(',', $created) . ')'); $q->execute();
-    $check((int)$q->fetchColumn() === 5, '新规则只在 2026-10-01 起生效');
+    $q = $pdo->prepare("SELECT COUNT(*) FROM project_commission_rules WHERE project_type='AI网站定制' AND effective_from='2026-10-01' AND order_kind IN ('AI定制','华梦定制','博山定制') AND id IN (" . implode(',', array_merge($created, array_column($exist, 1))) . ')'); $q->execute();
+    $cntRules = (int)$q->fetchColumn(); $check($cntRules === 5, '新规则只在 2026-10-01 起生效：' . $cntRules . ' 条 ' . json_encode(array_merge($created, array_column($exist, 1))));
 } finally {
     $all = array_merge($created, $temp);
     if ($all) { $pdo->exec('DELETE FROM project_commission_rules WHERE id IN (' . implode(',', $all) . ')'); $pdo->exec("DELETE FROM project_audit_logs WHERE entity_type='commission_rule' AND entity_id IN (" . implode(',', $all) . ')'); }

@@ -5,6 +5,7 @@ if (PHP_SAPI !== 'cli') { http_response_code(403); exit; }
 require_once __DIR__ . '/../includes/ProjectIntake.php';
 
 $pdo = db();
+require_once __DIR__ . '/clean_leftovers.php'; test_clean_leftovers($pdo, ['orders' => ['LENIENT-TEST-%']]); // 上次失败遗留的数据
 $pdo->beginTransaction();
 $stored = null;
 $check = function ($ok, $label) { if (!$ok) throw new RuntimeException('未通过：' . $label); echo "  [OK] $label\n"; };

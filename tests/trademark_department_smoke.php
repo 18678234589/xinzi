@@ -9,7 +9,7 @@ require_once __DIR__ . '/../includes/SalaryCalculator.php';
 require_once __DIR__ . '/../classes/SimpleXLSX.php';
 
 function check_eq($actual, $expected, $label) {
-    if (abs((float)$actual - (float)$expected) > 0.001) {
+    if (abs((float)$actual - (float)$expected) > 0.005) { // 分成按分四舍五入
         throw new RuntimeException("$label: expected $expected, got $actual");
     }
 }

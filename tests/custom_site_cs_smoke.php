@@ -1,5 +1,5 @@
 <?php
-// AI网站定制客服：每单补助 10 元（2026-09 起订单）、每月毛利第一名奖励 500。事务内执行，结束回滚。php tests/custom_site_cs_smoke.php
+// AI网站定制客服：每单补助 10 元（2026-09 起订单）、每月第一名奖 500（2026-10 起为综合考评、人工确认名次）。事务内执行，结束回滚。php tests/custom_site_cs_smoke.php
 if (PHP_SAPI !== 'cli') { http_response_code(403); exit; }
 require_once __DIR__ . '/../includes/ProjectMonthly.php';
 
@@ -29,10 +29,14 @@ try {
     $snap = $pdo->prepare("SELECT subsidy_amount,commission_amount FROM project_commission_snapshots s JOIN project_orders o ON o.id=s.order_id WHERE o.order_no='CSTEST-0'");
     $snap->execute();
     $row = $snap->fetch();
-    // 董旭：成本取 max(实际 3000, 售价 × 65% = 6500) = 6500；(10000 − 6500 − 300) × 10% = 320 + 补助 10
-    $check((float)$row['subsidy_amount'] === 10.0 && abs((float)$row['commission_amount'] - 330.0) < 0.01, '订单分成 = (10000 − 6500 − 300) × 10% + 每单 10 = 330');
+    // 董旭：成本取 max(实际 3000, 售价 × 65% = 6500) = 6500；(10000 − 6500 − 300) × 10% = 320 + 每单补助
+    // 每单补助随规则变化（2026-09 起 10 元，2026-10-01 起 20 元）：按订单日期当天生效的规则取
+    $sub = (float)ps_rule_for('customer_service', 'AI网站定制', '2027-02-05')['per_order_subsidy'];
+    $check($sub > 0 && (float)$row['subsidy_amount'] === $sub && abs((float)$row['commission_amount'] - (320.0 + $sub)) < 0.01, '订单分成 = (10000 − 6500 − 300) × 10% + 每单补助 ' . $sub . ' = ' . (320.0 + $sub) . '（实际 ' . $row['commission_amount'] . '）');
     $awards = array_values(array_filter(ps_monthly_results($month, true), function ($r) { return $r['rule_name'] === '定制客服月度第一名奖'; }));
-    $check(count($awards) === 1 && (int)$awards[0]['employee_id'] === $E('董旭') && (float)$awards[0]['amount'] === 500.0, '当月毛利第一（董旭）得 500，第二名不得：' . ($awards[0]['detail'] ?? ''));
+    // 2026-10 起第一名奖改为“单量 / 收入 / 利润综合考评”，名次由财务 / 主管人工确认（metric=manual，见 ProjectWebsiteRewards.php）：未确认名次前不自动发 500
+    $rule = $pdo->query("SELECT metric FROM project_monthly_rules WHERE name='定制客服月度第一名奖' AND scope_business='AI网站定制' AND is_active=1 ORDER BY effective_from DESC,id DESC LIMIT 1")->fetchColumn();
+    $check($rule === 'manual' && count($awards) === 0, '第一名奖为人工确认名次：未确认前不自动发放（规则 metric=' . $rule . '，结果 ' . count($awards) . ' 条）');
 
     $pdo->rollBack();
     echo "\n=== 定制客服补助与第一名奖全部通过，测试数据已回滚 ===\n";

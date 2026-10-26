@@ -28,6 +28,7 @@ $orders = function ($like) use ($pdo) { $q = $pdo->prepare('SELECT id,order_no,p
 $tag = bin2hex(random_bytes(3));
 $csvOf = function ($business, array $rows) {
     $head = ps_business_import_headers($business);
+    foreach ($rows as $row) foreach (array_keys($row) as $k) if (!in_array($k, $head, true)) $head[] = $k; // 模板没有的列（接单方式等）照常识别
     $out = implode(',', $head) . "\n";
     foreach ($rows as $row) { $cells = []; foreach ($head as $h) $cells[] = $row[$h] ?? ''; $out .= implode(',', $cells) . "\n"; }
     return $out;
@@ -51,7 +52,7 @@ try {
     echo "=== 一、同一笔销售只记一次：软文代写原单 + 微信代写同号同金额 → 加入原单，不另建分单 ===\n";
     $n1 = "33180$tag" . '11111';
     $liuRow = function ($no, $amt, $date) use ($stateKey) { return ['日期' => $date, '店铺' => '美呀美', '付款昵称' => 'nick' . substr($no, -5), '订单编号' => $no, '售价' => $amt, $stateKey => '已完成', '客服' => '刘淑萍', '写手编号' => 'W1']; };
-    $hanRow = function ($no, $amt, $date) use ($stateKey) { return ['日期' => $date, '店铺' => '美呀美', '付款昵称' => 'nick' . substr($no, -5), '订单编号' => $no, '售价' => $amt, $stateKey => '已完成', '项目执行' => '韩菲菲', '写手编号' => 'W1']; };
+    $hanRow = function ($no, $amt, $date) use ($stateKey) { return ['日期' => $date, '店铺' => '美呀美', '付款昵称' => 'nick' . substr($no, -5), '订单编号' => $no, '售价' => $amt, $stateKey => '已完成', '对接编辑' => '韩菲菲', '写手编号' => 'W1', '接单方式' => '编辑对接']; };
     [$pv, $imp, $err] = $importAs($liu, '软文代写', $csvOf('软文代写', [$liuRow($n1, '300', '2026.9.5')]));
     $check($imp === 1, '软文代写原单建立：' . ($pv[0]['error'] ?? $err));
     [$pv, $imp, $err] = $importAs($han, '微信代写', $csvOf('微信代写', [$hanRow($n1, '300', '2026.9.5')]));
@@ -67,8 +68,9 @@ try {
     echo "=== 二、金额不同仍按分单处理 ===\n";
     $n2 = "33180$tag" . '22222';
     $importAs($liu, '软文代写', $csvOf('软文代写', [$liuRow($n2, '300', '2026.9.6')]));
-    [$pv, $imp, $err] = $importAs($han, '微信代写', $csvOf('微信代写', [$hanRow($n2, '120', '2026.9.6')]));
-    $check($imp === 1 && count($orders("$n2%")) === 2 && empty($pv[0]['join_parent']), '金额不同（300 对 120）：另建分单子单：' . ($pv[0]['error'] ?? $err));
+    [$pv, $imp, $err] = $importAs($han, '微信代写', $csvOf('微信代写', [array_merge($hanRow($n2, '120', '2026.9.6'), ['接单方式' => '微信自接', '对接编辑' => '', '客服' => '韩菲菲'])]));
+    // 同号订单已由其他客服录为软文代写时，不再靠金额不同猜成分单子单：必须标注“编辑对接”，确为自接由财务核对原单归属
+    $check($imp === 0 && count($orders("$n2%")) === 1 && mb_strpos((string)($pv[0]['error'] ?? ''), '编辑对接') !== false, '金额不同（300 对 120）且没标编辑对接：不自动另建分单，提示标注编辑对接或由财务核对：' . ($pv[0]['error'] ?? $err));
 
     echo "=== 三、同业务多位客服共同接单（王宁 / 张欣 类） ===\n";
     $n3 = "33180$tag" . '33333';
@@ -101,11 +103,11 @@ try {
     echo "=== 六、对公收款：订单号写“对公”，只需对公交易号 ===\n";
     $_SESSION = []; // 上一节的部门代录会话不带到个人上传
     $n6 = 'DG' . strtoupper($tag) . '66666';
-    $base6 = ['日期' => '2026.9.10', '店铺' => '美呀美', '付款昵称' => 'nickF', '售价' => '500', $stateKey => '已完成', '客服' => '宋倩倩', '模板技术' => '孙妍', '程序名称' => 'php'];
+    $base6 = ['日期' => '2026.9.10', '店铺' => '美呀美', '付款昵称' => 'nickF' . $tag, '售价' => '500', $stateKey => '已完成', '客服' => '宋倩倩', '模板技术' => '孙妍', '程序名称' => 'php'];
     [$pv, $imp, $err] = $importAs($sun, '网站模板', $csvOf('网站模板', [$base6 + ['订单编号' => '对公', '微信交易流水号' => $n6]]));
-    $check($imp === 1 && strpos($pv[0]['order_no'], 'WX-') === 0 && $pv[0]['payment_reference'] === $n6 && !empty($pv[0]['public_transfer']), '“对公”+交易号列：导入，内部关联号 WX-…：' . ($pv[0]['error'] ?? $err));
+    $check($imp === 1 && strpos($pv[0]['order_no'], 'WX-') === 0 && $pv[0]['payment_reference'] === $n6 && !empty($pv[0]['public_transfer']), '“对公”+交易号列：导入，内部关联号 WX-…：' . ($pv[0]['error'] ?? $err) );
     $n6b = 'DG' . strtoupper($tag) . '77777';
-    [$pv, $imp, $err] = $importAs($sun, '网站模板', $csvOf('网站模板', [$base6 + ['订单编号' => '对公 ' . $n6b]]));
+    [$pv, $imp, $err] = $importAs($sun, '网站模板', $csvOf('网站模板', [array_merge($base6, ['付款昵称' => 'nickG' . $tag, '订单编号' => '对公 ' . $n6b])]));
     $check($imp === 1 && $pv[0]['payment_reference'] === $n6b, '订单号格子写“对公 交易号”也识别：' . ($pv[0]['error'] ?? $err));
     $before = (int)$pdo->query("SELECT COUNT(*) FROM project_orders WHERE order_no LIKE 'WX-%'")->fetchColumn();
     [$pv, $imp, $err] = $importAs($sun, '网站模板', $csvOf('网站模板', [$base6 + ['订单编号' => '对公', '微信交易流水号' => $n6]]));

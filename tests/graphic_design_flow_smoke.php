@@ -6,6 +6,7 @@ require_once __DIR__ . '/../includes/ProjectIntake.php';
 require_once __DIR__ . '/../includes/ProjectMonthly.php';
 
 $pdo = db();
+require_once __DIR__ . '/clean_leftovers.php'; test_clean_leftovers($pdo, ['orders' => ['GD-TEST-%']]); // 上次失败遗留的数据
 $pdo->beginTransaction();
 $stored = null;
 $check = function ($ok, $label) { if (!$ok) throw new RuntimeException('未通过：' . $label); echo "  [OK] $label\n"; };
@@ -31,7 +32,7 @@ try {
     $check($error === '', '预览成功' . ($error ? '：' . $error : ''));
     $preview = $_SESSION['project_import_preview'] ?? [];
     $valid = array_values(array_filter($preview, function ($r) { return !empty($r['base_valid']); }));
-    $check(count($valid) === 5, '5 单可导入（合计行不当订单）');
+    $check(count($valid) === 5, '5 单可导入（合计行不当订单）：' . json_encode(array_map(function ($r) { return [$r['line'] ?? '', $r['order_no'] ?? '', $r['status'] ?? '', mb_substr((string)($r['error'] ?? ''), 0, 60)]; }, $preview), JSON_UNESCAPED_UNICODE));
     $byNo = []; foreach ($valid as $r) $byNo[$r['order_no']] = $r;
     $check($byNo['GD-TEST-002']['order_kind'] === '老客户找回' && $byNo['GD-TEST-001']['order_kind'] === '新订单', '“老客户”列有内容 → 老客户找回，其余新订单');
     $check(!array_filter($valid, function ($r) { return $r['delivery_status'] !== 'finished'; }), '无表头的到账列识别为已完成');

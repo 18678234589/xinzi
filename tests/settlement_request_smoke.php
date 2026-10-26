@@ -8,7 +8,7 @@ if (DB_HOST !== '127.0.0.1' || (string)DB_PORT !== '13399') throw new RuntimeExc
 $check = function ($ok, $label) { if (!$ok) throw new RuntimeException('未通过：' . $label); echo "  [OK] $label\n"; };
 $throws = function (callable $f) { try { $f(); } catch (RuntimeException $e) { return $e->getMessage(); } return null; };
 psr_ensure();
-$row = $pdo->query("SELECT c.employee_id,c.payroll_month,COUNT(DISTINCT c.order_id) n FROM project_commission_snapshots c JOIN project_users u ON u.employee_id=c.employee_id AND u.is_active=1 GROUP BY c.employee_id,c.payroll_month HAVING n>=4 AND c.payroll_month < DATE_FORMAT(CURDATE(),'%Y-%m') ORDER BY n DESC LIMIT 1")->fetch();
+$row = $pdo->query("SELECT c.employee_id,c.payroll_month,COUNT(DISTINCT c.order_id) n FROM project_commission_snapshots c JOIN project_users u ON u.employee_id=c.employee_id AND u.is_active=1 GROUP BY c.employee_id,c.payroll_month HAVING n>=4 AND c.payroll_month < DATE_FORMAT(CURDATE(),'%Y-%m') AND NOT EXISTS (SELECT 1 FROM project_settlement_requests r WHERE r.employee_id=c.employee_id AND r.payroll_month=c.payroll_month) ORDER BY n DESC LIMIT 1")->fetch();
 $check($row !== false, '找到有已审核订单的合作人员');
 $eid = (int)$row['employee_id']; $month = $row['payroll_month'];
 $user = $pdo->query("SELECT id FROM project_users WHERE employee_id=$eid AND is_active=1 LIMIT 1")->fetchColumn();
@@ -23,8 +23,7 @@ $check($throws(function () use ($fin, $month, $ids) { psr_submit($fin, $month, $
 $check($throws(function () use ($actor, $month) { psr_submit($actor, $month, []); }) !== null, '没选订单不能提交');
 $check($throws(function () use ($other, $month, $ids) { psr_submit($other, $month, $ids); }) !== null, '别人不能申请不属于自己的订单');
 $home = psr_home_expected($eid, $month);
-$msg = $throws(function () use ($actor, $month, $ids) { psr_submit($actor, $month, array_slice($ids, 0, 1)); });
-$check($msg !== null && mb_strpos($msg, '不一致') !== false || (float)$home['expected'] == 0.0, '按项目分段申请的金额与首页应结算不一致时被拒：' . ($msg ?: '首页余额为 0'));
+// 已删除“分段申请金额与首页应结算不一致时提交被拒”：现行流程提交时放行，金额不一致改在财务核对时作为问题提示（见 psr_check，申请金额与首页扣减后实结算不一致）
 // 整月申请：金额 = 首页实结算（扣除其他申请），申请与首页一致
 $r1 = pspr_submit($actor, $month);
 $rid = $r1['id'];
@@ -37,7 +36,7 @@ $check(psr_pending_count() >= 1, '财务待处理数 ≥ 1');
 // 申请后首页金额变化 → 申请与首页不一致，被标异议，不能导出 / 批量结算
 $pdo->prepare('UPDATE project_settlement_requests SET amount=amount+20 WHERE id=?')->execute([$rid]);
 $chk = psr_check($pdo->query("SELECT * FROM project_settlement_requests WHERE id=$rid")->fetch());
-$check(!$chk['ok'] && mb_strpos(implode('；', $chk['issues']), '与首页应结算不一致') !== false, '金额与首页不一致被标为异议：' . implode('；', $chk['issues']));
+$check(!$chk['ok'] && mb_strpos(implode('；', $chk['issues']), '与首页扣减后实结算不一致') !== false, '金额与首页不一致被标为异议：' . implode('；', $chk['issues']));
 $d = psr_export_data([$rid]);
 $check(!$d['people'] && count($d['held']) === 1, '有异议的申请不进批量打款表');
 $res = psr_settle_many([$rid], $fin);
@@ -54,7 +53,7 @@ $check($throws(function () use ($actor, $month) { pspr_submit($actor, $month); }
 $check($throws(function () use ($rid2, $fin) { psr_reject($rid2, $fin, '已结算不能退回'); }) !== null, '已结算的申请不能退回');
 // ---- 申请更正：多选订单一起提交，主管和财务都能审核 ----
 require_once __DIR__ . '/../includes/commission_explain.php';
-$cand = $pdo->query("SELECT c.employee_id,c.payroll_month,e.department FROM project_commission_snapshots c JOIN project_users u ON u.employee_id=c.employee_id AND u.is_active=1 JOIN employees e ON e.id=c.employee_id JOIN project_dept_heads h ON h.department=e.department AND h.employee_id<>c.employee_id WHERE c.employee_id<>$eid AND c.payroll_month < DATE_FORMAT(CURDATE(),'%Y-%m') GROUP BY c.employee_id,c.payroll_month HAVING COUNT(DISTINCT c.order_id)>=3 LIMIT 1")->fetch();
+$cand = $pdo->query("SELECT c.employee_id,c.payroll_month,e.department FROM project_commission_snapshots c JOIN project_users u ON u.employee_id=c.employee_id AND u.is_active=1 JOIN employees e ON e.id=c.employee_id JOIN project_dept_heads h ON h.department=e.department AND h.employee_id<>c.employee_id WHERE c.employee_id<>$eid AND c.payroll_month < DATE_FORMAT(CURDATE(),'%Y-%m') AND NOT EXISTS (SELECT 1 FROM project_commission_corrections k WHERE k.target_employee_id=c.employee_id AND k.status='pending') AND NOT EXISTS (SELECT 1 FROM project_settlement_requests r WHERE r.employee_id=c.employee_id AND r.payroll_month=c.payroll_month) GROUP BY c.employee_id,c.payroll_month HAVING COUNT(DISTINCT c.order_id)>=3 LIMIT 1")->fetch();
 $check($cand !== false, '找到所在部门有主管的合作人员');
 $e2 = (int)$cand['employee_id']; $m2 = $cand['payroll_month']; $dept = $cand['department'];
 $u2 = $pdo->query("SELECT id FROM project_users WHERE employee_id=$e2 AND is_active=1 LIMIT 1")->fetchColumn();

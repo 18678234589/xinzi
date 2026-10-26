@@ -79,7 +79,7 @@ function split_token_hash($source)
 function split_expand($root, $path, $manifest, &$visited)
 {
     $visited[$path] = true;
-    $source = file_get_contents($root . '/' . $path);
+    $source = str_replace(chr(13) . chr(10), chr(10), file_get_contents($root . '/' . $path)); // Windows 检出（autocrlf）是 CRLF，基线按 LF 记录
     foreach ($manifest['preloads'][$path] ?? [] as $preload) {
         if (substr_count($source, $preload) !== 1) throw new RuntimeException('Changed preload: ' . $path);
         $source = str_replace($preload, '', $source);

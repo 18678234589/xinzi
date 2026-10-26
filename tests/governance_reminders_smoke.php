@@ -17,7 +17,11 @@ try {
     // 隔离：只保留官方节假日（中秋 9/25–27、国庆 10/1–7），清掉本任期 9/28 后的真实脑洞影响（事务内，结束回滚）
     $pdo->exec("DELETE FROM project_holidays WHERE holiday_date BETWEEN '2026-09-20' AND '2026-12-31'");
     $pdo->exec("INSERT INTO project_holidays (holiday_date,name) VALUES ('2026-09-25','中秋节'),('2026-09-26','中秋节'),('2026-09-27','中秋节'),('2026-10-01','国庆节'),('2026-10-02','国庆节'),('2026-10-03','国庆节'),('2026-10-04','国庆节'),('2026-10-05','国庆节'),('2026-10-06','国庆节'),('2026-10-07','国庆节')");
+    // 线上克隆库里这些记录可能已有跟进（父子外键）：本测试只在隔离库的事务里清理，先放开外键检查再删
+    $pdo->exec('SET FOREIGN_KEY_CHECKS=0');
     $pdo->prepare("DELETE FROM project_governance_records WHERE record_kind='chair' AND owner_employee_id=? AND created_at>='2026-09-28'")->execute([$chair]);
+    $pdo->exec('SET FOREIGN_KEY_CHECKS=1');
+    $pdo->exec("DELETE FROM project_messages WHERE dedupe_key LIKE 'idea-%'"); // 隔离：线上克隆库里已有真实的督促 / 评审信件（事务内，结束回滚）
     $pdo->prepare('DELETE FROM project_governance_penalties WHERE rotation_id=?')->execute([(int)$rotation['id']]);
 
     echo "=== 董事长按工作日划期、扣光为止 ===\n";
@@ -32,7 +36,7 @@ try {
     $w = pg_idea_window_status('2026-10-08');
     $check($w['index'] === 1 && $w['end'] === '2026-10-10' && $w['days_left'] === 3 && !$w['submitted'] && $w['penalty'] === $term['per_miss'], '10/8：第 1 期剩 3 天，未提交，每期扣额与计划一致');
     pg_sync_reminders('2026-10-08');
-    $check($messages($chair, 'idea-due:') === 0, '剩 3 天不督促');
+    $check($messages($chair, 'idea-due:2026-09-28:') === 0, '剩 3 天不督促（只数本期的督促信，线上克隆库里还有其他期的真实信件）');
     pg_sync_reminders('2026-10-09');
     $check($messages($chair, 'idea-due:2026-09-28:2026-10-09') === 1, '10/9 剩 2 天未提交：给栾鑫发站内信');
     pg_sync_reminders('2026-10-09');

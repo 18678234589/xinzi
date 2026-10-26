@@ -2,7 +2,9 @@
 if(PHP_SAPI!=='cli') exit;
 require_once __DIR__.'/../includes/etmll_push.php';
 function latest_check($ok,$message) { if(!$ok) throw new RuntimeException($message); }
-$pdo=db();$epdo=etmll_connect();
+$pdo=db();
+try{$epdo=etmll_connect();}catch(PDOException $e){echo "跳过：连不上 ETMLL 远程库（需要先开 13307 隧道；本测试只建临时表，但要连真实连接）
+";exit(0);}
 // Both connections shadow actual tables; no fixture touches real business records.
 $pdo->exec("CREATE TEMPORARY TABLE orders (id INT AUTO_INCREMENT PRIMARY KEY,employee_id INT,order_scope VARCHAR(20),is_deleted INT DEFAULT 0,shop VARCHAR(100),order_no VARCHAR(64),order_amount DECIMAL(14,2),order_date DATE,raw_data TEXT,created_at DATETIME)");
 $epdo->exec("CREATE TEMPORARY TABLE `order` (id INT AUTO_INCREMENT PRIMARY KEY,order_no VARCHAR(64) UNIQUE,merchant_id INT,shop_name VARCHAR(100),status INT DEFAULT 0,total_amount DECIMAL(14,4),commission DECIMAL(14,4),proxy_amount DECIMAL(14,4),raw_status VARCHAR(50),created_at DATETIME,product_title VARCHAR(500),refund_amount DECIMAL(14,4),confirmed_amount DECIMAL(14,4),buyer_paid_amount DECIMAL(14,4),order_create_time DATETIME,order_pay_time DATETIME,shop_id VARCHAR(64),remark_tag VARCHAR(200),shipping_time DATETIME,alipay_no VARCHAR(64))");

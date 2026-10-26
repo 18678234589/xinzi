@@ -17,6 +17,7 @@ function algorithm_person($summary, $group, $index = 0)
 }
 
 $pdo = db();
+require_once __DIR__ . '/clean_leftovers.php'; test_clean_leftovers($pdo, ['periods2099' => true]); // 上次失败遗留的数据
 require_once __DIR__ . '/require_isolated_database.php';
 require_isolated_test_database($pdo);
 $pdo->beginTransaction();
@@ -197,7 +198,7 @@ try {
     $kindNo = 'ALGO-KIND-' . bin2hex(random_bytes(4));
     $pdo->prepare("INSERT INTO project_orders (order_no,project_type,order_kind,contract_amount,order_date,delivery_status) VALUES (?,'小程序开发','新订单',2100,?,'finished')")->execute([$kindNo, $date]);
     $kindId = (int)$pdo->lastInsertId();
-    $pdo->prepare("INSERT INTO project_participants (order_id,employee_id,commission_group,role_name,group_weight) VALUES (?,?,'technical','定制技术15',1)")->execute([$kindId, $employeeIds[0]]);
+    $pdo->prepare("INSERT INTO project_participants (order_id,employee_id,commission_group,role_name,group_weight) VALUES (?,?,'technical','制作技术',1)")->execute([$kindId, $employeeIds[0]]); // 定制技术15 等定制岗位现在固定按定制算法（见 ps_role_rule_order_kind），用普通技术岗位才能验证“新订单 → 定制”的差额
     ps_intake_save_resources($kindId, 'manual', null, null, null, null, 'none');
     $pdo->prepare("INSERT INTO project_cash_movements (order_id,movement_type,amount,review_status,submitted_by_type,submitted_by_id) VALUES (?,'receipt',2100,'approved','system',0)")->execute([$kindId]);
     ps_recalculate_cash($kindId);
@@ -206,7 +207,7 @@ try {
     $q = $pdo->prepare('SELECT order_kind FROM project_orders WHERE id=?'); $q->execute([$kindId]);
     if ($q->fetchColumn() !== '定制') throw new RuntimeException('已审核订单类型未纠正');
     $q = $pdo->prepare('SELECT SUM(amount) FROM project_commission_adjustments WHERE order_id=?'); $q->execute([$kindId]);
-    check_algorithm($q->fetchColumn(), 203.70, '已审核新订单改定制仅补分成差额');
+    check_algorithm($q->fetchColumn(), 509.25, '已审核新订单改定制仅补分成差额（2100 × 97% × (30% − 5%)）');
     if (ps_import_kind_preference($employeeIds[0], '小程序开发', 'other-layout') !== '定制') throw new RuntimeException('财务纠正未覆盖未来同类导入默认');
 
     // 12. 华梦外包：成本 = 售价 × 80%，自动通过

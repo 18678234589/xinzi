@@ -27,7 +27,7 @@ $importAs = function ($actor, $csv) use ($upload, $run) {
 $ordersOf = function ($no) use ($pdo) { $q = $pdo->prepare('SELECT id,order_no,contract_amount,project_type FROM project_orders WHERE order_no=? OR order_no LIKE ? ORDER BY id'); $q->execute([$no, $no . '~%']); return $q->fetchAll(); };
 $costsOf = function ($orderId) use ($pdo) { $q = $pdo->prepare('SELECT item_name,quantity,unit_price,amount,review_status FROM project_costs WHERE order_id=? ORDER BY id'); $q->execute([$orderId]); return $q->fetchAll(); };
 $tag = bin2hex(random_bytes(3));
-$head = "日期,店铺,付款昵称,订单编号,售价,状态,商标名称,商标个数,网报类型\n";
+$head = "日期,店铺,付款昵称,订单编号,售价,状态,商标名称,商标个数,网报类型,办理事项\n"; // 办理事项现在必须明确选择，不再按商标名称里的文字推断
 try {
     echo "=== 一、成本中心录入商标成本（演练工具） ===\n";
     passthru('php ' . escapeshellarg(__DIR__ . '/../tools/seed_trademark_costs.php') . ' --commit', $rc);
@@ -43,13 +43,13 @@ try {
     $qin = $actorOf('秦婷婷'); $sun = $actorOf('孙荣姿'); $yu = $actorOf('于娜');
     $no = fn($i) => "TMX$tag-$i";
     $csv = $head
-        . "2026.9.10,微信,甲," . $no(1) . ",680,已完成,图形 10 28类,2,网报\n"
-        . "2026.9.10,微信,乙," . $no(2) . ",450,已完成,LOGO 续展,1,网报\n"
-        . "2026.9.10,微信,丙," . $no(3) . ",800,已完成,XX 超期续展,1,网报\n"
-        . "2026.9.10,微信,丁," . $no(4) . ",10,已完成,小额返款,,网报\n"
-        . "2026.9.10,微信,戊," . $no(5) . ",300,已完成,公司名称变更,1,网报\n";
+        . "2026.9.10,微信,甲," . $no(1) . ",680,已完成,图形 10 28类,2,网报,商标注册\n"
+        . "2026.9.10,微信,乙," . $no(2) . ",450,已完成,LOGO 续展,1,网报,商标续展\n"
+        . "2026.9.10,微信,丙," . $no(3) . ",800,已完成,XX 超期续展,1,网报,商标超期续展\n"
+        . "2026.9.10,微信,丁," . $no(4) . ",10,已完成,小额返款,,网报,商标注册\n"
+        . "2026.9.10,微信,戊," . $no(5) . ",300,已完成,公司名称变更,1,网报,商标变更\n";
     [$preview, $imported, $error] = $importAs($qin, $csv);
-    $check($error === '' && $imported === 5, '导入 5 单' . ($error ? '：' . $error : ''));
+    $check($error === '' && $imported === 5, '导入 5 单' . ($error ? '：' . $error : '') . '（导入 ' . $imported . ' 单' . json_encode(array_map(function ($r) { return [$r['status'] ?? '', $r['error'] ?? '']; }, $preview), JSON_UNESCAPED_UNICODE) . '）');
     $by = []; foreach ([1, 2, 3, 4, 5] as $i) { $o = $ordersOf($no($i))[0] ?? null; $by[$i] = $o ? $costsOf($o['id']) : null; }
     $check(count($by[1]) === 1 && (float)$by[1][0]['amount'] === 540.0 && $by[1][0]['review_status'] === 'approved', '无服务名 → 按商标注册：2 件 × 270 = ¥540，自动通过（不受 ¥500 阈值）');
     $check(count($by[2]) === 1 && (float)$by[2][0]['amount'] === 450.0 && mb_strpos($by[2][0]['item_name'], '商标续展') !== false, '“续展” → 商标续展 ¥450');
@@ -59,11 +59,11 @@ try {
 
     echo "=== 三、多位客服同一订单号（客户一次付款）：各记各的金额与成本 ===\n";
     $parent = $ordersOf($no(1))[0];
-    $csvSun = $head . "2026.9.10,微信,甲," . $no(1) . ",200,已完成,商标 A 9类,1,网报\n";
+    $csvSun = $head . "2026.9.10,微信,甲," . $no(1) . ",200,已完成,商标 A 9类,1,网报,商标注册\n";
     [$pv, $imp, $err] = $importAs($sun, $csvSun);
     $check($err === '' && $imp === 1 && !empty($pv[0]['base_valid']), '孙荣姿同号上传不再被拦：' . ($pv[0]['error'] ?? $err));
     $check(mb_strpos((string)($pv[0]['warning'] ?? ''), '= ¥880.00') !== false, '预览提示合计 ¥880.00：' . ($pv[0]['warning'] ?? ''));
-    $csvYu = $head . "2026.9.10,微信,甲," . $no(1) . ",100,已完成,商标 B 35类,1,网报\n";
+    $csvYu = $head . "2026.9.10,微信,甲," . $no(1) . ",100,已完成,商标 B 35类,1,网报,商标注册\n";
     [$pv, $imp, $err] = $importAs($yu, $csvYu);
     $check($err === '' && $imp === 1 && !empty($pv[0]['base_valid']), '于娜（第三位客服）同号上传也不被拦：' . ($pv[0]['error'] ?? $err));
     $rows = $ordersOf($no(1));

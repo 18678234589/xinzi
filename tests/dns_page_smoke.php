@@ -126,7 +126,8 @@ try {
     $state['cf_can_create'] = true;
     $state['dnspod']['domains']['only-dp.com'] = 201; $state['dnspod']['records']['only-dp.com'] = [31 => ['RecordId' => 31, 'Type' => 'A', 'Name' => '@', 'Value' => '5.5.5.5', 'TTL' => 600, 'MX' => 0, 'Line' => '默认', 'Status' => 'ENABLE']];
     $html = $render(['d' => 'only-dp.com']);
-    $check($has($html, '先完成第 ①步') && $has($html, '创建'), '域名还不在 Cloudflare：第 ② 步等待第 ① 步');
+    // 现行页面：按域名实际所在的服务商出引导。只在 DNSPod 的域名 → 第 ① 步显示“已添加”，并提示去修改 NS（不再显示“先完成第 ① 步”）
+    $check($has($html, '接入 ' . DNS_PROVIDERS['dnspod'] . ' 解析') && $has($html, '已添加') && $has($html, '在本站查看并修改 NS') && !$has($html, '先完成第 ①步'), '域名已在 DNSPod：第 ① 步已完成，第 ③ 步引导修改 NS');
     $render([], ['action' => 'create_zone', 'domain' => 'only-dp.com', 'provider' => 'cloudflare']);
     $check(count(array_filter($state['cloudflare']['zones'], function ($z) { return $z['name'] === 'only-dp.com'; })) === 1, '第 ① 步：在 Cloudflare 创建区域');
     $html = $render([], ['action' => 'copy_preview', 'd' => 'only-dp.com', 'p' => 'cloudflare', 'from' => 'dnspod', 'to' => 'cloudflare']);

@@ -18,9 +18,25 @@ $mk = function ($suffix, $status) use ($pdo, $tag, $fang) {
     $pdo->prepare("INSERT INTO project_participants (order_id,employee_id,commission_group,role_name,group_weight) VALUES (?,?,'customer_service','客服',1)")->execute([$id, $fang]);
     return $id;
 };
-$rules = $pdo->query("SELECT id,is_active,order_kind FROM project_commission_rules WHERE project_type='备案-提成' AND commission_group='customer_service'")->fetchAll();
+$ruleSql = "SELECT id,is_active,order_kind FROM project_commission_rules WHERE project_type='备案-提成' AND commission_group='customer_service'";
+$rules = $pdo->query($ruleSql)->fetchAll();
+// 现行规则里“备案”这一类已并入通用规则（order_kind='*'）：测试库缺“备案”类时，临时补一条（复制通用规则），结束后删除
+$tempRule = 0;
+if (!array_filter($rules, function ($r) { return $r['order_kind'] === '备案'; })) {
+    $src = $pdo->query("SELECT * FROM project_commission_rules WHERE project_type='备案-提成' AND commission_group='customer_service' AND order_kind='*' AND is_active=1 ORDER BY id LIMIT 1")->fetch(PDO::FETCH_ASSOC);
+    if ($src) {
+        unset($src['id'], $src['created_at']);
+        $src['order_kind'] = '备案'; $src['is_active'] = 1; $src['note'] = '测试临时规则';
+        $cols = array_keys($src);
+        $pdo->prepare('INSERT INTO project_commission_rules (`' . implode('`,`', $cols) . '`) VALUES (' . implode(',', array_fill(0, count($cols), '?')) . ')')->execute(array_values($src));
+        $tempRule = (int)$pdo->lastInsertId();
+        $rules = $pdo->query($ruleSql)->fetchAll();
+    }
+}
 $byKind = []; foreach ($rules as $r) $byKind[$r['order_kind']] = $r;
 $orig = []; foreach ($rules as $r) $orig[$r['id']] = (int)$r['is_active'];
+// 现行规则里还有通用规则（order_kind='*'，任何类型都能匹配）：测试“待配置”前先临时停用，结束后按 $orig 恢复
+foreach ($rules as $r) if ($r['order_kind'] === '*') $pdo->prepare('UPDATE project_commission_rules SET is_active=0 WHERE id=?')->execute([$r['id']]);
 $ids = [];
 try {
     $check(isset($byKind['备案']) && isset($byKind['拍链接']), '规则中心里有备案-提成的“备案”“拍链接”两条规则');
@@ -71,6 +87,7 @@ try {
     echo "全部通过\n";
 } finally {
     foreach ($orig as $rid => $act) $pdo->prepare('UPDATE project_commission_rules SET is_active=? WHERE id=?')->execute([$act, $rid]);
+    if ($tempRule) { $pdo->exec('DELETE FROM project_commission_rules WHERE id=' . $tempRule); $pdo->exec("DELETE FROM project_audit_logs WHERE entity_type='rule' AND entity_id=" . $tempRule); }
     foreach ($ids as $id) {
         $pdo->exec("DELETE FROM project_participants WHERE order_id=$id");
         $pdo->exec("DELETE FROM project_audit_logs WHERE entity_type='order' AND entity_id=$id");

@@ -8,6 +8,7 @@ require_once __DIR__ . '/../includes/ProjectMonthly.php';
 $pdo = db();
 require_once __DIR__ . '/require_isolated_database.php';
 require_isolated_test_database($pdo);
+require_once __DIR__ . '/clean_leftovers.php'; test_clean_leftovers($pdo, ['orders' => ['WXTEST-%', 'SRC%']]); // 上次失败遗留的数据（含 wechat_writing_sources 的 2026-12 订单）
 $pdo->beginTransaction();
 $stored = null;
 $check = function ($ok, $label) { if (!$ok) throw new RuntimeException('未通过：' . $label); echo "  [OK] $label\n"; };
@@ -52,23 +53,8 @@ try {
     $bonus = $lines('2027-01')['微信代写部门利润池 · 利润奖励'] ?? [];
     $check(count($bonus) === 5 && !array_filter($bonus, function ($v) { return $v !== 1300.0; }), '利润 258000：每人封顶 1300');
 
-    echo "=== 上传编辑订单表（预览）===\n";
-    $file = __DIR__ . '/../订单模板与成本及算法/微信代写部门/8月微信代写编辑订单.xlsx';
-    if (is_file($file)) {
-        $u = $users['韩菲菲'];
-        $stored = ps_private_store('imports', $file, 'wx_test_' . bin2hex(random_bytes(5)) . '.xlsx');
-        $pdo->prepare("INSERT INTO project_import_files (business_name,original_name,stored_name,file_size,uploaded_by_type,uploaded_by_id,employee_id) VALUES ('微信代写','8月微信代写编辑订单.xlsx',?,?,'employee',?,?)")->execute([$stored, filesize($file), $u['id'], $u['employee_id']]);
-        $fileId = (int)$pdo->lastInsertId();
-        $_SESSION = ['project_user_id' => (int)$u['id'], 'project_csrf' => 'test-csrf'];
-        $_SERVER['SCRIPT_NAME'] = '/project/import.php';
-        $_SERVER['REQUEST_METHOD'] = 'POST';
-        $_POST = ['csrf' => 'test-csrf', 'action' => 'repreview', 'business' => '微信代写', 'file_id' => $fileId, 'all_sheets' => 1];
-        $error = ''; ob_start(); include __DIR__ . '/../project/import.php'; ob_end_clean();
-        $preview = $_SESSION['project_import_preview'] ?? [];
-        $valid = count(array_filter($preview, function ($x) { return !empty($x['base_valid']); }));
-        $sheets = implode('、', array_keys(array_filter($_SESSION['project_import_sheets'] ?? [], function ($s) { return !empty($s['used']); })));
-        $check($error === '' && $valid > 0, '韩菲菲上传 8 月编辑订单表：读取分表 ' . $sheets . '，' . count($preview) . ' 单中 ' . $valid . ' 单可导入');
-    } else echo "  （缺少样表，跳过上传预览）\n";
+    // 已删除“上传 8 月旧编辑订单表预览”：新规则要求自接订单明确淘宝 / 微信、编辑订单标注“编辑对接”，旧表没有这些列，预览必然全是“需处理”；
+    // 新口径的上传识别由 tests/wechat_writing_sources.php 覆盖。
 
     $pdo->rollBack();
     echo "\n=== 微信代写全部通过，测试数据已回滚 ===\n";

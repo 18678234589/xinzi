@@ -11,7 +11,7 @@ $check = function ($ok, $label) { if (!$ok) throw new RuntimeException('未通�
 $throws = function (callable $f) { try { $f(); } catch (RuntimeException $e) { return $e->getMessage(); } return null; };
 ppf_ensure(); psr_ensure();
 $check(abs(ppf_diff(105, 100) - 0.05) < 1e-9 && ppf_diff(1, null) === null && ppf_diff(1, 0) === null, '差距计算 / 无对照金额返回 null');
-$row = $pdo->query("SELECT c.employee_id,c.payroll_month FROM project_commission_snapshots c JOIN project_users u ON u.employee_id=c.employee_id AND u.is_active=1 WHERE c.payroll_month < DATE_FORMAT(CURDATE(),'%Y-%m') GROUP BY c.employee_id,c.payroll_month HAVING COUNT(DISTINCT c.order_id)>=3 ORDER BY c.payroll_month DESC LIMIT 1")->fetch();
+$row = $pdo->query("SELECT c.employee_id,c.payroll_month FROM project_commission_snapshots c JOIN project_users u ON u.employee_id=c.employee_id AND u.is_active=1 WHERE c.payroll_month < DATE_FORMAT(CURDATE(),'%Y-%m') AND NOT EXISTS (SELECT 1 FROM project_payroll_flags f WHERE f.employee_id=c.employee_id AND f.payroll_month=c.payroll_month) AND NOT EXISTS (SELECT 1 FROM project_settlement_requests r WHERE r.employee_id=c.employee_id AND r.payroll_month=c.payroll_month) GROUP BY c.employee_id,c.payroll_month HAVING COUNT(DISTINCT c.order_id)>=3 ORDER BY c.payroll_month DESC LIMIT 1")->fetch();
 $eid = (int)$row['employee_id']; $month = $row['payroll_month'];
 $user = (int)$pdo->query("SELECT id FROM project_users WHERE employee_id=$eid AND is_active=1 LIMIT 1")->fetchColumn();
 $actor = ['type' => 'employee', 'id' => $user, 'employee_id' => $eid, 'role' => 'customer_service'];

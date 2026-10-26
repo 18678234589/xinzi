@@ -8,6 +8,7 @@ $pdo = db(); require_isolated_test_database($pdo);
 if (DB_HOST !== '127.0.0.1' || (string)DB_PORT !== '13399') exit(2);
 $sql = file_get_contents(__DIR__ . '/../migrations/20261013_wechat_writing_sources.sql');
 foreach (preg_split('/;\s*(?:\r?\n|$)/', $sql) as $statement) if (trim($statement) !== '') $pdo->exec($statement);
+require_once __DIR__ . '/clean_leftovers.php'; test_clean_leftovers($pdo, ['orders' => ['SRC%']]); // 上次失败遗留的数据
 $stored = []; $tag = 'SRC' . bin2hex(random_bytes(5)); $month = '2026-12';
 $orderMonth = date('Y-m');
 $check = function ($ok, $text) { if (!$ok) throw new RuntimeException($text); echo "[OK] $text\n"; };
@@ -87,8 +88,9 @@ try {
     $q=$pdo->prepare("SELECT employee_id,subsidy_amount FROM project_commission_snapshots WHERE order_id=? AND commission_group='technical'");$q->execute([$root['id']]);$editorSnaps=$q->fetchAll();
     $check(count($editorSnaps)===2 && array_sum(array_column($editorSnaps,'subsidy_amount'))===5.0,'两名编辑同单各 2.5 元，不能把 2.5 元再均分');
     $pool=[];foreach(ps_monthly_results($month,true) as $r)if($r['rule_name']==='微信代写部门利润池')$pool[(int)$r['employee_id']]=(float)$r['amount'];
-    foreach($actors as $name=>$actor)$check(abs(($pool[$actor['employee_id']]??0)-816.0)<0.01,$name.' 部门利润只取淘宝+微信自接，编辑金额不重复进入利润池');
-    foreach(['姚鹏','李雪'] as $name)$check(abs(($pool[$E($name)]??0)-468.0)<0.01,$name.' 无个人订单仍按原部门利润池固定比例分成');
+    // 部门利润 3 人 ×（淘宝 15000−6000 + 微信 10000−5000）= 42000；2026-09 起扣减 5000（此前 6000）：(42000−5000)×10%=3700，编辑按毛利占比分 68%（各 1/3）
+foreach($actors as $name=>$actor)$check(abs(($pool[$actor['employee_id']]??0)-round((42000-5000)*0.10*0.68/3,2))<0.01,$name.' 部门利润只取淘宝+微信自接，编辑金额不重复进入利润池');
+    foreach(['姚鹏','李雪'] as $name)$check(abs(($pool[$E($name)]??0)-round((42000-5000)*0.10*0.13,2))<0.01,$name.' 无个人订单仍按原部门利润池固定比例分成（3700 × 13%）');
     $q=$pdo->prepare('SELECT COUNT(*) FROM project_orders o JOIN project_participants p ON p.order_id=o.id WHERE o.order_no LIKE ? AND p.employee_id IN (?,?)');$q->execute([$tag.'%',$E('姚鹏'),$E('李雪')]);$check((int)$q->fetchColumn()===0,'经理和人事没有伪造订单或单量补助');
     $no=$tag.'RETAG';$actor=$actors['韩菲菲'];$file=$upload($actor,$head,[[$orderMonth.'-09','自接订单','淘宝','淘宝',$no,'换类测试','100','','未完成','韩菲菲','']]);$import($actor,$file);$o=$orderByNo($no);
     psw_change_kind($o['id'],'店铺订单','编辑对接',$finance);$p=ps_participants($o['id']);$check(count($p)===1 && $p[0]['commission_group']==='technical','快捷改成编辑对接会同步岗位');

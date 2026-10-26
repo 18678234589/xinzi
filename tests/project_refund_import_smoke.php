@@ -18,7 +18,9 @@ refund_check($cashbackMap['refund_date'] === 0 && $cashbackMap['order_no'] === 2
 refund_check(ps_refund_method('微信退款') === '微信' && ps_refund_method('银行转账') === '银行卡' && ps_refund_method('售中退款') === '店铺', '退款渠道识别错误');
 refund_check(ps_refund_header_map(['原支付流水号','退款日期','退款金额'])['source_reference'] === 0, '无店铺单号的支付流水表头未识别');
 
-$pdo = db(); $pdo->beginTransaction();
+$pdo = db();
+require_once __DIR__ . '/clean_leftovers.php'; test_clean_leftovers($pdo, ['periods2099' => true]); // 上次失败遗留的数据
+$pdo->beginTransaction();
 try {
     $adminId = (int)$pdo->query('SELECT id FROM admins ORDER BY id LIMIT 1')->fetchColumn();
     $employeeId = (int)$pdo->query('SELECT id FROM employees ORDER BY id LIMIT 1')->fetchColumn();
@@ -36,7 +38,8 @@ try {
     if (is_file($refundPath)) {
         [$refundRows] = ps_refund_parse_file(['id' => 0, 'stored_name' => 'refund.xlsx', 'content' => file_get_contents($refundPath)], $finance);
         refund_check(count($refundRows) === 67, '大体积退款部原表未正确识别明细');
-        refund_check(count(array_filter($refundRows, function ($r) { return $r['error'] === ''; })) > 4, '退款部混合业务或其他渠道不应整批禁止登记');
+        // 库里已登记过这批退款时（线上克隆库），每行提示“已提交过”，同样说明这些行本身可登记、没有被整批禁止
+        refund_check(count(array_filter($refundRows, function ($r) { return $r['error'] === '' || mb_strpos((string)$r['error'], '已提交过') !== false; })) > 4, '退款部混合业务或其他渠道不应整批禁止登记');
     }
     $no = 'REFUND-TEST-' . bin2hex(random_bytes(6));
     $pdo->prepare("INSERT INTO project_orders (order_no,project_type,contract_amount,order_date,delivery_status) VALUES (?,'网站模板',500,CURDATE(),'finished')")->execute([$no]);

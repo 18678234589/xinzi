@@ -10,6 +10,7 @@ function check_project_value($actual, $expected, $label)
 }
 
 $pdo = db();
+require_once __DIR__ . '/clean_leftovers.php'; test_clean_leftovers($pdo, ['periods2099' => true]); // 上次失败遗留的数据
 $pdo->beginTransaction();
 try {
     $websiteMigration = file_get_contents(__DIR__ . '/../migrations/20260923_website_commission_rules.sql');
@@ -72,7 +73,9 @@ try {
     $pennyShares = ps_allocate_pool_cents(1, [['group_weight' => 0.4], ['group_weight' => 0.4], ['group_weight' => 0.2]]);
     if ($pennyShares !== [1, 0, 0]) throw new RuntimeException('分润尾差没有归入最高权重者');
     $adminId = (int)$pdo->query('SELECT id FROM admins ORDER BY id LIMIT 1')->fetchColumn();
-    $employeeIds = $pdo->query('SELECT id FROM employees ORDER BY id LIMIT 3')->fetchAll(PDO::FETCH_COLUMN);
+    // 用事务内新建的 3 名临时员工：真实员工在库里带有固定服务费 / 全勤奖等月度规则，会让结算单金额与本测试的期望对不上
+    $employeeIds = [];
+    foreach ([1, 2, 3] as $n) { $pdo->prepare('INSERT INTO employees (name,department,password) VALUES (?,?,?)')->execute(['财务测试员' . $n . bin2hex(random_bytes(2)), '网站售后部', 'x']); $employeeIds[] = (int)$pdo->lastInsertId(); }
     if ($adminId <= 0 || count($employeeIds) < 3) throw new RuntimeException('财务测试需要一名管理员及三名已有员工');
     $pdo->prepare("INSERT INTO project_costs (order_id,category,item_name,quantity,unit,unit_price,amount,review_status) VALUES (?,'server','测试成本',1,'项',1215,1215,'approved')")
         ->execute([$orderId]);
@@ -128,7 +131,7 @@ try {
         ob_start();
         include __DIR__ . '/../project/payroll.php';
         $settlementHtml = ob_get_clean();
-        if (strpos($settlementHtml, '预计应结算金额') === false || strpos($settlementHtml, '6,503.35') === false) throw new RuntimeException('去重后项目报酬结算单金额错误');
+        if (strpos($settlementHtml, '预计应结算金额') === false || strpos($settlementHtml, '6,503.35') === false) { preg_match_all('/\d{1,3}(?:,\d{3})*\.\d{2}/', strip_tags($settlementHtml), $mm); throw new RuntimeException('去重后项目报酬结算单金额错误：' . json_encode(array_slice(array_unique($mm[0]), 0, 40))); }
     }
     $pdo->rollBack();
     echo "收退款审核、双组分成、锁月与技术旧分成去重验证通过；测试数据已回滚\n";

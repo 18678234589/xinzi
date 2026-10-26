@@ -6,6 +6,9 @@ if (PHP_SAPI !== 'cli') { http_response_code(403); exit; }
 require_once __DIR__ . '/../includes/ProjectIntake.php';
 
 $pdo = db();
+// 导入提交含建表（隐式提交），上次中途失败会留下测试订单：先清掉，保证可重复运行
+require_once __DIR__ . '/../includes/ProjectOrderDelete.php';
+foreach ($pdo->query("SELECT id FROM project_orders WHERE order_no LIKE 'REPLAY-TEST-%'")->fetchAll(PDO::FETCH_COLUMN) as $leftoverId) pod_delete_rows((int)$leftoverId);
 $pdo->beginTransaction();
 $stored = [];
 $check = function ($ok, $label) { if (!$ok) throw new RuntimeException('未通过：' . $label); echo "  [OK] $label\n"; };
@@ -58,11 +61,11 @@ try {
     $check($byNo['REPLAY-TEST-003']['status'] === '已导入过', '已审核订单重复上传：标“已导入过”');
     $r4 = $byNo['REPLAY-TEST-004'];
     $check(!empty($r4['base_valid']) && isset($r4['people']['customer_service'][$E('曹双双')], $r4['people']['customer_service'][$E('朱俊英')]), '客服“曹双双朱俊英”连写拆成两位客服');
-    $check(mb_strpos($html, '已自动跳过') !== false && mb_strpos($html, '2 行需处理') === false && mb_strpos($html, 'table-secondary') !== false, '跳过行灰色显示、不计入“需处理”');
+    $check(mb_strpos($html, '已自动跳过') !== false && mb_strpos($html, '2 行需处理') === false && mb_strpos($html, 'import-row--skipped') !== false, '跳过行灰色显示、不计入“需处理”：' . json_encode([mb_strpos($html, '已自动跳过') !== false, mb_strpos($html, '2 行需处理') === false, mb_strpos($html, 'import-row--skipped') !== false]) . (preg_match('/(\d+) 行需处理/u', $html, $mm) ? $mm[0] : ''));
 
     $check(!array_filter(array_keys($byNo), function ($no) { return mb_strpos($no, '示例') === 0; }), '模板示例行（订单号以“示例”开头）自动跳过，不会入账');
     $check(empty($byNo['REPLAY-TEST-005']['base_valid']) && mb_strpos($html, 'id="importFixGuide"') !== false && mb_strpos($html, '日期写法无法识别') !== false && mb_strpos($html, '2026-09-01') !== false && mb_strpos($html, '含示例行') !== false, '日期写“昨天”：弹窗说明怎么填、给示例和模板下载链接');
-    $check(mb_strpos($html, '怎么改：') !== false, '红色行下直接显示“怎么改”');
+    $check(mb_strpos($html, 'import-notice-guide') !== false && mb_strpos($html, '处理方法') !== false, '红色行下直接显示“处理方法”');
     [$error, $byNo, $html] = $run('import_headerless.csv', '光君.csv');
     $check($error === '', '无表头表格预览成功：' . $error);
     $h = $byNo['3316440471002099991'] ?? null;

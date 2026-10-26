@@ -9,7 +9,7 @@ if ((string)DB_PORT !== '13399' || DB_HOST !== '127.0.0.1') { fwrite(STDERR, "�
 $pdo = db(); require_isolated_test_database($pdo); $tag = bin2hex(random_bytes(3));
 $check = function ($ok, $label) { if (!$ok) throw new RuntimeException('未通过：' . $label); echo "  [OK] $label\n"; };
 $finance = ['type' => 'admin', 'id' => 1, 'role' => 'finance', 'employee_id' => 0];
-$month = '2026-09'; $ids = []; $refundIds = [];
+$month = '2098-05'; $ids = []; $refundIds = [];
 $mk = function ($suffix, $type) use ($pdo, $tag, $month, &$ids) {
     $no = "SC$tag$suffix";
     $pdo->prepare("INSERT INTO project_orders (order_no,customer_name,project_type,order_kind,shop,contract_amount,order_date,delivery_status,settlement_status,note) VALUES (?,'测试',?,'新订单','美呀美',100,?,'finished','approved','测试')")->execute([$no, $type, $month . '-10']);

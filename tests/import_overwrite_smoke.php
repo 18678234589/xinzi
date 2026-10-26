@@ -26,11 +26,11 @@ $importAs = function ($actor, $business, $csv) use ($upload, $run) {
 };
 $orders = function ($like) use ($pdo) { $q = $pdo->prepare('SELECT id,order_no,project_type,contract_amount FROM project_orders WHERE order_no LIKE ? ORDER BY id'); $q->execute([$like]); return $q->fetchAll(); };
 $tag = bin2hex(random_bytes(3));
-$csvOf = function ($business, array $rows) { $head = ps_business_import_headers($business); $out = implode(',', $head) . "\n"; foreach ($rows as $row) { $cells = []; foreach ($head as $h) $cells[] = $row[$h] ?? ''; $out .= implode(',', $cells) . "\n"; } return $out; };
+$csvOf = function ($business, array $rows) { $head = ps_business_import_headers($business); /* 测试数据沿用老表头：换成商标模板现在的列名 */ $rename = ['售价' => '订单销售金额（元）', '店铺' => '店铺/渠道', '办理事项' => '办理事项（必选）', '商标个数' => '计价件数（商标×类别）', '网报类型' => '申报方式', '状态(填已完成/未完成)' => '交付状态']; foreach ($rows as &$one) foreach ($rename as $old => $new) if (isset($one[$old]) && in_array($new, $head, true)) { $one[$new] = $one[$old]; unset($one[$old]); } unset($one); /* 办理事项现在必须是下拉里的完整名称 */ foreach ($rows as &$one) if (isset($one['办理事项（必选）']) && in_array('商标' . $one['办理事项（必选）'], ['商标注册', '商标转让', '商标续展', '商标变更', '商标注销'], true)) $one['办理事项（必选）'] = '商标' . $one['办理事项（必选）']; unset($one); $out = implode(',', $head) . "\n"; foreach ($rows as $row) { $cells = []; foreach ($head as $h) $cells[] = $row[$h] ?? ''; $out .= implode(',', $cells) . "\n"; } return $out; };
 $sk = '状态(填已完成/未完成)';
 $orderOf = function ($no) use ($pdo) { $q = $pdo->prepare("SELECT o.id,o.shop,o.order_date,o.customer_name,o.settlement_status,s.payment_nickname,d.details_json FROM project_orders o LEFT JOIN project_order_sources s ON s.order_id=o.id LEFT JOIN project_order_details d ON d.order_id=o.id WHERE o.order_no=?"); $q->execute([$no]); $r = $q->fetch(); if ($r) $r['d'] = json_decode($r['details_json'] ?: '{}', true) ?: []; return $r; };
 try {
-    passthru('php ' . escapeshellarg(__DIR__ . '/../tools/seed_trademark_costs.php') . ' --commit > /dev/null', $rc);
+    passthru('php ' . escapeshellarg(__DIR__ . '/../tools/seed_trademark_costs.php') . ' --commit > ' . (DIRECTORY_SEPARATOR === chr(92) ? 'NUL' : '/dev/null'), $rc);
     $qin = $actorOf('秦婷婷'); $hui = $actorOf('王慧资');
     $check($qin && $hui, '账号存在');
     $n1 = "OW$tag-1"; $n2 = "OW$tag-2"; $n3 = "OW$tag-3";
@@ -96,13 +96,13 @@ try {
     };
     $csName = function ($no) use ($pdo) { $q = $pdo->prepare("SELECT e.name FROM project_participants p JOIN project_orders o ON o.id=p.order_id JOIN employees e ON e.id=p.employee_id WHERE o.order_no=? AND p.commission_group='customer_service'"); $q->execute([$no]); return $q->fetchAll(PDO::FETCH_COLUMN); };
     $check($csName($n7) === ['秦婷婷'], '原单客服：秦婷婷');
-    [$pv, $imp, $err] = $asFinance($csvOf('商标', [array_merge($row($n7), ['客服' => '于娜', '商标个数' => '3'])]));
+    [$pv, $imp, $err] = $asFinance($csvOf('商标', [array_merge($row($n7), ['客服' => '于娜', '商标个数' => '3', '售价' => '1980'])]));
     $check($csName($n7) === ['于娜'], '财务重传（客服=于娜）：客服更正为于娜：' . json_encode($csName($n7), JSON_UNESCAPED_UNICODE) . ($pv[0]['error'] ?? $err));
     $o7 = $orderOf($n7); $check($o7['d']['trademark_count'] === '3', '财务重传的商标件数 3 覆盖原来的 2');
     $a7 = $pdo->prepare("SELECT COUNT(*) FROM project_audit_logs WHERE action='import_replace_participants' AND entity_id=?"); $a7->execute([$o7['id']]);
     $check((int)$a7->fetchColumn() === 1, '更换参与人记入审计');
     unset($_SESSION['admin_id']); // 回到客服身份
-    $importAs($qin, '商标', $csvOf('商标', [array_merge($row($n7), ['客服' => '秦婷婷'])]));
+    $importAs($qin, '商标', $csvOf('商标', [array_merge($row($n7), ['客服' => '秦婷婷', '商标个数' => '3', '售价' => '1980'])]));
     $check($csName($n7) === ['于娜'], '客服自己重传不能改回参与人（仍是于娜）');
     echo "\n=== 重新上传覆盖测试全部通过 ===\n";
 } catch (Throwable $e) { fwrite(STDERR, $e->getMessage() . "\n"); exit(1); }
