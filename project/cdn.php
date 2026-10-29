@@ -56,6 +56,31 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
             } catch (Throwable $ve) {
                 $verifyNote = '已在 ' . $hosted['label'] . ' 自动添加 TXT 解析记录（' . $vi['host'] . ' ' . $vi['value'] . '）！DNS 传播一般需 30-60 秒，稍后可点击“我已添加，立即验证”。';
             }
+        } elseif ($action === 'check_verify') {
+            header('Content-Type: application/json; charset=utf-8');
+            $previewToken = (string)($_POST['token'] ?? '');
+            $ticket = $_SESSION['cdn_previews'][$previewToken] ?? null;
+            if (!$ticket || $ticket['actor'] !== $actorKey || $ticket['expires'] < time()) {
+                echo json_encode(['ok' => false, 'error' => '预览已过期']);
+                exit;
+            }
+            $preview = $ticket['payload'];
+            $product = qc_verify_product($preview['body']['platform'] ?? 'web');
+            $vi = qc_verify_info($preview['name'], $product);
+            $visible = qc_verify_visible($vi);
+            if ($vi['state'] === 'doing' && $visible) {
+                try {
+                    $vi = qc_verify_check($preview['name'], $product, true);
+                } catch (Throwable $e) {}
+            }
+            echo json_encode([
+                'ok' => true,
+                'state' => $vi['state'],
+                'visible' => $visible,
+                'stateLabel' => qc_verify_state_label($vi['state']),
+                'verified' => in_array($vi['state'], ['success', 'no_need'], true)
+            ], JSON_UNESCAPED_UNICODE);
+            exit;
         } elseif ($action === 'create') {
             $previewToken = (string)($_POST['token'] ?? '');
             $payload = qc_ticket_take($_SESSION['cdn_previews'], $previewToken, $actorKey, (string)($_POST['confirm'] ?? ''), (string)($_POST['ack'] ?? ''), time());
@@ -238,8 +263,13 @@ $value = function ($key, $default='') use ($input) { return e((string)($input[$k
     </div>
     <?php endif; ?>
     <form method="post" class="cdn-confirm"><input type="hidden" name="csrf" value="<?php echo e($csrf); ?>"><input type="hidden" name="action" value="create"><input type="hidden" name="token" value="<?php echo e($previewToken); ?>">
-      <label>输入加速域名确认<input name="confirm" required autocomplete="off" placeholder="<?php echo e($preview['name']); ?>"></label>
-      <label class="cdn-check"><input type="checkbox" name="ack" value="1" required>已核对源站、缓存和协议配置，确认添加</label><button class="dns-btn" type="submit" <?php echo ($verify && $verify['state'] === 'doing') ? 'disabled title="请先完成上面的主域名所有权验证"' : ''; ?>>确认添加到七牛</button><a class="dns-btn ghost" href="cdn.php#cdnCreate">重新填写</a>
+      <label>输入加速域名确认
+        <div style="display:flex;gap:8px;align-items:center;width:100%;">
+          <input name="confirm" id="cdnConfirmInput" required autocomplete="off" placeholder="<?php echo e($preview['name']); ?>" style="flex:1;">
+          <button type="button" class="dns-btn ghost cdn-mini" id="cdnFillConfirm" data-fill="<?php echo e($preview['name']); ?>">一键填入</button>
+        </div>
+      </label>
+      <label class="cdn-check"><input type="checkbox" name="ack" value="1" required>已核对源站、缓存和协议配置，确认添加</label><button class="dns-btn" type="submit" id="cdnSubmitBtn" <?php echo ($verify && $verify['state'] === 'doing') ? 'disabled title="请先完成上面的主域名所有权验证"' : ''; ?>>确认添加到七牛</button><a class="dns-btn ghost" href="cdn.php#cdnCreate">重新填写</a>
     </form>
   </section>
   <?php endif; ?>
@@ -278,5 +308,5 @@ $value = function ($key, $default='') use ($input) { return e((string)($input[$k
   </section>
   <?php endif; ?>
 </main>
-<script src="<?php echo BASE_URL; ?>/assets/js/cdn.js?v=20261029" defer></script>
+<script src="<?php echo BASE_URL; ?>/assets/js/cdn.js?v=20261029b" defer></script>
 <?php include __DIR__ . '/../includes/footer.php'; ?>

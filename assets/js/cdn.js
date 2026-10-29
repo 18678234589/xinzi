@@ -42,4 +42,62 @@
       rows.forEach(function (r) { body.appendChild(r); });
     });
   });
+
+  // 预览卡片交互增强：自动平滑滚动定位、一键填入确认域名
+  var previewCard = document.getElementById('cdnPreview');
+  if (previewCard) {
+    try { previewCard.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch (e) {}
+  }
+  var fillBtn = document.getElementById('cdnFillConfirm');
+  var confirmInput = document.getElementById('cdnConfirmInput');
+  if (fillBtn && confirmInput) {
+    fillBtn.addEventListener('click', function () {
+      confirmInput.value = fillBtn.getAttribute('data-fill') || '';
+      confirmInput.focus();
+    });
+  }
+
+  // 待验证状态后台静默定时探测（每 4 秒轮询一次，最多 15 次，一旦通过直接更新徽标并解锁提交）
+  var verifyBox = document.querySelector('.cdn-verify.doing');
+  if (verifyBox) {
+    var tokenInput = document.querySelector('input[name="token"]');
+    var csrfInput = document.querySelector('input[name="csrf"]');
+    var submitBtn = document.getElementById('cdnSubmitBtn');
+    if (tokenInput && csrfInput) {
+      var pollCount = 0;
+      var pollTimer = setInterval(function () {
+        pollCount++;
+        if (pollCount > 15) { clearInterval(pollTimer); return; }
+        var fd = new FormData();
+        fd.append('csrf', csrfInput.value);
+        fd.append('action', 'check_verify');
+        fd.append('token', tokenInput.value);
+        fetch('cdn.php', { method: 'POST', body: fd, credentials: 'same-origin' })
+          .then(function (r) { return r.json(); })
+          .then(function (res) {
+            if (res && res.ok && res.verified) {
+              clearInterval(pollTimer);
+              verifyBox.classList.remove('doing');
+              verifyBox.classList.add('success');
+              var badge = verifyBox.querySelector('.cdn-dns');
+              if (badge) {
+                badge.className = 'cdn-dns ok';
+                badge.textContent = '已验证';
+              }
+              var notice = document.createElement('div');
+              notice.className = 'dns-notice ok';
+              notice.textContent = '主域名已通过七牛所有权验证！现在可以直接确认添加。';
+              verifyBox.parentNode.insertBefore(notice, verifyBox);
+              if (submitBtn) {
+                submitBtn.removeAttribute('disabled');
+                submitBtn.removeAttribute('title');
+              }
+              var actions = verifyBox.querySelector('.cdn-verify-actions');
+              if (actions) actions.style.display = 'none';
+            }
+          })
+          .catch(function () {});
+      }, 4000);
+    }
+  }
 })();
