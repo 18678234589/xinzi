@@ -30,18 +30,19 @@ function qt_fetch_chunk(array $domains, $from, $to)
     $bw = qt_parse(qc_call('fusion', 'POST', '/v2/tune/bandwidth', $body), 'bandwidth');
     return [$flux, $bw];
 }
-function qt_all_domains()
+function qt_all_rows()
 {
-    $names = [];
+    $all = [];
     $marker = '';
     for ($page = 0; $page < 40; $page++) {
         $list = qc_list($marker);
-        foreach ($list['rows'] as $r) $names[] = strtolower($r['name']);
+        foreach ($list['rows'] as $r) $all[strtolower($r['name'])] = $r;
         $marker = $list['marker'];
         if ($marker === '') break;
     }
-    return array_values(array_unique($names));
+    return array_values($all);
 }
+function qt_all_domains() { return array_map(function ($r) { return strtolower($r['name']); }, qt_all_rows()); }
 function qt_store($pdo, $flux, $bw, $now)
 {
     $sql = $pdo->getAttribute(PDO::ATTR_DRIVER_NAME) === 'sqlite'
@@ -53,19 +54,22 @@ function qt_store($pdo, $flux, $bw, $now)
     return $n;
 }
 /** 拉取最近 $days 天（最多 31）所有域名的流量；每批最多 50 个域名。 */
-function qt_sync($pdo, $days, $now = null)
+function qt_sync($pdo, $days, $now = null, $dnsLookup = null)
 {
     $now = $now ?? time();
     $days = max(1, min(31, (int)$days));
     $from = qt_day($now - ($days - 1) * 86400);
     $to = qt_day($now);
-    $domains = qt_all_domains();
+    $listing = qt_all_rows();
+    $domains = array_map(function ($r) { return strtolower($r['name']); }, $listing);
     $rows = 0;
     foreach (array_chunk($domains, 50) as $chunk) {
         list($flux, $bw) = qt_fetch_chunk($chunk, $from, $to);
         $rows += qt_store($pdo, $flux, $bw, $now);
     }
-    return ['domains' => count($domains), 'rows' => $rows, 'from' => $from, 'to' => $to];
+    $dns = 0;
+    try { $dns = qt_dns_refresh($pdo, $listing, $now, $dnsLookup); } catch (PDOException $e) { if ($e->getCode() !== '42S02') throw $e; }
+    return ['domains' => count($domains), 'rows' => $rows, 'dns_checked' => $dns, 'from' => $from, 'to' => $to];
 }
 
 /* ---------- 页面读取（只读数据库） ---------- */
@@ -135,4 +139,55 @@ function qt_bps($b)
     $b = (float)$b;
     if ($b < 1000) return (int)$b . ' bps';
     foreach (['Kbps', 'Mbps', 'Gbps'] as $u) { $b /= 1000; if ($b < 1000 || $u === 'Gbps') return ($b >= 100 ? number_format($b, 0) : number_format($b, 2)) . ' ' . $u; }
+}
+
+/* ---------- 解析接入检查：公网上这个域名现在到底解析到哪 ---------- */
+
+function qt_dns_label($state)
+{
+    return ['ok' => '已指向七牛', 'other' => '指向其他地址', 'none' => '未解析', 'builtin' => '七牛测试域名', '' => '未检查'][$state] ?? '未检查';
+}
+/** 公网 CNAME / A 记录：返回 [state, 说明]。$lookup 可注入（测试）。 */
+function qt_dns_check($domain, $expected, $lookup = null)
+{
+    $domain = strtolower($domain);
+    if (preg_match('/\.(qiniucdn|clouddn)\.com$/', $domain)) return ['builtin', '七牛提供的测试域名，无需解析'];
+    $lookup = $lookup ?: function ($d, $type) { return @dns_get_record($d, $type) ?: []; };
+    $expected = strtolower(rtrim($expected, '.'));
+    $targets = [];
+    foreach ($lookup($domain, DNS_CNAME) as $r) if (!empty($r['target'])) $targets[] = strtolower(rtrim($r['target'], '.'));
+    if ($targets) {
+        $hit = $expected !== '' && in_array($expected, $targets, true);
+        return [$hit ? 'ok' : 'other', 'CNAME → ' . implode(', ', $targets)];
+    }
+    $ips = [];
+    foreach ($lookup($domain, DNS_A) as $r) if (!empty($r['ip'])) $ips[] = $r['ip'];
+    foreach ($lookup($domain, DNS_AAAA) as $r) if (!empty($r['ipv6'])) $ips[] = $r['ipv6'];
+    if ($ips) return ['other', 'A / AAAA → ' . implode(', ', array_slice($ips, 0, 4)) . '（不是 CNAME，Cloudflare 开代理或 CNAME 拉平时也会这样）'];
+    return ['none', '公网查不到解析记录'];
+}
+function qt_dns_refresh($pdo, array $rows, $now = null, $lookup = null)
+{
+    $now = $now ?? time();
+    $sql = $pdo->getAttribute(PDO::ATTR_DRIVER_NAME) === 'sqlite'
+        ? 'INSERT INTO qiniu_cdn_dns (domainname,expected_cname,resolved,state,checked_at) VALUES (?,?,?,?,?) ON CONFLICT(domainname) DO UPDATE SET expected_cname=excluded.expected_cname,resolved=excluded.resolved,state=excluded.state,checked_at=excluded.checked_at'
+        : 'INSERT INTO qiniu_cdn_dns (domainname,expected_cname,resolved,state,checked_at) VALUES (?,?,?,?,?) ON DUPLICATE KEY UPDATE expected_cname=VALUES(expected_cname),resolved=VALUES(resolved),state=VALUES(state),checked_at=VALUES(checked_at)';
+    $q = $pdo->prepare($sql);
+    $n = 0;
+    foreach ($rows as $r) {
+        list($state, $text) = qt_dns_check($r['name'], $r['cname'] ?? '', $lookup);
+        $q->execute([strtolower($r['name']), mb_substr((string)($r['cname'] ?? ''), 0, 255), mb_substr($text, 0, 255), $state, $now]);
+        $n++;
+    }
+    return $n;
+}
+function qt_dns_map($pdo, array $domains)
+{
+    if (!$domains) return [];
+    $in = implode(',', array_fill(0, count($domains), '?'));
+    $q = $pdo->prepare("SELECT domainname, expected_cname, resolved, state, checked_at FROM qiniu_cdn_dns WHERE domainname IN ($in)");
+    $q->execute(array_map('strtolower', $domains));
+    $out = [];
+    foreach ($q->fetchAll(PDO::FETCH_ASSOC) as $r) $out[$r['domainname']] = $r;
+    return $out;
 }

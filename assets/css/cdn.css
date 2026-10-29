@@ -29,3 +29,4 @@
 .cdn-bar{flex:1;height:100%;display:flex;align-items:flex-end}.cdn-bar i{display:block;width:100%;background:#2f7a67;border-radius:3px 3px 0 0;min-height:2px}.cdn-bar:hover i{background:#1e584d}
 .cdn-spike{display:inline-block;margin-left:6px;padding:1px 7px;border-radius:6px;background:#fde7e4;color:#a02b24;font-size:.78rem;font-weight:700}
 .cdn-sort{background:none;border:0;padding:0;font:inherit;font-weight:700;color:inherit;cursor:pointer;white-space:nowrap}.cdn-sort:hover{color:#1e584d;text-decoration:underline}.cdn-sort[data-dir] {color:#1e584d}
+.cdn-dns{display:inline-block;padding:1px 8px;border-radius:6px;font-size:.8rem;font-weight:700;background:#eef4f1;color:#356d62}.cdn-dns.ok{background:#e3f4ec;color:#1f6b4d}.cdn-dns.other{background:#fff0d6;color:#8a5a00}.cdn-dns.none{background:#fde7e4;color:#a02b24}.cdn-dns+small{display:block;margin-top:3px;word-break:break-all}

@@ -26,3 +26,7 @@
 ## 流量（2026-10-28）
 
 七牛 Fusion 用量接口 `POST /v2/tune/flux`、`/v2/tune/bandwidth`（QBox 鉴权，按天，一次最多 31 天、多域名用 `;` 分隔）可用现有 AK/SK 读取。`jobs/qiniu_cdn_traffic_sync.php` 每 30 分钟（root crontab，`flock` + `GET_LOCK`，日志 `/root/hezuoshang_qiniu_traffic_job.log`，改前备份 `/root/crontab.before-qiniu-traffic-20261028`）拉取最近 3 天所有域名的流量（字节，各区域相加）和峰值带宽（bit/s）写入 `qiniu_cdn_traffic`（`migrations/20261028_qiniu_cdn_traffic.sql`，线上需手动执行；首次补历史用 `--days=31`）。CDN 管理页只读该表：列表新增「近 7 天流量 / 今日」两列和「流量概览」（近 7 / 30 天合计、前 5 名），详情页显示近 30 天柱状图和近 14 天明细。今日流量 ≥ 100MB 且 ≥ 前 7 天日均 5 倍时标「异常增长」。七牛统计有延迟，当天数字偏小，计费以七牛账单为准。离线测试：`php -d extension=pdo_sqlite tests/qiniu_cdn_traffic.php`。
+
+### 解析接入状态（2026-10-29）
+
+CDN 管理页列表新增「应解析到（七牛 CNAME）」和「当前公网解析」两列，详情页的 CNAME 卡片同样显示：七牛分配的 CNAME（`xxx.qiniudns.com`，来自七牛接口 `cname` 字段）与公网实际解析结果对比，状态为「已指向七牛 / 指向其他地址 / 未解析 / 七牛测试域名」。`jobs/qiniu_cdn_traffic_sync.php` 每 30 分钟顺带用公网 DNS 查询 CNAME / A / AAAA 写入 `qiniu_cdn_dns`（`migrations/20261029_qiniu_cdn_dns.sql`，线上需手动执行），页面只读该表。Cloudflare 开代理或 CNAME 拉平时公网只能看到 A 记录，会显示「指向其他地址」，需到解析管理核对。
