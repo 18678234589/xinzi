@@ -80,12 +80,17 @@ $GLOBALS['qc_mock']=function($service,$method,$path,$body)use(&$verifyState,&$ve
 $vi=qc_verify_info('cdn.example.com');
 qc_test($vi['zone']==='example.com'&&$vi['state']==='doing'&&$vi['host']==='verification'&&$vi['value']==='verify_abc'&&strpos($verifyCalls[0][1],'/domain/example.com/verify/info?product=cdn')===0,'verification asked for the main domain, not the subdomain');
 qc_test(qc_verify_info('www.example.com.cn')['zone']==='example.com.cn','com.cn zone detected');
+qc_test(qc_verify_product('dynamic')==='dcdn'&&qc_verify_product('web')==='cdn'&&qc_verify_product('vod')==='cdn','platform product mapping');
+qc_test(qc_verify_info('cdn.example.com','dynamic')['product']==='dcdn','verify info dcdn product');
+qc_test($payload['body']['source']['skipCheckSource']===true,'skipCheckSource enabled');
+qc_test($payload['body']['source']['sourceHost']==='cdn.example.com','sourceHost defaults to domain when omitted');
 $verifyFail=true;
 try{qc_verify_check('cdn.example.com');qc_test(false,'failed check must throw');}catch(RuntimeException $e){qc_test(strpos($e->getMessage(),'TXT')!==false&&strpos($e->getMessage(),'verification')!==false,'friendly message on 400932');}
 $verifyFail=false;$verifyCalls=[];
 qc_test(qc_verify_check('cdn.example.com')['state']==='success','check succeeds and returns the new state');
 qc_test($verifyCalls[0][0]==='GET'&&$verifyCalls[1][0]==='POST'&&$verifyCalls[1][2]===['type'=>'dns','product'=>'cdn'],'info viewed before check (Qiniu requires it)');
 $verifyCalls=[];qc_verify_check('cdn.example.com');qc_test(count(array_filter($verifyCalls,function($c){return $c[0]==='POST';}))===0,'already verified: no extra check call');
+$verifyCalls=[];qc_verify_check('cdn.example.com','cdn',true);qc_test(count(array_filter($verifyCalls,function($c){return $c[0]==='POST';}))===1,'force check: sends POST even if already verified');
 $GLOBALS['qc_mock']=$prevMock;
 qc_test(!function_exists('db')&&!function_exists('pas_get'),'offline test never loads credentials or database');
 echo json_encode(['passed'=>$checks,'failed'=>0,'real_api_writes'=>0],JSON_UNESCAPED_UNICODE)."\n";

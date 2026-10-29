@@ -33,12 +33,19 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
             $ticket = $_SESSION['cdn_previews'][$previewToken] ?? null;
             if (!$ticket || $ticket['actor'] !== $actorKey || $ticket['expires'] < time()) throw new RuntimeException('预览已过期，请重新填写并预览');
             $preview = $ticket['payload'];
-            qc_verify_check($preview['name']);
+            $product = qc_verify_product($preview['body']['platform'] ?? 'web');
+            qc_verify_check($preview['name'], $product, true);
             $verifyNote = '域名所有权验证已通过，现在可以确认添加。';
         } elseif ($action === 'create') {
             $payload = qc_ticket_take($_SESSION['cdn_previews'], (string)($_POST['token'] ?? ''), $actorKey, (string)($_POST['confirm'] ?? ''), (string)($_POST['ack'] ?? ''), time());
-            try { $vi = qc_verify_info($payload['name']); if (!in_array($vi['state'], ['success', 'no_need'], true)) throw new RuntimeException('请先完成主域名 ' . $vi['zone'] . ' 的所有权验证（在预览页添加 TXT 记录后点“立即验证”），再确认添加'); }
-            catch (QiniuCdnError $ve) { /* 验证信息暂时读不到时交给七牛创建接口判断 */ }
+            $product = qc_verify_product($payload['body']['platform'] ?? 'web');
+            try {
+                $vi = qc_verify_info($payload['name'], $product);
+                if (!in_array($vi['state'], ['success', 'no_need'], true)) {
+                    try { $vi = qc_verify_check($payload['name'], $product, true); } catch (Throwable $ve) {}
+                }
+                if (!in_array($vi['state'], ['success', 'no_need'], true)) throw new RuntimeException('请先完成主域名 ' . $vi['zone'] . ' 的所有权验证（在预览页添加 TXT 记录后点“立即验证”），再确认添加');
+            } catch (QiniuCdnError $ve) { /* 验证信息暂时读不到时交给七牛创建接口判断 */ }
             ps_audit('cdn', 0, 'domain_create_requested', $actor, $payload);
             qc_create($payload);
             try { ps_audit('cdn', 0, 'domain_create_accepted', $actor, ['domain'=>$payload['name']]); }
@@ -49,17 +56,22 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
         } else throw new RuntimeException('不支持此操作');
     } catch (Throwable $e) {
         $error = $e instanceof RuntimeException ? $e->getMessage() : '操作暂未完成，请刷新域名列表查询结果';
-        if (strpos($error, '所有权') !== false && strpos($error, '验证') !== false) $error .= '。请重新填写并点“预览添加配置”，页面会显示需要添加的 TXT 验证记录。';
+        if (strpos($error, '所有权') !== false && strpos($error, '验证') !== false && strpos($error, '预览添加配置') === false) {
+            $error = rtrim($error, '。') . '。请重新填写并点“预览添加配置”，页面会显示需要添加的 TXT 验证记录。';
+        }
         if (($_POST['action'] ?? '') === 'create') {
-            $_SESSION['cdn_flash'] = ['error'=>$error . '。添加请求不会自动重试；请先查询域名状态，避免重复提交。'];
+            $_SESSION['cdn_flash'] = ['error'=>rtrim($error, '。') . '。添加请求不会自动重试；请先查询域名状态，避免重复提交。'];
             header('Location: ' . BASE_URL . '/project/cdn.php');
             exit;
         }
     }
 }
 if ($preview && $configured) {
-    try { $verify = qc_verify_info($preview['name']); $verify['visible'] = $verify['state'] === 'doing' ? qc_verify_visible($verify) : null; }
-    catch (Throwable $e) { $verify = null; }
+    try {
+        $product = qc_verify_product($preview['body']['platform'] ?? 'web');
+        $verify = qc_verify_info($preview['name'], $product);
+        $verify['visible'] = $verify['state'] === 'doing' ? qc_verify_visible($verify) : null;
+    } catch (Throwable $e) { $verify = null; }
 }
 $name = trim((string)($_GET['d'] ?? ''));
 if ($configured) {
@@ -159,13 +171,13 @@ $value = function ($key, $default='') use ($input) { return e((string)($input[$k
     <p class="dns-help">此预览尚未创建域名、未修改解析。提交后七牛将检查源站和备案，启用后按七牛账号的流量计费规则计费。</p>
     <?php if ($verifyNote): ?><div class="dns-notice ok" role="status"><?php echo e($verifyNote); ?></div><?php endif; ?>
     <?php if ($verify): ?>
-    <div class="cdn-verify <?php echo e($verify['state']); ?>"><h3>第 0 步：主域名所有权验证 <span class="cdn-dns <?php echo $verify['state'] === 'doing' ? 'other' : 'ok'; ?>"><?php echo e(qc_verify_state_label($verify['state'])); ?></span></h3>
+    <div class="cdn-verify <?php echo e($verify['state']); ?>"><h3>第 0 步：主域名所有权验证（<?php echo $verify['product'] === 'dcdn' ? '动态加速 DCDN' : '普通 CDN'; ?>） <span class="cdn-dns <?php echo $verify['state'] === 'doing' ? 'other' : 'ok'; ?>"><?php echo e(qc_verify_state_label($verify['state'])); ?></span></h3>
       <?php if ($verify['state'] === 'doing'): ?>
-      <p class="dns-help">七牛要求先证明你拥有主域名 <strong><?php echo e($verify['zone']); ?></strong>，通过一次后，它下面的所有加速域名都不用再验证。请到该域名的解析里添加下面这条 <strong>TXT</strong> 记录：</p>
+      <p class="dns-help">七牛要求先证明你拥有主域名 <strong><?php echo e($verify['zone']); ?></strong><?php echo $verify['product'] === 'dcdn' ? '（动态加速业务）' : ''; ?>，通过一次后，它下面的所有加速域名都不用再验证。请到该域名的解析里添加下面这条 <strong>TXT</strong> 记录：</p>
       <div class="dns-table-wrap"><table class="dns-table"><thead><tr><th>在哪个域名下添加</th><th>主机记录</th><th>记录类型</th><th>记录值</th></tr></thead><tbody><tr><td><strong><?php echo e($verify['zone']); ?></strong></td><td><code><?php echo e($verify['host']); ?></code></td><td><?php echo e($verify['type']); ?></td><td><code><?php echo e($verify['value']); ?></code> <button type="button" class="dns-btn ghost cdn-mini" data-copy="<?php echo e($verify['value']); ?>">复制</button></td></tr></tbody></table></div>
       <p class="dns-help">公网检查：<?php echo $verify['visible'] ? '<span class="cdn-dns ok">已查到这条 TXT</span>，可以点“立即验证”' : '<span class="cdn-dns other">暂未查到</span>，添加后等几分钟再点“立即验证”'; ?>。<a href="<?php echo BASE_URL; ?>/project/dns.php">去解析管理添加</a>（选择主域名 <?php echo e($verify['zone']); ?>，类型 TXT）。</p>
       <form method="post" class="cdn-confirm"><input type="hidden" name="csrf" value="<?php echo e($csrf); ?>"><input type="hidden" name="action" value="verify"><input type="hidden" name="token" value="<?php echo e($previewToken); ?>"><button class="dns-btn" type="submit">我已添加，立即验证</button></form>
-      <?php else: ?><p class="dns-help">主域名 <strong><?php echo e($verify['zone']); ?></strong> 已通过七牛验证，可以直接确认添加。</p><?php endif; ?>
+      <?php else: ?><p class="dns-help">主域名 <strong><?php echo e($verify['zone']); ?></strong><?php echo $verify['product'] === 'dcdn' ? '（动态加速）' : ''; ?> 已通过七牛验证，可以直接确认添加。</p><?php endif; ?>
     </div>
     <?php endif; ?>
     <form method="post" class="cdn-confirm"><input type="hidden" name="csrf" value="<?php echo e($csrf); ?>"><input type="hidden" name="action" value="create"><input type="hidden" name="token" value="<?php echo e($previewToken); ?>">
@@ -178,7 +190,7 @@ $value = function ($key, $default='') use ($input) { return e((string)($input[$k
     <?php if ($certError): ?><div class="dns-notice warn"><?php echo e($certError); ?></div><?php endif; ?>
     <form method="post" class="cdn-form" id="cdnCreateForm"><input type="hidden" name="csrf" value="<?php echo e($csrf); ?>"><input type="hidden" name="action" value="preview">
       <label>加速域名<input name="domain" required maxlength="253" placeholder="cdn.example.com" value="<?php echo $value('domain'); ?>" autocomplete="off"><small>填写完整域名，不含 https:// 或路径。</small></label>
-      <label>业务类型<select name="platform"><?php foreach (QC_PLATFORMS as $key=>$label): ?><option value="<?php echo e($key); ?>" <?php echo ($input['platform']??'web')===$key?'selected':''; ?>><?php echo e($label); ?></option><?php endforeach; ?></select></label>
+      <label>业务类型<select name="platform"><?php foreach (QC_PLATFORMS as $key=>$label): ?><option value="<?php echo e($key); ?>" <?php echo ($input['platform']??'web')===$key?'selected':''; ?>><?php echo e($label); ?></option><?php endforeach; ?></select><small>一般建站推荐“静态网站”；全站动态API/长连接选“动态加速”。注意二者七牛所有权 TXT 记录不同。</small></label>
       <label>加速区域<select name="geo_cover" id="cdnRegion"><?php foreach (QC_REGIONS as $key=>$label): ?><option value="<?php echo e($key); ?>" <?php echo ($input['geo_cover']??'china')===$key?'selected':''; ?>><?php echo e($label); ?></option><?php endforeach; ?></select></label>
       <label id="cdnIcp">ICP 备案号<input name="register_no" maxlength="100" placeholder="该域名已备案的真实备案号" value="<?php echo $value('register_no'); ?>"><small>中国大陆 / 全球需要备案；本页不会自动办理备案。</small></label>
       <label>源站类型<select name="source_type" id="cdnSourceType"><?php foreach (['ip'=>'服务器 IP','domain'=>'源站域名','qiniuBucket'=>'七牛存储空间'] as $key=>$label): ?><option value="<?php echo e($key); ?>" <?php echo ($input['source_type']??'ip')===$key?'selected':''; ?>><?php echo e($label); ?></option><?php endforeach; ?></select></label>

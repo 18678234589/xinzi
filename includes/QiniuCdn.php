@@ -59,10 +59,12 @@ function qc_payload(array $input)
         if (!$ips || count($ips) > 10) throw new RuntimeException('请填写 1–10 个源站 IPv4 地址');
         foreach ($ips as $ip) if (!filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) throw new RuntimeException('源站 IP 格式不正确：' . $ip);
         $source['sourceIPs'] = array_values(array_unique($ips));
+        $source['skipCheckSource'] = true;
     } elseif ($sourceType === 'domain') {
         $origin = qc_domain($sourceValue);
         if ($origin === $name) throw new RuntimeException('源站域名不能与加速域名相同，以免配置 CNAME 后回源循环');
         $source['sourceDomain'] = $origin;
+        $source['skipCheckSource'] = true;
     } elseif ($sourceType === 'qiniuBucket') {
         if (!preg_match('/^[a-zA-Z0-9_-]{3,63}$/D', $sourceValue)) throw new RuntimeException('请填写已有七牛存储空间名称');
         if ($platform === 'dynamic') throw new RuntimeException('动态加速不能使用七牛存储空间作为源站');
@@ -73,7 +75,7 @@ function qc_payload(array $input)
         if (!in_array($scheme, ['http','https'], true)) throw new RuntimeException('回源协议不正确');
         $source['sourceURLScheme'] = $scheme;
         $host = trim((string)($input['source_host'] ?? ''));
-        if ($host !== '') $source['sourceHost'] = qc_domain($host);
+        $source['sourceHost'] = $host !== '' ? qc_domain($host) : $name;
     }
     $cacheMode = (string)($input['cache_mode'] ?? 'follow');
     if (!in_array($cacheMode, ['follow','static'], true)) throw new RuntimeException('缓存方式不正确');
@@ -155,7 +157,25 @@ function qc_create(array $payload)
         foreach (qc_certificates() as $cert) if (($cert['certid'] ?? '') === ($payload['body']['https']['certId'] ?? '') && qc_certificate_matches($cert, $name, time())) $valid = true;
         if (!$valid) throw new RuntimeException('所选证书已失效或不覆盖此加速域名，请重新选择');
     }
-    $result = qc_call('domain', 'POST', '/domain/' . rawurlencode($name), $payload['body']);
+    try {
+        $result = qc_call('domain', 'POST', '/domain/' . rawurlencode($name), $payload['body']);
+    } catch (QiniuCdnError $e) {
+        if ($e->apiCode === 400062 || $e->apiCode === 400063) {
+            return ['code' => 200, 'message' => '域名已存在'];
+        }
+        if ($e->apiCode === 400932) {
+            // 所有权验证未绑定时，尝试使用匹配产品类型自动补验一次后重试
+            $product = qc_verify_product($payload['body']['platform'] ?? 'web');
+            try {
+                qc_verify_check($name, $product, true);
+                $result = qc_call('domain', 'POST', '/domain/' . rawurlencode($name), $payload['body']);
+                if (isset($result['code']) && (int)$result['code'] === 200) return $result;
+            } catch (Throwable $retryErr) {
+                // 重试未成功则继续抛出原始错误
+            }
+        }
+        throw $e;
+    }
     if (!isset($result['code']) || (int)$result['code'] !== 200) throw new RuntimeException('七牛未返回明确的添加结果，请先查询域名状态，不要立即重试');
     return $result;
 }
@@ -185,29 +205,52 @@ function qc_split_host($name)
 
 /* ---------- 域名所有权验证（七牛要求先验证主域名，才能添加其下的加速域名） ---------- */
 
+/** 映射业务类型到验证产品类型：动态加速为 dcdn，其他（静态网站、文件下载、点播）为 cdn。 */
+function qc_verify_product($productOrPlatform = 'cdn')
+{
+    return ($productOrPlatform === 'dynamic' || $productOrPlatform === 'dcdn') ? 'dcdn' : 'cdn';
+}
+
 function qc_verify_state_label($state)
 {
     return ['success' => '已验证', 'no_need' => '无需验证', 'doing' => '待验证'][$state] ?? '未知';
 }
-/** 主域名的验证信息：state（success / no_need / doing）和要添加的 TXT 记录。 */
-function qc_verify_info($name)
+/** 主域名的验证信息：state（success / no_need / doing）和要添加的 TXT 记录。
+ * 支持 cdn（静态加速，包括 web / vod / download）和 dcdn（动态加速）。
+ */
+function qc_verify_info($name, $product = 'cdn')
 {
+    $product = qc_verify_product($product);
     list(, $zone) = qc_split_host(qc_domain($name));
-    $d = qc_call('domain', 'GET', '/domain/' . rawurlencode($zone) . '/verify/info?product=cdn');
-    return ['zone' => $zone, 'state' => (string)($d['state'] ?? ''), 'host' => (string)($d['dns']['host'] ?? 'verification'), 'type' => (string)($d['dns']['recordType'] ?? 'TXT'), 'value' => (string)($d['dns']['recordValue'] ?? '')];
+    $d = qc_call('domain', 'GET', '/domain/' . rawurlencode($zone) . '/verify/info?product=' . rawurlencode($product));
+    return [
+        'zone' => $zone,
+        'product' => $product,
+        'state' => (string)($d['state'] ?? ''),
+        'host' => (string)($d['dns']['host'] ?? 'verification'),
+        'type' => (string)($d['dns']['recordType'] ?? 'TXT'),
+        'value' => (string)($d['dns']['recordValue'] ?? '')
+    ];
 }
-/** 用户加好 TXT 后让七牛校验（七牛要求先查看过验证信息）。成功返回最新验证信息，失败抛带中文提示的异常。 */
-function qc_verify_check($name)
+/** 用户加好 TXT 后让七牛校验（七牛要求先查看过验证信息）。
+ * $force=true 时即使当前为 success 也向七牛发起 POST /domain/<zone>/verify/check 触发服务端固化验证状态。
+ * 成功返回最新验证信息，失败抛带中文提示的异常。
+ */
+function qc_verify_check($name, $product = 'cdn', $force = false)
 {
-    $info = qc_verify_info($name);
-    if (in_array($info['state'], ['success', 'no_need'], true)) return $info;
+    $product = qc_verify_product($product);
+    $info = qc_verify_info($name, $product);
+    if (!$force && in_array($info['state'], ['success', 'no_need'], true)) return $info;
     try {
-        qc_call('domain', 'POST', '/domain/' . rawurlencode($info['zone']) . '/verify/check', ['type' => 'dns', 'product' => 'cdn']);
+        qc_call('domain', 'POST', '/domain/' . rawurlencode($info['zone']) . '/verify/check', ['type' => 'dns', 'product' => $product]);
     } catch (QiniuCdnError $e) {
-        if ($e->apiCode === 400932) throw new RuntimeException('七牛暂时没查到正确的 TXT 记录：请确认主机记录填 ' . $info['host'] . '、类型 TXT、记录值完全一致，解析生效一般要几分钟，稍后再点“立即验证”。');
+        if ($e->apiCode === 400932) {
+            $label = $product === 'dcdn' ? '动态加速（DCDN）' : 'CDN';
+            throw new RuntimeException('七牛暂时没查到 ' . $label . ' 正确的 TXT 记录：请确认主机记录填 ' . $info['host'] . '、类型 TXT、记录值完全一致（' . $info['value'] . '），解析生效一般要几分钟，稍后再点“立即验证”。');
+        }
         throw $e;
     }
-    return qc_verify_info($name);
+    return qc_verify_info($name, $product);
 }
 /** 公网上是否已能查到验证用的 TXT 记录（只用于提示，不影响七牛的判断）。 */
 function qc_verify_visible(array $info)
