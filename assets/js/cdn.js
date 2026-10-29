@@ -28,4 +28,18 @@
       navigator.clipboard.writeText(text).then(function () { button.textContent = '已复制'; }).catch(function () { button.textContent = '请选中地址复制'; });
     });
   });
+  // 列表按「近 7 天流量 / 今日」排序（只排当前页已显示的域名；再点一次反向）。
+  document.querySelectorAll('.cdn-sort').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var key = btn.dataset.sort, body = btn.closest('table').tBodies[0], dir = btn.dataset.dir === 'desc' ? 'asc' : 'desc';
+      document.querySelectorAll('.cdn-sort').forEach(function (b) { delete b.dataset.dir; b.querySelector('span').textContent = '↕'; });
+      btn.dataset.dir = dir; btn.querySelector('span').textContent = dir === 'desc' ? '↓' : '↑';
+      var rows = Array.prototype.slice.call(body.querySelectorAll('tr[data-name]'));
+      rows.sort(function (a, b) {
+        var x = Number(a.querySelector('[data-sort-' + key + ']').dataset['sort' + key.charAt(0).toUpperCase() + key.slice(1)]), y = Number(b.querySelector('[data-sort-' + key + ']').dataset['sort' + key.charAt(0).toUpperCase() + key.slice(1)]);
+        return dir === 'desc' ? y - x : x - y;
+      });
+      rows.forEach(function (r) { body.appendChild(r); });
+    });
+  });
 })();

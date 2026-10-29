@@ -74,7 +74,7 @@ include __DIR__ . '/../includes/header.php';
 $value = function ($key, $default='') use ($input) { return e((string)($input[$key] ?? $default)); };
 ?>
 <link rel="stylesheet" href="<?php echo BASE_URL; ?>/assets/css/dns.css?v=20261013-contrast">
-<link rel="stylesheet" href="<?php echo BASE_URL; ?>/assets/css/cdn.css?v=20261028b">
+<link rel="stylesheet" href="<?php echo BASE_URL; ?>/assets/css/cdn.css?v=20261029">
 <main class="dns-console cdn-console">
   <section class="dns-hero">
     <div><div class="dns-kicker">QINIU · CONTENT DELIVERY</div><h1>CDN 管理</h1><p>直接在本站添加七牛 CDN 加速域名、查看状态和 CNAME，再到本站解析管理完成接入。</p></div>
@@ -166,13 +166,13 @@ $value = function ($key, $default='') use ($input) { return e((string)($input[$k
   <?php elseif ($trafficNote): ?><div class="dns-notice warn"><?php echo e($trafficNote); ?></div><?php endif; ?>
   <section class="dns-card"><div class="dns-card-head"><h2>七牛账号下的 CDN 域名</h2><a href="cdn.php" class="dns-btn ghost">刷新 / 返回第一页</a></div>
     <form method="get" class="cdn-lookup"><label for="cdnLookup">查询完整域名</label><input id="cdnLookup" name="d" required placeholder="cdn.example.com" maxlength="253"><button class="dns-btn ghost" type="submit">查看详情</button></form>
-    <div class="dns-table-wrap"><table class="dns-table"><thead><tr><th>加速域名</th><th>配置状态</th><th>区域 / 协议</th><th>近 7 天流量</th><th>今日</th><th>CNAME</th><th></th></tr></thead><tbody>
+    <div class="dns-table-wrap"><table class="dns-table"><thead><tr><th>加速域名</th><th>配置状态</th><th>区域 / 协议</th><th><button type="button" class="cdn-sort" data-sort="week" title="点击按近 7 天流量排序">近 7 天流量 <span aria-hidden="true">↕</span></button></th><th><button type="button" class="cdn-sort" data-sort="today" title="点击按今日流量排序">今日 <span aria-hidden="true">↕</span></button></th><th>CNAME</th><th></th></tr></thead><tbody>
       <?php if (!$list['rows']): ?><tr><td colspan="7" class="dns-empty"><?php echo $error?'暂未读取到列表，请稍后重试':'账号下暂未读取到 CDN 域名'; ?></td></tr><?php endif; ?>
-      <?php foreach ($list['rows'] as $row): ?><tr><td><strong><?php echo e($row['name']); ?></strong></td><td><?php echo e(qc_state_label($row['operatingState'])); ?></td><td><?php echo e(QC_REGIONS[$row['geoCover']]??$row['geoCover']); ?><small><?php echo e(strtoupper($row['protocol'])); ?></small></td><?php $tr = $traffic[strtolower($row['name'])] ?? null; ?><td><?php echo ($tr && $tr['has_data']) ? e(qt_bytes($tr['week'])) : '<span class="dns-help">—</span>'; ?></td><td><?php echo ($tr && $tr['has_data']) ? e(qt_bytes($tr['today'])) . ($tr['spike'] ? ' <span class="cdn-spike" title="今日流量明显高于前 7 天平均，请核对是否被盗刷或正常活动">异常增长</span>' : '') : '<span class="dns-help">—</span>'; ?></td><td><code class="dns-value"><?php echo e($row['cname']); ?></code></td><td><a class="dns-btn ghost" href="?d=<?php echo rawurlencode($row['name']); ?>">查看 / 接入解析</a></td></tr><?php endforeach; ?>
+      <?php foreach ($list['rows'] as $row): ?><tr data-name="<?php echo e($row['name']); ?>"><td><strong><?php echo e($row['name']); ?></strong></td><td><?php echo e(qc_state_label($row['operatingState'])); ?></td><td><?php echo e(QC_REGIONS[$row['geoCover']]??$row['geoCover']); ?><small><?php echo e(strtoupper($row['protocol'])); ?></small></td><?php $tr = $traffic[strtolower($row['name'])] ?? null; ?><td data-sort-week="<?php echo $tr ? (int)$tr['week'] : -1; ?>"><?php echo ($tr && $tr['has_data']) ? e(qt_bytes($tr['week'])) : '<span class="dns-help">—</span>'; ?></td><td data-sort-today="<?php echo $tr ? (int)$tr['today'] : -1; ?>"><?php echo ($tr && $tr['has_data']) ? e(qt_bytes($tr['today'])) . ($tr['spike'] ? ' <span class="cdn-spike" title="今日流量明显高于前 7 天平均，请核对是否被盗刷或正常活动">异常增长</span>' : '') : '<span class="dns-help">—</span>'; ?></td><td><code class="dns-value"><?php echo e($row['cname']); ?></code></td><td><a class="dns-btn ghost" href="?d=<?php echo rawurlencode($row['name']); ?>">查看 / 接入解析</a></td></tr><?php endforeach; ?>
     </tbody></table></div>
     <?php if ($list['marker']): ?><a class="dns-btn ghost" href="?marker=<?php echo rawurlencode($list['marker']); ?>">下一页</a><?php endif; ?>
   </section>
   <?php endif; ?>
 </main>
-<script src="<?php echo BASE_URL; ?>/assets/js/cdn.js?v=20261013" defer></script>
+<script src="<?php echo BASE_URL; ?>/assets/js/cdn.js?v=20261029" defer></script>
 <?php include __DIR__ . '/../includes/footer.php'; ?>
