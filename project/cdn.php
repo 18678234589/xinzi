@@ -36,15 +36,50 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
             $product = qc_verify_product($preview['body']['platform'] ?? 'web');
             qc_verify_check($preview['name'], $product, true);
             $verifyNote = '域名所有权验证已通过，现在可以确认添加。';
+        } elseif ($action === 'auto_dns_verify') {
+            $previewToken = (string)($_POST['token'] ?? '');
+            $ticket = $_SESSION['cdn_previews'][$previewToken] ?? null;
+            if (!$ticket || $ticket['actor'] !== $actorKey || $ticket['expires'] < time()) throw new RuntimeException('预览已过期，请重新填写并预览');
+            $preview = $ticket['payload'];
+            $product = qc_verify_product($preview['body']['platform'] ?? 'web');
+            $vi = qc_verify_info($preview['name'], $product);
+            $hosted = qc_find_dns_provider($vi['zone']);
+            if (!$hosted) throw new RuntimeException('未检测到主域名 ' . $vi['zone'] . ' 在本站托管的解析账号中，请手动在域名 DNS 控制台添加 TXT 记录。');
+            qc_auto_add_txt_record($hosted, $vi['host'], $vi['value']);
+            try {
+                $checked = qc_verify_check($preview['name'], $product, true);
+                if (in_array($checked['state'], ['success', 'no_need'], true)) {
+                    $verifyNote = '已在 ' . $hosted['label'] . ' 成功添加 TXT 解析，并已完成七牛所有权验证！现在可以直接确认添加。';
+                } else {
+                    $verifyNote = '已在 ' . $hosted['label'] . ' 自动添加 TXT 解析记录（' . $vi['host'] . ' ' . $vi['value'] . '）！DNS 生效一般需 30-60 秒，稍后可点击“我已添加，立即验证”。';
+                }
+            } catch (Throwable $ve) {
+                $verifyNote = '已在 ' . $hosted['label'] . ' 自动添加 TXT 解析记录（' . $vi['host'] . ' ' . $vi['value'] . '）！DNS 传播一般需 30-60 秒，稍后可点击“我已添加，立即验证”。';
+            }
         } elseif ($action === 'create') {
-            $payload = qc_ticket_take($_SESSION['cdn_previews'], (string)($_POST['token'] ?? ''), $actorKey, (string)($_POST['confirm'] ?? ''), (string)($_POST['ack'] ?? ''), time());
+            $previewToken = (string)($_POST['token'] ?? '');
+            $payload = qc_ticket_take($_SESSION['cdn_previews'], $previewToken, $actorKey, (string)($_POST['confirm'] ?? ''), (string)($_POST['ack'] ?? ''), time());
+            $preview = $payload;
             $product = qc_verify_product($payload['body']['platform'] ?? 'web');
             try {
                 $vi = qc_verify_info($payload['name'], $product);
                 if (!in_array($vi['state'], ['success', 'no_need'], true)) {
-                    try { $vi = qc_verify_check($payload['name'], $product, true); } catch (Throwable $ve) {}
+                    try {
+                        $vi = qc_verify_check($payload['name'], $product, true);
+                    } catch (Throwable $ve) {
+                        if (qc_verify_visible($vi)) {
+                            usleep(800000);
+                            try { $vi = qc_verify_check($payload['name'], $product, true); } catch (Throwable $ve2) {}
+                        }
+                    }
                 }
-                if (!in_array($vi['state'], ['success', 'no_need'], true)) throw new RuntimeException('请先完成主域名 ' . $vi['zone'] . ' 的所有权验证（在预览页添加 TXT 记录后点“立即验证”），再确认添加');
+                if (!in_array($vi['state'], ['success', 'no_need'], true)) {
+                    if (qc_verify_visible($vi)) {
+                        throw new RuntimeException('已在公网查到主域名 ' . $vi['zone'] . ' 的 TXT 记录，但七牛系统尚未同步完成。请等待 1-2 分钟后点“立即验证”，通过后再确认添加。');
+                    } else {
+                        throw new RuntimeException('主域名 ' . $vi['zone'] . ' 尚未完成所有权验证。请按下方表格添加 TXT 记录（主机记录 ' . $vi['host'] . '，记录值 ' . $vi['value'] . '），等待生效后点“立即验证”。');
+                    }
+                }
             } catch (QiniuCdnError $ve) { /* 验证信息暂时读不到时交给七牛创建接口判断 */ }
             ps_audit('cdn', 0, 'domain_create_requested', $actor, $payload);
             qc_create($payload);
@@ -56,13 +91,18 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
         } else throw new RuntimeException('不支持此操作');
     } catch (Throwable $e) {
         $error = $e instanceof RuntimeException ? $e->getMessage() : '操作暂未完成，请刷新域名列表查询结果';
-        if (strpos($error, '所有权') !== false && strpos($error, '验证') !== false && strpos($error, '预览添加配置') === false) {
-            $error = rtrim($error, '。') . '。请重新填写并点“预览添加配置”，页面会显示需要添加的 TXT 验证记录。';
+        if ($e instanceof QiniuCdnError && $e->apiCode === 400932) {
+            $error = '七牛域名所有权验证尚未生效。主域名需添加 TXT 记录（主机记录 verification），公网生效后请点“立即验证”，通过后再确认添加。';
         }
-        if (($_POST['action'] ?? '') === 'create') {
-            $_SESSION['cdn_flash'] = ['error'=>rtrim($error, '。') . '。添加请求不会自动重试；请先查询域名状态，避免重复提交。'];
-            header('Location: ' . BASE_URL . '/project/cdn.php');
-            exit;
+        $act = (string)($_POST['action'] ?? '');
+        if ($act === 'create') {
+            $previewToken = (string)($_POST['token'] ?? '');
+            if (isset($payload)) {
+                $preview = $payload;
+                $_SESSION['cdn_previews'][$previewToken] = ['actor'=>$actorKey, 'expires'=>time()+600, 'payload'=>$payload];
+            } elseif (isset($_SESSION['cdn_previews'][$previewToken])) {
+                $preview = $_SESSION['cdn_previews'][$previewToken]['payload'];
+            }
         }
     }
 }
@@ -70,7 +110,18 @@ if ($preview && $configured) {
     try {
         $product = qc_verify_product($preview['body']['platform'] ?? 'web');
         $verify = qc_verify_info($preview['name'], $product);
-        $verify['visible'] = $verify['state'] === 'doing' ? qc_verify_visible($verify) : null;
+        if ($verify['state'] === 'doing') {
+            $verify['visible'] = qc_verify_visible($verify);
+            if ($verify['visible']) {
+                try {
+                    $checked = qc_verify_check($preview['name'], $product, true);
+                    if (in_array($checked['state'], ['success', 'no_need'], true)) {
+                        $verify = $checked;
+                        $verifyNote = '主域名 TXT 记录已在公网检测到，并已自动完成七牛所有权验证！可以直接确认添加。';
+                    }
+                } catch (Throwable $ce) {}
+            }
+        }
     } catch (Throwable $e) { $verify = null; }
 }
 $name = trim((string)($_GET['d'] ?? ''));
@@ -175,8 +226,14 @@ $value = function ($key, $default='') use ($input) { return e((string)($input[$k
       <?php if ($verify['state'] === 'doing'): ?>
       <p class="dns-help">七牛要求先证明你拥有主域名 <strong><?php echo e($verify['zone']); ?></strong><?php echo $verify['product'] === 'dcdn' ? '（动态加速业务）' : ''; ?>，通过一次后，它下面的所有加速域名都不用再验证。请到该域名的解析里添加下面这条 <strong>TXT</strong> 记录：</p>
       <div class="dns-table-wrap"><table class="dns-table"><thead><tr><th>在哪个域名下添加</th><th>主机记录</th><th>记录类型</th><th>记录值</th></tr></thead><tbody><tr><td><strong><?php echo e($verify['zone']); ?></strong></td><td><code><?php echo e($verify['host']); ?></code></td><td><?php echo e($verify['type']); ?></td><td><code><?php echo e($verify['value']); ?></code> <button type="button" class="dns-btn ghost cdn-mini" data-copy="<?php echo e($verify['value']); ?>">复制</button></td></tr></tbody></table></div>
-      <p class="dns-help">公网检查：<?php echo $verify['visible'] ? '<span class="cdn-dns ok">已查到这条 TXT</span>，可以点“立即验证”' : '<span class="cdn-dns other">暂未查到</span>，添加后等几分钟再点“立即验证”'; ?>。<a href="<?php echo BASE_URL; ?>/project/dns.php">去解析管理添加</a>（选择主域名 <?php echo e($verify['zone']); ?>，类型 TXT）。</p>
-      <form method="post" class="cdn-confirm"><input type="hidden" name="csrf" value="<?php echo e($csrf); ?>"><input type="hidden" name="action" value="verify"><input type="hidden" name="token" value="<?php echo e($previewToken); ?>"><button class="dns-btn" type="submit">我已添加，立即验证</button></form>
+      <p class="dns-help">公网检查：<?php echo $verify['visible'] ? '<span class="cdn-dns ok">已查到这条 TXT</span>，系统已自动向七牛提交验证，或可点“立即验证”重试' : '<span class="cdn-dns other">暂未查到</span>，添加后等 1-2 分钟再点“立即验证”'; ?>。<a href="<?php echo BASE_URL; ?>/project/dns.php">去解析管理添加</a>（选择主域名 <?php echo e($verify['zone']); ?>，类型 TXT）。</p>
+      <div class="cdn-verify-actions" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:10px 0;">
+        <?php $hosted = qc_find_dns_provider($verify['zone']); ?>
+        <?php if ($hosted): ?>
+        <form method="post" style="margin:0"><input type="hidden" name="csrf" value="<?php echo e($csrf); ?>"><input type="hidden" name="action" value="auto_dns_verify"><input type="hidden" name="token" value="<?php echo e($previewToken); ?>"><button class="dns-btn" type="submit">一键自动添加 TXT 解析并验证（<?php echo e($hosted['label']); ?>）</button></form>
+        <?php endif; ?>
+        <form method="post" class="cdn-confirm" style="margin:0"><input type="hidden" name="csrf" value="<?php echo e($csrf); ?>"><input type="hidden" name="action" value="verify"><input type="hidden" name="token" value="<?php echo e($previewToken); ?>"><button class="dns-btn ghost" type="submit">我已添加，立即验证</button></form>
+      </div>
       <?php else: ?><p class="dns-help">主域名 <strong><?php echo e($verify['zone']); ?></strong><?php echo $verify['product'] === 'dcdn' ? '（动态加速）' : ''; ?> 已通过七牛验证，可以直接确认添加。</p><?php endif; ?>
     </div>
     <?php endif; ?>

@@ -258,3 +258,99 @@ function qc_verify_visible(array $info)
     foreach ((array)@dns_get_record($info['host'] . '.' . $info['zone'], DNS_TXT) as $r) if (isset($r['txt']) && trim($r['txt']) === $info['value']) return true;
     return false;
 }
+
+/** 检查该主域名是否已在系统支持的 DNS 托管服务商中（商务中国、DNSPod、Cloudflare）。 */
+function qc_find_dns_provider($zone)
+{
+    if (!empty($GLOBALS['qc_dns_provider_mock'])) {
+        return call_user_func($GLOBALS['qc_dns_provider_mock'], $zone);
+    }
+    $zone = strtolower(trim((string)$zone));
+    if ($zone === '') return null;
+
+    // 1. 商务中国（Bizcn）
+    if (function_exists('bd_config') || file_exists(dirname(__DIR__) . '/config/bizcn.php')) {
+        try {
+            require_once __DIR__ . '/BizcnDomains.php';
+            $r = bd_call('infoDnsRecordService', 'infoDnsRecord', ['domainname' => $zone], 5);
+            if (is_array($r) && isset($r['records'])) {
+                return ['provider' => 'bizcn', 'label' => '商务中国', 'zone' => $zone];
+            }
+        } catch (Throwable $e) {}
+    }
+
+    // 2. DNSPod
+    try {
+        if (dns_provider_configured('dnspod')) {
+            foreach (dns_zones('dnspod') as $z) {
+                if (strcasecmp($z['domain'], $zone) === 0) {
+                    return ['provider' => 'dnspod', 'label' => 'DNSPod', 'zone' => $zone];
+                }
+            }
+        }
+    } catch (Throwable $e) {}
+
+    // 3. Cloudflare
+    try {
+        if (dns_provider_configured('cloudflare')) {
+            foreach (dns_zones('cloudflare') as $z) {
+                if (strcasecmp($z['domain'], $zone) === 0) {
+                    return ['provider' => 'cloudflare', 'label' => 'Cloudflare', 'zone' => $zone, 'id' => (string)$z['id']];
+                }
+            }
+        }
+    } catch (Throwable $e) {}
+
+    return null;
+}
+
+/** 自动在托管服务商为该域名添加 TXT 记录。 */
+function qc_auto_add_txt_record(array $providerInfo, $host, $value)
+{
+    if (!empty($GLOBALS['qc_auto_txt_mock'])) {
+        return call_user_func($GLOBALS['qc_auto_txt_mock'], $providerInfo, $host, $value);
+    }
+    $provider = $providerInfo['provider'] ?? '';
+    $zone = $providerInfo['zone'] ?? '';
+    try {
+        if ($provider === 'bizcn') {
+            require_once __DIR__ . '/BizcnDomains.php';
+            bd_call('addDnsRecordService', 'addDnsRecord', [
+                'add' => [
+                    'domainname' => $zone,
+                    'resolvetype' => 'TXT',
+                    'resolvehost' => $host,
+                    'resolvevalue' => $value,
+                    'mxlevel' => '10'
+                ]
+            ], 10);
+            return true;
+        }
+        if ($provider === 'dnspod') {
+            dns_call('dnspod', 'POST', 'CreateRecord', [
+                'Domain' => $zone,
+                'RecordType' => 'TXT',
+                'SubDomain' => $host,
+                'RecordLine' => '默认',
+                'Value' => $value
+            ]);
+            return true;
+        }
+        if ($provider === 'cloudflare') {
+            dns_call('cloudflare', 'POST', '/zones/' . rawurlencode($providerInfo['id'] ?? '') . '/dns_records', [
+                'type' => 'TXT',
+                'name' => ($host === '@' ? $zone : ($host . '.' . $zone)),
+                'content' => $value,
+                'ttl' => 120
+            ]);
+            return true;
+        }
+    } catch (Throwable $e) {
+        $msg = $e->getMessage();
+        if (stripos($msg, 'exist') !== false || stripos($msg, '已存在') !== false) {
+            return true;
+        }
+        throw $e;
+    }
+    throw new RuntimeException('未知的解析服务商：' . $provider);
+}

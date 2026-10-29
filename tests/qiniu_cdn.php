@@ -92,5 +92,26 @@ qc_test($verifyCalls[0][0]==='GET'&&$verifyCalls[1][0]==='POST'&&$verifyCalls[1]
 $verifyCalls=[];qc_verify_check('cdn.example.com');qc_test(count(array_filter($verifyCalls,function($c){return $c[0]==='POST';}))===0,'already verified: no extra check call');
 $verifyCalls=[];qc_verify_check('cdn.example.com','cdn',true);qc_test(count(array_filter($verifyCalls,function($c){return $c[0]==='POST';}))===1,'force check: sends POST even if already verified');
 $GLOBALS['qc_mock']=$prevMock;
+// DNS 托管服务商探测与自动加 TXT 解析测试
+$GLOBALS['qc_dns_provider_mock']=function($zone){
+    if($zone==='derczn.com')return ['provider'=>'bizcn','label'=>'商务中国','zone'=>'derczn.com'];
+    if($zone==='ousweixin.com')return ['provider'=>'dnspod','label'=>'DNSPod','zone'=>'ousweixin.com'];
+    if($zone==='cfdomain.com')return ['provider'=>'cloudflare','label'=>'Cloudflare','zone'=>'cfdomain.com','id'=>'cf123'];
+    return null;
+};
+qc_test(qc_find_dns_provider('derczn.com')['provider']==='bizcn','detect bizcn provider');
+qc_test(qc_find_dns_provider('ousweixin.com')['provider']==='dnspod','detect dnspod provider');
+qc_test(qc_find_dns_provider('cfdomain.com')['provider']==='cloudflare','detect cloudflare provider');
+qc_test(qc_find_dns_provider('unknown.com')===null,'unknown domain returns null');
+$autoTxtLog=[];
+$GLOBALS['qc_auto_txt_mock']=function($providerInfo,$host,$value)use(&$autoTxtLog){
+    $autoTxtLog[]=[$providerInfo['provider'],$providerInfo['zone'],$host,$value];
+    return true;
+};
+$bizcnP=qc_find_dns_provider('derczn.com');
+qc_test(qc_auto_add_txt_record($bizcnP,'verification','val123')===true,'auto add txt returns true');
+qc_test(count($autoTxtLog)===1&&$autoTxtLog[0]===['bizcn','derczn.com','verification','val123'],'auto add txt payload passed correctly');
+$GLOBALS['qc_dns_provider_mock']=null;
+$GLOBALS['qc_auto_txt_mock']=null;
 qc_test(!function_exists('db')&&!function_exists('pas_get'),'offline test never loads credentials or database');
 echo json_encode(['passed'=>$checks,'failed'=>0,'real_api_writes'=>0],JSON_UNESCAPED_UNICODE)."\n";
