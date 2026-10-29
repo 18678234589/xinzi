@@ -173,3 +173,12 @@ function qc_state_label($state)
 {
     return ['processing'=>'配置处理中', 'success'=>'配置成功', 'failed'=>'配置失败', 'frozen'=>'已冻结', 'offlined'=>'已下线'][$state] ?? ('未知状态：' . $state);
 }
+
+/** 把加速域名拆成「主机记录」和「所在域名」，如 cx.ousweixin.com → [cx, ousweixin.com]（识别 com.cn 这类二级后缀）。 */
+function qc_split_host($name)
+{
+    $labels = explode('.', strtolower($name));
+    $keep = (count($labels) >= 3 && in_array(implode('.', array_slice($labels, -2)), ['com.cn', 'net.cn', 'org.cn', 'gov.cn', 'ac.cn'], true)) ? 3 : 2;
+    if (count($labels) <= $keep) return ['@', $name];
+    return [implode('.', array_slice($labels, 0, count($labels) - $keep)), implode('.', array_slice($labels, -$keep))];
+}
