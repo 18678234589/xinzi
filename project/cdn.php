@@ -1,6 +1,7 @@
 <?php
 require_once __DIR__ . '/../includes/BizcnDomains.php';
 require_once __DIR__ . '/../includes/QiniuCdn.php';
+require_once __DIR__ . '/../includes/QiniuCdnTraffic.php';
 $actor = ps_require_actor();
 if (!bd_can_access($actor)) { http_response_code(403); exit('当前账户未分配 CDN 管理权限'); }
 require_once __DIR__ . '/../includes/ProjectApiSettings.php';
@@ -56,12 +57,24 @@ if ($configured) {
         catch (Throwable $e) { $certError = '暂时无法读取证书目录，HTTP 添加仍可用。'; }
     }
 }
+// 流量只读本地表（后台任务同步），表还没建或没有数据时页面照常显示。
+$traffic = []; $series = []; $overview = null; $trafficNote = '';
+if ($configured) {
+    try {
+        if ($detail) $series = qt_series(db(), $detail['name'], 30);
+        else {
+            $traffic = qt_summary(db(), array_column($list['rows'], 'name'));
+            $overview = qt_overview(db());
+            if (!$overview['updated_at']) { $overview = null; $trafficNote = '流量数据正在首次同步，稍后刷新即可看到。'; }
+        }
+    } catch (Throwable $e) { $trafficNote = '流量数据暂时无法读取。'; }
+}
 $page_title = 'CDN 管理';
 include __DIR__ . '/../includes/header.php';
 $value = function ($key, $default='') use ($input) { return e((string)($input[$key] ?? $default)); };
 ?>
 <link rel="stylesheet" href="<?php echo BASE_URL; ?>/assets/css/dns.css?v=20261013-contrast">
-<link rel="stylesheet" href="<?php echo BASE_URL; ?>/assets/css/cdn.css?v=20261028">
+<link rel="stylesheet" href="<?php echo BASE_URL; ?>/assets/css/cdn.css?v=20261028b">
 <main class="dns-console cdn-console">
   <section class="dns-hero">
     <div><div class="dns-kicker">QINIU · CONTENT DELIVERY</div><h1>CDN 管理</h1><p>直接在本站添加七牛 CDN 加速域名、查看状态和 CNAME，再到本站解析管理完成接入。</p></div>
@@ -78,6 +91,24 @@ $value = function ($key, $default='') use ($input) { return e((string)($input[$k
     <?php if ($detail['operatingStateDesc'] || $detail['freezeType']): ?><div class="dns-notice warn"><?php echo e($detail['operatingStateDesc'] ?: $detail['freezeType']); ?></div><?php endif; ?>
     <p class="dns-help">“配置成功”表示七牛配置完成，是否已接入还取决于 DNS 的 CNAME。处理中请稍后刷新，不要重复添加。</p>
     <a class="dns-btn ghost" href="?d=<?php echo rawurlencode($detail['name']); ?>">刷新状态</a>
+  </section>
+  <?php
+    $known = array_filter($series, function ($d) { return $d['known']; });
+    $maxFlux = max(1, max(array_column($series, 'flux')));
+    $sum7 = array_sum(array_column(array_slice($series, -7), 'flux')); $sum30 = array_sum(array_column($series, 'flux'));
+  ?>
+  <section class="dns-card cdn-traffic"><div class="dns-card-head"><h2>流量（近 30 天）</h2></div>
+    <?php if (!$known): ?><p class="dns-help"><?php echo e($trafficNote ?: '暂无流量数据。新域名接入后一般几十分钟内出现；七牛的统计本身有延迟。'); ?></p>
+    <?php else: ?>
+    <dl class="cdn-summary"><div><dt>近 7 天流量</dt><dd><?php echo e(qt_bytes($sum7)); ?></dd></div><div><dt>近 30 天流量</dt><dd><?php echo e(qt_bytes($sum30)); ?></dd></div></dl>
+    <div class="cdn-bars" role="img" aria-label="近 30 天每日流量柱状图">
+      <?php foreach ($series as $d): ?><span class="cdn-bar" title="<?php echo e($d['day'] . '：' . qt_bytes($d['flux']) . '，峰值带宽 ' . qt_bps($d['bps'])); ?>"><i style="height:<?php echo max(2, (int)round($d['flux'] / $maxFlux * 100)); ?>%"></i></span><?php endforeach; ?>
+    </div>
+    <div class="dns-table-wrap"><table class="dns-table"><thead><tr><th>日期</th><th>流量</th><th>峰值带宽</th></tr></thead><tbody>
+      <?php foreach (array_reverse(array_slice($series, -14)) as $d): ?><tr><td><?php echo e($d['day']); ?></td><td><?php echo $d['known'] ? e(qt_bytes($d['flux'])) : '<span class="dns-help">—</span>'; ?></td><td><?php echo $d['known'] ? e(qt_bps($d['bps'])) : '<span class="dns-help">—</span>'; ?></td></tr><?php endforeach; ?>
+    </tbody></table></div>
+    <p class="dns-help">数据来自七牛用量统计，后台每 30 分钟同步，当天数字未走完会偏小；仅供参考，计费以七牛账单为准。</p>
+    <?php endif; ?>
   </section>
   <section class="dns-card"><h2>接入解析：将加速域名指向七牛 CNAME</h2>
     <?php if ($detail['cname']): ?>
@@ -127,11 +158,17 @@ $value = function ($key, $default='') use ($input) { return e((string)($input[$k
       <div class="cdn-form-actions"><button class="dns-btn" type="submit">预览添加配置</button><span class="dns-help">预览不会创建域名或修改解析。</span></div>
     </form>
   </section>
+  <?php if ($overview): ?>
+  <section class="dns-card cdn-traffic"><div class="dns-card-head"><h2>流量概览</h2></div>
+    <dl class="cdn-summary"><div><dt>全部域名近 7 天</dt><dd><?php echo e(qt_bytes($overview['week'])); ?></dd></div><div><dt>全部域名近 30 天</dt><dd><?php echo e(qt_bytes($overview['month'])); ?></dd></div></dl>
+    <?php if ($overview['top']): ?><p class="dns-help">近 30 天流量前 <?php echo count($overview['top']); ?>：<?php echo implode('；', array_map(function ($t) { return '<a href="cdn.php?d=' . rawurlencode($t['domain']) . '">' . e($t['domain']) . '</a> ' . e(qt_bytes($t['month'])); }, $overview['top'])); ?>。最近同步 <?php echo e(date('m-d H:i', $overview['updated_at'])); ?>。</p><?php endif; ?>
+  </section>
+  <?php elseif ($trafficNote): ?><div class="dns-notice warn"><?php echo e($trafficNote); ?></div><?php endif; ?>
   <section class="dns-card"><div class="dns-card-head"><h2>七牛账号下的 CDN 域名</h2><a href="cdn.php" class="dns-btn ghost">刷新 / 返回第一页</a></div>
     <form method="get" class="cdn-lookup"><label for="cdnLookup">查询完整域名</label><input id="cdnLookup" name="d" required placeholder="cdn.example.com" maxlength="253"><button class="dns-btn ghost" type="submit">查看详情</button></form>
-    <div class="dns-table-wrap"><table class="dns-table"><thead><tr><th>加速域名</th><th>配置状态</th><th>区域 / 协议</th><th>CNAME</th><th></th></tr></thead><tbody>
-      <?php if (!$list['rows']): ?><tr><td colspan="5" class="dns-empty"><?php echo $error?'暂未读取到列表，请稍后重试':'账号下暂未读取到 CDN 域名'; ?></td></tr><?php endif; ?>
-      <?php foreach ($list['rows'] as $row): ?><tr><td><strong><?php echo e($row['name']); ?></strong></td><td><?php echo e(qc_state_label($row['operatingState'])); ?></td><td><?php echo e(QC_REGIONS[$row['geoCover']]??$row['geoCover']); ?><small><?php echo e(strtoupper($row['protocol'])); ?></small></td><td><code class="dns-value"><?php echo e($row['cname']); ?></code></td><td><a class="dns-btn ghost" href="?d=<?php echo rawurlencode($row['name']); ?>">查看 / 接入解析</a></td></tr><?php endforeach; ?>
+    <div class="dns-table-wrap"><table class="dns-table"><thead><tr><th>加速域名</th><th>配置状态</th><th>区域 / 协议</th><th>近 7 天流量</th><th>今日</th><th>CNAME</th><th></th></tr></thead><tbody>
+      <?php if (!$list['rows']): ?><tr><td colspan="7" class="dns-empty"><?php echo $error?'暂未读取到列表，请稍后重试':'账号下暂未读取到 CDN 域名'; ?></td></tr><?php endif; ?>
+      <?php foreach ($list['rows'] as $row): ?><tr><td><strong><?php echo e($row['name']); ?></strong></td><td><?php echo e(qc_state_label($row['operatingState'])); ?></td><td><?php echo e(QC_REGIONS[$row['geoCover']]??$row['geoCover']); ?><small><?php echo e(strtoupper($row['protocol'])); ?></small></td><?php $tr = $traffic[strtolower($row['name'])] ?? null; ?><td><?php echo ($tr && $tr['has_data']) ? e(qt_bytes($tr['week'])) : '<span class="dns-help">—</span>'; ?></td><td><?php echo ($tr && $tr['has_data']) ? e(qt_bytes($tr['today'])) . ($tr['spike'] ? ' <span class="cdn-spike" title="今日流量明显高于前 7 天平均，请核对是否被盗刷或正常活动">异常增长</span>' : '') : '<span class="dns-help">—</span>'; ?></td><td><code class="dns-value"><?php echo e($row['cname']); ?></code></td><td><a class="dns-btn ghost" href="?d=<?php echo rawurlencode($row['name']); ?>">查看 / 接入解析</a></td></tr><?php endforeach; ?>
     </tbody></table></div>
     <?php if ($list['marker']): ?><a class="dns-btn ghost" href="?marker=<?php echo rawurlencode($list['marker']); ?>">下一页</a><?php endif; ?>
   </section>

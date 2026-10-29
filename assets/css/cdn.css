@@ -25,3 +25,6 @@
 .cdn-guide summary { cursor: pointer; }
 .cdn-guide ol { margin: 10px 0; padding-left: 1.4rem; }
 .cdn-guide li { margin-bottom: 8px; }
+.cdn-bars{display:flex;align-items:flex-end;gap:3px;height:120px;margin:14px 0;padding:8px;background:#f3f8f6;border-radius:10px}
+.cdn-bar{flex:1;height:100%;display:flex;align-items:flex-end}.cdn-bar i{display:block;width:100%;background:#2f7a67;border-radius:3px 3px 0 0;min-height:2px}.cdn-bar:hover i{background:#1e584d}
+.cdn-spike{display:inline-block;margin-left:6px;padding:1px 7px;border-radius:6px;background:#fde7e4;color:#a02b24;font-size:.78rem;font-weight:700}
