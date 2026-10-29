@@ -22,3 +22,6 @@
 .cdn-lookup input { width:300px; max-width:100%; }
 .cdn-form [hidden] { display:none!important; }
 @media(max-width:720px) { .cdn-form,.cdn-summary { grid-template-columns:1fr; } .cdn-confirm input:not([type=checkbox]) { min-width:0; } .cdn-lookup input { width:100%; } }
+.cdn-guide summary { cursor: pointer; }
+.cdn-guide ol { margin: 10px 0; padding-left: 1.4rem; }
+.cdn-guide li { margin-bottom: 8px; }

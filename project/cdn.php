@@ -61,7 +61,7 @@ include __DIR__ . '/../includes/header.php';
 $value = function ($key, $default='') use ($input) { return e((string)($input[$key] ?? $default)); };
 ?>
 <link rel="stylesheet" href="<?php echo BASE_URL; ?>/assets/css/dns.css?v=20261013-contrast">
-<link rel="stylesheet" href="<?php echo BASE_URL; ?>/assets/css/cdn.css?v=20261013">
+<link rel="stylesheet" href="<?php echo BASE_URL; ?>/assets/css/cdn.css?v=20261028">
 <main class="dns-console cdn-console">
   <section class="dns-hero">
     <div><div class="dns-kicker">QINIU · CONTENT DELIVERY</div><h1>CDN 管理</h1><p>直接在本站添加七牛 CDN 加速域名、查看状态和 CNAME，再到本站解析管理完成接入。</p></div>
@@ -87,6 +87,17 @@ $value = function ($key, $default='') use ($input) { return e((string)($input[$k
     <?php else: ?><p class="dns-help">七牛暂未返回 CNAME。请等待配置完成后刷新，暂不要修改 DNS。</p><?php endif; ?>
   </section>
   <?php elseif ($name === ''): ?>
+  <details class="dns-card cdn-guide" <?php echo $preview ? '' : 'open'; ?>><summary><h2 style="display:inline">操作流程：从解析域名到接入 CDN（共 6 步）</h2></summary>
+    <ol class="dns-help">
+      <li><strong>准备</strong>：分清两个域名——<em>加速域名</em>是给访客访问的（如 cdn.example.com），<em>源站</em>是原网站所在的服务器 IP、源站域名或七牛存储空间。加速域名需要已有解析：先到<a href="<?php echo BASE_URL; ?>/project/dns.php">解析管理</a>确认它所在的域名已经能管理解析，没有就先添加；还没有域名的，到<a href="<?php echo BASE_URL; ?>/project/domains.php">域名管理</a>注册。中国大陆 / 全球加速必须已备案，备案号在第 2 步填写；本页不办理备案。</li>
+      <li><strong>确认源站可用</strong>：源站要能从公网打开，并准备一个确实存在、返回 200 的小文件（如 /index.html）作为“检测路径”，添加后也要保留。源站只能 HTTPS 访问时，回源协议选 HTTPS。</li>
+      <li><strong>添加加速域名</strong>：在下面“添加七牛 CDN 域名”填写加速域名、区域、源站、检测路径，选 HTTP 或 HTTPS（HTTPS 需先选七牛账号里未过期、覆盖该域名的证书），点“预览添加配置”，核对后输入加速域名并勾选确认提交。预览阶段不会创建域名，也不会改解析。</li>
+      <li><strong>等待配置完成</strong>：提交后进入详情页，状态变为“配置成功”后才能接入，一般几分钟；处理中请刷新，不要重复添加。如果提示备案、源站检测失败或额度问题，按提示处理后再提交。</li>
+      <li><strong>设置解析</strong>：在详情页复制 CNAME，点“在本站配置 DNSPod”（或 Cloudflare），把加速域名的记录改成这个 CNAME。已有 A / AAAA / CNAME 记录要先核对，不能直接覆盖正在使用的记录；回源域名不要改成该 CNAME；Cloudflare 选“仅 DNS”。改之前记下原记录值，出问题好恢复。</li>
+      <li><strong>验证</strong>：解析生效需要几分钟，最长观察约 6 分钟。访问加速域名，核对内容和跳转（301 也要看跳转地址）与源站一致；不一致或打不开，把解析恢复为原记录，再检查源站和 CDN 配置。</li>
+    </ol>
+    <p class="dns-help">在“智能体共和国”里，也可以直接让智能体按这个流程操作：它会先查询实时状态，改解析和添加 CDN 都先预览、由你确认后才执行。</p>
+  </details>
   <?php if ($preview): $body=$preview['body']; ?>
   <section class="dns-card cdn-preview" id="cdnPreview"><h2>确认添加配置</h2>
     <dl class="cdn-summary"><div><dt>加速域名</dt><dd><?php echo e($preview['name']); ?></dd></div><div><dt>区域 / 业务 / 协议</dt><dd><?php echo e(QC_REGIONS[$body['geoCover']] . ' / ' . QC_PLATFORMS[$body['platform']] . ' / ' . strtoupper($body['protocol'])); ?></dd></div><div><dt>源站</dt><dd><?php echo e(implode(', ', $body['source']['sourceIPs'] ?? [$body['source']['sourceDomain'] ?? $body['source']['sourceQiniuBucket'] ?? ''])); ?></dd></div><div><dt>检测路径</dt><dd><?php echo e($body['source']['testURLPath']); ?></dd></div><div><dt>缓存方式</dt><dd><?php echo $body['cache']['cacheControls'][0]['type']==='follow'?'遵循源站，不忽略网址参数':'全部内容缓存 1 小时，不忽略网址参数'; ?></dd></div><?php if ($body['protocol']==='https'): ?><div><dt>HTTPS 证书</dt><dd><?php echo e($body['https']['certId']); ?></dd></div><?php endif; ?></dl>
