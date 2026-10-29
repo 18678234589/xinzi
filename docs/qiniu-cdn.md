@@ -30,3 +30,7 @@
 ### 解析接入状态（2026-10-29）
 
 CDN 管理页列表新增「应解析到（七牛 CNAME）」和「当前公网解析」两列，详情页的 CNAME 卡片同样显示：七牛分配的 CNAME（`xxx.qiniudns.com`，来自七牛接口 `cname` 字段）与公网实际解析结果对比，状态为「已指向七牛 / 指向其他地址 / 未解析 / 七牛测试域名」。`jobs/qiniu_cdn_traffic_sync.php` 每 30 分钟顺带用公网 DNS 查询 CNAME / A / AAAA 写入 `qiniu_cdn_dns`（`migrations/20261029_qiniu_cdn_dns.sql`，线上需手动执行），页面只读该表。Cloudflare 开代理或 CNAME 拉平时公网只能看到 A 记录，会显示「指向其他地址」，需到解析管理核对。
+
+### 域名所有权验证（2026-10-29）
+
+七牛要求先验证加速域名所在的**主域名**（`cdn.example.com` 验证 `example.com`），未验证时创建会报「域名所有权验证失败」。接口（`api.qiniu.com`，现有 Qiniu 鉴权可用，线上实测）：`GET /domain/<主域名>/verify/info?product=cdn` 返回 `state`（`success` / `no_need` / `doing`）和要添加的 TXT（主机记录 `verification`，值 `verify_…`）；`POST /domain/<主域名>/verify/check`（`{type:"dns",product:"cdn"}`，必须先调用过 info；失败码 400932）。CDN 管理页「预览添加配置」时自动查询：待验证则显示 TXT 记录表、公网是否已查到该记录、「我已添加，立即验证」按钮，并禁用「确认添加到七牛」；确认添加前服务端也会再核一次，未验证不调用创建接口。同一主域名验证一次即可。代码：`qc_verify_info` / `qc_verify_check` / `qc_verify_visible`，离线测试 `php tests/qiniu_cdn.php`。

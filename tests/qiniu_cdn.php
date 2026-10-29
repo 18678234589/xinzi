@@ -69,5 +69,23 @@ qc_test(dns_cdn_prefill('cdn.example.com.cn','target.qiniudns.com',$zones,'dnspo
 qc_test(dns_cdn_prefill('notexample.com','target.qiniudns.com',$zones,'dnspod')===null,'zone suffix label boundary');
 qc_test(dns_cdn_prefill('cdn.example.com','target.qiniudns.com',$zones,'cloudflare')['provider']==='cloudflare','selected provider preserved');
 qc_test(dns_cdn_prefill('new.example.com.cn','target.qiniudns.com',$zones,'cloudflare')===null,'do not fall back to another account provider');
+// 域名所有权验证：用主域名查验证信息 / 提交校验；失败给中文提示
+$verifyState='doing';$verifyCalls=[];$verifyFail=false;
+$prevMock=$GLOBALS['qc_mock'];
+$GLOBALS['qc_mock']=function($service,$method,$path,$body)use(&$verifyState,&$verifyCalls,&$verifyFail,$prevMock){
+    if(strpos($path,'/verify/info')!==false){$verifyCalls[]=[$method,$path];return [200,['domain'=>'example.com','dns'=>['host'=>'verification','recordType'=>'TXT','recordValue'=>'verify_abc'],'file'=>['fileName'=>'verification.html','fileContent'=>'verify_abc'],'state'=>$verifyState]];}
+    if(strpos($path,'/verify/check')!==false){$verifyCalls[]=[$method,$path,$body];if($verifyFail)return [400,['code'=>400932,'error'=>'verify failed']];$verifyState='success';return [200,[]];}
+    return call_user_func($prevMock,$service,$method,$path,$body);
+};
+$vi=qc_verify_info('cdn.example.com');
+qc_test($vi['zone']==='example.com'&&$vi['state']==='doing'&&$vi['host']==='verification'&&$vi['value']==='verify_abc'&&strpos($verifyCalls[0][1],'/domain/example.com/verify/info?product=cdn')===0,'verification asked for the main domain, not the subdomain');
+qc_test(qc_verify_info('www.example.com.cn')['zone']==='example.com.cn','com.cn zone detected');
+$verifyFail=true;
+try{qc_verify_check('cdn.example.com');qc_test(false,'failed check must throw');}catch(RuntimeException $e){qc_test(strpos($e->getMessage(),'TXT')!==false&&strpos($e->getMessage(),'verification')!==false,'friendly message on 400932');}
+$verifyFail=false;$verifyCalls=[];
+qc_test(qc_verify_check('cdn.example.com')['state']==='success','check succeeds and returns the new state');
+qc_test($verifyCalls[0][0]==='GET'&&$verifyCalls[1][0]==='POST'&&$verifyCalls[1][2]===['type'=>'dns','product'=>'cdn'],'info viewed before check (Qiniu requires it)');
+$verifyCalls=[];qc_verify_check('cdn.example.com');qc_test(count(array_filter($verifyCalls,function($c){return $c[0]==='POST';}))===0,'already verified: no extra check call');
+$GLOBALS['qc_mock']=$prevMock;
 qc_test(!function_exists('db')&&!function_exists('pas_get'),'offline test never loads credentials or database');
 echo json_encode(['passed'=>$checks,'failed'=>0,'real_api_writes'=>0],JSON_UNESCAPED_UNICODE)."\n";

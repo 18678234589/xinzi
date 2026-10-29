@@ -10,7 +10,7 @@ header('Referrer-Policy: same-origin');
 header('X-Robots-Tag: noindex');
 $actorKey = $actor['type'] . ':' . $actor['id'];
 $csrf = ps_csrf_token();
-$error = ''; $preview = null; $previewToken = ''; $detail = null; $list = ['rows'=>[], 'marker'=>''];
+$error = ''; $preview = null; $previewToken = ''; $verify = null; $verifyNote = ''; $detail = null; $list = ['rows'=>[], 'marker'=>''];
 $certificates = []; $certError = ''; $input = [];
 $flash = $_SESSION['cdn_flash'] ?? null; unset($_SESSION['cdn_flash']);
 $configured = pas_is_set('qiniu', 'access_key') && pas_is_set('qiniu', 'secret_key');
@@ -27,8 +27,18 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
             $previewToken = bin2hex(random_bytes(24));
             if (count($_SESSION['cdn_previews']) >= 5) array_shift($_SESSION['cdn_previews']);
             $_SESSION['cdn_previews'][$previewToken] = ['actor'=>$actorKey, 'expires'=>time()+600, 'payload'=>$preview];
+        } elseif ($action === 'verify') {
+            // 用户已添加验证 TXT：让七牛校验，然后回到同一份预览。
+            $previewToken = (string)($_POST['token'] ?? '');
+            $ticket = $_SESSION['cdn_previews'][$previewToken] ?? null;
+            if (!$ticket || $ticket['actor'] !== $actorKey || $ticket['expires'] < time()) throw new RuntimeException('预览已过期，请重新填写并预览');
+            $preview = $ticket['payload'];
+            qc_verify_check($preview['name']);
+            $verifyNote = '域名所有权验证已通过，现在可以确认添加。';
         } elseif ($action === 'create') {
             $payload = qc_ticket_take($_SESSION['cdn_previews'], (string)($_POST['token'] ?? ''), $actorKey, (string)($_POST['confirm'] ?? ''), (string)($_POST['ack'] ?? ''), time());
+            try { $vi = qc_verify_info($payload['name']); if (!in_array($vi['state'], ['success', 'no_need'], true)) throw new RuntimeException('请先完成主域名 ' . $vi['zone'] . ' 的所有权验证（在预览页添加 TXT 记录后点“立即验证”），再确认添加'); }
+            catch (QiniuCdnError $ve) { /* 验证信息暂时读不到时交给七牛创建接口判断 */ }
             ps_audit('cdn', 0, 'domain_create_requested', $actor, $payload);
             qc_create($payload);
             try { ps_audit('cdn', 0, 'domain_create_accepted', $actor, ['domain'=>$payload['name']]); }
@@ -39,12 +49,17 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
         } else throw new RuntimeException('不支持此操作');
     } catch (Throwable $e) {
         $error = $e instanceof RuntimeException ? $e->getMessage() : '操作暂未完成，请刷新域名列表查询结果';
+        if (strpos($error, '所有权') !== false && strpos($error, '验证') !== false) $error .= '。请重新填写并点“预览添加配置”，页面会显示需要添加的 TXT 验证记录。';
         if (($_POST['action'] ?? '') === 'create') {
             $_SESSION['cdn_flash'] = ['error'=>$error . '。添加请求不会自动重试；请先查询域名状态，避免重复提交。'];
             header('Location: ' . BASE_URL . '/project/cdn.php');
             exit;
         }
     }
+}
+if ($preview && $configured) {
+    try { $verify = qc_verify_info($preview['name']); $verify['visible'] = $verify['state'] === 'doing' ? qc_verify_visible($verify) : null; }
+    catch (Throwable $e) { $verify = null; }
 }
 $name = trim((string)($_GET['d'] ?? ''));
 if ($configured) {
@@ -75,7 +90,7 @@ include __DIR__ . '/../includes/header.php';
 $value = function ($key, $default='') use ($input) { return e((string)($input[$key] ?? $default)); };
 ?>
 <link rel="stylesheet" href="<?php echo BASE_URL; ?>/assets/css/dns.css?v=20261013-contrast">
-<link rel="stylesheet" href="<?php echo BASE_URL; ?>/assets/css/cdn.css?v=20261029d">
+<link rel="stylesheet" href="<?php echo BASE_URL; ?>/assets/css/cdn.css?v=20261029e">
 <main class="dns-console cdn-console">
   <section class="dns-hero">
     <div><div class="dns-kicker">QINIU · CONTENT DELIVERY</div><h1>CDN 管理</h1><p>直接在本站添加七牛 CDN 加速域名、查看状态和 CNAME，再到本站解析管理完成接入。</p></div>
@@ -125,10 +140,11 @@ $value = function ($key, $default='') use ($input) { return e((string)($input[$k
     <?php else: ?><p class="dns-help">七牛暂未返回 CNAME。请等待配置完成后刷新，暂不要修改 DNS。</p><?php endif; ?>
   </section>
   <?php elseif ($name === ''): ?>
-  <details class="dns-card cdn-guide" <?php echo $preview ? '' : 'open'; ?>><summary><h2 style="display:inline">操作流程：从解析域名到接入 CDN（共 7 步）</h2></summary>
+  <details class="dns-card cdn-guide" <?php echo $preview ? '' : 'open'; ?>><summary><h2 style="display:inline">操作流程：从解析域名到接入 CDN（共 8 步）</h2></summary>
     <ol class="dns-help">
       <li><strong>准备</strong>：分清两个域名——<em>加速域名</em>是给访客访问的（如 cdn.example.com），<em>源站</em>是原网站所在的服务器 IP、源站域名或七牛存储空间。加速域名需要已有解析：先到<a href="<?php echo BASE_URL; ?>/project/dns.php">解析管理</a>确认它所在的域名已经能管理解析，没有就先添加；还没有域名的，到<a href="<?php echo BASE_URL; ?>/project/domains.php">域名管理</a>注册。中国大陆 / 全球加速必须已备案，备案号在第 2 步填写；本页不办理备案。</li>
       <li><strong>确认源站可用</strong>：源站要能从公网打开，并准备一个确实存在、返回 200 的小文件（如 /index.html）作为“检测路径”，添加后也要保留。源站只能 HTTPS 访问时，回源协议选 HTTPS。</li>
+      <li><strong>主域名所有权验证（首次）</strong>：七牛要求先证明你拥有加速域名所在的主域名（如 cdn.example.com 要验证 example.com），否则会提示“域名所有权验证失败”。点“预览添加配置”后，页面会显示要添加的 <strong>TXT 记录</strong>（主机记录 <code>verification</code>、记录值七牛生成），去解析管理添加后点“立即验证”；同一主域名验证一次即可，之后它下面的加速域名不用再验证。</li>
       <li><strong>添加加速域名</strong>：在下面“添加七牛 CDN 域名”填写加速域名、区域、源站、检测路径，选 HTTP 或 HTTPS（HTTPS 需先选七牛账号里未过期、覆盖该域名的证书），点“预览添加配置”，核对后输入加速域名并勾选确认提交。预览阶段不会创建域名，也不会改解析。</li>
       <li><strong>等待配置完成</strong>：提交后进入详情页，状态变为“配置成功”后才能接入，一般几分钟；处理中请刷新，不要重复添加。如果提示备案、源站检测失败或额度问题，按提示处理后再提交。</li>
       <li><strong>设置解析（解析到哪）</strong>：七牛会给每个加速域名分配一个专属 CNAME 地址，形如 <code>cdn-example-com-xxxxxxx.qiniudns.com</code>（<code>xxxxxxx</code> 是七牛自动生成的字符，不用自己编，也不会重复）——<em>加速域名要 CNAME 解析到这个地址</em>，不是解析到源站 IP。看地址：本页下方列表「应解析到（七牛 CNAME）」那一列，每行有「复制」按钮；点进该域名的详情页，「接入解析」里还有一张现成的记录表（在哪个域名下添加、主机记录、类型、记录值）。添加成功后一般几分钟内就会出现；刚添加时显示「七牛暂未返回」就再等几分钟刷新。拿到后：在详情页点“在本站配置 DNSPod”（或 Cloudflare），把<em>加速域名</em>这条记录的类型设为 <strong>CNAME</strong>、记录值填上面的七牛地址；Cloudflare 选“仅 DNS”（不要开代理）。已有 A / AAAA / CNAME 记录要先核对，不能直接覆盖正在使用的记录；回源域名不要改成该 CNAME。改之前先记下原记录值，出问题可以改回。</li>
@@ -141,9 +157,20 @@ $value = function ($key, $default='') use ($input) { return e((string)($input[$k
   <section class="dns-card cdn-preview" id="cdnPreview"><h2>确认添加配置</h2>
     <dl class="cdn-summary"><div><dt>加速域名</dt><dd><?php echo e($preview['name']); ?></dd></div><div><dt>区域 / 业务 / 协议</dt><dd><?php echo e(QC_REGIONS[$body['geoCover']] . ' / ' . QC_PLATFORMS[$body['platform']] . ' / ' . strtoupper($body['protocol'])); ?></dd></div><div><dt>源站</dt><dd><?php echo e(implode(', ', $body['source']['sourceIPs'] ?? [$body['source']['sourceDomain'] ?? $body['source']['sourceQiniuBucket'] ?? ''])); ?></dd></div><div><dt>检测路径</dt><dd><?php echo e($body['source']['testURLPath']); ?></dd></div><div><dt>缓存方式</dt><dd><?php echo $body['cache']['cacheControls'][0]['type']==='follow'?'遵循源站，不忽略网址参数':'全部内容缓存 1 小时，不忽略网址参数'; ?></dd></div><?php if ($body['protocol']==='https'): ?><div><dt>HTTPS 证书</dt><dd><?php echo e($body['https']['certId']); ?></dd></div><?php endif; ?></dl>
     <p class="dns-help">此预览尚未创建域名、未修改解析。提交后七牛将检查源站和备案，启用后按七牛账号的流量计费规则计费。</p>
+    <?php if ($verifyNote): ?><div class="dns-notice ok" role="status"><?php echo e($verifyNote); ?></div><?php endif; ?>
+    <?php if ($verify): ?>
+    <div class="cdn-verify <?php echo e($verify['state']); ?>"><h3>第 0 步：主域名所有权验证 <span class="cdn-dns <?php echo $verify['state'] === 'doing' ? 'other' : 'ok'; ?>"><?php echo e(qc_verify_state_label($verify['state'])); ?></span></h3>
+      <?php if ($verify['state'] === 'doing'): ?>
+      <p class="dns-help">七牛要求先证明你拥有主域名 <strong><?php echo e($verify['zone']); ?></strong>，通过一次后，它下面的所有加速域名都不用再验证。请到该域名的解析里添加下面这条 <strong>TXT</strong> 记录：</p>
+      <div class="dns-table-wrap"><table class="dns-table"><thead><tr><th>在哪个域名下添加</th><th>主机记录</th><th>记录类型</th><th>记录值</th></tr></thead><tbody><tr><td><strong><?php echo e($verify['zone']); ?></strong></td><td><code><?php echo e($verify['host']); ?></code></td><td><?php echo e($verify['type']); ?></td><td><code><?php echo e($verify['value']); ?></code> <button type="button" class="dns-btn ghost cdn-mini" data-copy="<?php echo e($verify['value']); ?>">复制</button></td></tr></tbody></table></div>
+      <p class="dns-help">公网检查：<?php echo $verify['visible'] ? '<span class="cdn-dns ok">已查到这条 TXT</span>，可以点“立即验证”' : '<span class="cdn-dns other">暂未查到</span>，添加后等几分钟再点“立即验证”'; ?>。<a href="<?php echo BASE_URL; ?>/project/dns.php">去解析管理添加</a>（选择主域名 <?php echo e($verify['zone']); ?>，类型 TXT）。</p>
+      <form method="post" class="cdn-confirm"><input type="hidden" name="csrf" value="<?php echo e($csrf); ?>"><input type="hidden" name="action" value="verify"><input type="hidden" name="token" value="<?php echo e($previewToken); ?>"><button class="dns-btn" type="submit">我已添加，立即验证</button></form>
+      <?php else: ?><p class="dns-help">主域名 <strong><?php echo e($verify['zone']); ?></strong> 已通过七牛验证，可以直接确认添加。</p><?php endif; ?>
+    </div>
+    <?php endif; ?>
     <form method="post" class="cdn-confirm"><input type="hidden" name="csrf" value="<?php echo e($csrf); ?>"><input type="hidden" name="action" value="create"><input type="hidden" name="token" value="<?php echo e($previewToken); ?>">
       <label>输入加速域名确认<input name="confirm" required autocomplete="off" placeholder="<?php echo e($preview['name']); ?>"></label>
-      <label class="cdn-check"><input type="checkbox" name="ack" value="1" required>已核对源站、缓存和协议配置，确认添加</label><button class="dns-btn" type="submit">确认添加到七牛</button><a class="dns-btn ghost" href="cdn.php#cdnCreate">重新填写</a>
+      <label class="cdn-check"><input type="checkbox" name="ack" value="1" required>已核对源站、缓存和协议配置，确认添加</label><button class="dns-btn" type="submit" <?php echo ($verify && $verify['state'] === 'doing') ? 'disabled title="请先完成上面的主域名所有权验证"' : ''; ?>>确认添加到七牛</button><a class="dns-btn ghost" href="cdn.php#cdnCreate">重新填写</a>
     </form>
   </section>
   <?php endif; ?>

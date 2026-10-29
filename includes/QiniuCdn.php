@@ -182,3 +182,36 @@ function qc_split_host($name)
     if (count($labels) <= $keep) return ['@', $name];
     return [implode('.', array_slice($labels, 0, count($labels) - $keep)), implode('.', array_slice($labels, -$keep))];
 }
+
+/* ---------- 域名所有权验证（七牛要求先验证主域名，才能添加其下的加速域名） ---------- */
+
+function qc_verify_state_label($state)
+{
+    return ['success' => '已验证', 'no_need' => '无需验证', 'doing' => '待验证'][$state] ?? '未知';
+}
+/** 主域名的验证信息：state（success / no_need / doing）和要添加的 TXT 记录。 */
+function qc_verify_info($name)
+{
+    list(, $zone) = qc_split_host(qc_domain($name));
+    $d = qc_call('domain', 'GET', '/domain/' . rawurlencode($zone) . '/verify/info?product=cdn');
+    return ['zone' => $zone, 'state' => (string)($d['state'] ?? ''), 'host' => (string)($d['dns']['host'] ?? 'verification'), 'type' => (string)($d['dns']['recordType'] ?? 'TXT'), 'value' => (string)($d['dns']['recordValue'] ?? '')];
+}
+/** 用户加好 TXT 后让七牛校验（七牛要求先查看过验证信息）。成功返回最新验证信息，失败抛带中文提示的异常。 */
+function qc_verify_check($name)
+{
+    $info = qc_verify_info($name);
+    if (in_array($info['state'], ['success', 'no_need'], true)) return $info;
+    try {
+        qc_call('domain', 'POST', '/domain/' . rawurlencode($info['zone']) . '/verify/check', ['type' => 'dns', 'product' => 'cdn']);
+    } catch (QiniuCdnError $e) {
+        if ($e->apiCode === 400932) throw new RuntimeException('七牛暂时没查到正确的 TXT 记录：请确认主机记录填 ' . $info['host'] . '、类型 TXT、记录值完全一致，解析生效一般要几分钟，稍后再点“立即验证”。');
+        throw $e;
+    }
+    return qc_verify_info($name);
+}
+/** 公网上是否已能查到验证用的 TXT 记录（只用于提示，不影响七牛的判断）。 */
+function qc_verify_visible(array $info)
+{
+    foreach ((array)@dns_get_record($info['host'] . '.' . $info['zone'], DNS_TXT) as $r) if (isset($r['txt']) && trim($r['txt']) === $info['value']) return true;
+    return false;
+}
