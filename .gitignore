@@ -43,3 +43,6 @@ api对接/
 scratch/
 harness/
 .agents/
+tools/acme_config/
+*.key
+*.cer
