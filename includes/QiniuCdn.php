@@ -30,6 +30,7 @@ function qc_call($service, $method, $path, $body = null)
     $successCodes = $service === 'fusion' ? [0, 200] : [200];
     if ($http < 200 || $http >= 300 || (isset($data['code']) && !in_array((int)$data['code'], $successCodes, true))) {
         $message = (string)($data['error'] ?? $data['message'] ?? ('HTTP ' . $http));
+        if ((int)($data['code'] ?? 0) === 400550) $message .= '（这是七牛账号自身的限制：一段时间内新增加速域名的数量已达上限，不是本站或域名配置的问题。重复提交不会成功、还会占用次数；请等到七牛的限额周期过后再添加，或联系七牛客服 / 提交工单提高域名新增额度）';
         throw new QiniuCdnError('七牛：' . mb_substr($message, 0, 250), $http, $data['code'] ?? 0);
     }
     return $data;
