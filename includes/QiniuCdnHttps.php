@@ -89,3 +89,69 @@ function qh_renew($name, $log = null)
     catch (QiniuCdnError $e) { qc_call('domain', 'PUT', '/domain/' . rawurlencode($name) . '/httpsconf', $body); }
     return '续签完成，新证书 ' . $certId;
 }
+
+/* ---------- 任务队列：添加域名后自动入队，页面按钮托底；由 jobs/qiniu_https_worker.php 每几分钟处理 ---------- */
+
+const QH_MAX_ATTEMPTS = 6;
+const QH_WAIT_LIMIT = 3 * 86400; // 等待“七牛配置成功 + 解析到七牛”最长 3 天
+
+function qh_enqueue($pdo, $name, $by = '', $force = false)
+{
+    $name = qc_domain($name);
+    $now = time();
+    $q = $pdo->prepare('SELECT state FROM qiniu_https_jobs WHERE domainname=?');
+    $q->execute([$name]);
+    $state = $q->fetchColumn();
+    if ($state === 'running') return 'running';
+    if ($state === false) $pdo->prepare("INSERT INTO qiniu_https_jobs (domainname,state,message,attempts,requested_by,requested_at,next_try_at,updated_at) VALUES (?,'pending','已排队，等待七牛配置成功和解析生效',0,?,?,0,?)")->execute([$name, $by, $now, $now]);
+    elseif ($force || $state === 'failed' || $state === 'done') $pdo->prepare("UPDATE qiniu_https_jobs SET state='pending',message='已重新排队',attempts=0,requested_by=?,requested_at=?,next_try_at=0,updated_at=? WHERE domainname=?")->execute([$by, $now, $now, $name]);
+    return 'pending';
+}
+function qh_job($pdo, $name)
+{
+    $q = $pdo->prepare('SELECT state,message,attempts,requested_at,updated_at FROM qiniu_https_jobs WHERE domainname=?');
+    $q->execute([qc_domain($name)]);
+    return $q->fetch(PDO::FETCH_ASSOC) ?: null;
+}
+function qh_job_label($state) { return ['pending' => '排队中', 'running' => '签发中', 'done' => '已启用', 'failed' => '失败'][$state] ?? ''; }
+function qh_set($pdo, $name, $state, $message, $attempts = null, $next = 0)
+{
+    $pdo->prepare('UPDATE qiniu_https_jobs SET state=?,message=?,attempts=COALESCE(?,attempts),next_try_at=?,updated_at=? WHERE domainname=?')->execute([$state, mb_substr($message, 0, 300), $attempts, $next, time(), $name]);
+}
+/** 处理一批待办；$enable / $ready 可注入测试。返回统计。 */
+function qh_work($pdo, $limit = 5, $now = null, $enable = null, $ready = null)
+{
+    $now = $now ?? time();
+    $enable = $enable ?: 'qh_enable';
+    $ready = $ready ?: function ($name) {
+        $d = qc_call('domain', 'GET', '/domain/' . rawurlencode($name));
+        if (qh_https_enabled($d)) return 'enabled';
+        if (($d['operatingState'] ?? '') !== 'success') return 'wait';
+        return qd_plan($name, (string)$d['cname'], 'success')['action'] === 'noop' ? 'go' : 'wait';
+    };
+    $stats = ['done' => 0, 'waiting' => 0, 'failed' => 0];
+    $q = $pdo->prepare("SELECT domainname,attempts,requested_at FROM qiniu_https_jobs WHERE state='pending' AND next_try_at<=? ORDER BY requested_at LIMIT " . (int)$limit);
+    $q->execute([$now]);
+    foreach ($q->fetchAll(PDO::FETCH_ASSOC) as $job) {
+        $name = $job['domainname'];
+        try {
+            $r = $ready($name);
+            if ($r === 'enabled') { qh_set($pdo, $name, 'done', '已启用 HTTPS', null); $stats['done']++; continue; }
+            if ($r === 'wait') {
+                if ($now - (int)$job['requested_at'] > QH_WAIT_LIMIT) { qh_set($pdo, $name, 'failed', '等待超过 3 天：七牛仍未配置成功或解析仍未指向七牛', null); $stats['failed']++; }
+                else { qh_set($pdo, $name, 'pending', '等待七牛配置成功并解析到七牛（自动重试中）', null, $now + 120); $stats['waiting']++; }
+                continue;
+            }
+            qh_set($pdo, $name, 'running', '正在签发证书…', null);
+            $msg = call_user_func($enable, $name);
+            qh_set($pdo, $name, 'done', $msg, null);
+            $stats['done']++;
+        } catch (Throwable $e) {
+            $n = (int)$job['attempts'] + 1;
+            $final = $n >= QH_MAX_ATTEMPTS;
+            qh_set($pdo, $name, $final ? 'failed' : 'pending', '第 ' . $n . ' 次失败：' . mb_substr($e->getMessage(), 0, 200) . ($final ? '（已停止自动重试，可在页面重新申请）' : '（稍后自动重试）'), $n, $final ? 0 : $now + min(3600, 300 * $n));
+            $stats['failed']++;
+        }
+    }
+    return $stats;
+}

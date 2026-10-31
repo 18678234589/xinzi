@@ -100,6 +100,7 @@ function qc_public_domain(array $row)
     $source = $row['source'] ?? [];
     $out['source_type'] = (string)($source['sourceType'] ?? '');
     $out['source_value'] = $out['source_type'] === 'ip' ? implode(', ', (array)($source['sourceIPs'] ?? [])) : (string)(($source['sourceDomain'] ?? '') ?: ($source['sourceQiniuBucket'] ?? ''));
+    $out['https_cert_id'] = (string)($row['https']['certId'] ?? '');
     $out['test_path'] = (string)($source['testURLPath'] ?? '');
     $out['source_host'] = (string)($source['sourceHost'] ?? '');
     $out['source_scheme'] = (string)($source['sourceURLScheme'] ?? '');

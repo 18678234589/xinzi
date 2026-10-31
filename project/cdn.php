@@ -3,6 +3,7 @@ require_once __DIR__ . '/../includes/BizcnDomains.php';
 require_once __DIR__ . '/../includes/QiniuCdn.php';
 require_once __DIR__ . '/../includes/QiniuCdnTraffic.php';
 require_once __DIR__ . '/../includes/QiniuCdnDns.php';
+require_once __DIR__ . '/../includes/QiniuCdnHttps.php';
 $actor = ps_require_actor();
 if (!bd_can_access($actor)) { http_response_code(403); exit('当前账户未分配 CDN 管理权限'); }
 require_once __DIR__ . '/../includes/ProjectApiSettings.php';
@@ -82,6 +83,14 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
                 'verified' => in_array($vi['state'], ['success', 'no_need'], true)
             ], JSON_UNESCAPED_UNICODE);
             exit;
+        } elseif ($action === 'https_request') {
+            $target = qc_domain((string)($_POST['domain'] ?? ''));
+            qc_detail($target);
+            qh_enqueue(db(), $target, $actorKey, true);
+            ps_audit('cdn', 0, 'https_requested', $actor, ['domain' => $target]);
+            $_SESSION['cdn_flash'] = ['ok' => '已提交 HTTPS 证书申请，后台约 2 分钟内开始处理（需要七牛配置成功且已解析到七牛），结果显示在本页。'];
+            header('Location: ' . BASE_URL . '/project/cdn.php?d=' . rawurlencode($target));
+            exit;
         } elseif ($action === 'dns_connect') {
             // 方案在服务端按当前七牛状态和实时解析重新计算，不信任页面传值；必须输入加速域名确认。
             $target = qc_domain((string)($_POST['domain'] ?? ''));
@@ -120,7 +129,9 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
             qc_create($payload);
             try { ps_audit('cdn', 0, 'domain_create_accepted', $actor, ['domain'=>$payload['name']]); }
             catch (Throwable $auditError) { error_log('CDN creation accepted; result audit failed'); }
-            $_SESSION['cdn_flash'] = ['ok'=>'七牛已接受添加请求。请等待配置完成，核对源站和 CNAME 后再修改解析。'];
+            $httpsNote = '';
+            try { qh_enqueue(db(), $payload['name'], $actorKey); $httpsNote = ' 系统已自动排队申请 HTTPS 证书：七牛配置成功且解析指向七牛后会自动签发并绑定，无需手动操作。'; } catch (Throwable $qe) { error_log('CDN https enqueue failed: ' . get_class($qe)); }
+            $_SESSION['cdn_flash'] = ['ok'=>'七牛已接受添加请求。请等待配置完成，核对源站和 CNAME 后再修改解析。' . $httpsNote];
             header('Location: ' . BASE_URL . '/project/cdn.php?d=' . rawurlencode($payload['name']));
             exit;
         } else throw new RuntimeException('不支持此操作');
@@ -130,7 +141,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
             $error = '七牛域名所有权验证尚未生效。主域名需添加 TXT 记录（主机记录 verification），公网生效后请点“立即验证”，通过后再确认添加。';
         }
         $act = (string)($_POST['action'] ?? '');
-        if ($act === 'dns_connect') {
+        if ($act === 'dns_connect' || $act === 'https_request') {
             $_SESSION['cdn_flash'] = ['error' => $error];
             header('Location: ' . BASE_URL . '/project/cdn.php?d=' . rawurlencode((string)($_POST['domain'] ?? '')));
             exit;
@@ -176,11 +187,13 @@ if ($configured) {
     }
 }
 // 流量只读本地表（后台任务同步），表还没建或没有数据时页面照常显示。
-$dnsPlan = null; $dnsPlanError = '';
+$dnsPlan = null; $dnsPlanError = ''; $httpsJob = null; $httpsOn = false;
 $traffic = []; $series = []; $overview = null; $trafficNote = ''; $dnsInfo = [];
 if ($configured) {
     try {
-        if ($detail) { try { $dnsPlan = qd_plan($detail['name'], $detail['cname'], $detail['operatingState']); } catch (Throwable $e) { $dnsPlanError = $e instanceof RuntimeException ? $e->getMessage() : '暂时无法读取解析记录'; }
+        if ($detail) { try { $httpsJob = qh_job(db(), $detail['name']); } catch (Throwable $e) { $httpsJob = null; }
+            $httpsOn = !empty($detail['https_cert_id']);
+            try { $dnsPlan = qd_plan($detail['name'], $detail['cname'], $detail['operatingState']); } catch (Throwable $e) { $dnsPlanError = $e instanceof RuntimeException ? $e->getMessage() : '暂时无法读取解析记录'; }
             $series = qt_series(db(), $detail['name'], 30); $dnsInfo = qt_dns_map(db(), [$detail['name']]); }
         else {
             $dnsInfo = qt_dns_map(db(), array_column($list['rows'], 'name'));
@@ -229,6 +242,17 @@ $value = function ($key, $default='') use ($input) { return e((string)($input[$k
       <?php foreach (array_reverse(array_slice($series, -14)) as $d): ?><tr><td><?php echo e($d['day']); ?></td><td><?php echo $d['known'] ? e(qt_bytes($d['flux'])) : '<span class="dns-help">—</span>'; ?></td><td><?php echo $d['known'] ? e(qt_bps($d['bps'])) : '<span class="dns-help">—</span>'; ?></td></tr><?php endforeach; ?>
     </tbody></table></div>
     <p class="dns-help">数据来自七牛用量统计，后台每 30 分钟同步，当天数字未走完会偏小；仅供参考，计费以七牛账单为准。</p>
+    <?php endif; ?>
+  </section>
+  <section class="dns-card cdn-https"><h2>HTTPS 证书</h2>
+    <?php if ($httpsOn): ?><div class="dns-notice ok">已启用 HTTPS（证书 <?php echo e($detail['https_cert_id']); ?>）。系统自动签发的证书到期前 30 天会自动续签。</div>
+    <?php else: ?>
+    <?php if ($httpsJob): ?><div class="dns-notice <?php echo $httpsJob['state'] === 'failed' ? 'error' : ($httpsJob['state'] === 'done' ? 'ok' : 'warn'); ?>"><strong><?php echo e(qh_job_label($httpsJob['state'])); ?></strong>：<?php echo e($httpsJob['message']); ?></div>
+    <?php else: ?><p class="dns-help">还没有 HTTPS 证书。新添加的域名系统会自动申请；这个域名没有排队，可以点下面按钮申请。</p><?php endif; ?>
+    <?php if (!$httpsJob || $httpsJob['state'] === 'failed' || $httpsJob['state'] === 'done'): ?>
+    <form method="post"><input type="hidden" name="csrf" value="<?php echo e($csrf); ?>"><input type="hidden" name="action" value="https_request"><input type="hidden" name="domain" value="<?php echo e($detail['name']); ?>"><button class="dns-btn" type="submit">申请 / 重新申请 HTTPS 证书</button></form>
+    <p class="dns-help">免费证书（Let's Encrypt），通过在域名解析里临时添加验证记录完成验证，需要七牛已配置成功且域名已解析到七牛。</p>
+    <?php endif; ?>
     <?php endif; ?>
   </section>
   <section class="dns-card cdn-connect"><h2>一键解析到七牛</h2>

@@ -42,3 +42,7 @@ CDN 管理页详情页新增「一键解析到七牛」（`includes/QiniuCdnDns.
 ### 自动 HTTPS 证书（2026-10-31）
 
 七牛没有「签发证书」的接口（只能上传已有证书），所以本站自带 ACME 客户端（`includes/AcmeClient.php`，Let's Encrypt，DNS-01，账号私钥 `storage/private/acme/account.pem` 0600，证书私钥只在内存、直接上传七牛）。`includes/QiniuCdnHttps.php`：要求七牛「配置成功」且解析服务商里该主机记录已是七牛 CNAME → 把 `_acme-challenge.<域名>` TXT 写入域名当前的解析服务商（商务中国 / DNSPod / Cloudflare）→ 验证通过后删除 TXT → 签发 → `POST fusion /sslcert` 上传（名称 `auto-<域名>-<日期>`）→ `PUT /domain/<域名>/sslize`（失败回退 `httpsconf`）绑定，`http2` 开、不强制跳转 HTTPS。命令：`php jobs/qiniu_https.php --domain=<加速域名>`（`--staging` 只用测试环境验证流程，不上传不绑定）。续签：`jobs/qiniu_https_renew.php` 每天 03:30 运行（root crontab，日志 `/root/hezuoshang_qiniu_https_job.log`，改前备份 `/root/crontab.before-qiniu-https-20261031`），名称以 `auto-` 开头的证书剩余不足 30 天时重签并重新绑定。已为 `www.xyhhj.cn` 签发并验证（边缘节点 HTTPS 返回 200、证书校验通过）。目前需在命令行 / 让助手执行，页面上还没有“申请证书”按钮。
+
+### 添加后自动申请证书 + 页面托底按钮（2026-10-31）
+
+CDN 管理页添加域名成功后自动写入队列 `qiniu_https_jobs`（`migrations/20261031_qiniu_https_jobs.sql`，线上需手动执行）；`jobs/qiniu_https_worker.php` 每 2 分钟（root crontab，`flock` + `GET_LOCK`，日志同 `/root/hezuoshang_qiniu_https_job.log`，改前备份 `/root/crontab.before-qiniu-https-worker-20261031`）处理：七牛未「配置成功」或解析还没指向七牛时继续等（每 2 分钟复查，最长 3 天），就绪后自动签发并绑定；失败按 5/10/15… 分钟（最长 1 小时）退避重试，最多 6 次后停止；签发中异常中断超 15 分钟自动回到排队。域名详情页新增「HTTPS 证书」卡片：显示已启用 / 排队中 / 签发中 / 失败及原因，未启用且没有进行中的任务时提供「申请 / 重新申请 HTTPS 证书」按钮（托底，写审计 `https_requested`）。离线测试 `php -d extension=pdo_sqlite tests/qiniu_https_queue.php`。
