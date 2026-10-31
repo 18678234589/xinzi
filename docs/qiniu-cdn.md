@@ -38,3 +38,7 @@ CDN 管理页列表新增「应解析到（七牛 CNAME）」和「当前公网�
 ### 一键解析到七牛（2026-10-31）
 
 CDN 管理页详情页新增「一键解析到七牛」（`includes/QiniuCdnDns.php`）：七牛状态为「配置成功」后，按域名当前 NS 自动识别解析服务商（商务中国 / DNSPod / Cloudflare），读取加速域名那一个主机记录的 A / AAAA / CNAME，给出方案：无记录→新增 CNAME；恰好一条→改为指向七牛 CNAME（商务中国用 `bd_record_replace`，失败自动恢复原记录；DNSPod / Cloudflare 原地修改）；已指向→无需修改；多条冲突或根域（非 Cloudflare）→拒绝，交人工。需输入加速域名确认，服务端重新计算方案，旧记录写入审计（`dns_connect_requested` 的 `from`）。只处理这一个主机记录。离线测试 `php tests/qiniu_cdn_dns.php`。注意：七牛「动态加速」产品（DCDN）已从下拉中移除，网站一律用「静态网站」。
+
+### 自动 HTTPS 证书（2026-10-31）
+
+七牛没有「签发证书」的接口（只能上传已有证书），所以本站自带 ACME 客户端（`includes/AcmeClient.php`，Let's Encrypt，DNS-01，账号私钥 `storage/private/acme/account.pem` 0600，证书私钥只在内存、直接上传七牛）。`includes/QiniuCdnHttps.php`：要求七牛「配置成功」且解析服务商里该主机记录已是七牛 CNAME → 把 `_acme-challenge.<域名>` TXT 写入域名当前的解析服务商（商务中国 / DNSPod / Cloudflare）→ 验证通过后删除 TXT → 签发 → `POST fusion /sslcert` 上传（名称 `auto-<域名>-<日期>`）→ `PUT /domain/<域名>/sslize`（失败回退 `httpsconf`）绑定，`http2` 开、不强制跳转 HTTPS。命令：`php jobs/qiniu_https.php --domain=<加速域名>`（`--staging` 只用测试环境验证流程，不上传不绑定）。续签：`jobs/qiniu_https_renew.php` 每天 03:30 运行（root crontab，日志 `/root/hezuoshang_qiniu_https_job.log`，改前备份 `/root/crontab.before-qiniu-https-20261031`），名称以 `auto-` 开头的证书剩余不足 30 天时重签并重新绑定。已为 `www.xyhhj.cn` 签发并验证（边缘节点 HTTPS 返回 200、证书校验通过）。目前需在命令行 / 让助手执行，页面上还没有“申请证书”按钮。
