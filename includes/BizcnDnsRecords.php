@@ -27,7 +27,7 @@ function bd_record_replace($domain, array $old, array $new, $actor, array $io = 
     $oldLabel = $old['resolvetype'] . ' ' . $old['resolvehost'];
     $context = ['domain' => $domain, 'from' => $oldLabel, 'to' => $new['resolvetype'] . ' ' . $new['resolvehost']];
     $deleteFirst = strcasecmp($old['resolvehost'], $new['resolvehost']) === 0
-        && (($old['resolvetype'] === 'CNAME') !== ($new['resolvetype'] === 'CNAME'));
+        && ($old['resolvetype'] === 'CNAME' || $new['resolvetype'] === 'CNAME'); // 同一主机不能同时有两条 CNAME（CNAME 改 CNAME 也要先删后加）
     $audit('record_replace_requested', $context + ['order' => $deleteFirst ? 'delete_first' : 'add_first']);
     if (!$deleteFirst) {
         $call('addDnsRecordService', 'addDnsRecord', ['add' => $new]);
