@@ -18,6 +18,8 @@ qc_test(qc_reject(function()use($dom){qc_payload(array_replace($dom,['source_val
 $bucket=array_replace($input,['source_type'=>'qiniuBucket','source_value'=>'example-bucket']);
 qc_test(qc_payload($bucket)['body']['source']['sourceQiniuBucket']==='example-bucket','bucket origin');
 qc_test(qc_reject(function()use($bucket){qc_payload(array_replace($bucket,['platform'=>'dynamic']));}),'dynamic bucket disallowed');
+qc_test(qc_reject(function()use($input){qc_payload(array_replace($input,['platform'=>'dynamic']));}),'dynamic platform (DCDN) refused for any origin');
+qc_test(qc_payload(array_replace($input,['platform'=>'web']))['body']['platform']==='web','web platform is the CDN product');
 qc_test(qc_payload(array_replace($input,['geo_cover'=>'china','register_no'=>'京ICP备12345678号']))['body']['registerNo']==='京ICP备12345678号','备案 passed for domestic region');
 qc_test(qc_reject(function()use($input){qc_payload(array_replace($input,['protocol'=>'https']));}),'HTTPS requires certificate');
 $cert=['certid'=>'fixture','common_name'=>'*.example.com','not_before'=>time()-100,'not_after'=>time()+10000];

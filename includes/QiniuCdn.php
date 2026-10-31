@@ -47,6 +47,8 @@ function qc_payload(array $input)
     $platform = (string)($input['platform'] ?? 'web');
     $region = (string)($input['geo_cover'] ?? 'china');
     $protocol = (string)($input['protocol'] ?? 'http');
+    // 「动态加速」会在七牛创建成全站加速（DCDN）产品，长时间处理中且 CDN 控制台看不到；网站（含动态网站）一律用静态网站（web）。
+    if ($platform === 'dynamic') throw new RuntimeException('已不支持“动态加速”：请选择“静态网站”，PHP 等动态网站同样适用，缓存方式选“遵循源站”');
     if (!isset(QC_PLATFORMS[$platform]) || !isset(QC_REGIONS[$region]) || !in_array($protocol, ['http','https'], true)) throw new RuntimeException('请选择有效的业务类型、加速区域和协议');
     $registerNo = trim((string)($input['register_no'] ?? ''));
     if ($region !== 'foreign' && ($registerNo === '' || mb_strlen($registerNo) > 100 || preg_match('/[\x00-\x1f]/', $registerNo))) throw new RuntimeException('中国大陆或全球加速需要填写该域名的真实 ICP 备案号');
