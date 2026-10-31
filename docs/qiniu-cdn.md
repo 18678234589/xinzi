@@ -34,3 +34,7 @@ CDN 管理页列表新增「应解析到（七牛 CNAME）」和「当前公网�
 ### 域名所有权验证（2026-10-29）
 
 七牛要求先验证加速域名所在的**主域名**（`cdn.example.com` 验证 `example.com`），未验证时创建会报「域名所有权验证失败」。接口（`api.qiniu.com`，现有 Qiniu 鉴权可用，线上实测）：`GET /domain/<主域名>/verify/info?product=cdn` 返回 `state`（`success` / `no_need` / `doing`）和要添加的 TXT（主机记录 `verification`，值 `verify_…`）；`POST /domain/<主域名>/verify/check`（`{type:"dns",product:"cdn"}`，必须先调用过 info；失败码 400932）。CDN 管理页「预览添加配置」时自动查询：待验证则显示 TXT 记录表、公网是否已查到该记录、「我已添加，立即验证」按钮，并禁用「确认添加到七牛」；确认添加前服务端也会再核一次，未验证不调用创建接口。同一主域名验证一次即可。代码：`qc_verify_info` / `qc_verify_check` / `qc_verify_visible`，离线测试 `php tests/qiniu_cdn.php`。
+
+### 一键解析到七牛（2026-10-31）
+
+CDN 管理页详情页新增「一键解析到七牛」（`includes/QiniuCdnDns.php`）：七牛状态为「配置成功」后，按域名当前 NS 自动识别解析服务商（商务中国 / DNSPod / Cloudflare），读取加速域名那一个主机记录的 A / AAAA / CNAME，给出方案：无记录→新增 CNAME；恰好一条→改为指向七牛 CNAME（商务中国用 `bd_record_replace`，失败自动恢复原记录；DNSPod / Cloudflare 原地修改）；已指向→无需修改；多条冲突或根域（非 Cloudflare）→拒绝，交人工。需输入加速域名确认，服务端重新计算方案，旧记录写入审计（`dns_connect_requested` 的 `from`）。只处理这一个主机记录。离线测试 `php tests/qiniu_cdn_dns.php`。注意：七牛「动态加速」产品（DCDN）已从下拉中移除，网站一律用「静态网站」。

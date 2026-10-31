@@ -2,6 +2,7 @@
 require_once __DIR__ . '/../includes/BizcnDomains.php';
 require_once __DIR__ . '/../includes/QiniuCdn.php';
 require_once __DIR__ . '/../includes/QiniuCdnTraffic.php';
+require_once __DIR__ . '/../includes/QiniuCdnDns.php';
 $actor = ps_require_actor();
 if (!bd_can_access($actor)) { http_response_code(403); exit('当前账户未分配 CDN 管理权限'); }
 require_once __DIR__ . '/../includes/ProjectApiSettings.php';
@@ -81,6 +82,15 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
                 'verified' => in_array($vi['state'], ['success', 'no_need'], true)
             ], JSON_UNESCAPED_UNICODE);
             exit;
+        } elseif ($action === 'dns_connect') {
+            // 方案在服务端按当前七牛状态和实时解析重新计算，不信任页面传值；必须输入加速域名确认。
+            $target = qc_domain((string)($_POST['domain'] ?? ''));
+            if (qc_domain((string)($_POST['confirm'] ?? '')) !== $target) throw new RuntimeException('请输入加速域名确认');
+            $dom = qc_detail($target);
+            $plan = qd_plan($target, $dom['cname'], $dom['operatingState']);
+            $_SESSION['cdn_flash'] = ['ok' => qd_apply($plan, $actor)];
+            header('Location: ' . BASE_URL . '/project/cdn.php?d=' . rawurlencode($target));
+            exit;
         } elseif ($action === 'create') {
             $previewToken = (string)($_POST['token'] ?? '');
             $payload = qc_ticket_take($_SESSION['cdn_previews'], $previewToken, $actorKey, (string)($_POST['confirm'] ?? ''), (string)($_POST['ack'] ?? ''), time());
@@ -120,6 +130,11 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
             $error = '七牛域名所有权验证尚未生效。主域名需添加 TXT 记录（主机记录 verification），公网生效后请点“立即验证”，通过后再确认添加。';
         }
         $act = (string)($_POST['action'] ?? '');
+        if ($act === 'dns_connect') {
+            $_SESSION['cdn_flash'] = ['error' => $error];
+            header('Location: ' . BASE_URL . '/project/cdn.php?d=' . rawurlencode((string)($_POST['domain'] ?? '')));
+            exit;
+        }
         if ($act === 'create') {
             $previewToken = (string)($_POST['token'] ?? '');
             if (isset($payload)) {
@@ -161,10 +176,12 @@ if ($configured) {
     }
 }
 // 流量只读本地表（后台任务同步），表还没建或没有数据时页面照常显示。
+$dnsPlan = null; $dnsPlanError = '';
 $traffic = []; $series = []; $overview = null; $trafficNote = ''; $dnsInfo = [];
 if ($configured) {
     try {
-        if ($detail) { $series = qt_series(db(), $detail['name'], 30); $dnsInfo = qt_dns_map(db(), [$detail['name']]); }
+        if ($detail) { try { $dnsPlan = qd_plan($detail['name'], $detail['cname'], $detail['operatingState']); } catch (Throwable $e) { $dnsPlanError = $e instanceof RuntimeException ? $e->getMessage() : '暂时无法读取解析记录'; }
+            $series = qt_series(db(), $detail['name'], 30); $dnsInfo = qt_dns_map(db(), [$detail['name']]); }
         else {
             $dnsInfo = qt_dns_map(db(), array_column($list['rows'], 'name'));
             $traffic = qt_summary(db(), array_column($list['rows'], 'name'));
@@ -214,7 +231,18 @@ $value = function ($key, $default='') use ($input) { return e((string)($input[$k
     <p class="dns-help">数据来自七牛用量统计，后台每 30 分钟同步，当天数字未走完会偏小；仅供参考，计费以七牛账单为准。</p>
     <?php endif; ?>
   </section>
-  <section class="dns-card"><h2>接入解析：将加速域名指向七牛 CNAME</h2>
+  <section class="dns-card cdn-connect"><h2>一键解析到七牛</h2>
+    <?php if ($dnsPlan): $dp = $dnsPlan; ?>
+    <p class="dns-help">解析服务商：<strong><?php echo e($dp['label']); ?></strong>（按域名当前 NS 自动识别）。主域名 <strong><?php echo e($dp['zone']); ?></strong>，主机记录 <code><?php echo e($dp['host']); ?></code>。</p>
+    <div class="dns-notice <?php echo $dp['action'] === 'noop' ? 'ok' : 'warn'; ?>"><?php echo e($dp['message']); ?></div>
+    <?php if (in_array($dp['action'], ['add', 'replace'], true)): ?>
+    <p class="dns-help">只改这一个主机记录，不动其他记录。改之前的旧记录会写入操作日志，出问题可按日志改回。改完后这个域名的访问会走七牛 CDN，请确认七牛里的源站配置正确。</p>
+    <form method="post" class="cdn-confirm"><input type="hidden" name="csrf" value="<?php echo e($csrf); ?>"><input type="hidden" name="action" value="dns_connect"><input type="hidden" name="domain" value="<?php echo e($detail['name']); ?>">
+      <label>输入加速域名确认<input name="confirm" required autocomplete="off" placeholder="<?php echo e($detail['name']); ?>"></label><button class="dns-btn" type="submit">确认，自动解析到七牛</button></form>
+    <?php endif; ?>
+    <?php else: ?><div class="dns-notice warn"><?php echo e($dnsPlanError ?: '暂时无法生成解析方案'); ?>，可以按下面的“手动接入”操作。</div><?php endif; ?>
+  </section>
+  <section class="dns-card"><h2>手动接入：将加速域名指向七牛 CNAME</h2>
     <?php $di = $dnsInfo[strtolower($detail['name'])] ?? null; ?>
     <p class="dns-help"><strong>当前公网解析：</strong><?php echo $di ? '<span class="cdn-dns ' . e($di['state']) . '">' . e(qt_dns_label($di['state'])) . '</span> ' . e($di['resolved']) . '（' . e(date('m-d H:i', (int)$di['checked_at'])) . ' 检查，每 30 分钟自动更新）' : '尚未检查，稍后刷新。'; ?></p>
     <?php if ($detail['cname']): ?>
