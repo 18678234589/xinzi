@@ -415,6 +415,26 @@
 - 加载：`require $cfgFile;`
 - 加载：`require_once __DIR__ . '/../includes/auth.php';`
 
+## includes/AcmeClient.php (168 行, 8.5 KB)
+
+- `acme_b64` L9–9
+- `acme_account_key` L11–23
+- `acme_jwk` L24–28
+- `acme_thumbprint` L29–29
+- `acme_dns_value` L31–31
+- `acme_http` L33–45
+- `AcmeClient` L47–116
+- `AcmeClient::__construct` L50–57
+- `AcmeClient::nonce` L58–63
+- `AcmeClient::post` L65–78
+- `AcmeClient::register` L79–84
+- `AcmeClient::newOrder` L86–93
+- `AcmeClient::dnsChallenge` L94–98
+- `AcmeClient::respond` L99–99
+- `AcmeClient::waitStatus` L100–109
+- `AcmeClient::finalize` L110–115
+- `acme_issue` L119–167
+
 ## includes/AgentCloudTools.php (179 行, 12.2 KB)
 
 - `ac_signature` L7–10
@@ -738,22 +758,23 @@
 - `pna_acknowledge` L23–35
 - 加载：`require_once __DIR__ . '/ProjectSettlement.php';`
 
-## includes/ProjectApiSettings.php (166 行, 9.4 KB)
+## includes/ProjectApiSettings.php (173 行, 10.1 KB)
 
-- `pas_providers` L10–20
-- `pas_store` L22–26
-- `pas_get` L29–35
-- `pas_is_set` L37–40
-- `pas_mask` L43–50
-- `pas_save` L53–68
-- `pas_http` L70–81
-- `pas_tencent_call` L84–102
-- `pas_qiniu_b64` L105–105
-- `pas_qiniu_call` L113–125
-- `pas_qiniu_qbox_call` L128–136
-- `pas_test` L139–165
+- `pas_providers` L10–22
+- `pas_store` L24–28
+- `pas_get` L31–37
+- `pas_is_set` L39–42
+- `pas_mask` L45–52
+- `pas_save` L55–70
+- `pas_http` L72–83
+- `pas_tencent_call` L86–104
+- `pas_qiniu_b64` L107–107
+- `pas_qiniu_call` L115–127
+- `pas_qiniu_qbox_call` L130–138
+- `pas_test` L141–172
 - 加载：`require_once __DIR__ . '/ProjectSystem.php';`
 - 加载：`require_once __DIR__ . '/ProjectVault.php';`
+- 加载：`require_once __DIR__ . '/YayunApi.php';`
 
 ## includes/ProjectAutoReview.php (276 行, 21.3 KB)
 
@@ -2000,7 +2021,7 @@
 - `pwr_publish_october_notice` L5–69
 - 加载：`require_once __DIR__ . '/ProjectAnnouncements.php';`
 
-## includes/ProjectWelfare.php (243 行, 16.3 KB)
+## includes/ProjectWelfare.php (300 行, 20.7 KB)
 
 - `pw_policy` L5–8
 - `pw_quarter` L10–20
@@ -2014,6 +2035,9 @@
 - `pw_close_quarter` L76–150
 - `pw_award_quarter` L153–185
 - `pw_award_year` L187–242
+- `pw_manual_adjust` L247–265
+- `pw_unreserved_paid_rewards` L271–278
+- `pw_deduct_paid_rewards` L281–299
 - 加载：`require_once __DIR__ . '/ProjectGovernance.php';`
 - 加载：`require_once __DIR__ . '/WelfareContribution.php';`
 
@@ -2027,39 +2051,82 @@
 - `psw_list_labels` L99–115
 - `psw_change_kind` L118–166
 
-## includes/QiniuCdn.php (176 行, 10.2 KB)
+## includes/QiniuCdn.php (361 行, 18.6 KB)
 
 - `QiniuCdnError` L8–18
 - `QiniuCdnError::__construct` L12–17
-- `qc_call` L20–36
-- `qc_domain` L38–41
-- `qc_payload` L43–89
-- `qc_public_domain` L91–102
-- `qc_list` L104–110
-- `qc_detail` L112–118
-- `qc_certificates` L120–134
-- `qc_certificate_matches` L136–145
-- `qc_create` L147–161
-- `qc_ticket_take` L163–170
-- `qc_state_label` L172–175
+- `qc_call` L20–37
+- `qc_domain` L39–42
+- `qc_payload` L44–94
+- `qc_public_domain` L96–108
+- `qc_list` L110–116
+- `qc_detail` L118–124
+- `qc_certificates` L126–140
+- `qc_certificate_matches` L142–151
+- `qc_create` L153–185
+- `qc_ticket_take` L187–194
+- `qc_state_label` L196–199
+- `qc_split_host` L202–208
+- `qc_verify_product` L213–216
+- `qc_verify_state_label` L218–221
+- `qc_verify_info` L225–238
+- `qc_verify_check` L243–258
+- `qc_verify_visible` L260–264
+- `qc_find_dns_provider` L267–309
+- `qc_auto_add_txt_record` L312–360
 - 加载：`require_once __DIR__ . '/DnsProviders.php';`
 - 加载：`require_once __DIR__ . '/ProjectApiSettings.php';`
+- 加载：`require_once __DIR__ . '/BizcnDomains.php';`
+- 加载：`require_once __DIR__ . '/BizcnDomains.php';`
 
-## includes/QiniuCdnTraffic.php (139 行, 6.8 KB)
+## includes/QiniuCdnDns.php (63 行, 5 KB)
+
+- `qd_plan` L11–33
+- `qd_apply` L36–62
+- 加载：`require_once __DIR__ . '/BizcnDnsRouting.php';`
+- 加载：`require_once __DIR__ . '/BizcnDnsRecords.php';`
+
+## includes/QiniuCdnHttps.php (194 行, 11.8 KB)
+
+- `qh_account_key_file` L10–10
+- `qh_txt_io` L13–41
+- `qh_points_to_qiniu` L43–47
+- `qh_cert_name` L48–48
+- `qh_https_enabled` L49–49
+- `qh_enable` L52–76
+- `qh_renew` L79–93
+- `qh_enqueue` L100–111
+- `qh_job` L112–117
+- `qh_job_label` L118–118
+- `qh_set` L119–122
+- `qh_work` L124–159
+- `qh_needs_renewal` L164–171
+- `qh_cleanup_old` L173–184
+- `qh_note_failure` L186–193
+- 加载：`require_once __DIR__ . '/AcmeClient.php';`
+- 加载：`require_once __DIR__ . '/BizcnDnsRouting.php';`
+- 加载：`require_once __DIR__ . '/QiniuCdnDns.php';`
+
+## includes/QiniuCdnTraffic.php (201 行, 10.6 KB)
 
 - `qt_tz` L6–6
 - `qt_day` L7–7
 - `qt_parse` L10–25
 - `qt_fetch_chunk` L26–32
-- `qt_all_domains` L33–44
-- `qt_store` L45–54
-- `qt_sync` L56–69
-- `qt_summary` L74–94
-- `qt_is_spike` L96–103
-- `qt_series` L105–115
-- `qt_overview` L117–126
-- `qt_bytes` L127–132
-- `qt_bps` L133–138
+- `qt_all_rows` L33–44
+- `qt_all_domains` L45–45
+- `qt_store` L46–55
+- `qt_sync` L57–73
+- `qt_summary` L78–98
+- `qt_is_spike` L100–107
+- `qt_series` L109–119
+- `qt_overview` L121–130
+- `qt_bytes` L131–136
+- `qt_bps` L137–142
+- `qt_dns_label` L146–149
+- `qt_dns_check` L151–168
+- `qt_dns_refresh` L169–190
+- `qt_dns_map` L191–200
 
 ## includes/RecoverySms.php (36 行, 2.5 KB)
 
@@ -2123,6 +2190,77 @@
 
 - `pw_sync_contribution` L3–50
 - `pw_validate_linked_contribution` L53–63
+
+## includes/YayunAccess.php (54 行, 2.2 KB)
+
+- `ya_provisioner_ids` L8–14
+- `ya_is_super_admin` L15–18
+- `ya_can_provision` L19–24
+- `ya_can_view` L25–28
+- `ya_save_provisioners` L30–44
+- `ya_provisioner_rows` L45–53
+
+## includes/YayunApi.php (60 行, 3.4 KB)
+
+- `ya_base` L9–14
+- `ya_jwt_file` L15–15
+- `ya_login` L17–32
+- `ya_raw` L34–50
+- `ya_call` L51–59
+- 加载：`require_once __DIR__ . '/ProjectApiSettings.php';`
+
+## includes/YayunCatalog.php (136 行, 8.1 KB)
+
+- `ya_countries` L9–17
+- `ya_categories` L19–22
+- `ya_group_category` L23–30
+- `ya_country_keywords` L31–34
+- `ya_country` L36–54
+- `ya_products` L57–71
+- `ya_find_product` L72–76
+- `ya_cycle_labels` L80–83
+- `ya_cycles_from_pricing` L85–92
+- `ya_price_map` L93–102
+- `ya_catalog_view` L104–126
+- `ya_display_price` L128–135
+- 加载：`require_once __DIR__ . '/YayunCatalogData.php';`
+
+## includes/YayunCatalogData.php (12 行, 70.2 KB)
+
+- `ya_catalog_data` L3–11
+
+## includes/YayunHosts.php (135 行, 10.4 KB)
+
+- `yh_status_labels` L9–12
+- `yh_manage_actions` L14–14
+- `yh_public_row` L16–28
+- `yh_list` L30–42
+- `yh_detail` L44–60
+- `yh_password_ok` L61–61
+- `yh_action` L64–93
+- `yh_chart` L94–102
+- `yh_renew_info` L104–112
+- `yh_renew` L114–125
+- `yh_cancel` L126–134
+- 加载：`require_once __DIR__ . '/YayunApi.php';`
+
+## includes/YayunOrder.php (200 行, 15 KB)
+
+- `yo_cents` L13–13
+- `yo_options` L16–42
+- `yo_build_config` L44–62
+- `yo_describe` L63–74
+- `yo_total` L75–82
+- `yo_quote` L83–99
+- `yo_set` L100–104
+- `yo_submit` L106–149
+- `yo_row` L150–155
+- `yo_password` L156–162
+- `yo_public` L163–167
+- `yo_history` L168–171
+- `yo_sync_prices` L175–199
+- 加载：`require_once __DIR__ . '/YayunApi.php';`
+- 加载：`require_once __DIR__ . '/YayunCatalog.php';`
 
 ## includes/announcement_popup.php (21 行, 2.1 KB)
 
@@ -2983,6 +3121,30 @@
 - 加载：`require_once __DIR__ . '/../includes/QiniuCdnTraffic.php';`
 - 加载：`require_once __DIR__ . '/../includes/ProjectApiSettings.php';`
 
+## jobs/qiniu_https.php (30 行, 1.6 KB)
+
+- 加载：`require_once __DIR__ . '/../includes/functions.php';`
+- 加载：`require_once __DIR__ . '/../includes/BizcnDomains.php';`
+- 加载：`require_once __DIR__ . '/../includes/QiniuCdn.php';`
+- 加载：`require_once __DIR__ . '/../includes/QiniuCdnHttps.php';`
+- 加载：`require_once __DIR__ . '/../includes/ProjectApiSettings.php';`
+
+## jobs/qiniu_https_renew.php (33 行, 2.1 KB)
+
+- 加载：`require_once __DIR__ . '/../includes/functions.php';`
+- 加载：`require_once __DIR__ . '/../includes/BizcnDomains.php';`
+- 加载：`require_once __DIR__ . '/../includes/QiniuCdn.php';`
+- 加载：`require_once __DIR__ . '/../includes/QiniuCdnHttps.php';`
+- 加载：`require_once __DIR__ . '/../includes/ProjectApiSettings.php';`
+
+## jobs/qiniu_https_worker.php (18 行, 1.3 KB)
+
+- 加载：`require_once __DIR__ . '/../includes/functions.php';`
+- 加载：`require_once __DIR__ . '/../includes/BizcnDomains.php';`
+- 加载：`require_once __DIR__ . '/../includes/QiniuCdn.php';`
+- 加载：`require_once __DIR__ . '/../includes/QiniuCdnHttps.php';`
+- 加载：`require_once __DIR__ . '/../includes/ProjectApiSettings.php';`
+
 ## jobs/refund_auto_apply.php (13 行, 1 KB)
 
 - 加载：`require_once __DIR__ . '/../includes/ProjectRefundImport.php';`
@@ -2990,6 +3152,12 @@
 ## jobs/renewal_sms.php (9 行, 0.3 KB)
 
 - 加载：`require_once __DIR__ . '/../includes/ProjectRenewalSms.php';`
+
+## jobs/yayun_sync.php (15 行, 1.1 KB)
+
+- 加载：`require_once __DIR__ . '/../includes/functions.php';`
+- 加载：`require_once __DIR__ . '/../includes/BizcnDomains.php';`
+- 加载：`require_once __DIR__ . '/../includes/YayunOrder.php';`
 
 ## login.php (252 行, 14.3 KB)
 
@@ -3392,11 +3560,13 @@
 - 加载：`require_once __DIR__ . '/../includes/ProjectIntake.php';`
 - 加载：`require_once __DIR__ . '/../includes/commission_explain.php';`
 
-## project/cdn.php (179 行, 21.6 KB)
+## project/cdn.php (367 行, 42.9 KB)
 
 - 加载：`require_once __DIR__ . '/../includes/BizcnDomains.php';`
 - 加载：`require_once __DIR__ . '/../includes/QiniuCdn.php';`
 - 加载：`require_once __DIR__ . '/../includes/QiniuCdnTraffic.php';`
+- 加载：`require_once __DIR__ . '/../includes/QiniuCdnDns.php';`
+- 加载：`require_once __DIR__ . '/../includes/QiniuCdnHttps.php';`
 - 加载：`require_once __DIR__ . '/../includes/ProjectApiSettings.php';`
 - 加载：`include __DIR__ . '/../includes/header.php';`
 - 加载：`include __DIR__ . '/../includes/footer.php';`
@@ -3528,12 +3698,16 @@
 
 - 加载：`require_once __DIR__ . '/../includes/ProjectGovernance.php';`
 
-## project/governance_ideas.php (292 行, 42.8 KB)
+## project/governance_ideas.php (302 行, 45.9 KB)
 
 - 加载：`require_once __DIR__ . '/../includes/ProjectGovernance.php';`
 - 加载：`include __DIR__ . '/../includes/header.php';`
 - 加载：`include __DIR__ . '/../includes/governance/evidence_dropzone.php';`
 - 加载：`include __DIR__ . '/../includes/footer.php';`
+
+## project/governance_pay.php (31 行, 2.3 KB)
+
+- 加载：`require_once __DIR__ . '/../includes/ProjectGovernance.php';`
 
 ## project/governance_rules.php (80 行, 12.8 KB)
 
@@ -4150,6 +4324,16 @@
 - 加载：`include __DIR__ . '/../includes/review_policy_editor.php';`
 - 加载：`include __DIR__ . '/../includes/footer.php';`
 
+## project/servers.php (155 行, 12 KB)
+
+- 加载：`require_once __DIR__ . '/../includes/BizcnDomains.php';`
+- 加载：`require_once __DIR__ . '/../includes/YayunAccess.php';`
+- 加载：`require_once __DIR__ . '/../includes/YayunCatalog.php';`
+- 加载：`require_once __DIR__ . '/../includes/YayunHosts.php';`
+- 加载：`require_once __DIR__ . '/../includes/YayunOrder.php';`
+- 加载：`include __DIR__ . '/../includes/header.php';`
+- 加载：`include __DIR__ . '/../includes/footer.php';`
+
 ## project/service_performance.php (230 行, 20.9 KB)
 
 - `csr_fmt` L84–84
@@ -4229,7 +4413,7 @@
 - 加载：`include __DIR__ . '/../includes/header.php';`
 - 加载：`include __DIR__ . '/../includes/footer.php';`
 
-## project/welfare.php (244 行, 31.8 KB)
+## project/welfare.php (270 行, 36.7 KB)
 
 - 加载：`require_once __DIR__ . '/../includes/ProjectWelfare.php';`
 - 加载：`include __DIR__ . '/../includes/header.php';`
@@ -5304,17 +5488,32 @@
 - 加载：`include __DIR__ . '/../project/governance_election.php';`
 - 加载：`include __DIR__ . '/../project/welfare.php';`
 
-## tests/qiniu_cdn.php (74 行, 7.2 KB)
+## tests/qiniu_cdn.php (120 行, 11.4 KB)
 
 - `qc_test` L4–4
 - `qc_reject` L5–5
 - 加载：`require_once __DIR__.'/../includes/QiniuCdn.php';`
 
-## tests/qiniu_cdn_traffic.php (46 行, 4 KB)
+## tests/qiniu_cdn_dns.php (38 行, 3.6 KB)
+
+- `ps_audit` L4–4
+- `qdt` L6–6
+- `rej` L7–7
+- 加载：`require_once __DIR__ . '/../includes/QiniuCdn.php';`
+- 加载：`require_once __DIR__ . '/../includes/QiniuCdnDns.php';`
+
+## tests/qiniu_cdn_traffic.php (55 行, 5.6 KB)
 
 - `qtt` L5–5
 - 加载：`require_once __DIR__ . '/../includes/QiniuCdn.php';`
 - 加载：`require_once __DIR__ . '/../includes/QiniuCdnTraffic.php';`
+
+## tests/qiniu_https_queue.php (59 行, 5.6 KB)
+
+- `ps_audit` L4–4
+- `qq` L6–6
+- 加载：`require_once __DIR__ . '/../includes/QiniuCdn.php';`
+- 加载：`require_once __DIR__ . '/../includes/QiniuCdnHttps.php';`
 
 ## tests/quick_update_smoke.php (86 行, 6.9 KB)
 
@@ -5662,6 +5861,21 @@
 - 加载：`require __DIR__ . '/../includes/settlement/audit_db.php';`
 - 加载：`require_once .*;`
 - 加载：`require_once .*;`
+
+## tests/yayun_servers.php (133 行, 14.1 KB)
+
+- `yt` L3–3
+- `yrej` L4–4
+- `pas_get` L5–5
+- `pas_is_set` L6–6
+- `pv_admin_username` L7–7
+- `bd_can_access` L8–8
+- `ps_setting_get` L10–10
+- `ps_setting_set` L11–11
+- 加载：`require __DIR__ . '/../includes/YayunAccess.php';`
+- 加载：`require __DIR__ . '/../includes/YayunCatalog.php';`
+- 加载：`require __DIR__ . '/../includes/YayunHosts.php';`
+- 加载：`require __DIR__ . '/../includes/YayunOrder.php';`
 
 ## tools/audit_correct_website_business.php (63 行, 4.7 KB)
 

@@ -16,6 +16,8 @@ function pas_providers()
             'zone_id' => ['区域 Zone ID', false], 'zone' => ['区域域名', false], 'dns_token' => ['DNS API 令牌', true], 'tunnel_token' => ['隧道 API 令牌', true]]],
         'qiniu' => ['title' => '七牛云 CDN', 'desc' => '添加 CDN 域名、域名配置与批量复制（融合 CDN 接口，QBox 鉴权）。', 'fields' => [
             'access_key' => ['AccessKey', true], 'secret_key' => ['SecretKey', true]]],
+        'yayun' => ['title' => '雅云（服务器采购与管理）', 'desc' => '上游云服务商（智简魔方财务 API）：查看各国家 / 品类服务器、开通服务器、管理已购 VPS。填写站点地址、API 账号与密码；开通时从该账号余额扣费。', 'fields' => [
+            'url' => ['站点地址（https://…）', false], 'username' => ['API 账号', false], 'password' => ['API 密码', true]]],
     ];
 }
 
@@ -157,6 +159,11 @@ function pas_test($provider)
             [$code, $j] = pas_qiniu_call('GET', '/domain?limit=10');
             if ($code === 200) return [true, '连接成功：七牛 CDN 鉴权通过，账号下 CDN 域名 ' . count($j['domains'] ?? []) . (!empty($j['marker']) ? '+' : '') . ' 个'];
             return [false, '七牛返回：' . ((is_array($j) ? ($j['error'] ?? $j['message'] ?? '') : '') ?: 'HTTP ' . $code)];
+        }
+        if ($provider === 'yayun') {
+            require_once __DIR__ . '/YayunApi.php';
+            $r = ya_call('host/list', ['page' => 1, 'limit' => 1], 'GET');
+            return [true, '连接成功：雅云账号下共有 ' . (int)($r['data']['sum'] ?? 0) . ' 台主机'];
         }
         return [false, '未知的接口类型'];
     } catch (Throwable $e) {
