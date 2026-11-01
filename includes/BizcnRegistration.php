@@ -105,7 +105,13 @@ function br_dispatch($action,$input,$actor)
     $pdo=db();$account=bd_config()['username'];$now=time();$s=br_settings($pdo,$account);
     if($action==='registration_config') {
         $count=$pdo->prepare('SELECT COUNT(*) FROM bizcn_registration_templates WHERE provider_account=?');$count->execute([$account]);$directory=(int)$count->fetchColumn();
-        return ['daily_limit'=>$s['daily_limit'],'used'=>br_usage($pdo,$account,br_day($now)),'day'=>br_day($now),'timezone'=>'Asia/Shanghai','revision'=>$s['revision'],'templates'=>$s['templates'],'directory_count'=>$directory,'ai_ready'=>function_exists('ps_ai_ready') && ps_ai_ready(),'template_contact'=>bt_contact(),'ns'=>$s['ns'],'admin'=>br_admin($actor),'ready'=>(count($s['templates'])>0 || $directory>0) && count($s['ns'])===2 && $s['daily_limit']>0];
+        $templates=$s['templates'];
+        if(empty($templates) && $directory>0) {
+            $recent=$pdo->prepare('SELECT template_id id,label,owner_label owner FROM bizcn_registration_templates WHERE provider_account=? ORDER BY refreshed_at DESC,template_id LIMIT 50');
+            $recent->execute([$account]);
+            $templates=$recent->fetchAll(PDO::FETCH_ASSOC);
+        }
+        return ['daily_limit'=>$s['daily_limit'],'used'=>br_usage($pdo,$account,br_day($now)),'day'=>br_day($now),'timezone'=>'Asia/Shanghai','revision'=>$s['revision'],'templates'=>$templates,'has_approved'=>!empty($s['templates']),'directory_count'=>$directory,'ai_ready'=>function_exists('ps_ai_ready') && ps_ai_ready(),'template_contact'=>bt_contact(),'ns'=>$s['ns'],'admin'=>br_admin($actor),'ready'=>(count($templates)>0 || $directory>0) && count($s['ns'])===2 && $s['daily_limit']>0];
     }
     if($action==='registration_templates') {
         if(!br_admin($actor))throw new RuntimeException('只有管理员可查询和批准实名模板');

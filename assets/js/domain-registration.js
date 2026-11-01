@@ -35,23 +35,30 @@
   }
   async function findTemplates(refresh) {
     var term = el('registrationTemplateQuery').value.trim();
-    if (term.length < 2) throw new Error('请输入客户实名主体名称或模板编号（至少2个字）');
+    if (term.length < 2) {
+      if (term.length === 0 && config && config.templates) {
+        templateOptions(config.templates, config.has_approved ? '请选择实名主体' : '请选择实名主体（已列出最新主体，或在上方搜索）');
+        cancelQuote(); notice('', false); return;
+      }
+      throw new Error('请输入客户实名主体名称或模板编号（至少2个字）');
+    }
     var d = await api('find_template', { search: term, refresh: refresh ? '1' : '0' });
     templateOptions(d.rows, d.rows.length ? '请选择实际实名主体（找到 ' + d.rows.length + ' 个）' : '没有找到匹配的实名主体');
     cancelQuote();
     if (d.rows.length) { el('registrationTemplate').focus(); notice(d.warning || '已找到 ' + d.rows.length + ' 个实名主体，请在下方「域名实名主体」选择，并核对主体名称。', !!d.warning); }
-    else notice(d.warning || '没有找到。新客户请先点「新客户？去商务中国创建实名信息」，审核通过（2–5 个工作日）后再点「刷新最新实名并查找」。', true);
+    else notice(d.warning || '没有找到。新客户请先点「改在商务中国官方页面手工创建」或使用上方「智能识别 · 一键预检」，审核通过（2–5 个工作日）后再点「刷新最新实名并查找」。', true);
   }
   async function loadConfig(resetSettings) {
     config = await api('config');
     el('registrationQuota').textContent = '北京时间 ' + config.day + ' · 全平台每日上限 ' + config.daily_limit + ' 个 · 已用/保留 ' + config.used + ' 个 · 可用 ' + Math.max(0, config.daily_limit - config.used) + ' 个';
-    templateOptions(config.templates, config.templates.length ? '请选择实际实名主体' : '请先查找实名主体');
+    var defaultHint = config.templates && config.templates.length ? (config.has_approved ? '请选择实名主体' : '请选择实名主体（已列出最新实名，或在上方搜索）') : '请先查找实名主体';
+    templateOptions(config.templates || [], defaultHint);
     el('registrationCheck').disabled = !config.ready;
     if (!config.ready) notice('注册准备中：请管理员同步实名模板目录、确认默认 NS，并开启每日额度。', false);
     if (config.admin && resetSettings) {
       el('registrationLimit').value = config.daily_limit; el('registrationDefaultNs').value = config.ns.join('\n'); approved = Object.create(null);
       if(window.bizcnNsSync)window.bizcnNsSync(el('registrationDefaultNs'));
-      config.templates.forEach(function (t) { approved[t.id] = t; }); approvedView();
+      (config.has_approved ? (config.templates || []) : []).forEach(function (t) { approved[t.id] = t; }); approvedView();
     }
   }
   async function history() {
@@ -82,6 +89,22 @@
   el('registrationFindTemplate').onclick = function () { busy(this, function () { return findTemplates(false); }); };
   el('registrationRefreshTemplates').onclick = function () { busy(this, function () { return findTemplates(true); }); };
   el('registrationTemplateQuery').onkeydown = function (e) { if (e.key === 'Enter') { e.preventDefault(); el('registrationFindTemplate').click(); } };
+  el('registrationTemplateQuery').oninput = function () {
+    var q = this.value.trim().toLowerCase();
+    if (!config || !config.templates) return;
+    if (!q) {
+      templateOptions(config.templates, config.has_approved ? '请选择实名主体' : '请选择实名主体（已列出最新主体，也可在上方搜索）');
+      return;
+    }
+    var filtered = config.templates.filter(function (t) {
+      return (t.id && t.id.toLowerCase().indexOf(q) >= 0) ||
+             (t.label && t.label.toLowerCase().indexOf(q) >= 0) ||
+             (t.owner && t.owner.toLowerCase().indexOf(q) >= 0);
+    });
+    if (filtered.length) {
+      templateOptions(filtered, '匹配到 ' + filtered.length + ' 个（可点查找搜索全部实名）');
+    }
+  };
   el('registrationNewSubject').onclick = function () {
     // Open the tab inside the click so popup blockers allow it; certificates are entered on Bizcn's own page only.
     var tab = window.open('', '_blank'); if (tab) tab.opener = null;
