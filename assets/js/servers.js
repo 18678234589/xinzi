@@ -134,11 +134,14 @@
   /* ---------------- 我的服务器 ---------------- */
   function dueClass(h) { return h.days_left === null ? '' : (h.days_left < 0 ? 'bad' : (h.days_left < 7 ? 'bad' : (h.days_left < 15 ? 'warn' : ''))); }
   function statusBadge(h) { var c = h.status === 'Active' ? 'ok' : (h.status === 'Pending' ? 'warn' : 'bad'); return '<span class="sv-badge ' + c + '">' + esc(h.status_text || h.status) + '</span>'; }
+  // 已删除 / 已终止 / 已取消 / 已过期的主机默认不展示，点「已删除 / 已过期」才看。
+  function isDead(h) { return ['Deleted', 'Terminated', 'Cancelled', 'Fraud'].indexOf(h.status) >= 0 || (h.days_left !== null && h.days_left < 0); }
   function renderHosts() {
+    var live = (state.hosts || []).filter(function (h) { return !isDead(h); });
     var list = (state.hosts || []).filter(function (h) {
+      if (state.hostFilter === 'other') { if (!isDead(h)) return false; } else if (isDead(h)) return false;
       if (state.hostFilter === 'Active' && h.status !== 'Active') return false;
       if (state.hostFilter === 'soon' && !(h.days_left !== null && h.days_left < 15 && h.status === 'Active')) return false;
-      if (state.hostFilter === 'other' && h.status === 'Active') return false;
       if (state.hostQ) { var t = (h.name + ' ' + h.ip + ' ' + h.product + ' ' + h.id).toLowerCase(); if (t.indexOf(state.hostQ.toLowerCase()) < 0) return false; }
       return true;
     });
@@ -146,7 +149,7 @@
       return '<article class="sv-host"><div class="sv-row"><h4>' + esc(h.name || ('主机 ' + h.id)) + '</h4>' + statusBadge(h) + '</div><div class="sv-row"><span>' + esc(h.product) + '</span></div><div class="sv-row"><span class="ip">' + esc(h.ip || '—') + '</span><span>#' + h.id + '</span></div>' +
         '<div class="sv-row"><span>到期</span><b class="sv-due ' + dueClass(h) + '">' + esc(h.due || '—') + (h.days_left !== null ? '（' + (h.days_left < 0 ? '已过期' : h.days_left + ' 天') + '）' : '') + '</b></div><div class="sv-row"><span>续费</span><b>' + money(h.amount) + ' / ' + esc(h.cycle) + '</b></div><div class="sv-actions"><button type="button" class="sv-btn sm" data-host="' + h.id + '">管理</button></div></article>';
     }).join('') + '</div>' : '<p class="sv-empty">没有符合条件的服务器。</p>';
-    $('svHostCount').textContent = state.hosts ? state.hosts.length : '';
+    $('svHostCount').textContent = state.hosts ? live.length : '';
   }
   async function loadHosts(force) {
     if (state.hosts && !force) return renderHosts();

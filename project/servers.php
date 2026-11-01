@@ -101,7 +101,7 @@ $boot = [
 $page_title = '服务器管理';
 include __DIR__ . '/../includes/header.php';
 ?>
-<link rel="stylesheet" href="<?php echo BASE_URL; ?>/assets/css/servers.css?v=20261101">
+<link rel="stylesheet" href="<?php echo BASE_URL; ?>/assets/css/servers.css?v=20261101b">
 <main class="sv" id="svRoot" data-csrf="<?php echo htmlspecialchars($csrf, ENT_QUOTES, 'UTF-8'); ?>">
   <section class="sv-hero">
     <div class="sv-hero-copy">
@@ -134,7 +134,7 @@ include __DIR__ . '/../includes/header.php';
 
   <section id="svHosts" class="sv-panel" hidden>
     <div class="sv-toolbar"><label class="sv-search"><i class="fas fa-search"></i><input id="svHostQuery" placeholder="搜索主机名 / IP / 套餐" maxlength="60" autocomplete="off"></label>
-      <div class="sv-seg" id="svHostFilter"><button type="button" class="active" data-f="all">全部</button><button type="button" data-f="Active">运行中</button><button type="button" data-f="soon">即将到期</button><button type="button" data-f="other">其他</button></div>
+      <div class="sv-seg" id="svHostFilter"><button type="button" class="active" data-f="all">全部</button><button type="button" data-f="Active">运行中</button><button type="button" data-f="soon">即将到期</button><button type="button" data-f="other">已删除 / 已过期</button></div>
       <button type="button" class="sv-btn ghost" id="svHostRefresh"><i class="fas fa-sync-alt"></i> 刷新</button></div>
     <div id="svHostList"><p class="sv-empty">点击上方「我的服务器」加载…</p></div>
   </section>
@@ -150,5 +150,5 @@ include __DIR__ . '/../includes/header.php';
   <dialog id="svBuy" class="sv-drawer wide"><div class="sv-drawer-head"><div><span class="sv-kicker">NEW SERVER</span><h2 id="svBuyTitle">开通服务器</h2></div><button type="button" class="sv-close" id="svBuyClose" aria-label="关闭">×</button></div><div class="sv-drawer-body" id="svBuyBody"></div></dialog>
 </main>
 <script id="svBoot" type="application/json"><?php echo json_encode($boot, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?></script>
-<script src="<?php echo BASE_URL; ?>/assets/js/servers.js?v=20261101" defer></script>
+<script src="<?php echo BASE_URL; ?>/assets/js/servers.js?v=20261101b" defer></script>
 <?php include __DIR__ . '/../includes/footer.php'; ?>
