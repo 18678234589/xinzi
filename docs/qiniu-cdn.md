@@ -46,3 +46,7 @@ CDN 管理页详情页新增「一键解析到七牛」（`includes/QiniuCdnDns.
 ### 添加后自动申请证书 + 页面托底按钮（2026-10-31）
 
 CDN 管理页添加域名成功后自动写入队列 `qiniu_https_jobs`（`migrations/20261031_qiniu_https_jobs.sql`，线上需手动执行）；`jobs/qiniu_https_worker.php` 每 2 分钟（root crontab，`flock` + `GET_LOCK`，日志同 `/root/hezuoshang_qiniu_https_job.log`，改前备份 `/root/crontab.before-qiniu-https-worker-20261031`）处理：七牛未「配置成功」或解析还没指向七牛时继续等（每 2 分钟复查，最长 3 天），就绪后自动签发并绑定；失败按 5/10/15… 分钟（最长 1 小时）退避重试，最多 6 次后停止；签发中异常中断超 15 分钟自动回到排队。域名详情页新增「HTTPS 证书」卡片：显示已启用 / 排队中 / 签发中 / 失败及原因，未启用且没有进行中的任务时提供「申请 / 重新申请 HTTPS 证书」按钮（托底，写审计 `https_requested`）。离线测试 `php -d extension=pdo_sqlite tests/qiniu_https_queue.php`。
+
+### 证书续期加固（2026-11-01）
+
+① 续签阈值改为「剩余有效期不足总有效期的 1/3」（90 天证书=30 天，缩短有效期后自动按比例）；② 绑定 / 续签成功后删除该域名此前自动签发的旧 `auto-` 证书（`qh_cleanup_old`，七牛账号证书数量有上限，仍被占用的删不掉则保留）；③ 续签失败写入 `qiniu_https_jobs`（`qh_note_failure`），详情页「HTTPS 证书」卡片显示「续签提醒」，每天自动重试；CDN 管理页域名列表和详情页显示证书剩余天数（<30 天橙色、<14 天红色）。证书编号由 `jobs/qiniu_cdn_traffic_sync.php` 每 30 分钟读详情写入 `qiniu_cdn_dns.cert_id`（`migrations/20261101_qiniu_cdn_dns_cert.sql`，线上已执行），因为七牛列表接口不返回证书。

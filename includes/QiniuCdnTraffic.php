@@ -166,7 +166,7 @@ function qt_dns_check($domain, $expected, $lookup = null)
     if ($ips) return ['other', 'A / AAAA → ' . implode(', ', array_slice($ips, 0, 4)) . '（不是 CNAME，Cloudflare 开代理或 CNAME 拉平时也会这样）'];
     return ['none', '公网查不到解析记录'];
 }
-function qt_dns_refresh($pdo, array $rows, $now = null, $lookup = null)
+function qt_dns_refresh($pdo, array $rows, $now = null, $lookup = null, $certLookup = null)
 {
     $now = $now ?? time();
     $sql = $pdo->getAttribute(PDO::ATTR_DRIVER_NAME) === 'sqlite'
@@ -178,6 +178,13 @@ function qt_dns_refresh($pdo, array $rows, $now = null, $lookup = null)
         list($state, $text) = qt_dns_check($r['name'], $r['cname'] ?? '', $lookup);
         $q->execute([strtolower($r['name']), mb_substr((string)($r['cname'] ?? ''), 0, 255), mb_substr($text, 0, 255), $state, $now]);
         $n++;
+        // 七牛列表接口不返回证书，逐个读详情记下当前绑定的证书编号（表还没加列时忽略）。
+        if ($state !== 'builtin') {
+            try {
+                $cid = $certLookup ? call_user_func($certLookup, $r['name']) : (string)(qc_call('domain', 'GET', '/domain/' . rawurlencode(strtolower($r['name'])))['https']['certId'] ?? '');
+                $pdo->prepare('UPDATE qiniu_cdn_dns SET cert_id=? WHERE domainname=?')->execute([mb_substr((string)$cid, 0, 64), strtolower($r['name'])]);
+            } catch (Throwable $e) { /* 列不存在或七牛暂时读不到：保持原值 */ }
+        }
     }
     return $n;
 }
@@ -185,7 +192,7 @@ function qt_dns_map($pdo, array $domains)
 {
     if (!$domains) return [];
     $in = implode(',', array_fill(0, count($domains), '?'));
-    $q = $pdo->prepare("SELECT domainname, expected_cname, resolved, state, checked_at FROM qiniu_cdn_dns WHERE domainname IN ($in)");
+    $q = $pdo->prepare("SELECT * FROM qiniu_cdn_dns WHERE domainname IN ($in)");
     $q->execute(array_map('strtolower', $domains));
     $out = [];
     foreach ($q->fetchAll(PDO::FETCH_ASSOC) as $r) $out[$r['domainname']] = $r;

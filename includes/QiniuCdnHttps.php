@@ -71,6 +71,7 @@ function qh_enable($name, $log = null, array $override = [])
     $body = ['certId' => $certId, 'forceHttps' => false, 'http2Enable' => true];
     try { qc_call('domain', 'PUT', '/domain/' . rawurlencode($name) . '/sslize', $body); }
     catch (QiniuCdnError $e) { qc_call('domain', 'PUT', '/domain/' . rawurlencode($name) . '/httpsconf', $body); }
+    try { qh_cleanup_old($name, $certId); } catch (Throwable $e) { /* 清理失败不影响启用 */ }
     return '证书已签发并绑定（证书编号 ' . $certId . '），七牛配置生效一般需要几分钟';
 }
 
@@ -87,6 +88,7 @@ function qh_renew($name, $log = null)
     $body = ['certId' => $certId, 'forceHttps' => false, 'http2Enable' => true];
     try { qc_call('domain', 'PUT', '/domain/' . rawurlencode($name) . '/sslize', $body); }
     catch (QiniuCdnError $e) { qc_call('domain', 'PUT', '/domain/' . rawurlencode($name) . '/httpsconf', $body); }
+    try { qh_cleanup_old($name, $certId); } catch (Throwable $e) { /* 清理失败不影响续签 */ }
     return '续签完成，新证书 ' . $certId;
 }
 
@@ -154,4 +156,38 @@ function qh_work($pdo, $limit = 5, $now = null, $enable = null, $ready = null)
         }
     }
     return $stats;
+}
+
+/* ---------- 证书清理 / 到期判断 / 失败记录 ---------- */
+
+/** 续签阈值：剩余有效期不足总有效期的 1/3 就续（Let's Encrypt 缩短有效期后依然适用）；缺少起止时间时按 30 天。 */
+function qh_needs_renewal(array $cert, $now = null)
+{
+    $now = $now ?? time();
+    $after = (int)($cert['not_after'] ?? 0); $before = (int)($cert['not_before'] ?? 0);
+    $life = $after - $before;
+    $margin = ($before > 0 && $life > 0) ? (int)($life / 3) : 30 * 86400;
+    return $after <= $now + $margin;
+}
+/** 续签 / 首次绑定成功后，删除这个域名之前由系统自动签发的旧证书（七牛账号证书数量有上限）；仍被占用的删不掉，忽略。返回删除数。 */
+function qh_cleanup_old($domain, $keepCertId, array $certs = null)
+{
+    $domain = strtolower($domain);
+    $certs = $certs ?? qc_certificates();
+    $deleted = 0;
+    foreach ($certs as $c) {
+        if (strpos((string)($c['name'] ?? ''), 'auto-') !== 0 || strtolower((string)($c['common_name'] ?? '')) !== $domain || (string)$c['certid'] === (string)$keepCertId) continue;
+        try { qc_call('fusion', 'DELETE', '/sslcert/' . rawurlencode($c['certid'])); $deleted++; }
+        catch (Throwable $e) { /* 仍绑定在别处或已删除，保留 */ }
+    }
+    return $deleted;
+}
+/** 记录续签失败，页面「HTTPS 证书」卡片会显示（不改变已启用的证书）。 */
+function qh_note_failure($pdo, $name, $message)
+{
+    $now = time();
+    $q = $pdo->prepare('SELECT 1 FROM qiniu_https_jobs WHERE domainname=?');
+    $q->execute([$name]);
+    if ($q->fetchColumn()) $pdo->prepare("UPDATE qiniu_https_jobs SET state='failed',message=?,updated_at=? WHERE domainname=? AND state<>'running'")->execute([mb_substr($message, 0, 300), $now, $name]);
+    else $pdo->prepare("INSERT INTO qiniu_https_jobs (domainname,state,message,attempts,requested_by,requested_at,next_try_at,updated_at) VALUES (?,'failed',?,0,'renew',?,0,?)")->execute([$name, mb_substr($message, 0, 300), $now, $now]);
 }
