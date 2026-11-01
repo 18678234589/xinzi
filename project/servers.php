@@ -8,6 +8,7 @@ require_once __DIR__ . '/../includes/YayunAccess.php';
 require_once __DIR__ . '/../includes/YayunCatalog.php';
 require_once __DIR__ . '/../includes/YayunHosts.php';
 require_once __DIR__ . '/../includes/YayunOrder.php';
+require_once __DIR__ . '/../includes/YayunWallet.php';
 $actor = ps_require_actor();
 if (!ya_can_view($actor)) { http_response_code(403); exit('当前账户未分配服务器管理权限'); }
 header('Cache-Control: no-store, max-age=0');
@@ -51,7 +52,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $needProvision();
                 $audit('host_cancel_requested', ['host' => $id, 'type' => (string)($_POST['type'] ?? '')]);
                 $result = ['message' => yh_cancel($id, (string)($_POST['type'] ?? ''), (string)($_POST['reason'] ?? ''), (string)($_POST['confirm'] ?? ''))]; break;
-            case 'options': $needProvision(); $result = yo_options((int)($_POST['pid'] ?? 0)); break;
+            case 'options': $needProvision(); $result = yo_options((int)($_POST['pid'] ?? 0), 'ya_call', true); break;
             case 'quote':
                 $needProvision();
                 $sel = json_decode((string)($_POST['selection'] ?? '{}'), true);
@@ -63,6 +64,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $row = yo_submit($pdo, $actor, (string)($_POST['token'] ?? ''), (string)($_POST['confirm'] ?? ''), (string)($_POST['ack'] ?? ''));
                 $audit('order_submit_' . $row['status'], ['order' => (int)$row['id'], 'amount_cents' => (int)$row['amount_cents'], 'host' => $row['upstream_host_id']]);
                 $result = ['order' => yo_public($row)]; break;
+            case 'balance': $needProvision(); $result = ya_balance(); break;
+            case 'recharge':
+                $needProvision();
+                $audit('recharge_requested', ['amount' => (string)($_POST['amount'] ?? '')]);
+                $result = ya_recharge((string)($_POST['amount'] ?? ''));
+                $audit('recharge_invoice_created', ['invoice' => $result['invoice_id'], 'amount' => $result['amount']]); break;
             case 'orders': $needProvision(); $result = ['rows' => yo_history($pdo)]; break;
             case 'provisioners_save':
                 $ids = array_filter(array_map('intval', (array)($_POST['employees'] ?? [])));
@@ -87,7 +94,7 @@ $products = array_map(function ($p) use ($prices) {
     $pr = $prices[$p['id']] ?? null;
     $disp = ya_display_price($pr);
     return ['id' => $p['id'], 't' => $p['title'], 'z' => $p['zone'], 'zid' => $p['zone_id'], 'g' => $p['group'], 'c' => $p['country'], 'k' => $p['category'], 's' => $p['specs'],
-        'p' => $disp ? $disp['amount'] : null, 'pl' => $disp ? $disp['label'] : '', 'cy' => $pr ? $pr['cycles'] : new stdClass(), 'st' => $pr ? $pr['stock'] : null, 'sc' => $pr ? $pr['stock_control'] : 0, 'err' => $pr ? $pr['error'] : ''];
+        'p' => $disp ? $disp['amount'] : null, 'pl' => $disp ? $disp['label'] : '', 'lp' => ($pr && $disp && isset($pr['list'][$disp['cycle']])) ? $pr['list'][$disp['cycle']] : null, 'cy' => $pr ? $pr['cycles'] : new stdClass(), 'st' => $pr ? $pr['stock'] : null, 'sc' => $pr ? $pr['stock_control'] : 0, 'err' => $pr ? $pr['error'] : ''];
 }, ya_products());
 $updated = $prices ? max(array_column($prices, 'updated_at')) : 0;
 $employees = [];
@@ -101,7 +108,7 @@ $boot = [
 $page_title = '服务器管理';
 include __DIR__ . '/../includes/header.php';
 ?>
-<link rel="stylesheet" href="<?php echo BASE_URL; ?>/assets/css/servers.css?v=20261101b">
+<link rel="stylesheet" href="<?php echo BASE_URL; ?>/assets/css/servers.css?v=20261101d">
 <main class="sv" id="svRoot" data-csrf="<?php echo htmlspecialchars($csrf, ENT_QUOTES, 'UTF-8'); ?>">
   <section class="sv-hero">
     <div class="sv-hero-copy">
@@ -110,7 +117,11 @@ include __DIR__ . '/../includes/header.php';
       <p>按国家和品类浏览雅云的全部服务器，实时价格与库存；开通后在同一页面开关机、重装、续费、看监控。</p>
       <div class="sv-stats" id="svStats"></div>
     </div>
+    <?php if ($canProvision && $configured): ?>
+    <aside class="sv-wallet" id="svWallet" aria-label="雅云账户余额"><div class="sv-wallet-k">雅云账户余额</div><div class="sv-wallet-v" id="svBalance">读取中…</div><div class="sv-wallet-sub" id="svBalanceNote">开通 / 续费从这里扣费</div><div class="sv-actions"><button type="button" class="sv-btn sm" id="svRecharge">充值</button><button type="button" class="sv-btn sm ghost" id="svBalanceRefresh" title="刷新余额"><i class="fas fa-sync-alt"></i></button></div></aside>
+    <?php else: ?>
     <div class="sv-globe" aria-hidden="true"><span></span><span></span><span></span><i class="fas fa-server"></i></div>
+    <?php endif; ?>
   </section>
   <?php if (!$configured): ?><div class="sv-notice warn">尚未配置雅云接口。请超级管理员到「接口设置」填写雅云站点地址、API 账号和密码，之后这里才能开通和管理服务器。</div><?php endif; ?>
   <nav class="sv-tabs" id="svTabs" role="tablist">
@@ -150,5 +161,5 @@ include __DIR__ . '/../includes/header.php';
   <dialog id="svBuy" class="sv-drawer wide"><div class="sv-drawer-head"><div><span class="sv-kicker">NEW SERVER</span><h2 id="svBuyTitle">开通服务器</h2></div><button type="button" class="sv-close" id="svBuyClose" aria-label="关闭">×</button></div><div class="sv-drawer-body" id="svBuyBody"></div></dialog>
 </main>
 <script id="svBoot" type="application/json"><?php echo json_encode($boot, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?></script>
-<script src="<?php echo BASE_URL; ?>/assets/js/servers.js?v=20261101b" defer></script>
+<script src="<?php echo BASE_URL; ?>/assets/js/servers.js?v=20261101d" defer></script>
 <?php include __DIR__ . '/../includes/footer.php'; ?>

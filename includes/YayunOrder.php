@@ -13,7 +13,7 @@ const YO_QUOTE_TTL = 600;
 function yo_cents($v) { return (int)round((float)$v * 100); }
 
 /** 解析商品配置：可选周期 + 每个配置项（下拉 / 数值范围 / 固定值）。 */
-function yo_options($pid, $call = 'ya_call')
+function yo_options($pid, $call = 'ya_call', $withCost = false)
 {
     $res = $call('cart/get_product_config', ['pid' => (int)$pid], 'GET', 30);
     if ((int)($res['status'] ?? 0) !== 200 || empty($res['data']['products']) || (int)$res['data']['products']['id'] !== (int)$pid) throw new RuntimeException('雅云没有返回这个商品的配置，可能已下架');
@@ -38,7 +38,17 @@ function yo_options($pid, $call = 'ya_call')
         } elseif (count($subs) === 1) $options[] = ['id' => (int)$o['id'], 'key' => $key, 'label' => $label, 'kind' => 'fixed_sub', 'sub' => $subs[0]['id'], 'text' => $subs[0]['label']];
         elseif ($subs) $options[] = ['id' => (int)$o['id'], 'key' => $key, 'label' => $label, 'kind' => 'select', 'subs' => $subs, 'default' => $subs[0]['id']];
     }
-    return ['pid' => (int)$pid, 'name' => (string)$p['name'], 'cycles' => $cycles, 'stock' => (int)($p['qty'] ?? 0), 'stock_control' => (int)($p['stock_control'] ?? 0), 'options' => $options];
+    $list = $cycles; $costOk = false;
+    if ($withCost && $cycles) {
+        // 成本价 = 账号折扣后的实际扣费价（cart/get_total 的 sale_total），按默认配置逐周期取；取不到的周期退回标价。
+        try {
+            $defaults = yo_build_config($options, []);
+            foreach ($cycles as $cycle => $listPrice) {
+                try { $cycles[$cycle] = yo_total($pid, $cycle, $defaults, $call)['cents'] / 100; $costOk = true; } catch (Throwable $e) { /* 保留标价 */ }
+            }
+        } catch (Throwable $e) { /* 保留标价 */ }
+    }
+    return ['pid' => (int)$pid, 'name' => (string)$p['name'], 'cycles' => $cycles, 'list_cycles' => $list, 'cost_ok' => $costOk, 'stock' => (int)($p['qty'] ?? 0), 'stock_control' => (int)($p['stock_control'] ?? 0), 'options' => $options];
 }
 /** 把用户选择变成 configoption（option id => sub id 或数量），只接受目录里存在的值。 */
 function yo_build_config(array $options, array $selection)
@@ -185,15 +195,15 @@ function yo_sync_prices($pdo, $seconds = 240, $now = null, $call = 'ya_call')
     foreach ($pids as $pid) {
         if (time() - $started >= $seconds) break;
         try {
-            $info = yo_options($pid, $call);
+            $info = yo_options($pid, $call, true);
             $cycles = $info['cycles'];
-            $save->execute([$pid, json_encode($cycles), $info['stock'], $info['stock_control'], $cycles ? min($cycles) : null, $now, '']);
+            $save->execute([$pid, json_encode(['cost' => $cycles, 'list' => $info['list_cycles']]), $info['stock'], $info['stock_control'], $cycles ? min($cycles) : null, $now, '']);
         } catch (Throwable $e) {
             $errors++;
             $save->execute([$pid, '{}', null, 0, null, $now, mb_substr($e->getMessage(), 0, 120)]);
         }
         $done++;
-        usleep(60000);
+        usleep(40000);
     }
     return ['synced' => $done, 'errors' => $errors, 'seconds' => time() - $started, 'total' => count($pids)];
 }

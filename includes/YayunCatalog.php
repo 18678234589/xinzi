@@ -95,7 +95,9 @@ function ya_price_map($pdo)
     $map = [];
     try {
         foreach ($pdo->query('SELECT pid,cycles_json,stock,stock_control,from_price,updated_at,error FROM yayun_prices')->fetchAll(PDO::FETCH_ASSOC) as $r) {
-            $map[(int)$r['pid']] = ['cycles' => json_decode($r['cycles_json'], true) ?: [], 'stock' => $r['stock'] === null ? null : (int)$r['stock'], 'stock_control' => (int)$r['stock_control'], 'from_price' => $r['from_price'] === null ? null : (float)$r['from_price'], 'updated_at' => (int)$r['updated_at'], 'error' => (string)$r['error']];
+            $raw = json_decode($r['cycles_json'], true) ?: [];
+            $cost = isset($raw['cost']) ? $raw['cost'] : $raw; $listP = isset($raw['list']) ? $raw['list'] : [];
+            $map[(int)$r['pid']] = ['cycles' => $cost, 'list' => $listP, 'stock' => $r['stock'] === null ? null : (int)$r['stock'], 'stock_control' => (int)$r['stock_control'], 'from_price' => $r['from_price'] === null ? null : (float)$r['from_price'], 'updated_at' => (int)$r['updated_at'], 'error' => (string)$r['error']];
         }
     } catch (PDOException $e) { if ($e->getCode() !== '42S02') throw $e; }
     return $map;

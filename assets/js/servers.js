@@ -39,7 +39,7 @@
   }
   function card(p) {
     var specs = p.s.filter(function (s) { return s[1]; }).slice(0, 6).map(function (s) { return '<span class="sv-spec">' + (s[0] ? '<b>' + esc(s[0]) + '</b>' : '') + esc(String(s[1]).replace(/\s*\n\s*/g, ' · ')) + '</span>'; }).join('');
-    var price = p.p !== null ? '<div class="sv-price">' + money(p.p) + '<small>/' + esc((p.pl || '').replace('付', '') || '月') + ' 起</small></div>' : '<div class="sv-price none">价格同步中</div>';
+    var price = p.p !== null ? '<div class="sv-price"><span class="sv-cost-tag">成本价</span>' + money(p.p) + '<small>/' + esc((p.pl || '').replace('付', '') || '月') + ' 起</small>' + (p.lp && Number(p.lp) > Number(p.p) + 0.005 ? '<s class="sv-list">' + money(p.lp) + '</s>' : '') + '</div>' : '<div class="sv-price none">价格同步中</div>';
     var out = !p.err && p.sc && p.st !== null && p.st <= 0;
     var btn = boot.canProvision ? '<button type="button" class="sv-btn sm" data-buy="' + p.id + '"' + (out || p.err ? ' disabled' : '') + '>开通</button>' : '<button type="button" class="sv-btn sm ghost" data-info="' + p.id + '">配置详情</button>';
     return '<article class="sv-card">' + stockBadge(p) + '<h4>' + esc(p.t) + '</h4><div class="sv-specs">' + specs + '</div><div class="sv-foot">' + price + btn + '</div></article>';
@@ -88,7 +88,7 @@
     var p = product(id); if (!p) return;
     var cycles = Object.keys(p.cy || {}).map(function (k) { return '<dt>' + esc(boot.cycles[k] || k) + '</dt><dd>' + money(p.cy[k]) + '</dd>'; }).join('');
     $('svBuyTitle').textContent = p.t;
-    $('svBuyBody').innerHTML = '<div class="sv-sec"><h3>配置</h3><div class="sv-specs">' + p.s.filter(function (s) { return s[1]; }).map(function (s) { return '<span class="sv-spec"><b>' + esc(s[0]) + '</b>' + esc(String(s[1]).replace(/\s*\n\s*/g, ' · ')) + '</span>'; }).join('') + '</div></div>' + (cycles ? '<div class="sv-sec"><h3>价格（雅云账号价）</h3><dl class="sv-kv">' + cycles + '</dl></div>' : '') + '<p class="sv-help">开通服务器会从雅云账号余额扣费，需要「可开通名单」里的同事操作。请把套餐名称发给他们：<b>' + esc(p.t) + '</b>（编号 ' + p.id + '）。</p>';
+    $('svBuyBody').innerHTML = '<div class="sv-sec"><h3>配置</h3><div class="sv-specs">' + p.s.filter(function (s) { return s[1]; }).map(function (s) { return '<span class="sv-spec"><b>' + esc(s[0]) + '</b>' + esc(String(s[1]).replace(/\s*\n\s*/g, ' · ')) + '</span>'; }).join('') + '</div></div>' + (cycles ? '<div class="sv-sec"><h3>成本价（雅云账号折扣后）</h3><dl class="sv-kv">' + cycles + '</dl></div>' : '') + '<p class="sv-help">开通服务器会从雅云账号余额扣费，需要「可开通名单」里的同事操作。请把套餐名称发给他们：<b>' + esc(p.t) + '</b>（编号 ' + p.id + '）。</p>';
     $('svBuy').showModal();
   }
 
@@ -108,7 +108,7 @@
     }).join('');
     var fixed = i.options.filter(function (o) { return o.kind === 'fixed' || o.kind === 'fixed_sub'; }).map(function (o) { return '<span class="sv-spec"><b>' + esc(o.label) + '</b>' + esc(o.kind === 'fixed' ? o.min + (o.unit || '') : o.text) + '</span>'; }).join('');
     $('svBuyBody').innerHTML = '<form class="sv-form" id="svBuyForm"><div class="sv-specs">' + fixed + '</div>' +
-      '<label>付款周期<select id="svCycle">' + cyc.map(function (c) { return '<option value="' + c + '">' + esc(boot.cycles[c] || c) + ' · ' + money(i.cycles[c]) + '</option>'; }).join('') + '</select></label>' + opts +
+      '<label>付款周期<select id="svCycle">' + cyc.map(function (c) { return '<option value="' + c + '">' + esc(boot.cycles[c] || c) + ' · 成本价 ' + money(i.cycles[c]) + (i.list_cycles && i.list_cycles[c] && Number(i.list_cycles[c]) > Number(i.cycles[c]) + 0.005 ? '（标价 ' + money(i.list_cycles[c]) + '）' : '') + '</option>'; }).join('') + '</select></label>' + opts +
       (i.stock_control ? '<p class="sv-help">当前库存：' + i.stock + '</p>' : '') + '<button type="submit" class="sv-btn" id="svQuoteBtn">查询报价（不扣费）</button><div id="svQuoteBox"></div></form>';
     $('svBuyForm').onsubmit = function (e) { e.preventDefault(); busy($('svQuoteBtn'), quote); };
     $('svBuyForm').onchange = function () { buy.quote = null; $('svQuoteBox').innerHTML = ''; };
@@ -228,6 +228,37 @@
     if (!$('svProvisioners')) return; var set = {}; boot.provisioners.forEach(function (id) { set[id] = 1; });
     $('svProvisioners').innerHTML = boot.employees.map(function (e) { return '<label><input type="checkbox" value="' + e.id + '"' + (set[e.id] ? ' checked' : '') + '><span>' + esc(e.name) + ' <small>' + esc(e.department || '') + '</small></span></label>'; }).join('');
     $('svSaveProvisioners').onclick = function () { busy(this, async function () { var ids = Array.prototype.map.call($('svProvisioners').querySelectorAll('input:checked'), function (i) { return i.value; }); var r = await api('provisioners_save', { employees: ids }); boot.provisioners = r.employees.map(Number); notice('可开通名单已保存（' + r.employees.length + ' 人）', false); }); };
+  }
+
+  /* ---------------- 余额 / 充值 ---------------- */
+  async function loadBalance() {
+    if (!$('svBalance')) return;
+    try {
+      var b = await api('balance'); boot.balance = b;
+      $('svBalance').innerHTML = '<small>¥</small>' + Number(b.balance).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      var low = Number(b.balance) < 200; $('svBalanceNote').textContent = low ? '余额偏低，开通 / 续费前请先充值' : '开通 / 续费从这里扣费'; $('svBalanceNote').classList.toggle('low', low);
+    } catch (e) { $('svBalance').textContent = '—'; $('svBalanceNote').textContent = e.message; }
+  }
+  if ($('svRecharge')) {
+    $('svBalanceRefresh').onclick = function () { busy(this, loadBalance); };
+    $('svRecharge').onclick = function () {
+      var gate = boot.balance && boot.balance.gateways[0] ? boot.balance.gateways[0].title : '支付宝';
+      $('svBuyTitle').textContent = '充值雅云账户';
+      $('svBuyBody').innerHTML = '<div class="sv-sec"><div class="sv-total">当前余额 <b>' + (boot.balance ? money(boot.balance.balance) : '—') + '</b></div></div><form class="sv-form" id="svRechargeForm"><div class="sv-amounts" id="svAmounts">' + [100, 500, 1000, 2000, 5000].map(function (n) { return '<button type="button" data-n="' + n + '">¥' + n + '</button>'; }).join('') + '</div><label>充值金额（元，1–50000）<input id="svRechargeAmount" inputmode="decimal" placeholder="例如 500" maxlength="9" autocomplete="off"></label><button class="sv-btn" type="submit">生成充值账单并去支付</button><p class="sv-help">点击后会在雅云生成一张充值账单，并在新标签页打开雅云的账单页，用' + esc(gate) + '完成付款；付款成功后余额自动到账（回到本页点余额旁的刷新按钮即可看到）。需要先在浏览器里登录雅云网站的账号。<b>在你付款之前不会扣任何钱</b>，没付款的账单可以忽略。</p><div id="svRechargeResult"></div></form>';
+      $('svAmounts').onclick = function (e) { var b = e.target.closest('[data-n]'); if (!b) return; $('svRechargeAmount').value = b.dataset.n; this.querySelectorAll('button').forEach(function (x) { x.classList.toggle('active', x === b); }); };
+      $('svRechargeForm').onsubmit = function (e) {
+        e.preventDefault(); var amount = $('svRechargeAmount').value.trim(), btn = this.querySelector('button[type=submit]');
+        var tab = window.open('', '_blank'); if (tab) tab.opener = null;
+        busy(btn, async function () {
+          try {
+            var r = await api('recharge', { amount: amount }); if (tab) tab.location.href = r.url;
+            $('svRechargeResult').innerHTML = '<div class="sv-notice">已生成充值账单 #' + r.invoice_id + '（¥' + esc(r.amount) + '，' + esc(r.gateway) + '）。' + (tab ? '已在新标签页打开账单页，' : '浏览器拦截了新标签页，') + '<a href="' + esc(r.url) + '" target="_blank" rel="noopener">点这里打开账单页</a> 完成支付。</div>';
+          } catch (err) { if (tab) tab.close(); throw err; }
+        });
+      };
+      $('svBuy').showModal();
+    };
+    loadBalance();
   }
 
   /* ---------------- 标签页 ---------------- */

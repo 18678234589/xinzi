@@ -13,6 +13,7 @@ require __DIR__ . '/../includes/YayunAccess.php';
 require __DIR__ . '/../includes/YayunCatalog.php';
 require __DIR__ . '/../includes/YayunHosts.php';
 require __DIR__ . '/../includes/YayunOrder.php';
+require __DIR__ . '/../includes/YayunWallet.php';
 
 // 目录：378 个商品都有国家和品类
 $products = ya_products();
@@ -129,4 +130,19 @@ yt(yrej(function () use ($hostApi) { yh_action(5, 'reinstall', ['os' => 9], $hos
 yt(yrej(function () use ($hostApi) { yh_action(5, 'reset_password', ['password' => 'short'], $hostApi); }), 'weak password refused');
 yt(yrej(function () use ($hostApi) { yh_action(5, 'rm -rf', [], $hostApi); }), 'unknown action refused');
 yt(in_array('reinstall', yh_manage_actions(), true) && !in_array('reboot', yh_manage_actions(), true), 'destructive actions are manager-only, reboot is not');
+// 成本价：按默认配置逐周期取 cart/get_total 的 sale_total；折扣后低于标价
+$discount = function ($path, array $data = [], $m = 'POST', $t = 30) use ($api) { if ($path === 'cart/get_total') return ['status' => 200, 'products' => ['sale_total' => (string)round(($data['billingcycle'] === 'annually' ? 1188 : 99) * 0.92, 2), 'setupfee_total' => '0.00', 'qty' => 3, 'stock_control' => 1]]; return $api($path, $data, $m, $t); };
+$cost = yo_options(1013, $discount, true);
+yt($cost['cycles'] === ['monthly' => 91.08, 'annually' => 1092.96] && $cost['list_cycles'] === ['monthly' => 99.0, 'annually' => 1188.0] && $cost['cost_ok'], 'cost price = discounted sale_total per cycle, list kept separately');
+$plain = yo_options(1013, $api, false); yt($plain['cycles'] === ['monthly' => 99.0, 'annually' => 1188.0] && !$plain['cost_ok'], 'without cost lookup the list price is returned');
+$pdo->exec('DELETE FROM yayun_prices'); $discountSync = $discount; yo_sync_prices($pdo, 5, $now, $discount); $cm = ya_price_map($pdo);
+yt(isset($cm[1013]) && (float)$cm[1013]['cycles']['monthly'] === 91.08 && (float)$cm[1013]['list']['monthly'] === 99.0, 'price cache stores cost and list');
+$pdo->prepare('REPLACE INTO yayun_prices (pid,cycles_json,stock,stock_control,from_price,updated_at,error) VALUES (?,?,?,?,?,?,?)')->execute([5, '{"monthly":50}', 1, 0, 50, 1, '']); yt((float)ya_price_map($pdo)[5]['cycles']['monthly'] === 50.0, 'old flat cache format still readable');
+// 余额与充值
+$walletCalls = [];
+$wallet = function ($path, array $data = [], $m = 'GET', $t = 30) use (&$walletCalls) { $walletCalls[] = [$path, $data]; if ($path === 'user_info') return ['status' => 200, 'user' => ['credit' => '3296.59', 'is_open_credit_limit' => 0], 'gateways' => [['id' => 27, 'name' => 'AliPay', 'title' => '官方支付', 'status' => 1], ['id' => 28, 'name' => 'Off', 'title' => '停用', 'status' => 0]]]; if ($path === 'recharge') return ['status' => 200, 'data' => ['invoice_id' => '900001']]; throw new RuntimeException('unexpected ' . $path); };
+$b = ya_balance($wallet); yt($b['balance'] === '3296.59' && count($b['gateways']) === 1 && $b['gateways'][0]['name'] === 'AliPay', 'balance and enabled gateways only');
+$r = ya_recharge('500', $wallet, 'https://y.example'); yt($r['invoice_id'] === 900001 && $r['url'] === 'https://y.example/viewbilling?id=900001' && $r['amount'] === '500.00', 'recharge returns the invoice page url');
+$last = end($walletCalls); yt($last[0] === 'recharge' && $last[1]['payment'] === 'AliPay' && $last[1]['amount'] === '500.00', 'recharge sends amount and gateway name');
+foreach (['0', '0.5', '50001', 'abc', '10.123', '-5'] as $bad) yt(yrej(function () use ($bad, $wallet) { ya_recharge($bad, $wallet, 'https://y.example'); }), 'bad recharge amount refused: ' . $bad);
 echo json_encode(['passed' => $c, 'failed' => 0, 'real_provider_calls' => 0]) . "\n";
