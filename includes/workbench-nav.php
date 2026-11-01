@@ -22,4 +22,7 @@ document.addEventListener('keydown',function(e){if(e.key==='Escape'&&p.classList
 <a class="btn btn-outline-primary btn-sm mr-2 d-inline-flex align-items-center text-nowrap" href="<?php echo BASE_URL; ?>/project/domains.php#register"><i class="fas fa-plus-circle mr-1" aria-hidden="true"></i>注册域名</a>
 <a class="btn btn-outline-primary btn-sm mr-2 d-inline-flex align-items-center text-nowrap" href="<?php echo BASE_URL; ?>/project/cdn.php"><i class="fas fa-cloud mr-1" aria-hidden="true"></i>CDN 管理</a>
 <?php endif; ?>
+<?php require_once __DIR__ . '/BizcnDomains.php'; require_once __DIR__ . '/YayunAccess.php'; if (ya_can_view(ps_actor())): ?>
+<a class="btn btn-outline-primary btn-sm mr-2 d-inline-flex align-items-center text-nowrap" href="<?php echo BASE_URL; ?>/project/servers.php"><i class="fas fa-server mr-1" aria-hidden="true"></i>服务器管理</a>
+<?php endif; ?>
 <?php endif; ?>
