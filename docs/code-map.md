@@ -556,16 +556,16 @@
 - `bd_rows` L80–84
 - `bd_record` L86–109
 
-## includes/BizcnDomains.php (70 行, 4.4 KB)
+## includes/BizcnDomains.php (58 行, 3.2 KB)
 
-- `bd_config` L11–18
-- `bd_can_access` L20–31
-- `bd_call` L33–38
-- `bd_transport` L41–51
-- `bd_list` L53–56
-- `bd_require_owned` L58–69
+- `bd_config` L12–19
+- `bd_can_access` L21–32
+- `bd_call` L34–39
+- `bd_list` L41–44
+- `bd_require_owned` L46–57
 - 加载：`require_once __DIR__ . '/ProjectVault.php';`
 - 加载：`require_once __DIR__ . '/BizcnDomainValues.php';`
+- 加载：`require_once __DIR__ . '/BizcnTransport.php';`
 - 加载：`require_once __DIR__ . '/BizcnDnsRecords.php';`
 - 加载：`require_once __DIR__ . '/BizcnDomainCatalog.php';`
 - 加载：`require_once __DIR__ . '/BizcnDomainAggregator.php';`
@@ -602,7 +602,7 @@
 
 - `bt_regions` L3–39
 
-## includes/BizcnRegistration.php (275 行, 24.8 KB)
+## includes/BizcnRegistration.php (281 行, 25.2 KB)
 
 - `br_template_pass` L6–14
 - `br_terms` L16–16
@@ -615,7 +615,7 @@
 - `br_owner_label` L85–88
 - `br_sync_templates_page` L89–96
 - `br_directory_template` L97–102
-- `br_dispatch` L103–274
+- `br_dispatch` L103–280
 - 加载：`require_once __DIR__.'/BizcnRegistrationStore.php';`
 - 加载：`require_once __DIR__.'/BizcnTemplateAi.php';`
 - 加载：`require_once __DIR__.'/BizcnOrderDomains.php';`
@@ -670,6 +670,16 @@
 - `bt_action_contact` L388–396
 - 加载：`require_once __DIR__ . '/BizcnRegions.php';`
 - 加载：`require_once __DIR__ . '/BizcnPostcodes.php';`
+
+## includes/BizcnTransport.php (73 行, 4.8 KB)
+
+- `bd_transport` L6–30
+- `bd_transport_raw` L31–42
+- `bd_params_domain` L44–51
+- `bd_domain_owner` L53–57
+- `bd_sub_accounts` L59–72
+- 加载：`require_once __DIR__ . '/BizcnDomainValues.php';`
+- 加载：`require_once __DIR__ . '/ProjectApiSettings.php';`
 
 ## includes/DnsProviders.php (371 行, 20.4 KB)
 
@@ -758,22 +768,23 @@
 - `pna_acknowledge` L23–35
 - 加载：`require_once __DIR__ . '/ProjectSettlement.php';`
 
-## includes/ProjectApiSettings.php (173 行, 10.1 KB)
+## includes/ProjectApiSettings.php (191 行, 11.8 KB)
 
-- `pas_providers` L10–22
-- `pas_store` L24–28
-- `pas_get` L31–37
-- `pas_is_set` L39–42
-- `pas_mask` L45–52
-- `pas_save` L55–70
-- `pas_http` L72–83
-- `pas_tencent_call` L86–104
-- `pas_qiniu_b64` L107–107
-- `pas_qiniu_call` L115–127
-- `pas_qiniu_qbox_call` L130–138
-- `pas_test` L141–172
+- `pas_providers` L10–24
+- `pas_store` L26–30
+- `pas_get` L33–39
+- `pas_is_set` L41–44
+- `pas_mask` L47–54
+- `pas_save` L57–72
+- `pas_http` L74–85
+- `pas_tencent_call` L88–106
+- `pas_qiniu_b64` L109–109
+- `pas_qiniu_call` L117–129
+- `pas_qiniu_qbox_call` L132–140
+- `pas_test` L143–190
 - 加载：`require_once __DIR__ . '/ProjectSystem.php';`
 - 加载：`require_once __DIR__ . '/ProjectVault.php';`
+- 加载：`require_once __DIR__ . '/BizcnDomains.php';`
 - 加载：`require_once __DIR__ . '/YayunApi.php';`
 
 ## includes/ProjectAutoReview.php (276 行, 21.3 KB)
@@ -2200,7 +2211,7 @@
 - `ya_save_provisioners` L30–44
 - `ya_provisioner_rows` L45–53
 
-## includes/YayunApi.php (60 行, 3.4 KB)
+## includes/YayunApi.php (60 行, 3.5 KB)
 
 - `ya_base` L9–14
 - `ya_jwt_file` L15–15
@@ -2209,7 +2220,7 @@
 - `ya_call` L51–59
 - 加载：`require_once __DIR__ . '/ProjectApiSettings.php';`
 
-## includes/YayunCatalog.php (136 行, 8.1 KB)
+## includes/YayunCatalog.php (138 行, 8.3 KB)
 
 - `ya_countries` L9–17
 - `ya_categories` L19–22
@@ -2220,9 +2231,9 @@
 - `ya_find_product` L72–76
 - `ya_cycle_labels` L80–83
 - `ya_cycles_from_pricing` L85–92
-- `ya_price_map` L93–102
-- `ya_catalog_view` L104–126
-- `ya_display_price` L128–135
+- `ya_price_map` L93–104
+- `ya_catalog_view` L106–128
+- `ya_display_price` L130–137
 - 加载：`require_once __DIR__ . '/YayunCatalogData.php';`
 
 ## includes/YayunCatalogData.php (12 行, 70.2 KB)
@@ -2244,23 +2255,29 @@
 - `yh_cancel` L126–134
 - 加载：`require_once __DIR__ . '/YayunApi.php';`
 
-## includes/YayunOrder.php (200 行, 15 KB)
+## includes/YayunOrder.php (210 行, 15.7 KB)
 
 - `yo_cents` L13–13
-- `yo_options` L16–42
-- `yo_build_config` L44–62
-- `yo_describe` L63–74
-- `yo_total` L75–82
-- `yo_quote` L83–99
-- `yo_set` L100–104
-- `yo_submit` L106–149
-- `yo_row` L150–155
-- `yo_password` L156–162
-- `yo_public` L163–167
-- `yo_history` L168–171
-- `yo_sync_prices` L175–199
+- `yo_options` L16–52
+- `yo_build_config` L54–72
+- `yo_describe` L73–84
+- `yo_total` L85–92
+- `yo_quote` L93–109
+- `yo_set` L110–114
+- `yo_submit` L116–159
+- `yo_row` L160–165
+- `yo_password` L166–172
+- `yo_public` L173–177
+- `yo_history` L178–181
+- `yo_sync_prices` L185–209
 - 加载：`require_once __DIR__ . '/YayunApi.php';`
 - 加载：`require_once __DIR__ . '/YayunCatalog.php';`
+
+## includes/YayunWallet.php (28 行, 2 KB)
+
+- `ya_balance` L6–13
+- `ya_recharge` L18–27
+- 加载：`require_once __DIR__ . '/YayunApi.php';`
 
 ## includes/announcement_popup.php (21 行, 2.1 KB)
 
@@ -2953,7 +2970,7 @@
 
 - 加载：`require_once __DIR__ . '/lib/cs_perf_reception.php';`
 
-## includes/settlement/actor_auth.php (164 行, 10.4 KB)
+## includes/settlement/actor_auth.php (164 行, 10.2 KB)
 
 - `ps_actor` L5–10
 - `ps_project_actor` L12–20
@@ -3058,9 +3075,11 @@
 - 加载：`require_once __DIR__ . '/ProjectSpotCheck.php';`
 - 加载：`require_once __DIR__ . '/ProjectUniqueCustomer.php';`
 
-## includes/workbench-nav.php (26 行, 3.6 KB)
+## includes/workbench-nav.php (29 行, 3.9 KB)
 
 - 加载：`require_once __DIR__ . '/BizcnDomains.php';`
+- 加载：`require_once __DIR__ . '/BizcnDomains.php';`
+- 加载：`require_once __DIR__ . '/YayunAccess.php';`
 
 ## index.php (151 行, 11.9 KB)
 
@@ -4324,13 +4343,14 @@
 - 加载：`include __DIR__ . '/../includes/review_policy_editor.php';`
 - 加载：`include __DIR__ . '/../includes/footer.php';`
 
-## project/servers.php (155 行, 12 KB)
+## project/servers.php (166 行, 13.2 KB)
 
 - 加载：`require_once __DIR__ . '/../includes/BizcnDomains.php';`
 - 加载：`require_once __DIR__ . '/../includes/YayunAccess.php';`
 - 加载：`require_once __DIR__ . '/../includes/YayunCatalog.php';`
 - 加载：`require_once __DIR__ . '/../includes/YayunHosts.php';`
 - 加载：`require_once __DIR__ . '/../includes/YayunOrder.php';`
+- 加载：`require_once __DIR__ . '/../includes/YayunWallet.php';`
 - 加载：`include __DIR__ . '/../includes/header.php';`
 - 加载：`include __DIR__ . '/../includes/footer.php';`
 
@@ -4743,6 +4763,15 @@
 - 加载：`require __DIR__.'/bizcn_registration.php';`
 - 加载：`require __DIR__.'/../includes/BizcnDomainValues.php';`
 - 加载：`require __DIR__.'/../includes/BizcnRegistration.php';`
+
+## tests/bizcn_sub_accounts.php (39 行, 4 KB)
+
+- `st` L3–3
+- `str_` L4–4
+- `pas_get` L7–7
+- `bd_call` L10–10
+- 加载：`require __DIR__ . '/../includes/BizcnDomainValues.php';`
+- 加载：`require __DIR__ . '/../includes/BizcnTransport.php';`
 
 ## tests/bizcn_template_ai.php (126 行, 12.2 KB)
 
@@ -5862,7 +5891,7 @@
 - 加载：`require_once .*;`
 - 加载：`require_once .*;`
 
-## tests/yayun_servers.php (133 行, 14.1 KB)
+## tests/yayun_servers.php (149 行, 16.9 KB)
 
 - `yt` L3–3
 - `yrej` L4–4
@@ -5876,6 +5905,7 @@
 - 加载：`require __DIR__ . '/../includes/YayunCatalog.php';`
 - 加载：`require __DIR__ . '/../includes/YayunHosts.php';`
 - 加载：`require __DIR__ . '/../includes/YayunOrder.php';`
+- 加载：`require __DIR__ . '/../includes/YayunWallet.php';`
 
 ## tools/audit_correct_website_business.php (63 行, 4.7 KB)
 

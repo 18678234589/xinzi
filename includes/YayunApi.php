@@ -25,9 +25,9 @@ function ya_login($force = false)
     if ($user === '' || $pass === '') throw new RuntimeException('请先在“接口设置”里保存雅云的 API 账号和密码');
     $res = ya_raw('POST', ya_base() . '/zjmf_api_login', ['username' => $user, 'password' => $pass], []);
     if ((int)($res['status'] ?? 0) !== 200 || empty($res['jwt'])) throw new RuntimeException('雅云登录失败：' . mb_substr((string)($res['msg'] ?? '账号或密码不正确'), 0, 100));
+    // 缓存只是省一次登录：写不进去（如文件属主不同）不影响本次请求。
     if (!is_dir(dirname($file))) @mkdir(dirname($file), 0700, true);
-    file_put_contents($file, json_encode(['jwt' => $res['jwt'], 'expires' => time() + 6000, 'base' => ya_base()]));
-    @chmod($file, 0600);
+    if (@file_put_contents($file, json_encode(['jwt' => $res['jwt'], 'expires' => time() + 6000, 'base' => ya_base()])) !== false) @chmod($file, 0666);
     return $res['jwt'];
 }
 /** 底层 HTTP；返回解码后的 JSON 数组。GET 参数走 query，其他方法走表单体。 */

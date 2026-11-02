@@ -17,7 +17,7 @@ function br_terms() { return [1,2,3,5,10]; }
 function br_tld_rules()
 {
     return [
-        'com' => ['first_year_cents' => 5800, 'renew_cents' => 8600],
+        'com' => ['first_year_cents' => 5800, 'renew_cents' => 8700],
         'cn'  => ['first_year_cents' => 3500, 'renew_cents' => 3700],
         'net' => ['first_year_cents' => 9300, 'renew_cents' => 9700],
     ];

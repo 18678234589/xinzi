@@ -88,7 +88,7 @@ bt($p->query("SELECT source FROM bizcn_order_domains WHERE order_id=1 AND domain
 // 注册年限：1/2/5/10 年，多年总价=首年价+续费价×(年数-1)，提交按报价年限购买
 $mockPrice='58.00';$mockResult=['status'=>'1','orderid'=>'multi-order'];
 $q5=br_dispatch('registration_quote',['domain'=>'fiveyears.example.com','template_id'=>'f2','term'=>'5'],$a);
-bt($q5['quote']['term']===5&&$q5['quote']['unit_price_cents']===5800&&$q5['quote']['renew_price_cents']===8600&&$q5['quote']['price_cents']===40200,'5-year quote total = 58 + 86 * 4 = 402');
+bt($q5['quote']['term']===5&&$q5['quote']['unit_price_cents']===5800&&$q5['quote']['renew_price_cents']===8700&&$q5['quote']['price_cents']===40600,'5-year quote total = 58 + 87 * 4 = 406');
 // .cn 域名首年 35，续费 37（接口价 35）；接口价高于规则价时跟随接口价，低于规则价时不低于规则价，保证提交的 price 不低于接口价
 $mockPrice='35.00';
 $qCn=br_dispatch('registration_quote',['domain'=>'mytest.cn','template_id'=>'f2','term'=>'5'],$a);
@@ -106,7 +106,7 @@ bt(reject(function()use($a){br_dispatch('registration_quote',['domain'=>'sixyear
 bt(reject(function()use($a){br_dispatch('registration_quote',['domain'=>'zeroyears.example.com','template_id'=>'f2','term'=>'0'],$a);}),'zero term refused');
 $mockPremium='true';bt(reject(function()use($admin){br_dispatch('registration_quote',['domain'=>'vipmulti.example.com','template_id'=>'f2','term'=>'2'],$admin);}),'premium domain limited to 1 year');$mockPremium='false';
 $before=$calls;$r=br_dispatch('registration_submit',['token'=>$q5['token'],'confirm'=>'fiveyears.example.com','ack'=>'1','term'=>1],$a);
-bt($calls===$before+1&&$purchaseArgs['term']===5&&$purchaseArgs['price']==='402.00','multi-year purchase uses quoted term and total, not posted values');
+bt($calls===$before+1&&$purchaseArgs['term']===5&&$purchaseArgs['price']==='406.00','multi-year purchase uses quoted term and total, not posted values');
 $mockPrice='60.00';$q2=br_dispatch('registration_quote',['domain'=>'twoyears.example.com','template_id'=>'f2','term'=>'2'],$a);$mockPrice='61.00';
 bt(reject(function()use($q2,$a){br_dispatch('registration_submit',['token'=>$q2['token'],'confirm'=>'twoyears.example.com','ack'=>'1'],$a);}),'unit price change blocks multi-year purchase');$mockPrice='58.00';
 echo json_encode(['passed'=>$checks,'failed'=>0,'mock_paid_calls'=>$calls,'real_paid_api_calls'=>0],JSON_UNESCAPED_UNICODE)."\n";

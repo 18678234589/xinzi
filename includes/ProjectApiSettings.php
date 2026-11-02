@@ -14,6 +14,8 @@ function pas_providers()
             'app_id' => ['AppId', false], 'secret_id' => ['SecretId', true], 'secret_key' => ['SecretKey', true], 'domain' => ['默认域名', false]]],
         'cloudflare' => ['title' => 'Cloudflare', 'desc' => 'DNS 记录管理与隧道；区域令牌需有“DNS 编辑”权限。', 'fields' => [
             'zone_id' => ['区域 Zone ID', false], 'zone' => ['区域域名', false], 'dns_token' => ['DNS API 令牌', true], 'tunnel_token' => ['隧道 API 令牌', true]]],
+        'bizcn_sub' => ['title' => '商务中国子账号', 'desc' => '目录里有些域名挂在商务中国子账号（如 jishu003）下，主账号接口只能读、不能改解析 / NS。在这里补充子账号的 API 账号和 API 密码（商务中国“用户管理中心”里单独设置的 API 密码）。格式：用户名:API密码，多个用英文分号隔开，如 jishu003:密码1;jishu004:密码2；密码里不要含冒号和分号。', 'fields' => [
+            'accounts' => ['子账号 API 凭据', true]]],
         'qiniu' => ['title' => '七牛云 CDN', 'desc' => '添加 CDN 域名、域名配置与批量复制（融合 CDN 接口，QBox 鉴权）。', 'fields' => [
             'access_key' => ['AccessKey', true], 'secret_key' => ['SecretKey', true]]],
         'yayun' => ['title' => '雅云（服务器采购与管理）', 'desc' => '上游云服务商（智简魔方财务 API）：查看各国家 / 品类服务器、开通服务器、管理已购 VPS。填写站点地址、API 账号与密码；开通时从该账号余额扣费。', 'fields' => [
@@ -159,6 +161,22 @@ function pas_test($provider)
             [$code, $j] = pas_qiniu_call('GET', '/domain?limit=10');
             if ($code === 200) return [true, '连接成功：七牛 CDN 鉴权通过，账号下 CDN 域名 ' . count($j['domains'] ?? []) . (!empty($j['marker']) ? '+' : '') . ' 个'];
             return [false, '七牛返回：' . ((is_array($j) ? ($j['error'] ?? $j['message'] ?? '') : '') ?: 'HTTP ' . $code)];
+        }
+        if ($provider === 'bizcn_sub') {
+            // 逐个子账号用它自己的凭据读一个它名下的域名，验证用户名 / API 密码是否正确。
+            require_once __DIR__ . '/BizcnDomains.php';
+            $subs = bd_sub_accounts();
+            if (!$subs) return [false, '还没有保存任何子账号凭据'];
+            $report = []; $allOk = true;
+            foreach ($subs as $user => $pw) {
+                $q = db()->prepare('SELECT domainname FROM bizcn_domain_catalog WHERE owner_username=? LIMIT 1');
+                $q->execute([$user]);
+                $domain = (string)$q->fetchColumn();
+                if ($domain === '') { $report[] = $user . '：目录里没有它名下的域名，无法验证'; continue; }
+                try { bd_transport_raw('infoDomainWhoisService', 'infoDomainWhois', ['infoDomainWhois' => ['domainname' => $domain, 'detailed' => 'false']], 18, ['username' => $user, 'password' => $pw]); $report[] = $user . '：可用'; }
+                catch (Throwable $e) { $allOk = false; $report[] = $user . '：' . mb_substr($e->getMessage(), 0, 60); }
+            }
+            return [$allOk, implode('；', $report)];
         }
         if ($provider === 'yayun') {
             require_once __DIR__ . '/YayunApi.php';
