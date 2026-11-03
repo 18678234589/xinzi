@@ -210,6 +210,9 @@ function ps_business_import_columns($business)
         'backend' => array_values(array_unique([$labels['backend'], '后端', '技术协作', '协作技术', '提交', '提交专员'])),
     ];
     if (ps_business_order_kinds($business)) $columns['order_kind'] = ['订单类型', '类型'];
+    // 新模板按业务命名的类型列（AI定制类型 / 网站模板类型）与旧的“订单类型”等价；旧模板继续用旧表头。
+    if ($business === 'AI网站定制') $columns['order_kind'][] = 'AI定制类型';
+    if ($business === '网站模板') $columns['order_kind'][] = '网站模板类型';
     // 小程序模板的列名直接写明可选值，避免“新订单”被理解成别的意思（新订单 = 小程序商城新注册搭建，其余是其他订单）
     if ($business === '小程序开发') $columns['order_kind'] = array_merge(['订单类型(下拉选择)', '订单类型(新订单/其他订单/定制/续费)'], $columns['order_kind']);
     // 代写 / 期刊 / 微信代写：成本 = 写手稿费或杂志社费用，随订单导入；“提成”列为 0 的代写行识别为合并单；期刊“模式”列识别代付版面费。
@@ -252,6 +255,7 @@ function ps_business_import_columns($business)
         $columns['detail:trademark_cost_note'] = ['费用说明'];
         $columns['detail:trademark_price_note'] = ['价格异常说明'];
         $columns['detail:service_type'] = ['申报方式', '网报类型', '网报方式', '网报加急', '业务类型', '类型（网报，加急）', '类型(网报,加急)', '类型'];
+        $columns['detail:trademark_type'] = ['商标类型']; // 新模板“商标类型”：业务简要说明，只作记录，不参与计价
         // 客服原表“设计”列：网报加急空一格时件数会落在这里，导入时由 ps_trademark_fix_row 归位
         $columns['trademark_extra'] = ['设计'];
     }

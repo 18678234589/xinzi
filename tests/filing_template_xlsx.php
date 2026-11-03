@@ -12,7 +12,8 @@ try {
     $shop = array_search('店铺', $rows[0], true);
     $no = array_search('订单编号', $rows[0], true);
     $check($rows[1][$shop] === '微信' && $rows[2][$shop] === '对公', '微信和对公示例可由实际上传解析器读取');
-    for ($i = 1; $i <= 3; $i++) $check(strpos($rows[$i][$no], '示例-') === 0, '示例行带自动跳过标记');
+    require_once __DIR__ . '/../includes/intake/parse_rows.php';
+    for ($i = 1; $i <= 3; $i++) $check(ps_import_row_is_example($rows[$i]), '示例行带自动跳过标记（任一单元格以“示例”开头）');
     $zip = new SimpleXLSXZipReader();
     $check($zip->open($path), 'xlsx ZIP 包可读取');
     $xml = $zip->getFromName('xl/worksheets/sheet1.xml');

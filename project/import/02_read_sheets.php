@@ -90,12 +90,24 @@
                         $virtualRef = $refIdx === false;
                         if ($virtualRef) { $refIdx = count($head); $head[] = '微信交易流水号'; }
                         // 编号类型下拉也可直接选店铺（美呀美旗舰店 / 清风易软件专营店）：按店铺订单号处理，并把店铺记进“店铺”列（没有该列就补一列）
-                        $shopIdx = array_search('店铺', $head, true);
+                        // 店铺列可能叫“店铺 / 店铺/渠道（商标模板）/ 店铺名称”；找不到才补一列，否则补出的空“店铺”列会盖掉真正的店铺列
+                        $shopIdx = false;
+                        foreach (['店铺', '店铺/渠道', '店铺名称'] as $shopHead) { $foundShop = array_search($shopHead, $head, true); if ($foundShop !== false) { $shopIdx = $foundShop; break; } }
                         if ($shopIdx === false) { $shopIdx = count($head); $head[] = '店铺'; }
-                        $raw = array_map(function ($r) use ($numKindIdx, $numIdx, $refIdx, $shopIdx) {
+                        $kindExists = db()->prepare('SELECT 1 FROM project_orders WHERE order_no=? LIMIT 1');
+                        $inferByShop = in_array($selectedBusiness, ['小程序开发', 'AI网站定制', '网站模板'], true); // 只有这三个业务原来就有“店铺写微信 / 对公 → 订单编号是流水号”的识别
+                        $raw = array_map(function ($r) use ($numKindIdx, $numIdx, $refIdx, $shopIdx, $kindExists, $inferByShop) {
                             if (!is_array($r)) return $r;
                             $r = array_pad(array_values($r), max($refIdx, $shopIdx) + 1, '');
                             $kind = trim((string)$r[$numKindIdx]); $code = trim((string)$r[$numIdx]);
+                            // 没选编号类型：与没有这一列的老模板一致，按店铺推断（店铺写微信 / 对公，订单编号粘的是流水号 / 对公编码）；库里已有同号订单时保持原样
+                            if ($inferByShop && $kind === '' && $code !== '' && !preg_match('/^(对公|公对公|公账|示例|样例)/u', $code)) {
+                                $shopCell = trim((string)$r[$shopIdx]);
+                                if ($shopCell !== '' && preg_match('/微信|对公|公账|扫码收款/u', $shopCell)) {
+                                    $kindExists->execute([$code]);
+                                    if (!$kindExists->fetchColumn()) $kind = preg_match('/对公|公账/u', $shopCell) ? '对公转账编号' : '微信交易流水号';
+                                }
+                            }
                             if ($kind !== '' && !preg_match('/微信|流水|对公|编号/u', $kind) && trim((string)$r[$shopIdx]) === '') $r[$shopIdx] = $kind;
                             if ($kind !== '' && $code !== '' && !preg_match('/^(对公|公对公|公账)/u', $code)) {
                                 if (preg_match('/对公/u', $kind)) { $r[$refIdx] = $code; $r[$numIdx] = '对公'; }

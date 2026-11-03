@@ -53,7 +53,7 @@ try {
     }
     $hh = ps_business_import_headers('网站模板');
     $check(array_search('售价', $hh) + 1 === array_search('孙曼要成本', $hh) && array_search('孙曼要成本', $hh) + 1 === array_search('成本', $hh), '网站模板：售价后面紧跟“孙曼要成本”“成本”两列');
-    $check(array_search('编号类型', $hh) === 1 && array_search('编号类型', $hh) < array_search('订单编号', $hh) && array_search('订单编号', $hh) < array_search('售价', $hh), '网站模板：“编号类型”下拉在订单编号左边');
+    $check(array_search('编号类型', $hh) !== false && array_search('编号类型', $hh) < array_search('订单编号', $hh) && array_search('订单编号', $hh) < array_search('售价', $hh), '网站模板：“编号类型”下拉在订单编号左边');
     $check(!array_intersect(['店铺', '订单类型', 'SSL证书使用', '业务'], $hh), '网站模板：新模板没有 店铺 / 订单类型 / SSL证书使用 / 业务 列');
     $check(!in_array('孙曼要成本', ps_business_import_headers('AI网站定制'), true) && substr(ps_business_import_headers('AI网站定制')[count(ps_business_import_headers('AI网站定制')) - 1], 0, 6) !== '', 'AI网站定制 不加成本两列');
     $check(strlen(pmt_xlsx('网站模板')) > 5000 && substr(pmt_xlsx('AI网站定制'), 0, 2) === 'PK', '两个业务的 xlsx 都能生成');
@@ -112,7 +112,7 @@ try {
     // 编号类型下拉 + 订单编号列粘贴编号：淘宝订单编号 / 微信交易流水号 / 对公转账编号
     $common = ['日期' => '2026.9.13', '店铺' => '美呀美', '售价' => '1250', $sk => '已完成', '客服' => '宋倩倩', '模板技术' => '张强', '程序名称' => 'jsp展示中级版', '年限' => '1年', '续费联系方式' => '13800138000'];
     $nk = (function () { foreach (pmt_columns('网站模板') as $col) if ($col[0] === '编号类型') return $col; return null; })();
-    $check($nk && $nk[2] === 'list' && $nk[3] === ['美呀美旗舰店', '清风易软件专营店', '微信交易流水号', '对公转账编号', '美丽街旗舰店', '美啊美设计旗舰店'], '编号类型下拉就是 6 项：4 家店铺 + 微信交易流水号 + 对公转账编号');
+    $check($nk && $nk[2] === 'list' && $nk[3] === ['淘宝订单编号', '拼多多订单编号', '美呀美旗舰店', '清风易软件专营店', '微信交易流水号', '对公转账编号', '美丽街旗舰店', '美啊美设计旗舰店'], '编号类型下拉 8 项：淘宝 / 拼多多订单编号 + 4 家店铺 + 微信交易流水号 + 对公转账编号');
     $tb = "33195$tag" . '00001'; $wxc = "4200002012$tag" . '8888'; $gs = "GS$tag" . '0001';
     [$pT, $iT] = $importAs($song, '网站模板', $csvOf('网站模板', [$common + ['付款昵称' => "t$tag", '网站域名' => "t$tag.com", '编号类型' => '淘宝订单编号', '订单编号' => $tb]]));
     $check($iT === 1 && (string)($pT[0]['order_no'] ?? '') === $tb, '选“淘宝订单编号”：粘贴的就是订单号');
@@ -323,6 +323,30 @@ $mC\""])]));
     $fileNew = $upload($song, '网站模板', $csvOf('网站模板', [$nw("33199$tag" . '00001', ['续费联系方式电话' => '13800138002', '网站域名' => "nx$tag.com"])]));
     $run($song, ['action' => 'repreview', 'business' => '网站模板', 'file_id' => $fileNew, 'all_sheets' => 1]);
     $check(mb_strpos(implode(' ', array_column($_SESSION['project_import_sheets'] ?? [], 'ai')), '旧版模板') === false, '新模板（电话 / 邮箱 / 微信三列）不再被当旧版提示');
+    // 类型列 / 编号类型下拉：AI网站定制 新增“AI定制类型”（等价于旧的“订单类型”），旧表头继续识别
+    $aiHead = ps_business_import_headers('AI网站定制');
+    $check(in_array('AI定制类型', $aiHead, true) && array_search('编号类型', $aiHead, true) === array_search('订单编号', $aiHead, true) - 1, 'AI定制模板：有“AI定制类型”，“编号类型”紧挨在订单编号左边');
+    $aiNo = (function () { foreach (pmt_columns('AI网站定制') as $col) if ($col[0] === '订单编号') return $col; return null; })();
+    $check($aiNo && mb_strpos($aiNo[5], '不要写说明文字') !== false, '订单编号列提示：只填编号本身，不写说明文字');
+    foreach (['AI网站定制', '网站模板', '小程序开发', '商标', '森动备案', '微信代写'] as $biz) {
+        $headers = pmt_headers($biz); $noIdx = array_search('订单编号', $headers, true);
+        foreach (pmt_example_rows($biz) as $ex) {
+            $line = array_map(function ($h) use ($ex) { return $ex[$h] ?? ''; }, $headers);
+            $check(ps_import_row_is_example($line), $biz . '：示例行上传时自动跳过');
+            $code = (string)($ex['订单编号'] ?? '');
+            $check($code === '' || preg_match('/^示例-[0-9A-Za-z\-\/ ]+$/u', $code), $biz . '：示例订单编号是编号格式，不是说明文字（' . $code . '）');
+        }
+    }
+    foreach (['淘宝订单编号', '微信交易流水号', '拼多多订单编号', '对公转账编号'] as $opt) $check(in_array($opt, (function () { foreach (pmt_columns('AI网站定制') as $col) if ($col[0] === '编号类型') return $col[3]; return []; })(), true), 'AI定制“编号类型”下拉含 ' . $opt);
+    $ai = $actorOf('张光萍');
+    $kindOf = function ($no) use ($pdo) { $q = $pdo->prepare('SELECT order_kind FROM project_orders WHERE order_no LIKE ? ORDER BY id DESC LIMIT 1'); $q->execute([$no . '%']); return (string)$q->fetchColumn(); };
+    $pddNo = "230915-5432$tag" . '9012345';
+    [$pN, $iN] = $importAs($ai, 'AI网站定制', $csvOf('AI网站定制', [$chBase + ['AI定制类型' => 'AI定制', '编号类型' => '拼多多订单编号', '店铺' => '拼多多', '付款昵称' => "pd$tag", '订单编号' => $pddNo, '网站域名' => "pd$tag.com"]]));
+    $check($iN === 1 && (string)($pN[0]['order_no'] ?? '') === $pddNo && $kindOf($pddNo) === 'AI定制', '新模板：选“拼多多订单编号”，订单号照常，“AI定制类型”=AI定制 写入订单类型');
+    // 旧表头“订单类型”仍然识别（老模板兼容）
+    $oldNo = "33196$tag" . '00009';
+    [$pO, $iO] = $importAs($ai, 'AI网站定制', str_replace('AI定制类型', '订单类型', $csvOf('AI网站定制', [$chBase + ['AI定制类型' => '华梦定制', '店铺' => '美呀美', '付款昵称' => "od$tag", '订单编号' => $oldNo, '网站域名' => "od$tag.com"]])));
+    $check($iO === 1 && $kindOf($oldNo) === '华梦定制', '旧表头“订单类型”仍识别为订单类型（老模板兼容）：' . $iO . ' kind=' . $kindOf($oldNo));
     echo "\n=== 网站类 xlsx 模板测试全部通过 ===\n";
 } catch (Throwable $e) {
     fwrite(STDERR, $e->getMessage() . "\n");
