@@ -8,7 +8,7 @@ include (dirname(__DIR__, 1)) . '/../includes/header.php';
 <div class="project-hero mb-3"><div><div class="project-eyebrow">项目合作结算中心 · <?php echo $departmentMode ? '网站售后部门订单' : '批量录入'; ?></div><h2><?php
     echo $departmentMode ? '上传网站售后部门订单' : '导入' . e($selectedBusiness ?: '项目') . '订单'; ?></h2><p><?php echo $departmentMode ? '按网站续费、网站修改或备案模板上传，表格中的参与人逐单匹配；未写姓名时可选择本批默认参与人。部门代录不要求上传人参与每一单，实收仍由财务确认。'
     : '先选业务模板，再拖入 Excel 逐行核对。已关联人员上传相同订单号时补充原单，不会重复建单；售价不直接作为实收。'; ?></p></div><div class="project-hero-actions"><a class="btn btn-light" href="<?php
-    echo BASE_URL; ?>/project/index.php?business=<?php echo rawurlencode($selectedBusiness ?: ''); ?>">返回订单录入</a></div></div>
+    echo BASE_URL; ?>/project/index.php?business=<?php echo rawurlencode($selectedBusiness ?: ''); ?>">返回订单录入</a><?php require_once __DIR__ . '/../../includes/ProjectRenewals.php'; if (pr_ready() && pr_scope($operator) !== 'none'): ?><a class="btn btn-success ml-2" href="<?php echo BASE_URL; ?>/project/renewals.php"><i class="fas fa-calendar-check mr-1"></i>续费工作台</a><?php endif; ?></div></div>
 <?php if ($error): ?><div class="alert alert-danger"><?php echo e($error); ?></div><?php endif; ?>
 <?php if ($importReport): ?><div class="alert alert-<?php echo ($importReport['pending'] || !empty($importReport['conflict'])) ? 'warning' : 'success'; ?>">本次已写入 / 补充 <?php echo (int)$importReport['written'
     ]; ?> 单，已在库 <?php echo (int)$importReport['existing']; ?> 单<?php echo ($importReport['pending'] || !empty($importReport['conflict'])) ? ($importReport['pending'] ? '；还有 ' . (int)$importReport['pending'] . ' 行待补全' : '') . (!empty($importReport['conflict']) ? '；另有 ' . (int)$importReport['conflict'] . ' 行与原单不一致，待财务核对（表格本身没有漏填，不必改表重传）' : '') . '，其他订单已成功保存'

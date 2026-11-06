@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . '/../includes/ProjectRenewalSms.php';
+require_once __DIR__ . '/../includes/ProjectRenewalDetail.php';
 $actor=ps_require_actor(); pr_require($actor); pr_seed(); $error='';
 $viewActor=$actor; $viewEmployee=0;
 if ($actor['role']==='finance' && !empty($_GET['employee_id'])) {
@@ -39,11 +40,12 @@ if ($search!=='') { $where.=' AND (o.order_no LIKE ? OR o.customer_name LIKE ? O
 $count=db()->prepare('SELECT COUNT(*) FROM project_renewal_items r JOIN project_orders o ON o.id=r.order_id WHERE '.$where); $count->execute($params); $total=(int)$count->fetchColumn();
 $page=max(1,min((int)($_GET['page']??1),max(1,(int)ceil($total/40)))); $offset=($page-1)*40;
 $q=db()->prepare("SELECT r.*,o.order_no,o.customer_name,o.project_type,(SELECT s.state FROM project_renewal_sms s WHERE s.item_id=r.id AND s.expires_on=r.expires_on ORDER BY s.id DESC LIMIT 1) sms_state FROM project_renewal_items r JOIN project_orders o ON o.id=r.order_id WHERE $where ORDER BY r.expires_on IS NULL,r.expires_on ASC,r.id LIMIT 40 OFFSET $offset"); $q->execute($params); $rows=$q->fetchAll();
+$details=prd_load(array_column($rows,'order_id')); $canOpenOrder=in_array(pr_scope($viewActor),['all','own'],true);
 $stats=pr_stats($viewActor); $config=pr_sms_config(); $scope=pr_scope($viewActor); $page_title='续费工作台';
 include __DIR__.'/../includes/header.php';
 function pr_url($filter,$search='',$page=1) { global $viewEmployee; return BASE_URL.'/project/renewals.php?'.http_build_query(['filter'=>$filter,'q'=>$search,'page'=>$page,'employee_id'=>$viewEmployee?:null]); }
 ?>
-<link rel="stylesheet" href="<?php echo BASE_URL; ?>/assets/css/renewals.css?v=20261002.2">
+<link rel="stylesheet" href="<?php echo BASE_URL; ?>/assets/css/renewals.css?v=20261106.1">
 <main class="pr-page">
  <section class="pr-hero"><div><span class="pr-eyebrow">CARE / 持续陪伴</span><h1>让每一次续费，都从容一点</h1><p>到期近的订单排在前面。提前把日期和联系方式补好，我们一起照顾好客户的下一年。</p><div class="pr-pills"><span>到期前 10 · 3 · 1 天</span><span>北京时间 · 白天提醒</span><span><?php echo $scope==='web'?'网站售后服务范围':($scope==='all'?'全业务续费统览':'我的关联订单'); ?></span></div></div><div class="pr-orbit" aria-hidden="true"><i class="fas fa-leaf"></i></div></section>
  <?php if ($error): ?><div class="alert alert-danger" role="alert"><?php echo e($error); ?></div><?php endif; ?>
@@ -82,10 +84,11 @@ function pr_url($filter,$search='',$page=1) { global $viewEmployee; return BASE_
  <nav class="pr-tabs" aria-label="续费列表筛选"><?php foreach(['all'=>'待续费 · 全部维护中','due'=>'30 天内到期','overdue'=>'已到期','incomplete'=>'待补资料','paused'=>'暂停 / 结束'] as $key=>$label): ?><a class="<?php echo $filter===$key?'active':''; ?>" href="<?php echo e(pr_url($key,$search)); ?>"><?php echo e($label); ?></a><?php endforeach; ?></nav>
  <div class="pr-table-wrap"><table class="pr-table"><thead><tr><th>订单 / 客户</th><th>资源</th><th>到期时间 ↑</th><th>客户联系 / 短信</th><th>操作</th></tr></thead><tbody>
  <?php foreach($rows as $row): $days=pr_days($row['expires_on'],$today); $estimated=$row['expiry_source']==='estimated'; $masked=pv_decrypt($row['phone_cipher']); $wx=pv_decrypt($row['wechat_cipher']??''); $masked=$masked?substr($masked,0,3).'****'.substr($masked,-4):($wx?'微信：'.$wx:'待补手机号或微信号'); ?>
- <tr><td><strong><?php echo e($row['order_no']); ?></strong><span><?php echo e($row['customer_name']?:'客户昵称待补'); ?></span><small><?php echo e($row['project_type']); ?></small></td><td><strong><?php echo e($row['resource_name']?:'资源名称待补'); ?></strong><small><?php echo e(pr_type_labels()[$row['resource_type']]??$row['resource_type']); ?></small></td>
+ <tr><td><a href="#pr-detail-<?php echo (int)$row['id']; ?>" class="pr-order-toggle" data-pr-detail="<?php echo (int)$row['id']; ?>" aria-expanded="false" title="点开查看域名、联系方式、谁接单谁做单"><strong><?php echo e($row['order_no']); ?></strong></a><span><?php echo e($row['customer_name']?:'客户昵称待补'); ?></span><small><?php echo e($row['project_type']); ?></small></td><td><strong><?php echo e($row['resource_name']?:'资源名称待补'); ?></strong><small><?php echo e(pr_type_labels()[$row['resource_type']]??$row['resource_type']); ?></small><?php $domLine=prd_domains_line($details[(int)$row['order_id']]??['domains'=>[]],$row['resource_name']); if ($domLine!==''): ?><small>域名：<?php echo e($domLine); ?></small><?php endif; ?></td>
  <td><a class="pr-date <?php echo $estimated?'pr-needs-date':''; ?>" href="<?php echo BASE_URL; ?>/project/renewals.php?edit=<?php echo (int)$row['id']; ?>#renewal-form"><strong><?php echo e($row['expires_on']?:'请补到期日期'); ?></strong><?php if ($estimated): ?><small>预计到期 · 请核实 / 补录</small><?php else: ?><small>已核实日期</small><?php endif; ?></a><span class="pr-badge <?php echo $days!==null && $days<=3?'pr-urgent':''; ?>"><?php echo $days===null?'日期待补':($days<0?'已到期 '.abs($days).' 天':($days===0?'今天到期':'还有 '.$days.' 天')); ?></span></td>
  <td><span><?php echo e($masked); ?></span><small><?php echo $row['sms_enabled']?'续费通知开启':'续费通知未开启'; ?></small><?php if ($row['sms_state']): ?><small><?php echo e(['sent'=>'服务商已受理','failed'=>'发送失败，请管理员核对','unknown'=>'发送结果待核对，不自动重发','cancelled'=>'旧提醒已停止','pending'=>'提醒已排队','sending'=>'发送处理中'][$row['sms_state']]??$row['sms_state']); ?></small><?php endif; ?></td>
  <td><a class="pr-button pr-secondary" href="<?php echo BASE_URL; ?>/project/renewals.php?edit=<?php echo (int)$row['id']; ?>#renewal-form">补录 / 续费</a></td></tr>
+ <tr class="pr-detail-row" id="pr-detail-<?php echo (int)$row['id']; ?>" hidden><td colspan="5"><?php echo prd_panel($details[(int)$row['order_id']],$row,$canOpenOrder); ?></td></tr>
  <?php endforeach; ?>
  <?php if (!$rows): ?><tr><td colspan="5" class="pr-empty"><i class="fas fa-seedling"></i><strong>这里暂时没有符合条件的资源</strong><p>可以切换“待补资料”，或从下面选择订单登记域名 / 小程序认证。</p></td></tr><?php endif; ?>
  </tbody></table></div>
@@ -93,5 +96,6 @@ function pr_url($filter,$search='',$page=1) { global $viewEmployee; return BASE_
  </section>
  <?php $find=trim((string)($_GET['find_order']??'')); $p=[]; $w=pr_order_where($viewActor,$p); if ($find!=='') { $w.=' AND (o.order_no LIKE ? OR o.customer_name LIKE ?)'; $p[]='%'.mb_substr($find,0,100).'%'; $p[]='%'.mb_substr($find,0,100).'%'; } $lookup=db()->prepare('SELECT o.id,o.order_no,o.customer_name,o.project_type FROM project_orders o WHERE '.$w.' ORDER BY o.order_date DESC,o.id DESC LIMIT 20'); $lookup->execute($p); ?>
  <details class="pr-panel pr-order-picker" <?php echo $find!==''?'open':''; ?>><summary>＋ 为已有订单登记续费资源</summary><p>一个订单可以登记多个域名 / 小程序认证；只展示你有续费服务权限的订单。</p><form method="get" class="pr-search"><input name="find_order" maxlength="100" placeholder="输入订单号或客户昵称" value="<?php echo e($find); ?>"><button class="pr-button">查找订单</button></form><div class="pr-order-results"><?php foreach($lookup->fetchAll() as $o): ?><a href="<?php echo BASE_URL; ?>/project/renewals.php?order_id=<?php echo (int)$o['id']; ?>#renewal-form"><strong><?php echo e($o['order_no']); ?></strong><span><?php echo e($o['customer_name'].' · '.$o['project_type']); ?></span><small>登记资源 →</small></a><?php endforeach; ?></div></details>
+<script>document.addEventListener('click',function(e){var a=e.target.closest('[data-pr-detail]');if(!a)return;e.preventDefault();var r=document.getElementById('pr-detail-'+a.getAttribute('data-pr-detail'));if(r){r.hidden=!r.hidden;a.setAttribute('aria-expanded',r.hidden?'false':'true');}});</script>
 </main>
 <?php include __DIR__.'/../includes/footer.php'; ?>
