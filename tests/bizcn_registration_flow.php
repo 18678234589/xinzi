@@ -109,4 +109,11 @@ $before=$calls;$r=br_dispatch('registration_submit',['token'=>$q5['token'],'conf
 bt($calls===$before+1&&$purchaseArgs['term']===5&&$purchaseArgs['price']==='406.00','multi-year purchase uses quoted term and total, not posted values');
 $mockPrice='60.00';$q2=br_dispatch('registration_quote',['domain'=>'twoyears.example.com','template_id'=>'f2','term'=>'2'],$a);$mockPrice='61.00';
 bt(reject(function()use($q2,$a){br_dispatch('registration_submit',['token'=>$q2['token'],'confirm'=>'twoyears.example.com','ack'=>'1'],$a);}),'unit price change blocks multi-year purchase');$mockPrice='58.00';
+// 商务中国 .com 注册优惠价 ¥53（全商中伙伴每天限量，用完恢复 ¥58）：报价跟随接口价，续费固定 ¥87
+$mockPrice='53.00';$q53=br_dispatch('registration_quote',['domain'=>'promo53.example.com','template_id'=>'f2','term'=>'1'],$a);
+bt($q53['quote']['price_cents']===5300&&$q53['quote']['renew_price_cents']===8700,'.com quote follows the provider promo price 53');
+$q53b=br_dispatch('registration_quote',['domain'=>'promo53b.example.com','template_id'=>'f2','term'=>'5'],$a);
+bt($q53b['quote']['price_cents']===40100,'5-year .com at promo = 53 + 87 * 4 = 401');
+$mockPrice='58.00';$q58=br_dispatch('registration_quote',['domain'=>'promo58.example.com','template_id'=>'f2','term'=>'1'],$a);
+bt($q58['quote']['price_cents']===5800,'when the promo quota is gone the provider price 58 is quoted, never below it');
 echo json_encode(['passed'=>$checks,'failed'=>0,'mock_paid_calls'=>$calls,'real_paid_api_calls'=>0],JSON_UNESCAPED_UNICODE)."\n";
