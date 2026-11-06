@@ -250,7 +250,7 @@ function pbf_missing_fields(array $o,array $items)
     foreach($items as $i)if(($i['status']!=='closed' && pr_has_contact($i)) || ($i['owner']??'ours')==='customer')$contact=true;
     if(!$contact)$need[]='手机号或微信号';
     $types=$o['project_type']==='小程序开发'?['server']:(($o['domain_mode']??'pending')==='none'?[]:['domain']);
-    foreach($items as $i)if($i['status']!=='closed' && ($i['owner']??'ours')!=='customer' && isset(pr_type_labels()[$i['resource_type']]))$types[]=$i['resource_type'];
+    foreach($items as $i)if($i['status']!=='closed' && ($i['owner']??'ours')!=='customer' && $i['resource_type']!=='ssl' && isset(pr_type_labels()[$i['resource_type']]))$types[]=$i['resource_type'];
     foreach(array_unique($types) as $type){
         $rs=array_values(array_filter($items,function($i)use($type){return $i['resource_type']===$type;}));
         if(!$rs){$need[]=pr_type_labels()[$type].'资料';continue;}
@@ -275,7 +275,7 @@ function pbf_missing_orders($actor,$month='',$keyword='',$orderId=0)
         NOT EXISTS (SELECT 1 FROM project_renewal_items r WHERE r.order_id=o.id AND (((r.phone_hash<>'' OR COALESCE(r.wechat_hash,'')<>'') AND r.status<>'closed') OR r.owner='customer'))
         OR (o.project_type='小程序开发' AND (NOT EXISTS (SELECT 1 FROM project_renewal_items r WHERE r.order_id=o.id AND r.resource_type='server') OR EXISTS (SELECT 1 FROM project_renewal_items r WHERE r.order_id=o.id AND r.resource_type='server' AND r.status<>'closed' AND (r.expires_on IS NULL OR r.expiry_source='estimated'))))
         OR (o.project_type<>'小程序开发' AND COALESCE(res.domain_mode,'pending')<>'none' AND (NOT EXISTS (SELECT 1 FROM project_renewal_items r WHERE r.order_id=o.id AND r.resource_type='domain') OR EXISTS (SELECT 1 FROM project_renewal_items r WHERE r.order_id=o.id AND r.resource_type='domain' AND r.status<>'closed' AND (r.resource_name='' OR r.expires_on IS NULL OR r.expiry_source='estimated'))))
-        OR EXISTS (SELECT 1 FROM project_renewal_items r WHERE r.order_id=o.id AND r.status<>'closed' AND r.owner<>'customer' AND (r.expires_on IS NULL OR r.expiry_source='estimated' OR (r.resource_type IN ('domain','miniapp_certification') AND r.resource_name='')))
+        OR EXISTS (SELECT 1 FROM project_renewal_items r WHERE r.order_id=o.id AND r.status<>'closed' AND r.owner<>'customer' AND r.resource_type<>'ssl' AND (r.expires_on IS NULL OR r.expiry_source='estimated' OR (r.resource_type IN ('domain','miniapp_certification') AND r.resource_name='')))
     )";
     $q=db()->prepare('SELECT o.id,o.order_no,o.customer_name,o.project_type,o.order_date,COALESCE(res.domain_mode,\'pending\') domain_mode FROM project_orders o LEFT JOIN project_order_resources res ON res.order_id=o.id WHERE '.$where.' ORDER BY o.order_date DESC,o.id DESC LIMIT 501');
     $q->execute($params);$rows=$q->fetchAll();$out=[];

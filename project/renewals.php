@@ -54,7 +54,7 @@ function pr_url($filter,$search='',$page=1) { global $viewEmployee; return BASE_
   <a href="<?php echo e(pr_url('overdue')); ?>"><small>已到期资源</small><strong><?php echo (int)$stats['overdue']; ?></strong><span>优先联系，避免服务中断</span></a>
   <a href="<?php echo e(pr_url('incomplete')); ?>"><small>待补资料 / 待核实资源</small><strong><?php echo (int)$stats['incomplete']; ?></strong><span>预计日期、资源名或联系方式待完善</span></a>
  </section>
- <div class="pr-notice"><i class="fas fa-info-circle"></i><span>实际填写／表格到期日优先；未填写时按下单日期 + 1 年标为“预计到期”。<strong><?php echo $config['enabled']?'阿里云自动短信已启用':'自动短信暂未启用'; ?></strong>；每条资源还需启用客户续费通知。<?php if (pr_is_super($actor)): ?> <a href="<?php echo BASE_URL; ?>/project/renewal_sms.php">配置阿里云短信 →</a><?php endif; ?></span></div>
+ <div class="pr-notice"><i class="fas fa-info-circle"></i><span>实际填写／表格到期日优先；未填写时按下单日期 + 1 年标为“预计到期”。<strong>SSL 证书</strong>每单已预留一条，到期日不预估，请技术在“待补资料”里补上（表格里的“SSL到期日期”列也会识别），补好后到期前同样出现在“30 天内到期”。<strong><?php echo $config['enabled']?'阿里云自动短信已启用':'自动短信暂未启用'; ?></strong>；每条资源还需启用客户续费通知。<?php if (pr_is_super($actor)): ?> <a href="<?php echo BASE_URL; ?>/project/renewal_sms.php">配置阿里云短信 →</a><?php endif; ?></span></div>
  <div class="pr-notice"><i class="fas fa-file-upload"></i><span>多单一起补：<a href="<?php echo BASE_URL; ?>/project/batch_fill.php">下载预填订单号的补全模板 / 上传补全</a>。已有内容不会被覆盖，不新增订单，也不改金额。</span></div>
 <?php if ($order) { require_once __DIR__.'/../includes/ProjectRenewalFill.php'; $quickRows=prf_missing($actor,1,120,'','',(int)$order['id']); if ($quickRows): echo prf_assets(); ?>
  <section class="rf-quick" data-rf-endpoint="<?php echo BASE_URL; ?>/project/renewal_fill.php" data-rf-csrf="<?php echo e(ps_csrf_token()); ?>"><h3>快速补录这张订单的资料</h3><?php echo prf_card($quickRows[0]); ?></section>
@@ -64,7 +64,7 @@ function pr_url($filter,$search='',$page=1) { global $viewEmployee; return BASE_
  <form method="post" class="pr-form">
   <input type="hidden" name="csrf" value="<?php echo e(ps_csrf_token()); ?>"><input type="hidden" name="id" value="<?php echo (int)$form['id']; ?>"><input type="hidden" name="order_id" value="<?php echo (int)$order['id']; ?>"><input type="hidden" name="revision" value="<?php echo (int)$form['revision']; ?>">
   <label>资源类型<select name="resource_type" required><?php foreach(pr_types_for($order['project_type']) as $key=>$label): ?><option value="<?php echo e($key); ?>" <?php echo $form['resource_type']===$key?'selected':''; ?>><?php echo e($label); ?></option><?php endforeach; ?></select></label>
-  <label>名称（域名 / 小程序名 / 服务器 / 备案号）<input name="resource_name" maxlength="180" placeholder="域名和微信认证需填写，如 example.com / XX 小程序；备案、服务器可留空" value="<?php echo e($form['resource_name']); ?>"></label>
+  <label>名称（域名 / 小程序名 / 服务器 / 备案号）<input name="resource_name" maxlength="180" placeholder="域名和微信认证需填写，如 example.com / XX 小程序；SSL 证书填对应域名；备案、服务器可留空" value="<?php echo e($form['resource_name']); ?>"></label>
   <label class="<?php echo ($form['expiry_source']??'estimated')==='estimated'?'pr-needs-date':''; ?>">到期日期<input name="expires_on" type="date" min="2000-01-01" max="2100-12-31" value="<?php echo e($form['expires_on']??''); ?>"><small>填写与预计不同的日期即作为实际日期；日期相同可勾选下方“已核实”。</small></label>
   <label>客户手机号（与微信号二选一）<input name="phone" type="tel" inputmode="tel" autocomplete="off" maxlength="20" placeholder="客户手机号，不是合作人员手机号" value="<?php echo e($phone); ?>"></label>
   <label>海外客户微信号（与手机号二选一）<input name="wechat" autocomplete="off" maxlength="60" placeholder="实际微信号，不是昵称" value="<?php echo e($wechat); ?>"><small>填一项即具备联系方式，也可两项都填；微信号仅人工联系，不发送短信。</small></label>

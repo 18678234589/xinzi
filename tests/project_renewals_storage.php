@@ -17,8 +17,9 @@ function check($name,$actual,$expected) { global $n; $n++; if ($actual!==$expect
 function reject($name,$fn) { global $n; $n++; try { $fn(); } catch (RuntimeException $e) { return; } throw new RuntimeException($name.' did not reject'); }
 $finance=['type'=>'admin','id'=>1,'role'=>'finance'];
 $pdo->exec("INSERT INTO project_orders (id,order_no,project_type,order_date) VALUES (910001,'__renewal_fixture_web','AI网站定制','2026-10-02'),(910002,'__renewal_fixture_mini','小程序开发','2026-10-02')");
-pr_seed(); check('two seed resources',(int)$pdo->query('SELECT COUNT(*) FROM project_renewal_items')->fetchColumn(),2);
-pr_seed(); check('seed dedupe',(int)$pdo->query('SELECT COUNT(*) FROM project_renewal_items')->fetchColumn(),2);
+pr_seed(); check('four seed resources (domain / mini cert + one ssl each)',(int)$pdo->query('SELECT COUNT(*) FROM project_renewal_items')->fetchColumn(),4);
+pr_seed(); check('seed dedupe',(int)$pdo->query('SELECT COUNT(*) FROM project_renewal_items')->fetchColumn(),4);
+check('ssl seeded without invented date',(int)$pdo->query("SELECT COUNT(*) FROM project_renewal_items WHERE resource_type='ssl' AND expires_on IS NULL AND expiry_source='estimated'")->fetchColumn(),2);
 $row=$pdo->query('SELECT * FROM project_renewal_items WHERE order_id=910001')->fetch();
 check('year default',$row['expires_on'],'2027-10-02');check('estimate marked',$row['expiry_source'],'estimated');
 $input=['id'=>$row['id'],'order_id'=>910001,'resource_type'=>'domain','resource_name'=>'example.com','expires_on'=>'2026-10-12','expiry_confirmed'=>1,'phone'=>'13800000000','sms_enabled'=>1,'status'=>'active','revision'=>$row['revision']];
@@ -28,6 +29,12 @@ reject('stale edit',function()use($input,$finance){pr_save($input,$finance);});
 reject('duplicate resource',function()use($input,$finance){$x=$input;$x['id']=0;pr_save($x,$finance);});
 pr_seed();check('verified expiry survives',pr_item($row['id'],$finance)['expires_on'],'2026-10-12');
 $pdo->exec("UPDATE project_orders SET order_date='2026-09-01' WHERE id=910002");pr_seed();check('estimates follow synced order date',$pdo->query('SELECT expires_on FROM project_renewal_items WHERE order_id=910002')->fetchColumn(),'2027-09-01');
+$sslId=(int)$pdo->query("SELECT id FROM project_renewal_items WHERE order_id=910001 AND resource_type='ssl'")->fetchColumn();
+$sslIn=['id'=>$sslId,'order_id'=>910001,'resource_type'=>'ssl','resource_name'=>'example.com','expires_on'=>'2027-03-05','phone'=>'','status'=>'active','revision'=>(int)$pdo->query("SELECT revision FROM project_renewal_items WHERE id=$sslId")->fetchColumn()];
+pr_save($sslIn,$finance);check('ssl date saved as confirmed',$pdo->query("SELECT CONCAT(expires_on,expiry_source) FROM project_renewal_items WHERE id=$sslId")->fetchColumn(),'2027-03-05confirmed');
+$sslIn['revision']++;$sslIn['expires_on']='';pr_save($sslIn,$finance);check('ssl cleared date stays empty, not guessed',$pdo->query("SELECT expires_on FROM project_renewal_items WHERE id=$sslId")->fetchColumn(),null);
+pr_seed();check('ssl not re-estimated by seed',$pdo->query("SELECT expires_on FROM project_renewal_items WHERE id=$sslId")->fetchColumn(),null);
+pr_import_apply(910001,['resources'=>['ssl'=>['expires_on'=>'2027-04-01']]],$finance);check('ssl import fills seeded row',$pdo->query("SELECT CONCAT(expires_on,expiry_source) FROM project_renewal_items WHERE id=$sslId")->fetchColumn(),'2027-04-01imported');
 pr_import_apply(910002,['phone'=>'13900000000','resources'=>['miniapp_certification'=>['resource_name'=>'示例小程序','expires_on'=>'2026-10-05']]],$finance);
 check('import actual date',$pdo->query('SELECT expiry_source FROM project_renewal_items WHERE order_id=910002')->fetchColumn(),'imported');
 pr_import_apply(910002,['resources'=>['miniapp_certification'=>['expires_on'=>'2026-11-05']]],$finance);

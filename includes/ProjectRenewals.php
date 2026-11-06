@@ -94,8 +94,10 @@ function pr_seed()
     db()->exec("INSERT IGNORE INTO project_renewal_items (order_id,resource_type,seed_key) SELECT o.id,'domain','domain' FROM project_orders o LEFT JOIN project_order_resources r ON r.order_id=o.id WHERE COALESCE(r.domain_mode,'pending')<>'none' AND o.project_type IN ('AI网站定制','网站模板','网站续费','网站修改')");
     db()->exec("INSERT IGNORE INTO project_renewal_items (order_id,resource_type,seed_key) SELECT DISTINCT o.id,'miniapp_certification','miniapp_certification' FROM project_orders o JOIN project_costs c ON c.order_id=o.id WHERE o.project_type='小程序开发' AND c.category='certification' AND c.review_status='approved' AND (c.item_name LIKE '%小程序%' OR c.item_name LIKE '%微信认证%')");
     db()->exec("INSERT IGNORE INTO project_renewal_items (order_id,resource_type,seed_key) SELECT o.id,'miniapp_certification','miniapp_certification' FROM project_orders o WHERE o.project_type='小程序开发'");
+    // SSL 证书：每个网站 / 小程序订单都留一条，名称先占位（技术登记时改成对应域名），到期日留空；不按下单日期猜，免得把老订单全标成“已到期”。
+    db()->exec("INSERT IGNORE INTO project_renewal_items (order_id,resource_type,resource_name,seed_key) SELECT o.id,'ssl','SSL证书','ssl' FROM project_orders o LEFT JOIN project_order_resources r ON r.order_id=o.id WHERE o.project_type='小程序开发' OR (o.project_type IN ('AI网站定制','网站模板','网站续费','网站修改') AND COALESCE(r.domain_mode,'pending')<>'none')");
     // Estimates follow a later corrected/synced order date; verified/imported dates never move.
-    db()->exec("UPDATE project_renewal_items r JOIN project_orders o ON o.id=r.order_id SET r.expires_on=DATE_ADD(o.order_date,INTERVAL 1 YEAR),r.revision=r.revision+1,r.updated_at=NOW() WHERE r.expiry_source='estimated' AND o.order_date BETWEEN '2000-01-01' AND '2099-12-31' AND NOT (r.expires_on <=> DATE_ADD(o.order_date,INTERVAL 1 YEAR))");
+    db()->exec("UPDATE project_renewal_items r JOIN project_orders o ON o.id=r.order_id SET r.expires_on=DATE_ADD(o.order_date,INTERVAL 1 YEAR),r.revision=r.revision+1,r.updated_at=NOW() WHERE r.expiry_source='estimated' AND r.resource_type<>'ssl' AND o.order_date BETWEEN '2000-01-01' AND '2099-12-31' AND NOT (r.expires_on <=> DATE_ADD(o.order_date,INTERVAL 1 YEAR))");
 }
 function pr_item($id, $actor)
 {
@@ -109,14 +111,14 @@ function pr_save($source, $actor)
     $id = (int)($source['id'] ?? 0); $orderId = (int)($source['order_id'] ?? 0);
     $order=pr_order($orderId, $actor);
     $type = (string)($source['resource_type'] ?? '');
-    if (!isset(pr_types_for($order['project_type'])[$type])) throw new RuntimeException('请选择该订单可登记的资源类型（微信认证 / 备案 / 域名 / 服务器）');
+    if (!isset(pr_types_for($order['project_type'])[$type])) throw new RuntimeException('请选择该订单可登记的资源类型（微信认证 / 备案 / 域名 / SSL证书 / 服务器）');
     $name = trim((string)($source['resource_name'] ?? ''));
     // 备案 / 服务器不一定有明确名称：留空时用类型名占位，避免只为填名字而不登记到期日
-    if ($name === '' && in_array($type, ['icp', 'server'], true)) $name = pr_type_labels()[$type];
+    if ($name === '' && in_array($type, ['icp', 'server', 'ssl'], true)) $name = pr_type_labels()[$type];
     if ($name === '' || mb_strlen($name) > 180) throw new RuntimeException('请填写域名或小程序名称（最多 180 字）');
     $expiry = pr_date($source['expires_on'] ?? '');
-    $expirySource=$expiry && (!empty($source['expiry_confirmed']) || $expiry!==pr_default_expiry($order['order_date'])) ? 'confirmed' : 'estimated';
-    if ($expirySource==='estimated') $expiry=pr_default_expiry($order['order_date']);
+    $expirySource=$expiry && (!empty($source['expiry_confirmed']) || $expiry!==pr_default_expiry($order['order_date']) || $type==='ssl') ? 'confirmed' : 'estimated';
+    if ($expirySource==='estimated') $expiry=$type==='ssl'?null:pr_default_expiry($order['order_date']);
     $phone = pr_phone($source['phone'] ?? '');
     // 兼容旧页面提交：没有微信字段时保留原值，不能默默清空。
     $beforeContact = $id ? pr_item($id, $actor) : [];
