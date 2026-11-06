@@ -27,6 +27,7 @@ function auth_remember_ensure()
             account_type ENUM('admin', 'employee') NOT NULL,
             account_id INT NOT NULL,
             auth_version INT NOT NULL DEFAULT 0,
+            pw_strong TINYINT(1) NOT NULL DEFAULT 0,
             expires_at DATETIME NOT NULL,
             created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
             KEY idx_token_expires (token_hash, expires_at),
@@ -90,7 +91,7 @@ function auth_is_default_password($type, $account, $plainPassword = null)
 /**
  * 创建 7 天免登录 Token 并下发 Cookie
  */
-function auth_remember_create($type, $accountId, $authVersion = 0)
+function auth_remember_create($type, $accountId, $authVersion = 0, $passwordStrong = false)
 {
     auth_remember_ensure();
     $rawToken = bin2hex(random_bytes(32));
@@ -101,8 +102,15 @@ function auth_remember_create($type, $accountId, $authVersion = 0)
         if (mt_rand(1, 20) === 1) {
             db()->exec("DELETE FROM auth_remember_tokens WHERE expires_at < NOW()");
         }
-        $stmt = db()->prepare("INSERT INTO auth_remember_tokens (token_hash, account_type, account_id, auth_version, expires_at) VALUES (?, ?, ?, ?, ?)");
-        $stmt->execute([$tokenHash, $type, (int)$accountId, (int)$authVersion, date('Y-m-d H:i:s', $expires)]);
+        // pw_strong：登录时输入的密码是否达标（长度 ≥10 且含大小写）。免登录恢复时拿不到明文密码，只能沿用这个结论；
+        // 否则“平台与服务器信息”这类要求强密码的页面，隔天自动登录后会误判为不达标。列还没迁移时退回旧写法。
+        try {
+            $stmt = db()->prepare("INSERT INTO auth_remember_tokens (token_hash, account_type, account_id, auth_version, expires_at, pw_strong) VALUES (?, ?, ?, ?, ?, ?)");
+            $stmt->execute([$tokenHash, $type, (int)$accountId, (int)$authVersion, date('Y-m-d H:i:s', $expires), $passwordStrong ? 1 : 0]);
+        } catch (PDOException $e) {
+            $stmt = db()->prepare("INSERT INTO auth_remember_tokens (token_hash, account_type, account_id, auth_version, expires_at) VALUES (?, ?, ?, ?, ?)");
+            $stmt->execute([$tokenHash, $type, (int)$accountId, (int)$authVersion, date('Y-m-d H:i:s', $expires)]);
+        }
     } catch (Throwable $e) {
         return false;
     }
@@ -216,7 +224,7 @@ function auth_remember_check()
             $_SESSION['admin_id'] = (int)$admin['id'];
             $_SESSION['admin_username'] = $admin['username'];
             $_SESSION['auth_version'] = (int)($admin['auth_version'] ?? 0);
-            $_SESSION['vault_pw_ok'] = false;
+            $_SESSION['vault_pw_ok'] = !empty($tokenRow['pw_strong']);
             unset($_SESSION['weak_password']);
             @session_regenerate_id(true);
         } elseif ($type === 'employee') {
@@ -232,7 +240,7 @@ function auth_remember_check()
             }
             $_SESSION['project_user_id'] = (int)$staff['id'];
             $_SESSION['auth_version'] = (int)($staff['auth_version'] ?? 0);
-            $_SESSION['vault_pw_ok'] = false;
+            $_SESSION['vault_pw_ok'] = !empty($tokenRow['pw_strong']);
             unset($_SESSION['weak_password']);
             @session_regenerate_id(true);
         } else {

@@ -63,7 +63,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 if ($isDefault) {
                     $_SESSION['remember_default_pw_notice'] = '使用默认密码不支持7天内免登录，修改密码后可支持7天内免登录。';
                 } else {
-                    auth_remember_create('admin', $admin['id'], (int)($admin['auth_version'] ?? 0));
+                    auth_remember_create('admin', $admin['id'], (int)($admin['auth_version'] ?? 0), auth_password_is_strong($password));
                 }
             } else {
                 auth_remember_clear();
@@ -94,7 +94,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         if ($isDefault) {
                             $_SESSION['remember_default_pw_notice'] = '使用默认密码不支持7天内免登录，修改密码后可支持7天内免登录。';
                         } else {
-                            auth_remember_create('employee', $staff['id'], (int)($staff['auth_version'] ?? 0));
+                            auth_remember_create('employee', $staff['id'], (int)($staff['auth_version'] ?? 0), auth_password_is_strong($password));
                         }
                     } else {
                         auth_remember_clear();
