@@ -10,7 +10,7 @@ function ps_business_catalog()
 {
     return [
         'AI网站定制' => ['departments' => ['定制前端','定制后端','网站定制','定制售后'], 'resources' => true, 'requires_technical' => true, 'service_fee_rate' => 0, 'order_kinds' => ['博山定制', 'AI定制', '华梦定制'], 'fields' => ['space_source' => '空间来源']],
-        '网站模板' => ['departments' => ['网站模板','模板技术','网站技术','网站资料员'], 'resources' => true, 'requires_technical' => true, 'program' => true, 'service_fee_rate' => 0.03, 'order_kinds' => ['新订单','续费','加购/纯利润'], 'fields' => ['website_url' => '网站地址', 'template_name' => '模板名称 / 版本', 'deployment_note' => '部署与交付说明', 'space_source' => '空间来源', 'renew_amount' => '续费金额', 'renew_email' => '续费联系方式邮箱']],
+        '网站模板' => ['departments' => ['网站模板','模板技术','网站技术','网站资料员'], 'resources' => true, 'requires_technical' => true, 'program' => true, 'service_fee_rate' => 0.03, 'order_kinds' => ['新订单','续费','加购/纯利润'], 'fields' => ['website_url' => '网站地址', 'template_name' => '模板名称 / 版本', 'ssl_expiry' => '付费SSL证书到期日期', 'deployment_note' => '部署与交付说明', 'space_source' => '空间来源', 'renew_amount' => '续费金额', 'renew_email' => '续费联系方式邮箱']],
         '环境配置' => ['departments' => ['环境配置','服务器配置'], 'resources' => false, 'requires_technical' => true, 'service_fee_rate' => 0.03, 'order_kinds' => [], 'import_cost' => true, 'cost_label' => '成本', 'fields' => ['service_item' => '服务内容', 'server_info' => '服务器 / 环境说明']],
         // 旧分类只用于展示历史订单；新订单按产品类型建单，客服作为参与人加入同一订单号。
         '网站客服' => ['departments' => ['网站客服'], 'resources' => false, 'fields' => ['website_url' => '网站地址', 'service_item' => '服务事项'], 'legacy' => true],
@@ -120,6 +120,8 @@ function ps_actor_businesses($actor)
         if ($products) { foreach ($products as $product) $allowed[] = $product; }
         elseif (isset($catalog[$name]) && empty($catalog[$name]['legacy'])) $allowed[] = $name;
     }
+    // 所有 AI网站定制（AI定制）的人员都可以做小程序定制：不必再单独开通“小程序开发”，订单类型选“定制”即可
+    if (in_array('AI网站定制', $allowed, true) && !in_array('小程序开发', $allowed, true) && isset($catalog['小程序开发'])) $allowed[] = '小程序开发';
     return array_values(array_unique($allowed));
 }
 
@@ -426,10 +428,11 @@ function ps_import_delivery_status($text, $business = '')
 {
     $text = trim((string)$text);
     if ($text === '') return 'unfinished';
-    if (ps_is_website_order($business) && (in_array($text, ['已发货', '发货'], true) || preg_match('/^(?:\d+\s*天)?(发货|已发货)\d*(?:\.\d+)?$/u', $text))) { // 含“3天发货”这类平台履约写法
+    if (ps_is_website_order($business) && (in_array($text, ['已发货', '发货'], true) || preg_match('/^(?:\d+\s*天)?(发货|已发货)\d*(?:\.\d+)?$/u', $text) || preg_match('/^(?:卖家)?已发货/u', $text))) { // 含“3天发货”这类平台履约写法
         return 'unfinished';
     }
     if (in_array($text, ['已完成','完成','已发货','已交','到账','已到账','交易成功','售后返','发货'], true)) return 'finished';
+    if (!ps_is_website_order($business) && preg_match('/^(?:卖家)?已发货/u', $text)) return 'finished';
     // 设计总表常见“到账5”“发货15”（状态后跟补差金额）
     if (preg_match('/^(到账|已到账|发货|已发货)\d+(?:\.\d+)?$/u', $text)) return 'finished';
     foreach (['未完成','未发货','暂不发货','进行中','欠尾款','未到账','交易关闭'] as $open) if (mb_strpos($text, $open) !== false) return 'unfinished';

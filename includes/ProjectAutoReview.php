@@ -85,7 +85,7 @@ function pa_context($orderId, $lock = false)
         if ($lock) { $q = $p->prepare("SELECT id FROM $table WHERE order_id=? FOR UPDATE"); $q->execute([$orderId]); $q->fetchAll(); }
     }
     $cash = ps_cash_movements($orderId); $costs = ps_costs($orderId); $people = ps_participants($orderId);
-    $payment = pa_payment_evidence(pa_sources($order, $source, $lock), trim((string)$order['shop']), date('Y-m-d H:i:s'));
+    $payment = pa_payment_evidence(pa_sources($order, $source, $lock), trim((string)$order['shop']), date('Y-m-d H:i:s'), ps_business_normalize($order['project_type'] ?? ''));
     $site = psp_order($orderId);
     if ($site && count(psp_members((int)$site['root_order_id'])) > 1) $payment['warnings']['site_allocation'] = '同一付款对应多个网站项目，须由财务逐单分摊并确认，不自动把整笔实付记到任一项目';
     foreach ($payment['references'] as $reference) {
@@ -192,8 +192,10 @@ function pa_check_order_once($orderId, $apply = false, $persist = false)
             $spot = !empty($result['spot_check']);
             if ($result['receipt_to_add_cents'] > 0) {
                 $byPayment = $ctx['payment']['paid_cents'] === $result['receipt_to_add_cents'] && $ctx['payment']['references'];
+                $isShippedPayment = $byPayment && !empty($ctx['payment']['references'][0]['status']) && preg_match('/已发货|等待买家确认|等待确认收货/u', $ctx['payment']['references'][0]['status']);
+                $receiptNote = $spot ? '免财务审核业务：' . ($byPayment ? '按店铺实付' : '按售价') . '登记收款，待财务抽查' : ($isShippedPayment ? '系统核对店铺发货实付字段确认收款' : '系统核对店铺实付字段确认收款（非售价推算）');
                 $p->prepare("INSERT INTO project_cash_movements (order_id,movement_type,amount,note,review_status,submitted_by_type,submitted_by_id,reviewed_at) VALUES (?,'receipt',?,?,'approved','system',0,NOW())")
-                    ->execute([$orderId, $result['receipt_to_add_cents'] / 100, $spot ? '免财务审核业务：' . ($byPayment ? '按店铺实付' : '按售价') . '登记收款，待财务抽查' : '系统核对店铺实付字段确认收款（非售价推算）']);
+                    ->execute([$orderId, $result['receipt_to_add_cents'] / 100, $receiptNote]);
                 $cashId = (int)$p->lastInsertId();
                 if ($byPayment) $p->prepare("INSERT INTO project_auto_cash_evidence (order_id,movement_type,cash_movement_id,source_order_id,source_key,amount,evidence_hash,created_at) VALUES (?,'receipt',?,?,?,?,?,NOW())")
                     ->execute([$orderId, $cashId, $ctx['payment']['references'][0]['source_order_id'], $ctx['payment']['references'][0]['source_key'], $result['receipt_to_add_cents'] / 100, hash('sha256', json_encode($ctx['payment']))]);

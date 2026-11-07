@@ -2,7 +2,7 @@
 require_once __DIR__ . '/ProjectMiniappDelivery.php';
 require_once __DIR__ . '/ProjectCommissionRoles.php';
 /** Deterministic review policy. No database, network, AI or clock side effects. */
-const PA_POLICY_VERSION = '2026-10-18.1';
+const PA_POLICY_VERSION = '2026-11-07.1';
 const PA_SPOT_CHECK_BUSINESSES = ['设计', 'AI网站定制', '网站模板']; // 不逐单财务审核、改为事后抽查的业务
 const PA_PER_ORDER_BUSINESSES = ['回购订单']; // 提成只有每单固定补助、订单不带售价和收款的业务：不要求收款记录，登记完成后直接结算
 
@@ -16,7 +16,7 @@ function pa_cents($value)
     return (int)round((float)$s * 100);
 }
 
-function pa_payment_evidence(array $sources, $shop, $asof = null)
+function pa_payment_evidence(array $sources, $shop, $asof = null, $business = '')
 {
     $shops = []; $paid = []; $refund = 0; $refs = []; $warnings = []; $referenceOrders = [];
     if (!function_exists('ps_shop_compatible')) require_once __DIR__ . '/ProjectOrderSource.php';
@@ -45,6 +45,8 @@ function pa_payment_evidence(array $sources, $shop, $asof = null)
         $fields = ['买家实际支付金额', '买家实付金额', '买家实付款', '实付金额', '实际付款金额', '实际支付金额', '支付金额'];
         // 收款流水账单（科恒扫码收款的“交易金额”、对公收款的“金额”）：仅 shop_statement 且交易成功才认，防普通店铺行误取
         if (($raw['__financial_source__'] ?? '') === 'shop_statement') array_push($fields, '金额', '交易金额');
+        // 收款渠道账单（支付宝 / 微信 / 对公）有的格式把金额列叫“订单金额”；普通店铺导出的“订单金额”是售价，不能当实付
+        if (($raw['__financial_source__'] ?? '') === 'shop_statement' && ps_shop_channel($sourceShop) !== '') $fields[] = '订单金额';
         foreach ($raw as $key => $value) {
             $key = preg_replace('/[\s（）()]/u', '', (string)$key);
             $key = preg_replace('/元$/u', '', $key);
@@ -53,7 +55,9 @@ function pa_payment_evidence(array $sources, $shop, $asof = null)
             $cents = pa_cents($value);
             if ($cents === null || $cents < 0) { $warnings['payment_invalid'] = '实付字段金额无效，需要核对原始流水'; continue; }
             $success = $isEtmll ? '/交易成功|TRADE_SUCCESS|TRADE_FINISHED/' : '/交易成功|支付成功|交易完成|收款成功|已入账|TRADE_SUCCESS|TRADE_FINISHED/';
-            if (!preg_match($success, $status) || preg_match('/未支付|未付款|支付失败|付款失败/', $status)) {
+            $isShipped = preg_match('/已发货|等待买家确认|等待确认收货/u', $status);
+            $isPaid = preg_match($success, $status) || ($business === '商标' && $isShipped);
+            if (!$isPaid || preg_match('/未支付|未付款|支付失败|付款失败/', $status)) {
                 $warnings['payment_status'] = '已找到实付金额，但支付成功状态尚未确认'; continue;
             }
             $paid[$cents] = $cents;
