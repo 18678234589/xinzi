@@ -93,7 +93,7 @@
                     $batchStmt = db()->prepare("INSERT INTO upload_batches (employee_id, headers) VALUES (?, ?)");
                     $batchStmt->execute([0, $batchHeaders]);
 
-                    $inserted = 0; $skipped = 0; $noDate = 0; $updated = 0; $dups = 0;
+                    $inserted = 0; $skipped = 0; $noDate = 0; $updated = 0; $dups = 0; $dupSame = 0; $dupOlder = []; $dupOlderN = 0;
                     require_once (dirname(__DIR__, 2)) . '/../includes/ShopOrderDate.php';
                     $monthFallback = 0; $fallbackSamples = []; $byMonth = []; $seenInFile = []; $conflicts = [];
                     // 预读：本店铺已有的同订单号流水（按店铺 + 订单号去重；一次查完，避免逐行查询拖慢上传）
@@ -234,7 +234,13 @@
                                     || (ps_shop_status_rank($orderStatus) === ps_shop_status_rank($eStatus) && ($tradeTimeStr === '' || $eTime === '' || $tradeTimeStr >= $eTime));
                                 $newDate = $dateFromRow ? $parsedDate : $e['order_date'];
                                 $changed = abs((float)$e['order_amount'] - $amount) > 0.004 || $eStatus !== $orderStatus || $e['order_date'] !== $newDate;
-                                if (!$newer || !$changed) { $dups++; continue; } // 更旧或没变化的重复行跳过，但不能拒绝 ETMLL 订单的新导出状态。
+                                if (!$newer || !$changed) {
+                                    // 更旧或没变化的重复行跳过，但不能拒绝 ETMLL 订单的新导出状态。分开计数：没变化的不用管；表格里的状态比库里更旧的要让上传人看到（保留了库里的状态）。
+                                    $dups++;
+                                    if (!$changed) $dupSame++;
+                                    else { $dupOlderN++; if (count($dupOlder) < 5) $dupOlder[] = $orderNo . '（库里“' . $eStatus . '”，表格“' . $orderStatus . '”）'; }
+                                    continue;
+                                }
                                 require_once (dirname(__DIR__, 2)) . '/../includes/ProjectShopState.php';
                                 $merged = ps_shop_statement_merge($e['raw'], $rawMap);
                                 if (!$isRefund) unset($merged['__is_refund__'], $merged['__derived_refund__']);
@@ -269,8 +275,7 @@
 
                     if ($error === '') {
                         $rq = ['shop_id' => $shop_id, 'upload_ok' => '1', 'msg' => urlencode("导入完成！为【{$shop['name']}】成功导入 {$inserted} 条" . ($skipped > 0 ?
-    "，{$skipped} 条标记为异常" : "") . ($updated > 0 ? "；{$updated} 条已有订单的状态 / 金额按最新数据更新" : "") . ($dups > 0 ? "；{$dups} 条是已有的重复订单（同店铺同订单号），已自动跳过"
-    : "") . ($noDate > 0 ? "；另有 {$noDate} 行没有可识别的日期，未导入（请在“归属月份”里选一个月份后重传，或补全日期列）" : "") . ($monthFallback > 0 ? "；注意：有 {$monthFallback} 行的时间认不出来（如 " . implode('、', $fallbackSamples) . "），已按你选的归属月份 {$upload_month} 入账，请核对" : "") . ($conflicts ? "；表格里有订单号重复且金额不同的行，只保留了先出现的一行，请核对：" . implode('、', $conflicts) : "") . ($byMonth ? "；本次新增按月份：" . implode('、', array_map(function ($mk, $mc) { return $mk . ' ' . $mc . ' 条'; }, array_keys($byMonth), $byMonth)) : ""))];
+    "，{$skipped} 条标记为异常" : "") . ($updated > 0 ? "；{$updated} 条已有订单的状态 / 金额按最新数据更新" : "") . ($dupSame > 0 ? "；{$dupSame} 条是已有订单，状态 / 金额 / 日期都和库里一致，已跳过" : "") . ($dupOlderN > 0 ? "；{$dupOlderN} 条表格里的状态或金额比库里已有的更旧，已保留库里的（如 " . implode('、', $dupOlder) . "），请核对是不是表格导出得太早" : "") . (($dups - $dupSame - $dupOlderN) > 0 ? "；另有 " . ($dups - $dupSame - $dupOlderN) . " 条是同表重复的订单号，已跳过" : "") . ($noDate > 0 ? "；另有 {$noDate} 行没有可识别的日期，未导入（请在“归属月份”里选一个月份后重传，或补全日期列）" : "") . ($monthFallback > 0 ? "；注意：有 {$monthFallback} 行的时间认不出来（如 " . implode('、', $fallbackSamples) . "），已按你选的归属月份 {$upload_month} 入账，请核对" : "") . ($conflicts ? "；表格里有订单号重复且金额不同的行，只保留了先出现的一行，请核对：" . implode('、', $conflicts) : "") . ($byMonth ? "；本次新增按月份：" . implode('、', array_map(function ($mk, $mc) { return $mk . ' ' . $mc . ' 条'; }, array_keys($byMonth), $byMonth)) : ""))];
                         header('Location: ' . BASE_URL . '/shops/upload.php?' . http_build_query($rq));
                         exit;
                     }

@@ -9,6 +9,8 @@ if (($argv[1] ?? '') === 'child') {
     $_POST = ['action' => 'upload', 'upload_month' => $argv[3], 'csv_data' => file_get_contents($argv[4])];
     require_once __DIR__ . '/../includes/auth.php';
     $_SESSION['admin_id'] = 1;
+    // 上传结果提示在跳转参数 $rq['msg'] 里（CLI 不发 HTTP 头）：退出时读出来写进文件，供测试检查
+    register_shutdown_function(function () use ($argv) { if (!empty($argv[5]) && isset($GLOBALS['rq']['msg'])) file_put_contents($argv[5], urldecode((string)$GLOBALS['rq']['msg'])); });
     ob_start(); include __DIR__ . '/../shops/upload.php'; ob_end_clean();
     exit;
 }
@@ -20,9 +22,10 @@ $pdo->prepare('INSERT INTO shops (name) VALUES (?)')->execute([$shopName]);
 $shopId = (int)$pdo->lastInsertId();
 $upload = function ($rows, $month) use ($shopId) {
     $f = tempnam(sys_get_temp_dir(), 'su'); file_put_contents($f, json_encode($rows, JSON_UNESCAPED_UNICODE));
-    exec(escapeshellarg(PHP_BINARY) . ' ' . escapeshellarg(__FILE__) . ' child ' . $shopId . ' ' . escapeshellarg($month) . ' ' . escapeshellarg($f) . ' 2>&1', $out);
-    @unlink($f);
-    return implode("\n", $out);
+    $msgFile = tempnam(sys_get_temp_dir(), 'sm');
+    exec(escapeshellarg(PHP_BINARY) . ' ' . escapeshellarg(__FILE__) . ' child ' . $shopId . ' ' . escapeshellarg($month) . ' ' . escapeshellarg($f) . ' ' . escapeshellarg($msgFile) . ' 2>&1', $out);
+    $msg = (string)@file_get_contents($msgFile); @unlink($f); @unlink($msgFile);
+    return implode("\n", $out) . $msg;
 };
 $get = function () use ($pdo, $shopName) { $q = $pdo->prepare('SELECT order_no,order_amount,order_date,raw_data FROM orders WHERE shop=? AND COALESCE(is_deleted,0)=0 ORDER BY order_no'); $q->execute([$shopName]); return $q->fetchAll(PDO::FETCH_UNIQUE | PDO::FETCH_ASSOC); };
 try {
@@ -57,6 +60,17 @@ try {
     $upload($dupRows, '2026-08');
     $r2 = $get();
     $check((float)$r2["龙{$tag}0820"]['order_amount'] === 500.0, '同表同订单号金额不同：保留先出现的 500，不被 700 覆盖');
+    // 重传的提示要分清：没变化的 vs 表格比库里更旧的（保留库里的），不能都说成“重复已跳过”
+    $stRows = [['时间', '金额', '付款账户名称', '订单编号', '订单状态', '客服'], ["2026-08-21 10:00", '800', '辛公司', "龙{$tag}0821", '卖家已发货，等待买家确认', '郭']];
+    $upload($stRows, '2026-08');
+    $same = $upload($stRows, '2026-08');
+    $check(mb_strpos($same, '都和库里一致') !== false && mb_strpos($same, '比库里已有的更旧') === false, '原样重传：提示“和库里一致”：' . mb_substr($same, 0, 160));
+    $doneRows = $stRows; $doneRows[1][4] = '交易成功';
+    $fwd = $upload($doneRows, '2026-08');
+    $st = function () use ($pdo, $shopName, $tag) { $q = $pdo->prepare('SELECT raw_data FROM orders WHERE shop=? AND order_no=?'); $q->execute([$shopName, "龙{$tag}0821"]); return json_decode((string)$q->fetchColumn(), true)['__order_status__'] ?? ''; };
+    $check($st() === '交易成功' && mb_strpos($fwd, '按最新数据更新') !== false, '表格状态更靠前（已发货→交易成功）：覆盖并提示更新：' . mb_substr($fwd, 0, 160));
+    $old = $upload($stRows, '2026-08');
+    $check($st() === '交易成功' && mb_strpos($old, '比库里已有的更旧') !== false && mb_strpos($old, '龙' . $tag . '0821') !== false, '表格状态比库里更旧：保留库里的“交易成功”，并在提示里列出订单号：' . mb_substr($old, 0, 200));
     echo "全部通过\n";
 } finally {
     $pdo->prepare('DELETE FROM orders WHERE shop=?')->execute([$shopName]);
