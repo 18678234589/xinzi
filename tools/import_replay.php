@@ -20,6 +20,7 @@ $files = array_values(array_filter($files, function ($f) use (&$seen) { $k = $f[
 function replay_file($file)
 {
     $pdo = db();
+    $aiOrig = (array)ps_setting_get('ai', []);
     $pdo->beginTransaction();
     try {
         ps_setting_set('ai', ['enabled' => false] + (array)ps_setting_get('ai', []), null);
@@ -47,7 +48,7 @@ function replay_file($file)
         return ['error' => get_class($e) . ': ' . $e->getMessage(), 'preview' => [], 'sheets' => [], 'business' => $file['business_name']];
     } finally {
         if ($pdo->inTransaction()) $pdo->rollBack();
-        ps_setting_get('ai', null, true);
+        ps_setting_get('ai', null, true); if ((array)ps_setting_get('ai', []) !== $aiOrig) ps_setting_set('ai', $aiOrig, null); /* 预览若遇到隐式提交，关闭 AI 的改动不能留在线上 */
     }
 }
 

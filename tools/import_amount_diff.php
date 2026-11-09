@@ -17,6 +17,7 @@ function ir_preview($fid, $f)
 {
     global $root;
     $pdo = db(); $rows = []; $error = '';
+    $aiOrig = (array)ps_setting_get('ai', []);
     $pdo->beginTransaction();
     try {
         ps_setting_set('ai', ['enabled' => false] + (array)ps_setting_get('ai', []), null);
@@ -29,7 +30,7 @@ function ir_preview($fid, $f)
         $error = ''; ob_start(); include $root . '/project/import.php'; ob_end_clean();
         $rows = $_SESSION['project_import_preview'] ?? [];
     } catch (Throwable $e) { $error = $e->getMessage(); }
-    finally { while (ob_get_level() > 0) ob_end_clean(); if ($pdo->inTransaction()) $pdo->rollBack(); ps_setting_get('ai', null, true); }
+    finally { while (ob_get_level() > 0) ob_end_clean(); if ($pdo->inTransaction()) $pdo->rollBack(); ps_setting_get('ai', null, true); if ((array)ps_setting_get('ai', []) !== $aiOrig) ps_setting_set('ai', $aiOrig, null); /* 预览若遇到隐式提交，关闭 AI 的改动不能留在线上 */ }
     return [$rows, $error];
 }
 $pdo = db();
