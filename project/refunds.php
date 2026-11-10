@@ -16,6 +16,16 @@ $owner = $actor['type'] . ':' . $actor['id'];
 $preview = ($_SESSION['ps_refund_owner'] ?? '') === $owner ? ($_SESSION['ps_refund_preview'] ?? []) : [];
 $fileId = ($_SESSION['ps_refund_owner'] ?? '') === $owner ? (int)($_SESSION['ps_refund_file'] ?? 0) : 0;
 $month = (string)($_POST['month'] ?? date('Y-m'));
+// “我的表格”里点“继续导入”：读取已保存的原件重新生成预览，不用重传（预览只存在登录会话里，换了页面 / 会话过期后需要这样恢复）
+if ($_SERVER['REQUEST_METHOD'] === 'GET' && (int)($_GET['resume_file'] ?? 0) > 0) {
+    try {
+        $resume = ps_import_file_get((int)$_GET['resume_file'], $actor);
+        if ($resume['business_name'] !== '项目退款与返现') throw new RuntimeException('这不是退款表格，请回到“我的表格”重新选择');
+        [$preview, $reports] = ps_refund_parse_file($resume, $actor);
+        $fileId = (int)$resume['id'];
+        $_SESSION['ps_refund_preview'] = $preview; $_SESSION['ps_refund_file'] = $fileId; $_SESSION['ps_refund_owner'] = $owner; $_SESSION['ps_refund_ai_touched'] = ps_ai_touched();
+    } catch (Throwable $e) { $error = $e->getMessage(); }
+}
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     ps_check_csrf();
     try {
@@ -81,16 +91,36 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $success = '已移入退款回收站，不再自动匹配或扣减。原始表格保留，财务可在回收站恢复。';
         } elseif ($action === 'match_refund') {
             $success = prm_resolve((int)($_POST['refund_id'] ?? 0), (string)($_POST['order_no'] ?? ''), (string)($_POST['mode'] ?? ''), (string)($_POST['note'] ?? ''), $actor);
+        } elseif ($action === 'rebuild_order') {
+            if (!$isFinance) throw new RuntimeException('仅财务可补建订单');
+            $rid = (int)($_POST['refund_id'] ?? 0);
+            $biz = (string)($_POST['business'] ?? '网站模板');
+            $empId = (int)($_POST['employee_id'] ?? 0);
+            $method = (string)($_POST['payment_method'] ?? '待核渠道');
+            $res = prm_rebuild_order($rid, $biz, $empId, $method, $actor);
+            $success = '已按店铺流水补建原订单 #' . $res['order_id'] . '（' . e($biz) . ' · ' . e($res['employee']) . '），退款已核准并在 ' . $res['month'] . ' 计入补扣 ¥' . number_format(abs($res['adjustment']), 2);
         } else throw new RuntimeException('操作无效');
     } catch (Throwable $e) { $error = $e->getMessage(); }
 }
 $page_title = '项目退款与返现';
-if ($isFinance) ps_refund_reconcile_pending($actor);
+if ($isFinance) { ps_refund_reconcile_pending($actor); require_once __DIR__ . '/../includes/ProjectRefundMatch.php'; prm_auto_archive_history(ps_refund_system_actor(), 300); prm_auto_close_small(ps_refund_system_actor(), 300); }
+// 列表分页（每页 100 笔）：以前只取最近 50 / 100 笔，一张表超过这个数，最早的几行就看不到了
+$rpPer = 100; $rpPage = max(1, (int)($_GET['rp'] ?? 1));
+if ($isFinance) {
+    $rpTotal = (int)db()->query("SELECT COUNT(*) FROM project_refund_import_rows r WHERE 1=1" . prt_active_sql('r.'))->fetchColumn();
+} else {
+    $cq = db()->prepare('SELECT COUNT(*) FROM project_refund_import_rows r WHERE r.submitted_by_type=? AND r.submitted_by_id=?' . prt_active_sql('r.')); $cq->execute([$actor['type'], $actor['id']]); $rpTotal = (int)$cq->fetchColumn();
+}
+$rpPages = max(1, (int)ceil($rpTotal / $rpPer)); $rpPage = min($rpPage, $rpPages); $rpOffset = ($rpPage - 1) * $rpPer;
 $q = $isFinance
-    ? db()->query("SELECT r.*,o.project_type FROM project_refund_import_rows r LEFT JOIN project_orders o ON o.id=r.order_id WHERE 1=1" . prt_active_sql('r.') . " ORDER BY (r.review_status='pending') DESC,r.id DESC LIMIT 100")
-    : db()->prepare('SELECT r.*,o.project_type FROM project_refund_import_rows r LEFT JOIN project_orders o ON o.id=r.order_id WHERE r.submitted_by_type=? AND r.submitted_by_id=?' . prt_active_sql('r.') . ' ORDER BY r.id DESC LIMIT 50');
+    ? db()->query("SELECT r.*,o.project_type FROM project_refund_import_rows r LEFT JOIN project_orders o ON o.id=r.order_id WHERE 1=1" . prt_active_sql('r.') . " ORDER BY (r.review_status='pending') DESC,r.id DESC LIMIT $rpPer OFFSET $rpOffset")
+    : db()->prepare('SELECT r.*,o.project_type FROM project_refund_import_rows r LEFT JOIN project_orders o ON o.id=r.order_id WHERE r.submitted_by_type=? AND r.submitted_by_id=?' . prt_active_sql('r.') . " ORDER BY r.id DESC LIMIT $rpPer OFFSET $rpOffset");
 if (!$isFinance) $q->execute([$actor['type'], $actor['id']]);
 $recent = $q->fetchAll();
+$allEmployees = $isFinance
+    ? db()->query("SELECT id, name, department FROM employees ORDER BY department, CONVERT(name USING gbk) ASC")->fetchAll(PDO::FETCH_ASSOC)
+    : [];
+$rpUrl = function ($p) { return BASE_URL . '/project/refunds.php?' . http_build_query(array_merge($_GET, ['rp' => $p])) . '#recentRefunds'; };
 include __DIR__ . '/../includes/header.php';
 ?>
 <div class="project-intake-page">
@@ -158,19 +188,91 @@ include __DIR__ . '/../includes/header.php';
 </tbody></table></div></div>
 <?php endif; $waiting = prm_waiting_upload(); if ($waiting): $waitN = 0; $waitAmt = 0; foreach ($waiting as $g) { $waitN += count($g['rows']); $waitAmt += $g['amount']; } ?>
 <div class="card project-form-card mb-3" id="waitingRefunds"><div class="card-body"><div class="project-section-title"><span class="project-step"><i class="fas fa-hourglass-half"></i></span><div><h5>还没录成项目订单的退款 <span class="badge badge-secondary"><?php echo $waitN; ?> 笔 · ¥<?php echo number_format($waitAmt, 2); ?></span></h5><p>分组名是这笔订单所在的<b>店铺</b>：店铺流水里已经有这些订单（财务已上传），只是还没有客服 / 技术把它们<b>录成项目订单</b>，所以暂时没有分成可以扣减。<strong>无需处理</strong>——对应业务上传项目订单后，系统会自动对上并扣减。其中标着“店铺流水里还没有这笔订单”的，是流水本身缺这笔：订单可能是更早月份下的单，请财务补传对应店铺、对应月份的流水。</p></div></div></div>
-<div class="px-3 pb-3"><?php foreach ($waiting as $shop => $g): ?><details class="mb-2"><summary><strong><?php echo e($shop); ?></strong> <span class="text-muted small">· <?php echo count($g['rows']); ?> 笔 · ¥<?php echo number_format($g['amount'], 2); ?></span></summary><div class="small text-muted pl-3 pt-1" style="line-height:1.8"><?php foreach ($g['rows'] as $w): ?><span class="d-inline-block mr-3"><?php echo e($w['order_no']); ?> <b>¥<?php echo e($w['amount']); ?></b> <?php echo e(substr($w['refund_date'], 5)); ?> <form method="post" class="d-inline" onsubmit="return confirm('确认这笔退款对应的订单客服没有报单（系统里没有该订单）？将记录并结案，不扣分成。')"><input type="hidden" name="csrf" value="<?php echo e(ps_csrf_token()); ?>"><input type="hidden" name="action" value="match_refund"><input type="hidden" name="refund_id" value="<?php echo (int)$w['id']; ?>"><input type="hidden" name="mode" value="unreported"><input type="hidden" name="order_no" value="<?php echo e($w['order_no']); ?>"><button class="btn btn-link btn-sm p-0 align-baseline" type="submit">标记未报单</button></form></span><?php endforeach; ?></div></details><?php endforeach; ?></div></div>
+<div class="px-3 pb-3"><?php foreach ($waiting as $shop => $g): ?><details class="mb-2"><summary><strong><?php echo e($shop); ?></strong> <span class="text-muted small">· <?php echo count($g['rows']); ?> 笔 · ¥<?php echo number_format($g['amount'], 2); ?></span></summary><div class="small text-muted pl-3 pt-1" style="line-height:1.8"><?php foreach ($g['rows'] as $w): ?><span class="d-inline-block mr-3"><?php echo e($w['order_no']); ?> <b>¥<?php echo e($w['amount']); ?></b> <?php echo e(substr($w['refund_date'], 5)); ?> <form method="post" class="d-inline" onsubmit="return confirm('确认这笔退款对应的订单客服没有报单（系统里没有该订单）？将记录并结案，不扣分成。')"><input type="hidden" name="csrf" value="<?php echo e(ps_csrf_token()); ?>"><input type="hidden" name="action" value="match_refund"><input type="hidden" name="refund_id" value="<?php echo (int)$w['id']; ?>"><input type="hidden" name="mode" value="unreported"><input type="hidden" name="order_no" value="<?php echo e($w['order_no']); ?>"><button class="btn btn-link btn-sm p-0 align-baseline" type="submit">标记未报单</button></form> <a class="btn btn-link btn-sm p-0 align-baseline ml-1" href="#refundRow<?php echo (int)$w['id']; ?>">处理/补建</a></span><?php endforeach; ?></div></details><?php endforeach; ?></div></div>
 <?php endif; endif; ?>
-<div class="card project-form-card mb-3"><div class="card-body"><div class="project-section-title"><span class="project-step">04</span><div><h5><?php echo $isFinance ? '待审与最近退款' : '我的退款提交记录'; ?></h5><p><?php echo $isFinance ? '核实原订单、原支付流水、退款渠道和可退余额后再通过；通过后原订单客服和技术按业务算法同步调整分成。' : '这里可以查看财务处理状态；待审不会改变项目报酬。'; ?></p></div></div></div>
+<div class="card project-form-card mb-3" id="recentRefunds"><div class="card-body"><div class="project-section-title"><span class="project-step">04</span><div><h5><?php echo $isFinance ? '待审与最近退款' : '我的退款提交记录'; ?></h5><p><?php echo $isFinance ? '核实原订单、原支付流水、退款渠道和可退余额后再通过；通过后原订单客服和技术按业务算法同步调整分成。' : '这里可以查看财务处理状态；待审不会改变项目报酬。'; ?></p></div></div></div>
 <div class="table-responsive"><table class="table project-preview-table mb-0"><thead><tr><th>原订单 / 业务</th><th>退款日期 / 金额</th><th>渠道与交易流水</th><th>状态 / 来源</th><?php if ($isFinance): ?><th>财务核对</th><?php endif; ?></tr></thead><tbody>
-<?php foreach ($recent as $r): ?><tr><td><?php if ($isFinance && (int)$r['order_id'] > 0): ?><a href="<?php echo BASE_URL; ?>/project/order.php?id=<?php echo (int)$r['order_id']; ?>"><?php echo e($r['order_no']); ?></a><?php else: ?><?php echo e($r['order_no'] ?: '待匹配'); ?><?php endif; ?><br><small><?php echo e($r['project_type'] ?: '待匹配业务'); ?></small></td><td><?php echo e($r['refund_date']); ?><br><strong>¥<?php echo e($r['amount']); ?></strong></td><td><?php echo e($r['payment_method']); ?> · <?php echo e($r['payment_reference'] ?: '无退款流水号'); ?><br><small>原支付流水：<?php echo e($r['source_payment_reference'] ?: '—'); ?></small><br><small><?php echo e($r['reason']); ?></small></td><td><span class="badge badge-<?php echo $r['review_status'] === 'approved' ? 'success' : ($r['review_status'] === 'rejected' ? 'danger' : 'warning'); ?>"><?php echo e(['approved' => '已审核', 'rejected' => '未通过', 'pending' => '待财务审核'][$r['review_status']] ?? $r['review_status']); ?></span><br><small><?php echo e($r['source_sheet'] ? $r['source_sheet'] . ' 第' . $r['source_row'] . '行' : '手动录入'); ?></small></td>
+<?php foreach ($recent as $r): ?><tr id="refundRow<?php echo (int)$r['id']; ?>"><td><?php if ($isFinance && (int)$r['order_id'] > 0): ?><a href="<?php echo BASE_URL; ?>/project/order.php?id=<?php echo (int)$r['order_id']; ?>"><?php echo e($r['order_no']); ?></a><?php else: ?><?php echo e($r['order_no'] ?: '待匹配'); ?><?php endif; ?><br><small><?php echo e($r['project_type'] ?: '待匹配业务'); ?></small></td><td><?php echo e($r['refund_date']); ?><br><strong>¥<?php echo e($r['amount']); ?></strong></td><td><?php echo e($r['payment_method']); ?> · <?php echo e($r['payment_reference'] ?: '无退款流水号'); ?><br><small>原支付流水：<?php echo e($r['source_payment_reference'] ?: '—'); ?></small><br><small><?php echo e($r['reason']); ?></small></td><td><span class="badge badge-<?php echo $r['review_status'] === 'approved' ? 'success' : ($r['review_status'] === 'rejected' ? 'danger' : 'warning'); ?>"><?php echo e(['approved' => '已审核', 'rejected' => '未通过', 'pending' => '待财务审核'][$r['review_status']] ?? $r['review_status']); ?></span><br><small><?php echo e($r['source_sheet'] ? $r['source_sheet'] . ' 第' . $r['source_row'] . '行' : '手动录入'); ?></small></td>
 <?php if ($isFinance): ?><td><?php if ($r['review_status'] === 'pending'): ?><form method="post" class="d-flex flex-wrap align-items-center" style="gap:6px" onsubmit="return confirm('核实渠道、流水号、原订单和可退余额后通过？这会冲减原订单实收并重算项目分成。')"><input type="hidden" name="csrf" value="<?php echo e(ps_csrf_token()); ?>"><input type="hidden" name="action" value="review"><input type="hidden" name="refund_id" value="<?php echo (int)$r['id']; ?>">
 <input class="form-control form-control-sm" style="width:160px" name="order_no" value="<?php echo e($r['order_no']); ?>" placeholder="原订单号" aria-label="核对或修正原订单号">
 <input class="form-control form-control-sm" style="width:170px" name="source_reference" value="<?php echo e($r['source_payment_reference']); ?>" placeholder="或原支付流水" aria-label="原支付流水号">
 <select class="form-control form-control-sm" style="width:115px" name="method" aria-label="退款渠道"><?php foreach (['待核渠道','店铺','支付宝','微信','银行卡'] as $methodOption): ?><option value="<?php echo e($methodOption); ?>" <?php echo $r['payment_method'] === $methodOption ? 'selected' : ''; ?>><?php echo e($methodOption); ?></option><?php endforeach; ?></select>
 <input class="form-control form-control-sm" style="width:155px" name="reference" value="<?php echo e($r['payment_reference']); ?>" placeholder="退款流水号" aria-label="退款流水号">
-<input type="month" class="form-control form-control-sm" style="width:145px" name="month" value="<?php echo e($month); ?>" required><button class="btn btn-sm btn-success" name="decision" value="approved">核实并通过</button><button class="btn btn-sm btn-outline-danger" name="decision" value="rejected">驳回</button></form><?php else: ?>—<?php endif; ?>
+<input type="month" class="form-control form-control-sm" style="width:145px" name="month" value="<?php echo e($month); ?>" required><button class="btn btn-sm btn-success" name="decision" value="approved">核实并通过</button><button class="btn btn-sm btn-outline-danger" name="decision" value="rejected">驳回</button></form>
+<?php
+$rebuildFlow = empty($r['order_id']) && prm_looks_like_order_no($r['order_no']) ? prm_flow_entry($r['order_no']) : null;
+if ($rebuildFlow && (float)($rebuildFlow['price'] ?? 0) > 0):
+    [$suggestedCsId, $suggestedCsName] = prm_source_cs($r);
+?>
+<div class="mt-2 pt-2 border-top">
+    <div class="small text-muted mb-1">
+        <i class="fas fa-store text-info mr-1"></i>店铺流水：<strong><?php echo e($rebuildFlow['shop']); ?></strong> · ¥<?php echo number_format($rebuildFlow['price'], 2); ?> · <?php echo e($rebuildFlow['date']); ?>
+        <?php if ($suggestedCsName): ?><span class="badge badge-info ml-1">原表客服：<?php echo e($suggestedCsName); ?></span><?php endif; ?>
+    </div>
+    <button type="button" class="btn btn-sm btn-outline-primary" data-toggle="collapse" data-target="#rebuildForm<?php echo (int)$r['id']; ?>">
+        <i class="fas fa-tools mr-1"></i>补建原订单并扣减
+    </button>
+    <div class="collapse mt-2" id="rebuildForm<?php echo (int)$r['id']; ?>">
+        <form method="post" class="card card-body p-2 bg-light border" onsubmit="return confirm('确认按店铺流水补建原订单并扣减分成？\n订单金额：¥<?php echo number_format($rebuildFlow['price'], 2); ?>\n退款金额：¥<?php echo number_format($r['amount'], 2); ?>\n补建的订单将直接锁定，仅在退款当月（<?php echo substr($r['refund_date'], 0, 7); ?>）计入客服提成补扣。');">
+            <input type="hidden" name="csrf" value="<?php echo e(ps_csrf_token()); ?>">
+            <input type="hidden" name="action" value="rebuild_order">
+            <input type="hidden" name="refund_id" value="<?php echo (int)$r['id']; ?>">
+            <div class="form-row align-items-center mb-1">
+                <div class="col-auto"><span class="small text-muted">业务类型：</span></div>
+                <div class="col">
+                    <select class="form-control form-control-sm" name="business" required>
+                        <?php foreach (['网站模板', 'AI网站定制', '网站续费', '网站修改'] as $b): ?>
+                            <option value="<?php echo e($b); ?>" <?php echo $b === '网站模板' ? 'selected' : ''; ?>><?php echo e($b); ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+            </div>
+            <div class="form-row align-items-center mb-1">
+                <div class="col-auto"><span class="small text-muted">接单客服：</span></div>
+                <div class="col">
+                    <select class="form-control form-control-sm" name="employee_id" required>
+                        <option value="">-- 选择接单客服 --</option>
+                        <?php
+                        $byDept = [];
+                        foreach ($allEmployees as $emp) { $byDept[$emp['department'] ?: '其他'][] = $emp; }
+                        uksort($byDept, function($a, $b) {
+                            if ($a === '网站客服') return -1;
+                            if ($b === '网站客服') return 1;
+                            return strcmp($a, $b);
+                        });
+                        foreach ($byDept as $dept => $list): ?>
+                            <optgroup label="<?php echo e($dept); ?>">
+                                <?php foreach ($list as $emp): ?>
+                                    <option value="<?php echo (int)$emp['id']; ?>" <?php echo ($suggestedCsId && (int)$emp['id'] === $suggestedCsId) || (!$suggestedCsId && $suggestedCsName && $emp['name'] === $suggestedCsName) ? 'selected' : ''; ?>>
+                                        <?php echo e($emp['name']); ?>
+                                    </option>
+                                <?php endforeach; ?>
+                            </optgroup>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+            </div>
+            <div class="form-row align-items-center mb-2">
+                <div class="col-auto"><span class="small text-muted">退款渠道：</span></div>
+                <div class="col">
+                    <select class="form-control form-control-sm" name="payment_method" required>
+                        <?php foreach (['店铺', '支付宝', '微信', '银行卡'] as $mOpt): ?>
+                            <option value="<?php echo e($mOpt); ?>" <?php echo ($r['payment_method'] === $mOpt || ($r['payment_method'] === '待核渠道' && $mOpt === '店铺')) ? 'selected' : ''; ?>><?php echo e($mOpt === '店铺' ? '淘宝 / 店铺' : $mOpt); ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+            </div>
+            <button class="btn btn-sm btn-primary btn-block">
+                <i class="fas fa-check-circle mr-1"></i>确认补建并扣减
+            </button>
+        </form>
+    </div>
+</div>
+<?php endif; ?>
+<?php else: ?>—<?php endif; ?>
 <?php $refundTrashRow = $r; include __DIR__ . '/../includes/refund_trash_action.php'; ?>
-</td><?php endif; ?></tr><?php endforeach; ?><?php if (!$recent): ?><tr><td colspan="<?php echo $isFinance ? 5 : 4; ?>" class="text-muted text-center">暂无退款提交记录</td></tr><?php endif; ?></tbody></table></div></div>
+</td><?php endif; ?></tr><?php endforeach; ?><?php if (!$recent): ?><tr><td colspan="<?php echo $isFinance ? 5 : 4; ?>" class="text-muted text-center">暂无退款提交记录</td></tr><?php endif; ?></tbody></table></div>
+<?php if ($rpTotal > 0): ?><nav class="d-flex flex-wrap justify-content-between align-items-center mt-3" style="gap:8px" aria-label="退款记录分页"><span class="small text-muted">共 <?php echo $rpTotal; ?> 笔，第 <?php echo $rpOffset + 1; ?>–<?php echo min($rpTotal, $rpOffset + $rpPer); ?> 笔<?php echo $rpPages > 1 ? '（第 ' . $rpPage . ' / ' . $rpPages . ' 页）' : ''; ?></span><?php if ($rpPages > 1): ?><span><?php if ($rpPage > 1): ?><a class="btn btn-sm btn-outline-secondary mr-1" href="<?php echo e($rpUrl($rpPage - 1)); ?>">‹ 上一页</a><?php endif; ?><?php if ($rpPage < $rpPages): ?><a class="btn btn-sm btn-outline-secondary" href="<?php echo e($rpUrl($rpPage + 1)); ?>">下一页 ›</a><?php endif; ?></span><?php endif; ?></nav><?php endif; ?></div>
 </div>
 <script>(function(){var zone=document.getElementById('refundDropZone'),input=document.getElementById('refundFile'),label=document.getElementById('refundFileName');if(!zone||!input)return;input.addEventListener('change',function(){label.textContent=input.files.length?input.files[0].name:'尚未选择文件'});['dragenter','dragover'].forEach(function(n){zone.addEventListener(n,function(e){e.preventDefault();zone.classList.add('is-dragging')})});['dragleave','drop'].forEach(function(n){zone.addEventListener(n,function(e){e.preventDefault();zone.classList.remove('is-dragging')})});zone.addEventListener('drop',function(e){if(!e.dataTransfer.files.length)return;input.files=e.dataTransfer.files;label.textContent=input.files[0].name})})();</script>
 <script src="<?php echo BASE_URL; ?>/assets/lib/xlsx.full.min.js"></script>

@@ -136,6 +136,7 @@ function prm_auto_unreported($actor, $graceDays = 14, $limit = 200)
         $inFlow = false;
         foreach (array_merge([trim($r['order_no'])], ps_refund_order_tokens($r['order_no'])) as $t) { try { if (ps_shop_order_lookup($t)) { $inFlow = true; break; } } catch (Throwable $e) {} }
         if (!$inFlow) continue;
+        if (prm_is_partial_refund($r, prm_flow_entry($r['order_no']))) continue; // 部分退款：订单应该在项目系统里，不当成未报单结案
         $reason = mb_substr(trim($r['reason'] . '；' . PRM_AUTO_TAG . '店铺流水里有该订单，项目系统里没有对应订单（' . $graceDays . ' 天内无人录入），无分成可扣（原写：' . $r['order_no'] . '）；订单补录后会自动重新打开并扣减', '；'), 0, 300);
         $u = db()->prepare("UPDATE project_refund_import_rows SET reason=?,review_status='approved',reviewed_by_admin=0,reviewed_at=NOW() WHERE id=? AND review_status='pending' AND order_id IS NULL");
         $u->execute([$reason, (int)$r['id']]);
@@ -144,11 +145,88 @@ function prm_auto_unreported($actor, $graceDays = 14, $limit = 200)
     return $done;
 }
 
+/**
+ * 已核算月份（含）以前的退款只留档、不自动扣减。其中项目系统里根本没有对应订单的（无分成可扣、也没有订单会被它拦住），
+ * 留在“待财务审核”只会堆成噪音：自动记为留档结案，原写订单号保留在备注里；订单之后补录进来会由 prm_auto_reopen 重新打开。
+ * 已经对上订单的历史退款不在这里处理（财务要看一眼，它们会拦住对应订单的自动通过）。
+ */
+function prm_auto_archive_history($actor, $limit = 300)
+{
+    if (!function_exists('ps_refund_settled_through')) require_once __DIR__ . '/ProjectRefundImport.php';
+    $m = ps_refund_settled_through();
+    prm_reopen_archived($actor, $m);
+    if ($m === '') return 0;
+    $until = date('Y-m-t', strtotime($m . '-01'));
+    $rows = db()->query("SELECT * FROM project_refund_import_rows WHERE review_status='pending' AND order_id IS NULL AND refund_date<='" . $until . "'" . prt_active_sql() . " ORDER BY id LIMIT " . max(1, min((int)$limit, 1000)))->fetchAll();
+    $done = 0;
+    foreach ($rows as $r) {
+        if (trim((string)$r['order_no']) === '' && trim((string)($r['source_payment_reference'] ?? '')) === '') continue;
+        if (prm_candidates($r['order_no'])) continue;
+        [$order] = ps_refund_resolve_order($r['order_no'], $r['source_payment_reference'] ?? '');
+        if ($order) continue;
+        // 只结案“整单退完”的：部分退款说明订单还在、客服应该报过单，没对上是要查的问题，不能当成没报单悄悄结案
+        $flow = prm_flow_entry($r['order_no']);
+        if (!$flow || prm_is_partial_refund($r, $flow)) continue;
+        $reason = mb_substr(trim($r['reason'] . '；' . PRM_AUTO_TAG . '退款日期在已核算月份（' . $m . '）及以前，只留档；项目系统里没有对应订单，无分成可扣（原写：' . $r['order_no'] . '）；订单之后补录会自动重新打开'), 0, 300);
+        $u = db()->prepare("UPDATE project_refund_import_rows SET reason=?,review_status='approved',reviewed_by_admin=0,reviewed_at=NOW() WHERE id=? AND review_status='pending' AND order_id IS NULL");
+        $u->execute([$reason, (int)$r['id']]);
+        if ($u->rowCount()) { $done++; ps_audit('refund_import', (int)$r['id'], 'auto_archive_history', $actor, ['order_no' => $r['order_no'], 'amount' => $r['amount'], 'settled_through' => $m]); }
+    }
+    return $done;
+}
+
+/** 退款金额小于店铺流水里该订单的金额 = 部分退款（订单还在继续服务，项目系统里应该有这张订单）。 */
+function prm_is_partial_refund(array $refundRow, $flow)
+{
+    if (mb_strpos((string)($refundRow['reason'] ?? ''), PRM_SMALL_TAG) !== false) return false; // 小额返款不是原订单的部分退款
+    $price = is_array($flow) ? (float)($flow['price'] ?? 0) : 0.0;
+    return $price > 0 && (float)$refundRow['amount'] + 0.004 < $price;
+}
+
+/**
+ * 小额返款（客服给小额引流客户返的 ¥10 左右）：退款表里的订单号是客户原来的订单，不是小额引流订单，对不上；
+ * 小额返款以售后上传的退款表为准直接认定（客服不需要报小额引流订单），没有订单就没有分成可扣，自动结案并写明原因。
+ * 之后客服补报了小额引流订单，财务可以在退款页手工对号；退款能按订单号对上项目订单的，不在这里处理。
+ */
+function prm_auto_close_small($actor, $limit = 300)
+{
+    if (!function_exists('ps_refund_resolve_order')) require_once __DIR__ . '/ProjectRefundImport.php';
+    $rows = db()->query("SELECT * FROM project_refund_import_rows WHERE review_status='pending' AND order_id IS NULL AND reason LIKE '%" . PRM_SMALL_TAG . "%' AND refund_date<=CURDATE()" . prt_active_sql() . " ORDER BY id LIMIT " . max(1, min((int)$limit, 1000)))->fetchAll();
+    $done = 0;
+    foreach ($rows as $r) {
+        [$order] = ps_refund_resolve_order($r['order_no'], $r['source_payment_reference'] ?? '');
+        if ($order) continue;
+        $reason = mb_substr(trim($r['reason'] . '；' . PRM_AUTO_TAG . '售后上传的小额返款，直接认定；客服不需要报小额引流订单，无分成可扣（原写：' . $r['order_no'] . '）'), 0, 300);
+        $u = db()->prepare("UPDATE project_refund_import_rows SET reason=?,review_status='approved',reviewed_by_admin=0,reviewed_at=NOW() WHERE id=? AND review_status='pending' AND order_id IS NULL");
+        $u->execute([$reason, (int)$r['id']]);
+        if ($u->rowCount()) { $done++; ps_audit('refund_import', (int)$r['id'], 'auto_close_small', $actor, ['order_no' => $r['order_no'], 'amount' => $r['amount']]); }
+    }
+    return $done;
+}
+
+/** 把之前按“已核算月份”留档结案、但现在不该结案的退款重新打开：退款日期已晚于已核算月份（月份设置改过），或是部分退款。 */
+function prm_reopen_archived($actor, $settledThrough)
+{
+    $rows = db()->query("SELECT id,order_no,amount,refund_date,reason FROM project_refund_import_rows WHERE review_status='approved' AND order_id IS NULL AND reason LIKE '%" . PRM_AUTO_TAG . "退款日期在已核算月份%'" . prt_active_sql() . " LIMIT 1000")->fetchAll();
+    $until = $settledThrough !== '' ? date('Y-m-t', strtotime($settledThrough . '-01')) : '';
+    $n = 0;
+    foreach ($rows as $r) {
+        $live = $until === '' || $r['refund_date'] > $until;
+        if (!$live && !prm_is_partial_refund($r, prm_flow_entry($r['order_no']))) continue;
+        $pos = mb_strpos($r['reason'], PRM_AUTO_TAG);
+        $reason = trim($pos === false ? $r['reason'] : mb_substr($r['reason'], 0, $pos), '；');
+        $u = db()->prepare("UPDATE project_refund_import_rows SET reason=?,review_status='pending',reviewed_by_admin=NULL,reviewed_at=NULL WHERE id=? AND review_status='approved' AND order_id IS NULL");
+        $u->execute([mb_substr($reason, 0, 300), (int)$r['id']]);
+        if ($u->rowCount()) { $n++; ps_audit('refund_import', (int)$r['id'], 'reopen_archived', $actor, ['reason' => $live ? 'month_live' : 'partial_refund']); }
+    }
+    return $n;
+}
+
 /** 自动结案过的“未报单”退款，如果对应的项目订单后来录进来了：重新打开（待审、关联订单），由自动扣减接着处理。 */
 function prm_auto_reopen($actor, $limit = 300)
 {
     if (!function_exists('ps_refund_resolve_order')) require_once __DIR__ . '/ProjectRefundImport.php';
-    $rows = db()->query("SELECT id,order_no,source_payment_reference,reason FROM project_refund_import_rows WHERE review_status='approved' AND order_id IS NULL AND reason LIKE '%" . PRM_AUTO_TAG . "%'" . prt_active_sql() . " ORDER BY id LIMIT " . max(1, min((int)$limit, 500)))->fetchAll();
+    $rows = db()->query("SELECT id,order_no,source_payment_reference,reason FROM project_refund_import_rows WHERE review_status='approved' AND order_id IS NULL AND reason LIKE '%" . PRM_AUTO_TAG . "%' AND reason NOT LIKE '%" . PRM_SMALL_TAG . "%'" . prt_active_sql() . " ORDER BY id LIMIT " . max(1, min((int)$limit, 500)))->fetchAll();
     $n = 0;
     foreach ($rows as $r) {
         [$order] = ps_refund_resolve_order($r['order_no'], $r['source_payment_reference']);
@@ -245,4 +323,108 @@ function prm_shop_refund_sync($dryRun = false, $limit = 3000)
         try { ps_refund_review($rid, 'approved', $system, substr($refundDate, 0, 7)); $out['applied']++; } catch (RuntimeException $e) { $out['queued']++; }
     }
     return $out;
+}
+
+/** 退款原表里该行的某列内容（按表头关键词匹配）：读不到返回 ''。 */
+function prm_source_cell(array $refundRow, array $headerKeywords)
+{
+    if (empty($refundRow['import_file_id']) || empty($refundRow['source_row'])) return '';
+    try {
+        if (!function_exists('ps_import_file_get')) require_once __DIR__ . '/ProjectImportFiles.php';
+        $f = ps_import_file_get((int)$refundRow['import_file_id'], ['type' => 'admin', 'id' => 0, 'role' => 'finance', 'employee_id' => null]);
+        foreach (ps_import_file_sheets($f) as $sheet => $grid) {
+            if ((string)$sheet !== (string)($refundRow['source_sheet'] ?? $sheet) && ($refundRow['source_sheet'] ?? '') !== '') continue;
+            $head = (array)($grid[0] ?? []); $col = null;
+            foreach ($head as $i => $h) {
+                $hStr = trim((string)$h);
+                foreach ($headerKeywords as $kw) {
+                    if (mb_strpos($hStr, $kw) !== false) { $col = $i; break 2; }
+                }
+            }
+            if ($col === null) continue;
+            return trim((string)(($grid[(int)$refundRow['source_row'] - 1] ?? [])[$col] ?? ''));
+        }
+    } catch (Throwable $e) {}
+    return '';
+}
+
+/** 退款原表里该行的“接单客服”（退款表常有这一列）：返回 [员工id, 姓名]；读不到或对不上返回 [0, '']。 */
+function prm_source_cs(array $refundRow)
+{
+    $name = prm_source_cell($refundRow, ['接单客服', '客服', '接单人']);
+    if ($name === '') return [0, ''];
+    try {
+        $q = db()->prepare('SELECT id,name FROM employees WHERE name=? ORDER BY id LIMIT 2');
+        $q->execute([$name]);
+        $m = $q->fetchAll();
+        if (count($m) === 1) return [(int)$m[0]['id'], $m[0]['name']];
+    } catch (Throwable $e) {}
+    return [0, $name];
+}
+
+/**
+ * 补建原订单并扣减：退款对应的订单客服当时没报单（项目系统里没有），但店铺流水里有这张订单，退款表也写了接单客服。
+ * 按流水（订单号 / 店铺 / 金额 / 日期）建出原订单，挂上客服，再走正常的退款审核——订单所属月份已经核算过的，
+ * 由系统在退款当月给该客服补扣（算法和普通退款补扣一样），所属月份的分成不动。建出的订单只用来算这笔补扣：
+ * 记为“已锁定、无分成快照”，不会进入所属月份的报酬，也不会再产生新的提成。
+ * 仅财务可用；一次只处理一笔，全程一个事务。
+ */
+function prm_rebuild_order($refundId, $business, $employeeId, $method, $actor)
+{
+    if (($actor['role'] ?? '') !== 'finance') throw new RuntimeException('仅财务可补建订单');
+    if (!function_exists('ps_refund_review')) require_once __DIR__ . '/ProjectRefundImport.php';
+    if (!function_exists('ps_recalculate_cash')) require_once __DIR__ . '/settlement/audit_db.php';
+    $business = ps_business_normalize($business);
+    if (!in_array($business, ['网站模板', 'AI网站定制', '网站续费', '网站修改'], true)) throw new RuntimeException('请选择业务类型');
+    $employeeId = (int)$employeeId;
+    $e = db()->prepare('SELECT id,name FROM employees WHERE id=?'); $e->execute([$employeeId]); $emp = $e->fetch();
+    if (!$emp) throw new RuntimeException('请选择接单客服');
+    $method = ps_refund_method($method);
+    if ($method === '待核渠道') throw new RuntimeException('请先确认退款渠道');
+    $pdo = db();
+    $q = $pdo->prepare('SELECT * FROM project_refund_import_rows WHERE id=?'); $q->execute([(int)$refundId]); $row = $q->fetch();
+    if (!$row || $row['review_status'] !== 'pending' || $row['order_id'] !== null || !empty($row['deleted_at'])) throw new RuntimeException('这笔退款已处理或已对上订单，请刷新');
+    $orderNo = trim((string)$row['order_no']);
+    [$exists] = ps_refund_resolve_order($orderNo, $row['source_payment_reference'] ?? '');
+    if ($exists) throw new RuntimeException('项目系统里已经有这张订单，请直接“核实并通过”');
+    $flow = prm_flow_entry($orderNo);
+    if (!$flow || (float)($flow['price'] ?? 0) <= 0) throw new RuntimeException('店铺流水里没有这张订单（或金额为 0），不能补建；请先补传店铺流水');
+    $price = round((float)$flow['price'], 2); $amount = (float)$row['amount'];
+    if ($amount > $price + 0.004) throw new RuntimeException('退款 ¥' . number_format($amount, 2) . ' 超过流水里的订单金额 ¥' . number_format($price, 2) . '，请先核对');
+    $date = substr((string)($flow['date'] ?? ''), 0, 10);
+    if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) throw new RuntimeException('流水里没有订单日期，不能补建');
+    $orderMonth = substr($date, 0, 7);
+    $effMonth = substr((string)$row['refund_date'], 0, 7);
+    if ($effMonth <= $orderMonth) throw new RuntimeException('原订单月份（' . $orderMonth . '）不在退款月份（' . $effMonth . '）之前，不是历史未报订单；请在项目订单中正常录入');
+    if (ps_refund_month_locked($effMonth)) throw new RuntimeException($effMonth . ' 报酬已锁定，请先处理锁月');
+    $customerName = prm_source_cell($row, ['付款账号', '旺旺名', '买家昵称', '客户名', '客户ID']);
+    if ($customerName === '') $customerName = (string)($flow['nickname'] ?? '');
+    if ($customerName === '') $customerName = '待补充';
+
+    $nested = $pdo->inTransaction();
+    if ($nested) $pdo->exec('SAVEPOINT prm_rebuild_order'); else $pdo->beginTransaction();
+    try {
+        $pdo->prepare("INSERT INTO project_orders (order_no,customer_name,project_type,order_kind,shop,contract_amount,receipt_amount,refund_amount,order_date,delivery_status,settlement_status,note,created_by_admin) VALUES (?,?,?,'',?,?,0,0,?,'finished','draft',?,?)")
+            ->execute([$orderNo, mb_substr($customerName, 0, 100), $business, (string)$flow['shop'], $price, $date, '补建原订单：客服当时未报单，按店铺流水建立，仅用于计算退款补扣（退款 #' . (int)$row['id'] . '）', (int)$actor['id']]);
+        $oid = (int)$pdo->lastInsertId();
+        $pdo->prepare('INSERT INTO project_order_sources (order_id,payment_nickname,price_source,nickname_source,status_source) VALUES (?,?,?,?,?)')->execute([$oid, mb_substr($customerName, 0, 100), 'shop_upload', 'shop_upload', 'missing']);
+        $pdo->prepare("INSERT INTO project_participants (order_id,employee_id,commission_group,role_name,group_weight) VALUES (?,?,'customer_service','客服',1)")->execute([$oid, $employeeId]);
+        $pdo->prepare("INSERT INTO project_cash_movements (order_id,movement_type,amount,note,review_status,submitted_by_type,submitted_by_id,reviewed_by_admin,reviewed_at) VALUES (?,'receipt',?,?,'approved',?,?,?,NOW())")
+            ->execute([$oid, $price, '补建原订单：按店铺流水实付登记收款', $actor['type'], $actor['id'], $actor['id']]);
+        ps_recalculate_cash($oid);
+        ps_audit('order', $oid, 'rebuild_for_refund', $actor, ['refund_id' => (int)$row['id'], 'business' => $business, 'employee_id' => $employeeId, 'price' => $price, 'order_date' => $date]);
+
+        // 正常退款审核：写退款流水、算补扣（ps_refund_review 支持在已有事务中使用 SAVEPOINT）
+        ps_refund_review((int)$row['id'], 'approved', $actor, $effMonth, true, $orderNo, '', $method, '');
+        // 建出的订单只用来算补扣：锁定，不进所属月份报酬
+        $pdo->prepare("UPDATE project_orders SET settlement_status='locked',row_version=row_version+1 WHERE id=? AND settlement_status='draft'")->execute([$oid]);
+        $adj = $pdo->prepare('SELECT COALESCE(SUM(amount),0) FROM project_commission_adjustments WHERE order_id=?'); $adj->execute([$oid]);
+        $adjAmount = round((float)$adj->fetchColumn(), 2);
+        if ($nested) $pdo->exec('RELEASE SAVEPOINT prm_rebuild_order'); else $pdo->commit();
+    } catch (Throwable $ex) {
+        if ($nested) $pdo->exec('ROLLBACK TO SAVEPOINT prm_rebuild_order');
+        elseif ($pdo->inTransaction()) $pdo->rollBack();
+        throw $ex;
+    }
+    return ['order_id' => $oid, 'adjustment' => $adjAmount, 'employee' => $emp['name'], 'month' => $effMonth];
 }
