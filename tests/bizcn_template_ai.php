@@ -37,6 +37,10 @@ tt(bt_text_hints("请注册 Example-Shop.CN 谢谢")['domain'] === 'example-shop
 tt(bt_match_region('山东', '济南', '') === ['山东省', '济南市'], 'short names normalised');
 tt(bt_match_region('', '', '山东省青岛市市南区香港中路1号') === ['山东省', '青岛市'], 'city from address');
 tt(bt_match_region('广西', '南宁', '') === ['广西壮族自治区', '南宁市'], 'autonomous region');
+tt(isset(bt_regions()['湖北省']['省直辖县级行政单位']), 'Hubei has the 省直辖县级行政单位 option');
+tt(bt_match_region('湖北省', '仙桃市', '') === ['湖北省', '省直辖县级行政单位'], 'Xiantao maps to direct-administered counties');
+tt(bt_match_region('', '', '湖北省天门市某路1号') === ['湖北省', '省直辖县级行政单位'], 'Tianmen in address maps to direct-administered counties');
+tt(bt_city_postcode('湖北省', '省直辖县级行政单位') === '433000', 'Hubei direct-administered counties postcode');
 tt(bt_match_region('上海', '', '浦东新区')[1] === '上海市', 'municipality single city');
 tt(bt_match_region('不存在省', '不存在市', '') === ['', ''], 'unknown region rejected');
 

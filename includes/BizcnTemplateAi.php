@@ -55,6 +55,11 @@ function bt_city_stem($name)
 {
     return preg_replace('/(市|地区|盟|自治州|州)$/u', '', $name);
 }
+/** 商务中国把这些县级市 / 林区统一放在“省直辖县级行政单位”下；客户资料里写的是仙桃、潜江等具体名字。 */
+function bt_direct_county_alias()
+{
+    return ['湖北省' => ['省直辖县级行政单位', '/仙桃|潜江|天门|神农架/u']];
+}
 function bt_match_region($province, $city, $address = '')
 {
     $regions = bt_regions();
@@ -72,6 +77,7 @@ function bt_match_region($province, $city, $address = '')
     foreach ([$city, $address] as $source) {
         if ($source === '' || $foundCity !== '') continue;
         $hits = [];
+        foreach (bt_direct_county_alias() as $p => $alias) if (isset($candidates[$p]) && isset($candidates[$p][$alias[0]]) && preg_match($alias[1], $source)) $hits[] = [$p, $alias[0]];
         foreach ($candidates as $p => $cities) foreach ($cities as $name => $code) {
             $stem = bt_city_stem($name);
             if (mb_strlen($stem) >= 2 && mb_strpos($source, $stem) !== false) $hits[] = [$p, $name];
