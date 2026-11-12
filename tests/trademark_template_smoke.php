@@ -16,7 +16,7 @@ try{
     $check(ptt_is_professional_header($headers)&&!ptt_is_professional_header(['商标名称','个数','类型（网报，加急）']),'专业模板强校验与旧表兼容明确区分');
     $zip=new ZipArchive();$check($zip->open($path)===true,'Excel压缩包有效');
     $sheet=simplexml_load_string($zip->getFromName('xl/worksheets/sheet1.xml'));$zip->close();
-    $check((string)$sheet->sheetViews->sheetView->pane['xSplit']==='3'&&(string)$sheet->sheetViews->sheetView->pane['ySplit']==='1','表头和前三列冻结，横向查看仍能识别订单');
+    $check((string)$sheet->sheetViews->sheetView->pane['xSplit']==='4'&&(string)$sheet->sheetViews->sheetView->pane['ySplit']==='1','表头和前四列冻结（日期、店铺、编号类型、订单编号），横向查看仍能识别订单');
     $rules=[];foreach($sheet->dataValidations->dataValidation as$v)$rules[(string)$v['sqref']]=$v;
     $letter=function($label)use($headers){return pmt_col_letter(array_search($label,$headers,true));};
     $service=$rules[$letter('办理事项（必选）').'2:'.$letter('办理事项（必选）').'1000'];

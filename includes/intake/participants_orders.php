@@ -72,6 +72,9 @@ function ps_order_no_canonical($raw)
 {
     $no = trim((string)$raw);
     $no = trim(preg_replace('/^(?:订单编号|订单号|订单|单号|编号|交易号|交易单号|交易流水号|付款流水号|流水号|付款单号|支付单号|商户订单号)\s*[:：]\s*/u', '', $no));
+    // 付款渠道词（微信 / 支付宝 / 淘宝 …）贴在数字前面不是订单号的一部分：“微信26100188…”和“26100188…”是同一笔付款（2026-11-03 商标上传因此重复建了 21 单）。
+    // 只在后面是 10 位以上、以数字开头的编号时才剥，不碰“致2026…”“科中2026…”这类带前缀的内部号。
+    $no = preg_replace('/^(?:微信|支付宝|淘宝|天猫|拼多多|京东|抖音|快手|扫码)\s*[:：]?\s*(?=\d[A-Za-z0-9_-]{9,})/u', '', $no);
     // Excel 文本格式的前导单引号不是订单号的一部分；旧表重传也须落到同一付款号。
     $no = preg_replace("/^['＇’]+(?=[\\p{Han}A-Za-z0-9_-]{6,})/u", '', $no);
     if (preg_match('/^[\p{Han}]{0,4}[A-Za-z0-9_-]{6,}/u', $no, $m)) return $m[0];
@@ -91,6 +94,8 @@ function ps_order_no_resolve($raw)
     $patterns = [$escaped . '%'];
     foreach (['订单编号', '订单号', '订单', '单号', '编号', '交易号', '交易单号', '交易流水号', '付款流水号', '流水号', '付款单号', '支付单号', '商户订单号'] as $label) foreach (['：', ':'] as $colon) foreach (['', ' '] as $space) $patterns[] = $label . $colon . $space
     . $escaped . '%';
+    // 库里是“渠道词 + 号码”的旧写法（微信26100188… / 微信：26100188…）：同样按前缀匹配
+    foreach (['微信', '支付宝', '淘宝', '天猫', '拼多多', '京东', '抖音', '快手', '扫码'] as $channel) foreach (['', ' ', '：', ':'] as $sep) $patterns[] = $channel . $sep . $escaped . '%';
     $like = db()->prepare('SELECT order_no FROM project_orders WHERE ' . implode(' OR ', array_fill(0, count($patterns), 'order_no LIKE ?')) . ' ORDER BY id');
     $like->execute($patterns);
     foreach ($like->fetchAll(PDO::FETCH_COLUMN) as $stored) if (ps_order_no_canonical($stored) === $canonical) return $stored;

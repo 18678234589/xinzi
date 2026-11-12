@@ -112,7 +112,7 @@ try {
     // 编号类型下拉 + 订单编号列粘贴编号：淘宝订单编号 / 微信交易流水号 / 对公转账编号
     $common = ['日期' => '2026.9.13', '店铺' => '美呀美', '售价' => '1250', $sk => '已完成', '客服' => '宋倩倩', '模板技术' => '张强', '程序名称' => 'jsp展示中级版', '年限' => '1年', '续费联系方式' => '13800138000'];
     $nk = (function () { foreach (pmt_columns('网站模板') as $col) if ($col[0] === '编号类型') return $col; return null; })();
-    $check($nk && $nk[2] === 'list' && $nk[3] === ['淘宝订单编号', '拼多多订单编号', '美呀美旗舰店', '清风易软件专营店', '微信交易流水号', '对公转账编号', '美丽街旗舰店', '美啊美设计旗舰店'], '编号类型下拉 8 项：淘宝 / 拼多多订单编号 + 4 家店铺 + 微信交易流水号 + 对公转账编号');
+    $check($nk && $nk[2] === 'list' && $nk[3] === ['淘宝订单编号', '天猫订单编号', '拼多多订单编号', '美呀美旗舰店', '清风易软件专营店', '美丽街旗舰店', '美啊美设计旗舰店', '对公转账编号', '微信支付流水号', '支付宝支付流水号'], '编号类型下拉 10 项：淘宝 / 天猫 / 拼多多订单编号 + 4 家店铺 + 对公转账编号 + 微信支付 / 支付宝支付流水号');
     $tb = "33195$tag" . '00001'; $wxc = "4200002012$tag" . '8888'; $gs = "GS$tag" . '0001';
     [$pT, $iT] = $importAs($song, '网站模板', $csvOf('网站模板', [$common + ['付款昵称' => "t$tag", '网站域名' => "t$tag.com", '编号类型' => '淘宝订单编号', '订单编号' => $tb]]));
     $check($iT === 1 && (string)($pT[0]['order_no'] ?? '') === $tb, '选“淘宝订单编号”：粘贴的就是订单号');
@@ -337,7 +337,7 @@ $mC\""])]));
             $check($code === '' || preg_match('/^示例-[0-9A-Za-z\-\/ ]+$/u', $code), $biz . '：示例订单编号是编号格式，不是说明文字（' . $code . '）');
         }
     }
-    foreach (['淘宝订单编号', '微信交易流水号', '拼多多订单编号', '对公转账编号'] as $opt) $check(in_array($opt, (function () { foreach (pmt_columns('AI网站定制') as $col) if ($col[0] === '编号类型') return $col[3]; return []; })(), true), 'AI定制“编号类型”下拉含 ' . $opt);
+    foreach (['淘宝订单编号', '天猫订单编号', '拼多多订单编号', '对公转账编号', '微信支付流水号', '支付宝支付流水号'] as $opt) $check(in_array($opt, (function () { foreach (pmt_columns('AI网站定制') as $col) if ($col[0] === '编号类型') return $col[3]; return []; })(), true), 'AI定制“编号类型”下拉含 ' . $opt);
     $ai = $actorOf('张光萍');
     $kindOf = function ($no) use ($pdo) { $q = $pdo->prepare('SELECT order_kind FROM project_orders WHERE order_no LIKE ? ORDER BY id DESC LIMIT 1'); $q->execute([$no . '%']); return (string)$q->fetchColumn(); };
     $pddNo = "230915-5432$tag" . '9012345';

@@ -104,6 +104,27 @@ try {
     unset($_SESSION['admin_id']); // 回到客服身份
     $importAs($qin, '商标', $csvOf('商标', [array_merge($row($n7), ['客服' => '秦婷婷', '商标个数' => '3', '售价' => '1980'])]));
     $check($csName($n7) === ['于娜'], '客服自己重传不能改回参与人（仍是于娜）');
+    // 订单号带渠道词（微信26100188…）重传：必须对上已有订单，不能另建一张（2026-11-03 商标上传因此重复建了 21 单、重复发提成）
+    echo "=== 订单号带“微信”前缀重传 → 不重复建单 ===\n";
+    $wxNo = '2610' . $tag . '0188047281727';
+    $countNo = function ($like) use ($pdo) { $q = $pdo->prepare('SELECT COUNT(*) FROM project_orders WHERE order_no LIKE ?'); $q->execute([$like]); return (int)$q->fetchColumn(); };
+    $importAs($qin, '商标', $csvOf('商标', [$row($wxNo)]));
+    $check($countNo('%' . $wxNo) === 1, '先按不带前缀的号建单：1 张');
+    $importAs($qin, '商标', $csvOf('商标', [$row('微信' . $wxNo)]));
+    $importAs($qin, '商标', $csvOf('商标', [$row('微信：' . $wxNo)]));
+    $check($countNo('%' . $wxNo) === 1, '带“微信”“微信：”前缀重传：仍是 1 张，没有重复建单');
+    // 商标模板“编号类型”下拉：天猫 / 拼多多按订单号；微信支付、支付宝支付、对公转账的编号是支付流水号（订单号由系统生成）
+    echo "=== 编号类型下拉各选项 ===\n";
+    $kindCol = (function () { foreach (pmt_columns('商标') as $c) if ($c[0] === '编号类型') return $c; return null; })();
+    $check($kindCol && $kindCol[2] === 'list' && $kindCol[3] === ['淘宝订单编号', '天猫订单编号', '拼多多订单编号', '对公转账编号', '微信支付流水号', '支付宝支付流水号'], '商标模板有“编号类型”下拉：淘宝 / 天猫 / 拼多多 / 对公转账 / 微信支付 / 支付宝支付');
+    $refOf = function ($noLike) use ($pdo) { $q = $pdo->prepare('SELECT o.order_no,s.payment_reference FROM project_orders o LEFT JOIN project_order_sources s ON s.order_id=o.id WHERE o.order_no LIKE ? OR s.payment_reference LIKE ? ORDER BY o.id DESC LIMIT 1'); $q->execute([$noLike, $noLike]); return $q->fetch(); };
+    $tmNo = '33164' . $tag . '4710020019';  // 天猫订单号：就是订单号
+    $importAs($qin, '商标', $csvOf('商标', [$row($tmNo) + ['编号类型' => '天猫订单编号']]));
+    $r1 = $refOf('%' . $tmNo); $check($r1 && strpos($r1['order_no'], $tmNo) !== false, '选“天猫订单编号”：粘贴的号就是订单号');
+    $wxRef = '4200002876' . $tag . '84123456'; $aliRef = '2026110722' . $tag . '001400001234';
+    $importAs($qin, '商标', $csvOf('商标', [$row($wxRef) + ['编号类型' => '微信支付流水号'], $row($aliRef) + ['编号类型' => '支付宝支付流水号']]));
+    $r2 = $refOf('%' . $wxRef); $check($r2 && $r2['payment_reference'] === $wxRef && $r2['order_no'] !== $wxRef, '选“微信支付流水号”：编号存为支付流水号，订单号由系统生成：' . json_encode($r2));
+    $r3 = $refOf('%' . $aliRef); $check($r3 && $r3['payment_reference'] === $aliRef && $r3['order_no'] !== $aliRef, '选“支付宝支付流水号”：同样存为支付流水号：' . json_encode($r3));
     echo "\n=== 重新上传覆盖测试全部通过 ===\n";
 } catch (Throwable $e) { fwrite(STDERR, $e->getMessage() . "\n"); exit(1); }
 finally { foreach ($stored as $s) @unlink(ps_private_dir('imports') . '/' . basename($s) . '.php'); }
