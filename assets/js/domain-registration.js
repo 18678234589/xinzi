@@ -2,7 +2,7 @@
   'use strict';
   var root = document.getElementById('domainConsole'), section = document.getElementById('domainRegistration');
   if (!root || !section) return;
-  var config, quote = null, approved = Object.create(null), templatePage = 1, templateTotal = 0;
+  var config, configReady = Promise.resolve(), quote = null, approved = Object.create(null), templatePage = 1, templateTotal = 0;
   var el = function (id) { return document.getElementById(id); };
   var esc = function (v) { return String(v == null ? '' : v).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); };
   var states = { reserved: '已保留额度 · 等待提交', unknown: '结果待核对 · 请勿重复注册', processing: '注册商处理中', registered: '已注册', failed: '已关闭 / 注册失败' };
@@ -63,6 +63,8 @@
   }
   async function history() {
     var data = await api('history');
+    await configReady.catch(function () {}); // #register 会同时拉配置和记录；config 还没回来时不能读 config.admin
+    if (!config) config = {};
     el('registrationHistory').innerHTML = data.rows.map(function (r, i) {
       return '<article class="registration-template"><div><strong>' + esc(r.domain) + '</strong><small>申请 #' + r.id + ' · ' + esc(r.day) + ' · ¥' + (r.quote.price_cents / 100).toFixed(2) + '</small><p>' + esc(states[r.status] || r.status) + (r.order_id ? ' · 注册商订单 ' + esc(r.order_id) : '') + '</p></div><button class="domain-btn ghost" type="button" data-status-index="' + i + '">核对结果</button>' + (config.admin && r.status === 'unknown' ? '<button class="domain-btn ghost" type="button" data-reconcile-index="' + i + '">关联注册商订单</button>' : '') + (config.admin && (r.status === 'unknown' || r.status === 'reserved') ? '<button class="domain-btn ghost" type="button" data-release-index="' + i + '">人工核验未扣费</button>' : '') + '</article>';
     }).join('') || '<p class="domain-help">还没有注册申请。查询报价不会计入注册额度。</p>';
@@ -138,6 +140,6 @@
     el('registrationTemplateNext').onclick = function () { templatePage++; busy(this, templates); };
     el('registrationSettingsForm').onsubmit = function (e) { e.preventDefault(); busy(e.submitter || this.querySelector('[type=submit]'), async function () { var d = await api('settings', { revision: config.revision, daily_limit: el('registrationLimit').value, ns: el('registrationDefaultNs').value, templates: JSON.stringify(Object.keys(approved).map(function (id) { return approved[id]; })) }); cancelQuote(); await loadConfig(true); notice(d.message, false); }); };
   }
-  loadConfig(true).catch(function (e) { notice(e.message, true); });
+  configReady = loadConfig(true); configReady.catch(function (e) { notice(e.message, true); });
   if (window.location.hash === '#register') { el('registrationToggle').click(); section.scrollIntoView(); }
 })();
