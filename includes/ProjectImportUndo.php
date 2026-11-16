@@ -121,9 +121,9 @@ function pu_plan($fileId, $actor)
     $used = pu_ids_used_by_other_files($fileId);
     foreach ($orders as $id => &$o) if (isset($used[$id]) && empty($o['gone'])) $o['reasons'][] = '另一张表格也对应这单';
     unset($o);
-    $removable = 0; $kept = 0; $approvable = 0; $list = [];
+    $removable = 0; $kept = 0; $approvable = 0; $list = []; $goneCount = 0;
     foreach ($orders as $o) {
-        if (!empty($o['gone'])) continue;
+        if (!empty($o['gone'])) { $goneCount++; continue; }
         $o['reasons'] = array_values(array_unique($o['reasons']));
         $o['removable'] = !$o['reasons'];
         // 只有“系统自动生成”的原因、又没有人工操作 / 月份锁定 / 结算申请：财务同意后可以撤
@@ -137,7 +137,9 @@ function pu_plan($fileId, $actor)
         if ($o['approvable']) $approvable++;
         $list[] = ['id' => $o['id'], 'order_no' => $o['order_no'], 'customer_name' => $o['customer_name'], 'contract_amount' => (float)$o['contract_amount'], 'removable' => $o['removable'], 'approvable' => $o['approvable'], 'reasons' => $o['reasons'], 'hard' => $o['hard']];
     }
-    return ['file' => $file, 'supported' => true, 'orders' => $list, 'removable' => $removable, 'kept' => $kept, 'approvable' => $approvable, 'message' => ''];
+    // 这张表格新建的订单已经全部不在库里（别处删掉 / 撤销过）：没什么可撤，申请可以直接关闭
+    $message = (!$list && $goneCount) ? '这张表格新建的 ' . $goneCount . ' 张订单已经不在库里了（已被删除或撤销），不需要再撤销；点“同意”会直接关闭这条申请并通知申请人。' : '';
+    return ['file' => $file, 'supported' => true, 'orders' => $list, 'removable' => $removable, 'kept' => $kept, 'approvable' => $approvable, 'gone' => $goneCount, 'message' => $message];
 }
 
 /** 执行：重新预演一遍（防止预演后数据变化），只撤仍然干净的订单；返回统计。 */
@@ -145,6 +147,7 @@ function pu_execute($fileId, $actor, $deleteFile = true, $withApproved = false)
 {
     if ($withApproved && ($actor['role'] ?? '') !== 'finance') throw new RuntimeException('只有财务可以撤销已自动核对的订单');
     $plan = pu_plan($fileId, $actor);
+    if ($plan['supported'] && !$plan['orders'] && !empty($plan['gone'])) return ['removed' => 0, 'kept' => 0, 'file_deleted' => false, 'already_gone' => (int)$plan['gone']]; // 订单早已不在库：只需关闭申请
     if (!$plan['supported'] || !($plan['removable'] + ($withApproved ? $plan['approvable'] : 0))) throw new RuntimeException($plan['message'] ?: '没有可以撤销的订单');
     $pdo = db();
     $removed = []; $keptNow = [];

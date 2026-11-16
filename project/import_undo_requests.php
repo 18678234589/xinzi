@@ -41,10 +41,11 @@ $cssFile = dirname(__DIR__) . '/assets/css/rule_algo.css';
       <div class="iu-row <?php echo $will ? '' : 'keep'; ?>"><div><b><?php echo e($o['order_no']); ?></b> <span class="text-muted"><?php echo e($o['customer_name']); ?> · ¥<?php echo e(number_format((float)$o['contract_amount'], 2)); ?></span></div>
         <div class="<?php echo $will ? 'iu-ok' : 'iu-why'; ?>"><?php echo $o['removable'] ? '将撤销' : ($o['approvable'] ? '将撤销（系统已自动核对：' . e(implode('、', $o['reasons'])) . '）' : '保留：' . e(implode('、', $o['hard']))); ?></div></div>
       <?php endforeach; ?></div>
+    <?php if (!$plan['orders'] && $plan['message'] !== ''): ?><div class="iu-tip text-danger"><?php echo e($plan['message']); ?></div><?php endif; ?>
     <div class="iu-tip">同意后：将撤销 <strong><?php echo (int)$plan['removable'] + (int)$plan['approvable']; ?></strong> 单<?php echo $plan['kept'] - $plan['approvable'] > 0 ? '，保留 ' . ((int)$plan['kept'] - (int)$plan['approvable']) . ' 单（上面标了原因）' : ''; ?>；订单、系统自动登记的收款和自动算出的分成快照一起进回收站，原始表格也一并删除。</div>
     <?php else: ?><div class="ra-detail"><p class="text-danger"><?php echo e($planError ?: '无法读取这张表格的订单'); ?></p></div><?php endif; ?>
     <footer><textarea class="js-note" rows="2" placeholder="处理说明（不同意时必填）"></textarea>
-      <div class="ra-actions"><button type="button" class="ra-btn js-decide" data-d="approved"<?php echo $plan && ($plan['removable'] + $plan['approvable']) ? '' : ' disabled'; ?>><i class="fas fa-check"></i> 同意并撤销</button><button type="button" class="ra-btn ghost js-decide" data-d="rejected">不同意</button><span class="ra-msg js-msg" role="status"></span></div></footer>
+      <div class="ra-actions"><button type="button" class="ra-btn js-decide" data-d="approved"<?php echo $plan && ($plan['removable'] + $plan['approvable'] + (empty($plan['orders']) ? (int)($plan['gone'] ?? 0) : 0)) ? '' : ' disabled'; ?>><i class="fas fa-check"></i> 同意并撤销</button><button type="button" class="ra-btn ghost js-decide" data-d="rejected">不同意</button><span class="ra-msg js-msg" role="status"></span></div></footer>
     <?php else: $res = json_decode((string)$r['result_json'], true) ?: []; ?>
     <footer class="done"><span>处理人：<?php echo e($r['handler_name']); ?> · <?php echo e(substr((string)$r['handled_at'], 0, 16)); ?><?php echo $r['status'] === 'approved' ? ' · 已撤销 ' . (int)($res['removed'] ?? 0) . ' 单' . (!empty($res['kept']) ? '，保留 ' . (int)$res['kept'] . ' 单' : '') : ''; ?></span><?php if ($r['handle_note']): ?><p><?php echo nl2br(e($r['handle_note'])); ?></p><?php endif; ?></footer>
     <?php endif; ?>

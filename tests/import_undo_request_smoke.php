@@ -30,6 +30,7 @@ $mkOrder = function ($no, $month = '2099-05') use ($pdo, &$ids, $tag) {
 $report = function ($fileId, array $orderIds, $empId) use ($pdo, $fin) {
     ps_audit('import_file', $fileId, 'import_result', ['type' => 'employee', 'id' => 1, 'employee_id' => $empId, 'role' => 'technical'], ['written' => count($orderIds), 'existing' => 0, 'pending' => 0, 'conflict' => 0, 'ignored' => 0, 'order_ids' => $orderIds, 'written_order_ids' => $orderIds, 'operator' => ['type' => 'employee', 'id' => 1, 'employee_id' => $empId, 'role' => 'technical']]);
 };
+$reportOrders = $report; // 页面 include 会覆盖 $report
 $cleanup = function () use ($pdo, &$ids, &$fileIds, &$emps, $tag) {
     require_once __DIR__ . '/../includes/ProjectOrderDelete.php';
     foreach ($ids as $id) { try { pod_delete_rows((int)$id); } catch (Throwable $e) {} }
@@ -118,6 +119,20 @@ try {
     $_SERVER['SCRIPT_NAME'] = '/project/files.php';
     ob_start(); include __DIR__ . '/../project/files.php'; $html = ob_get_clean();
     $check(strpos($html, '撤销上传申请') !== false && strpos($html, 'import_undo_requests.php') !== false && strpos($html, '撤销待财务同意') !== false, '原始表格页：顶部提示有撤销申请待同意，文件行标“撤销待财务同意”');
+    echo "=== 七、订单在申请之后已被别处删掉：页面写明原因，财务点同意直接关闭申请 ===\n";
+    $f6 = $mkFile($gao, '订单已删.xlsx'); $g1 = $mkOrder('-G1'); $reportOrders($f6, [$g1], $gao);
+    $rid6 = piu_submit($f6, $partner, '订单已删测试');
+    require_once __DIR__ . '/../includes/ProjectOrderDelete.php';
+    pod_delete_rows($g1); $pdo->exec("DELETE FROM project_orders WHERE id=$g1");
+    $plan = pu_plan($f6, $fin);
+    $check(!$plan['orders'] && $plan['gone'] === 1 && mb_strpos($plan['message'], '不在库里') !== false, '预演：订单已不在库，给出明确说明：' . $plan['message']);
+    ob_start(); include __DIR__ . '/../project/import_undo_requests.php'; $html = ob_get_clean();
+    $check(mb_strpos($html, '已经不在库里了') !== false && !preg_match('/js-decide" data-d="approved" disabled/', $html), '页面显示原因，且“同意并撤销”按钮可点（不再灰色）');
+    $res = pu_execute($f6, $fin, true, true);
+    $check($res['removed'] === 0 && $res['already_gone'] === 1, '同意：不报错，直接关闭');
+    $rid6 = (int)$pdo->query("SELECT id FROM project_import_undo_requests WHERE file_id=$f6")->fetchColumn();
+    piu_handle($rid6, 'approved', '', $fin);
+    $check($pdo->query("SELECT status FROM project_import_undo_requests WHERE id=$rid6")->fetchColumn() === 'approved' && (int)$pdo->query("SELECT COUNT(*) FROM project_messages WHERE employee_id=$gao AND body LIKE '%已经不在系统里了%'")->fetchColumn() === 1, '申请已关闭，申请人收到“订单已不在系统”的站内信');
     echo "\n=== 撤销上传申请测试全部通过，测试数据已清理 ===\n";
 } finally {
     $cleanup();

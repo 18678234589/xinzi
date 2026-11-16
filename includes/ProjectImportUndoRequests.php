@@ -157,7 +157,7 @@ function piu_handle($id, $decision, $note, array $actor)
     if (!empty($row['applicant_employee_id'])) {
         try {
             $body = $decision === 'approved'
-                ? '财务已同意并撤销了你上传的表格“' . $row['file_name'] . '”：撤销 ' . (int)$result['removed'] . ' 单' . ($result['kept'] ? '，保留 ' . (int)$result['kept'] . ' 单' : '') . '。请核对表格后重新上传正确的表格。（处理人：' . $handler . '）'
+                ? (!empty($result['already_gone']) ? '你申请撤销的表格“' . $row['file_name'] . '”所新建的订单已经不在系统里了，申请已关闭，无需再处理。请核对后重新上传正确的表格。（处理人：' . $handler . '）' : '财务已同意并撤销了你上传的表格“' . $row['file_name'] . '”：撤销 ' . (int)$result['removed'] . ' 单' . ($result['kept'] ? '，保留 ' . (int)$result['kept'] . ' 单' : '') . '。请核对表格后重新上传正确的表格。（处理人：' . $handler . '）')
                 : '财务没有同意撤销你上传的表格“' . $row['file_name'] . '”。原因：' . $note . '（处理人：' . $handler . '）';
             $pdo->prepare('INSERT IGNORE INTO project_messages (employee_id,category,title,body,link,dedupe_key) VALUES (?,?,?,?,?,?)')->execute([
                 (int)$row['applicant_employee_id'], 'import_undo', '撤销上传申请已' . ($decision === 'approved' ? '同意并完成' : '回复（未同意）'), $body, '/project/files.php', 'import_undo_done:' . (int)$id]);
