@@ -263,7 +263,11 @@ $describe = function ($rule) use ($pct) {
     $p = $rule['params'];
     switch ($rule['rule_type']) {
         case 'tier_rate': return implode('；', array_map(function ($t) use ($pct) { return '≥¥' . money($t['from']) . ' → ' . $pct($t['rate']); }, $p['tiers'] ?? []));
-        case 'threshold_bonus': return '超过 ¥' . money($p['threshold'] ?? 0) . ' 的部分 × ' . $pct($p['rate'] ?? 0);
+        case 'threshold_bonus':
+            if (!empty($p['reconcile_base'])) {
+                return '整月毛利（售价 − 成本 − ' . $pct($p['fee_rate'] ?? 0.03) . '服务费）统算 ' . $pct($p['base_rate'] ?? 0.13) . ' 基础提成，超过 ¥' . money($p['threshold'] ?? 0) . ' 的部分 × ' . $pct($p['rate'] ?? 0) . ' 超额奖金';
+            }
+            return '超过 ¥' . money($p['threshold'] ?? 0) . ' 的部分 × ' . $pct($p['rate'] ?? 0);
         case 'ranking': return '前 ' . count($p['awards'] ?? []) . ' 名：' . implode(' / ', array_map(function ($a) { return '¥' . money($a); }, $p['awards'] ?? []));
         case 'dept_share': return '部门' . (($p['base'] ?? '') === 'revenue' ? '收入（扣服务费）' : '毛利') . (!empty($p['deduct_commissions']) ? ' − 部门提成' : '') . ' − 其他费用，× ' . $pct($p['rate'] ?? 0) . ' × 分配 ' . $pct($p['share'] ?? 1);
         case 'fixed': return '每月 ¥' . money($p['amount'] ?? 0) . (!empty($p['separate']) ? '（另行支付，不计入应结算）' : '');

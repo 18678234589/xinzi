@@ -9,7 +9,7 @@ function ps_monthly_presets()
     $all = '*';
     $rows = [
         ['name' => '模板技术超额奖金', 'rule_type' => 'threshold_bonus', 'scope_business' => '网站模板', 'scope_group' => 'technical', 'scope_role' => '模板技术', 'employee'
-    => null, 'metric' => 'profit', 'params' => ['threshold' => 10000, 'rate' => 0.015], 'note' => '光君 / 孙妍 / 张强：毛利超过 1 万的部分 × 1.5%'],
+    => null, 'metric' => 'profit', 'params' => ['threshold' => 10000, 'rate' => 0.015, 'reconcile_base' => true, 'base_rate' => 0.13, 'fee_rate' => 0.03], 'note' => '光君 / 孙妍 / 张强：整月毛利（售价−成本−3%）统算 13% 基础提成，超过 1 万的部分 × 1.5% 超额奖金'],
         ['name' => '网站客服超额奖金', 'rule_type' => 'threshold_bonus', 'scope_business' => '网站模板,AI网站定制', 'scope_group' => 'customer_service', 'scope_role'
     => '*', 'employee' => null, 'metric' => 'profit', 'params' => ['threshold' => 20000, 'rate' => 0.008], 'note' => '毛利超过 2 万的部分 × 0.8%（合接订单按整单毛利计入）'
     ],

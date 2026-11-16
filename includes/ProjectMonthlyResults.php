@@ -107,12 +107,13 @@ function ps_monthly_results($month, $forceLive = false, $context = null)
             if (!ps_monthly_snapshot_matches($rule, $snap)) continue;
             [$profit, $sales, $commission, $share, $portion] = ps_monthly_snapshot_values($snap);
             $eid = (int)$snap['employee_id'];
-            $people[$eid] = $people[$eid] ?? ['profit' => 0.0, 'sales' => 0.0, 'commission' => 0.0, 'share' => 0.0, 'portion' => 0.0, 'orders' => 0];
+            $people[$eid] = $people[$eid] ?? ['profit' => 0.0, 'sales' => 0.0, 'commission' => 0.0, 'share' => 0.0, 'portion' => 0.0, 'orders' => 0, 'costs' => 0.0];
             $people[$eid]['portion'] += $portion;
             $people[$eid]['profit'] += $profit;
             $people[$eid]['sales'] += $sales;
             $people[$eid]['commission'] += $commission;
             $people[$eid]['share'] += $share;
+            $people[$eid]['costs'] += (float)($snap['direct_cost'] ?? 0.0);
             $people[$eid]['orders']++;
         }
         $metric = $rule['metric'];
