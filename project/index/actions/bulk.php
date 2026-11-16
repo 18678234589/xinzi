@@ -45,6 +45,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['bulk_action'])) {
                 if (!$review['applied']) throw new RuntimeException(implode('；', array_column($review['reasons'], 'text')) ?: '尚未满足自动结算条件');
             } elseif ($bulkAction === 'finish') {
                 if ($row['delivery_status'] === 'finished') throw new RuntimeException('已是完成状态');
+                if (!ps_can_mark_order_finished($actor, $orderId)) throw new RuntimeException('网站业务的完成情况只有本订单的技术或财务可以标记');
                 db()->prepare("UPDATE project_orders SET delivery_status='finished',row_version=row_version+1 WHERE id=?")->execute([$orderId]);
                 // 自动通过待审的交付完成申请
                 db()->prepare("UPDATE project_order_requests SET status='approved', reviewer_id=?, reviewed_at=NOW(), review_note='批量标记交付完成时自动通过' WHERE order_id=? AND request_type='delivery_completion' AND status='pending'"

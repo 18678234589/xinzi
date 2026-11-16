@@ -3,6 +3,7 @@
 if (!$finance && !ps_can_mark_delivery_finished($actor)) throw new RuntimeException('无权限');
 
 $del = ($_POST['delivery_status'] ?? '') === 'finished' ? 'finished' : 'unfinished';
+if (!$finance && $del === 'finished' && !ps_can_mark_order_finished($actor, $id)) throw new RuntimeException('网站业务的完成情况只有本订单的技术或财务可以标记；客服请通知技术确认');
 
 if (!$finance) {
     // 非财务人员（客服、售后、冯超等）仅更新交付状态

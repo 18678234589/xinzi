@@ -7,7 +7,7 @@ require_once __DIR__ . '/ProjectMiniappDelivery.php';
 /** 内存预期记录：只用于看板，不写入分成快照或收款。 */
 function ps_expected_snapshot_rows($order, $summary, $source = [])
 {
-    if (ps_miniapp_custom_unshipped($order, $source)) return [];
+    if (ps_forecast_unshipped($order, $source)) return [];
     $order = ps_order_asof($order);
     $rows = [];
     $closed = preg_match('/交易关闭|已关闭|取消订单|已取消/u', (string)($source['trade_status'] ?? '')) === 1;
@@ -18,6 +18,7 @@ function ps_expected_snapshot_rows($order, $summary, $source = [])
     $deptFee = (float)$order['contract_amount'] * ps_business_service_fee_rate($order['project_type']);
     $deptCost = (float)$summary['direct_cost'] + (float)$summary['pending_cost'];
     foreach ($summary['groups'] as $group => $data) {
+        if (ps_forecast_group_skip($order, $group)) continue; // 技术要等交付完成才预计
         $people = $data['people'];
         $weight = array_sum(array_map(function ($p) { return (float)$p['group_weight']; }, $people));
         if ($people && abs($weight - 1) > 0.00001) continue; // 分配无效不能把重复的 100% 算成真实预期收入。

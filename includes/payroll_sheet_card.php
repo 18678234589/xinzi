@@ -208,7 +208,7 @@ endforeach; ?>
     <label class="pps-check"><input type="checkbox" name="notify" value="1" checked> 保存后发站内信通知本人</label>
     <p class="pps-hint" data-f="fhint"></p>
     <p class="pps-err" data-f="ferr" hidden></p>
-    <div class="pps-actions"><a class="pps-linkbtn" data-f="review" href="#" target="_blank" hidden><i class="fas fa-clipboard-check"></i> 去审核订单</a><button type="button" data-f="fcancel">取消</button><button type="submit" class="is-primary">保存</button></div>
+    <div class="pps-actions"><a class="pps-linkbtn" data-f="review" href="#" target="_blank" hidden><i class="fas fa-clipboard-check"></i> 去审核订单</a><a class="pps-linkbtn" data-f="export" href="#" hidden title="导出这个月全部订单明细（含未审核），和手算表逐行核对"><i class="fas fa-file-csv"></i> 导出订单明细</a><button type="button" data-f="fcancel">取消</button><button type="submit" class="is-primary">保存</button></div>
   </form></dialog>
   <?php if (ps_director_can($ppsActor)): ?>
   <dialog class="pps-dialog" id="ppsDirector"><form method="post" class="pps-directorform" autocomplete="off">

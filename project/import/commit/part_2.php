@@ -42,6 +42,11 @@
                         if (array_intersect($commitConflicts, $selectedBusiness === '商标' && $actor['role'] === 'technical' ? ['售价'] : ['店铺'
     , '售价', '付款昵称', '支付流水号'])) throw new RuntimeException('第 ' . $row['line'] . ' 行买家资料与原单不一致，请重新核对');
                         $orderId = (int)$existing['id'];
+                        if (!empty($row['site_rebind_order_id']) && !empty($row['site_key'])) { // 把之前的自动标识（auto-N）更新成表格里的域名
+                            $rebindDup = $pdo->prepare('SELECT 1 FROM project_site_projects WHERE external_order_no=? AND site_key=?'); $rebindDup->execute([(string)$row['site_external_no'], (string)$row['site_key']]);
+                            if (!$rebindDup->fetchColumn()) { $pdo->prepare("UPDATE project_site_projects SET site_key=? WHERE order_id=? AND site_key LIKE 'auto-%'")->execute([(string)$row['site_key'], (int)$row['site_rebind_order_id']]); ps_audit('order', (int)$row['site_rebind_order_id'], 'site_identity_rebind', $actor, ['site_key' => (string)$row['site_key']]); }
+                        }
+                        if (!empty($row['site_bind_existing']) && !empty($row['site_key']) && !psp_order($orderId)) psp_register($orderId, $orderId, (string)$row['site_external_no'], (string)$row['site_key'], $actor);
                         if ($priceVerdict && in_array($priceVerdict['verdict'], ['adopt_sheet', 'owner_correct'], true) && poj_apply_price($orderId, $row['contract_amount'], $priceVerdict['flow'], $actor, ['line' => $row['line']] + ($priceVerdict['verdict'] === 'owner_correct' ? ['basis' => '上传人本人更正自己写错的售价（草稿、无收款、无流水）'] : []))) $existing['contract_amount'] = $row['contract_amount'];
                         // 同号二次上传只补缺失的分成组；已有技术或客服不改人、不改权重。
                         $missing = [];
@@ -76,8 +81,8 @@
                             poj_join_group($orderId, (int)$actor['employee_id'], $joinTarget['group'], $joinTarget['role'], $actor, ['line' => $row['line'], 'reason' => '同一笔销售只记一次', 'from_business' => $row['project_type']]);
                         } elseif (!empty($row['join_group']) && $row['join_group'] === 'backend') {
                             ps_import_add_backend($orderId, (int)$actor['employee_id'], $actor, ['line' => $row['line'], 'reason' => '导入：表格写本人为后端，订单只有前端']);
-                        } elseif (!empty($row['join_group']) && $row['join_group'] === 'customer_service') {
-                            poj_join_group($orderId, (int)$actor['employee_id'], 'customer_service', (string)($row['join_role'] ?? '客服'), $actor, ['line' => $row['line'], 'reason' => '同一订单多位客服分摊']);
+                        } elseif (!empty($row['join_group']) && in_array($row['join_group'], ['customer_service', 'technical'], true)) {
+                            poj_join_group($orderId, (int)$actor['employee_id'], $row['join_group'], (string)($row['join_role'] ?? ($row['join_group'] === 'technical' ? '技术' : '客服')), $actor, ['line' => $row['line'], 'reason' => $row['join_group'] === 'technical' ? '上传人确认参与，作为共同技术加入' : '同一订单多位客服分摊']);
                         }
                         if ($actor['role'] !== 'finance' && !$departmentMode && !ps_management_can_business($actor, $selectedBusiness)) {
                             $access = $pdo->prepare('SELECT 1 FROM project_participants WHERE order_id=? AND employee_id=?');
@@ -215,6 +220,7 @@
                     if ($departmentMode) ps_department_import_record($orderId, $actor);
                     if ($businessDefinition['resources']) ps_intake_save_resources($orderId, 'excel', (int)$row['line'], $domainTemplate, $serverTemplate, is_numeric($row['ssl_used'
     ]) ? $row['ssl_used'] : null, $actor['role'] === 'customer_service' || $forcedMode === 'pending' ? 'pending' : null, $programTemplate);
+                    if (!empty($row['outsource'])) { $osTpl = ps_intake_template((int)$row['outsource']['template_id'], 'outsourcing'); if ($osTpl) ps_intake_add_template_cost($orderId, $osTpl, $actor, 'Excel 第' . $row['line'] . '行：外包技术', ps_outsource_is_actual($osTpl) ? (float)$row['outsource']['amount'] : 1); }
                     if ($programTemplate) ps_intake_add_template_cost($orderId, $programTemplate, $actor, 'Excel 第' . $row['line'] . '行：程序套餐');
                     if ($domainTemplate) ps_intake_add_template_cost($orderId, $domainTemplate, $actor, 'Excel 第' . $row['line'] . '行：域名');
                     if ($serverTemplate) ps_intake_add_template_cost($orderId, $serverTemplate, $actor, 'Excel 第' . $row['line'] . '行：服务器');

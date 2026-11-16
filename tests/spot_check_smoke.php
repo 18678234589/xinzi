@@ -1,5 +1,5 @@
 <?php
-// 财务抽查任务：免审业务（设计 / 网站模板 / AI网站定制）自动结算的订单，每个业务每月补足 5 单待抽查；财务标记无误 / 有问题；页面顶部提示和站内信。
+// 财务抽查任务：免审业务（设计 / 网站模板 / AI网站定制）自动结算的订单，每月合计只补足 5 单待抽查（各业务轮流）；财务标记无误 / 有问题；页面顶部提示和站内信。
 // 会写入测试数据，只允许专用测试库：DB_NAME=xinzi_test DB_HOST=127.0.0.1 DB_PORT=13399 php tests/spot_check_smoke.php
 if (PHP_SAPI !== 'cli') { http_response_code(403); exit; }
 require_once __DIR__ . '/../includes/ProjectIntake.php';
@@ -30,11 +30,11 @@ try {
     }
     $added = psc_assign($month);
     $by = psc_pending_by_business();
-    $check(($by[PSC_REFUND_BUSINESS] ?? 0) === 5, '自动结案的退款 7 条 → 抽 5 条');
-    $check(($by['设计'] ?? 0) === 5 && ($by['网站模板'] ?? 0) === 3, '设计 7 单自动结算 → 抽 5 单；网站模板只有 3 单 → 全部抽（' . json_encode($by, JSON_UNESCAPED_UNICODE) . '）');
-    $check($added === 13 && psc_pending_count() >= 13, '新增 13 条（设计 5 + 网站模板 3 + 退款 5），待抽查总数 ≥ 13');
-    $check(psc_assign($month) === 0, '再次分配不会重复（已满 5 单 / 没有可抽的）');
-    $row = $pdo->query("SELECT id FROM project_spot_checks WHERE month='$month' AND business='设计' LIMIT 1")->fetch();
+    $check($added === 5 && array_sum($by) === 5, '设计 7 单、网站模板 3 单、退款 7 条：每月总共只抽 5 个（' . json_encode($by, JSON_UNESCAPED_UNICODE) . '）');
+    $check(($by['设计'] ?? 0) >= 2 && ($by['网站模板'] ?? 0) >= 2 && ($by[PSC_REFUND_BUSINESS] ?? 0) === 0, '各业务轮流各抽，订单优先于退款：设计 / 网站模板各至少 2 单');
+    $check(psc_pending_count() >= 5, '待抽查总数 ≥ 5');
+    $check(psc_assign($month) === 0, '再次分配不会重复（已满 5 个）');
+    $row = $pdo->query("SELECT id FROM project_spot_checks WHERE month='$month' LIMIT 1")->fetch();
     $threw = false; try { psc_handle($finance, $row['id'], 'problem', ''); } catch (RuntimeException $e) { $threw = true; }
     $check($threw, '有问题必须写明情况');
     $threw = false; try { psc_handle(['role' => 'customer_service'], $row['id'], 'ok'); } catch (RuntimeException $e) { $threw = true; }

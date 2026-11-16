@@ -18,14 +18,14 @@ function ps_next_open_month($from = null)
  * 与“原快照 + 以往调整”的差额写入调整单，计入指定月份（默认下一个未锁定月）。原快照保持不变。
  * 全额退款（可结算收入 ≤ 0）时每单补助一并收回，与小程序结算表“-350 / -20”口径一致。
  */
-function ps_post_adjustment($orderId, $actor, $refundAmount, $costDelta, $reason, $payrollMonth)
+function ps_post_adjustment($orderId, $actor, $refundAmount, $costDelta, $reason, $payrollMonth, $recalcOnly = false)
 {
     if (($actor['role'] ?? '') !== 'finance') throw new RuntimeException('只有财务可以登记售后调整');
     $refundAmount = round((float)$refundAmount, 2);
     $costDelta = round((float)$costDelta, 2);
     $reason = trim((string)$reason);
     if ($refundAmount < 0) throw new RuntimeException('退款金额不能为负数');
-    if ($refundAmount == 0 && $costDelta == 0) throw new RuntimeException('请填写退款金额或成本调整');
+    if ($refundAmount == 0 && $costDelta == 0 && !$recalcOnly) throw new RuntimeException('请填写退款金额或成本调整'); // $recalcOnly：实收等变化后只按快照口径重算差额
     if ($reason === '' || mb_strlen($reason) > 300) throw new RuntimeException('请填写调整原因（300 字以内）');
     if (!preg_match('/^\d{4}-(0[1-9]|1[0-2])$/', (string)$payrollMonth)) throw new RuntimeException('调整计入月份无效');
     $pdo = db();

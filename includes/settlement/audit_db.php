@@ -32,8 +32,28 @@ function ps_recalculate_cash($orderId)
     $refundCap = (float)$totals['receipt'] > 0 ? (float)$totals['receipt'] : (float)$cs->fetchColumn();
     if ((float)$totals['refund'] > 0 && (float)$totals['refund'] > $refundCap + 0.004) throw new RuntimeException('累计退款不能超过已审核实收（尚未录入收款时不能超过售价）'
     );
+    $old = db()->prepare('SELECT receipt_amount,settlement_status FROM project_orders WHERE id=?'); $old->execute([(int)$orderId]); $before = $old->fetch();
     $update = db()->prepare('UPDATE project_orders SET receipt_amount=?,refund_amount=?,row_version=row_version+1 WHERE id=?');
     $update->execute([$totals['receipt'], $totals['refund'], (int)$orderId]);
+    // 已审核订单的实收被改了（财务手动改 / 参与人更正）：分成快照不动，按快照口径重算差额，自动记为调整（计入下一个未锁定月份），不用财务再去结算单手工调
+    if ($before && in_array($before['settlement_status'], ['approved', 'locked'], true) && abs((float)$before['receipt_amount'] - (float)$totals['receipt']) >= 0.005) {
+        try {
+            require_once __DIR__ . '/adjustment.php';
+            $has = db()->prepare('SELECT COUNT(*) FROM project_commission_snapshots WHERE order_id=?'); $has->execute([(int)$orderId]);
+            if ((int)$has->fetchColumn() > 0) {
+                // 默认计入月份：原分成所在月份还没核算发放（晚于“已核算月份”）且未锁定的，更正记回那个月（多记的在哪个月多发，就在哪个月扣）；已发放的才顺延到下一个未锁定月份
+                $month = !empty($GLOBALS['ps_receipt_adjust_month']) ? (string)$GLOBALS['ps_receipt_adjust_month'] : ps_next_open_month();
+                if (empty($GLOBALS['ps_receipt_adjust_month'])) {
+                    $sm = db()->prepare('SELECT MAX(payroll_month) FROM project_commission_snapshots WHERE order_id=?'); $sm->execute([(int)$orderId]); $snapMonth = (string)$sm->fetchColumn();
+                    $settledThrough = (string)ps_setting_get('refund_settled_through', '');
+                    if (preg_match('/^\d{4}-(0[1-9]|1[0-2])$/', $snapMonth) && $snapMonth < $month && ($settledThrough === '' || $snapMonth > $settledThrough) && ps_next_open_month($snapMonth) === $snapMonth) $month = $snapMonth;
+                }
+                ps_post_adjustment((int)$orderId, ['type' => 'system', 'id' => 0, 'role' => 'finance'], 0, 0, '实收变更：¥' . number_format((float)$before['receipt_amount'], 2, '.', '') . ' → ¥' . number_format((float)$totals['receipt'], 2, '.', ''), $month, true);
+            }
+        } catch (Throwable $e) {
+            ps_audit('order', (int)$orderId, 'receipt_adjust_failed', ['type' => 'system', 'id' => 0, 'role' => 'finance'], ['error' => $e->getMessage()]);
+        }
+    }
 }
 
 function ps_participants($orderId)

@@ -55,6 +55,19 @@
             <div class="small text-muted mt-1">¥500 元以内保存后自动生效，超过由财务审核。</div>
           </div>
 
+          <!-- 2.5 改实收 -->
+          <div class="form-group mb-3 pb-2 border-bottom d-none" id="quickSecReceipt">
+            <label class="font-weight-bold text-dark mb-1 small" for="quickInputReceipt">
+              <i class="fas fa-wallet text-success mr-1"></i> 实收金额（净实收）
+            </label>
+            <div class="input-group input-group-sm mb-1">
+              <div class="input-group-prepend"><span class="input-group-text">¥</span></div>
+              <input type="number" step="0.01" min="0" id="quickInputReceipt" name="receipt_amount" class="form-control" placeholder="不改就留着原值" disabled>
+            </div>
+            <input type="text" id="quickInputReceiptNote" name="receipt_note" class="form-control form-control-sm" placeholder="更正原因（如：实付含别的部门的钱、重复订单叠加）" disabled>
+            <div class="small text-muted mt-1" id="quickReceiptHint">实收就是收到的钱，分成按它算。店铺实付可能含别的部门 / 订单的钱，这里可以直接改成本单自己的金额。</div>
+          </div>
+
           <!-- 3. 改到期时间 -->
           <div class="form-group mb-3 pb-2 border-bottom" id="quickSecExpiry">
             <label class="font-weight-bold text-dark mb-1 small" for="quickInputExpiry">
@@ -108,6 +121,9 @@ document.addEventListener('DOMContentLoaded', function () {
   var kindSelect = document.getElementById('quickInputKind');
   var costInput = document.getElementById('quickInputCost');
   var costReasonInput = document.getElementById('quickInputCostReason');
+  var receiptSec = document.getElementById('quickSecReceipt');
+  var receiptInput = document.getElementById('quickInputReceipt');
+  var receiptNoteInput = document.getElementById('quickInputReceiptNote');
   var expiryInput = document.getElementById('quickInputExpiry');
   var phoneInput = document.getElementById('quickInputPhone');
   var wechatInput = document.getElementById('quickInputWechat');
@@ -151,9 +167,26 @@ document.addEventListener('DOMContentLoaded', function () {
       kindSelect.appendChild(opt);
     });
 
+    var isApproved = (data.settlement_status === 'approved' || data.settlement_status === 'locked');
+    kindSelect.disabled = isApproved;
+    var hintEl = document.getElementById('quickKindHint');
+    if (hintEl) {
+      hintEl.textContent = isApproved ? '已审核订单业务类型已锁定，如需修改请联系财务。' : '可选业务类型，如开发定制、新订单、定制、续费、技术服务等。';
+    }
+
     // 填充成本
     costInput.value = (data.cost_amount !== '' && Number(data.cost_amount) > 0) ? data.cost_amount : '';
     costReasonInput.value = data.cost_reason || '';
+
+    // 填充实收（只有能改的订单才显示；不改时输入框保持禁用，不会随表单提交）
+    if (data.can_receipt) {
+      receiptSec.classList.remove('d-none'); receiptInput.disabled = false; receiptNoteInput.disabled = false;
+      receiptInput.value = data.receipt_amount; receiptInput.defaultValue = String(data.receipt_amount); receiptNoteInput.value = '';
+      var rh = document.getElementById('quickReceiptHint');
+      if (rh) rh.textContent = data.approved ? '订单已审核：改实收后原分成快照保留，差额自动记为调整计入下一个未锁定月份。' : '实收就是收到的钱，分成按它算。店铺实付可能含别的部门 / 订单的钱，这里可以直接改成本单自己的金额。';
+    } else {
+      receiptSec.classList.add('d-none'); receiptInput.disabled = true; receiptNoteInput.disabled = true; receiptInput.value = ''; receiptNoteInput.value = '';
+    }
 
     // 填充到期时间
     expiryInput.value = data.server_expiry || '';
@@ -174,6 +207,9 @@ document.addEventListener('DOMContentLoaded', function () {
       } else if (tab === 'cost') {
         costInput.focus();
         document.getElementById('quickSecCost').scrollIntoView({behavior:'smooth', block:'center'});
+      } else if (tab === 'receipt' && !receiptInput.disabled) {
+        receiptInput.focus();
+        receiptSec.scrollIntoView({behavior:'smooth', block:'center'});
       } else if (tab === 'expiry') {
         expiryInput.focus();
         document.getElementById('quickSecExpiry').scrollIntoView({behavior:'smooth', block:'center'});

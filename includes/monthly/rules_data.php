@@ -265,7 +265,9 @@ function ps_sales_package_calc($params, $orders, $reviewRate = null)
     ]), money_plain($threshold), $small, money_plain($tier['small']))];
     $returning = round(array_sum(array_map(function ($o) { return !empty($o['returning']) ? (float)$o['income'] : 0.0; }, $orders)), 2);
     $returningRate = (float)($params['returning_rate'] ?? 0);
-    if ($returning > 0 && $returningRate > 0) $items[] = ['老客户找回', $returning * $returningRate, '老客户找回订单收入 ¥' . money_plain($returning) . ' × ' . round
+    // 保底档（该档没有营业额比例、没有单量补助）不发任何提成，老客户找回 +10% 也只在有提成的档位才加。
+    $hasCommissionTier = (float)$tier['rate'] > 0 || (float)$tier['big'] > 0 || (float)$tier['small'] > 0;
+    if ($hasCommissionTier && $returning > 0 && $returningRate > 0) $items[] = ['老客户找回', $returning * $returningRate, '老客户找回订单收入 ¥' . money_plain($returning) . ' × ' . round
     ($returningRate * 100, 4) . '%'];
     $reviewMin = (float)($params['review_min'] ?? 0);
     if ($reviewRate !== null && $reviewMin > 0 && (float)$reviewRate < $reviewMin) $items[] = ['好评率罚款', -(float)($params['review_penalty'] ?? 0), '本月好评率 ' . rtrim

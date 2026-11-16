@@ -7,7 +7,8 @@ $isFinance = ($actor['role'] ?? '') === 'finance';
 $scope = pbr_scope($actor); $canReview = $scope !== null; // 财务，或被授权审核指定业务的人员（如网站人事）
 if (!$isFinance && empty($actor['employee_id'])) { http_response_code(403); exit('无权限'); }
 $error = ''; $success = ''; $failed = [];
-$month = (string)($_GET['month'] ?? $_POST['month'] ?? date('Y-m', strtotime('first day of last month')));
+require_once __DIR__ . '/../includes/ProjectPayrollSheet.php';
+$month = (string)($_GET['month'] ?? $_POST['month'] ?? pps_default_month()); // 默认月份与首页一致（上月全部结算后自动换成当月）
 if (!preg_match('/^\d{4}-(0[1-9]|1[0-2])$/', $month)) $month = date('Y-m');
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -26,6 +27,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     } catch (Throwable $e) { $error = $e instanceof RuntimeException ? $e->getMessage() : '操作失败，请稍后再试'; }
 }
 
+if ($isFinance) pbr_close_stale(); // 没有可审核订单的旧申请自动结案
 $reqId = (int)($_GET['id'] ?? $_POST['id'] ?? 0);
 $detail = null; $detailOrders = [];
 if ($canReview && $reqId) {
@@ -41,6 +43,8 @@ if ($canReview) { // 财务直接选员工 + 月份审核，不用等对方提�
         if ($empName !== '') $detail = ['id' => 0, 'employee_id' => $empId, 'emp_name' => $empName, 'month' => $month, 'order_count' => count($detailOrders), 'amount' => array_sum(array_column($detailOrders, 'contract_amount')), 'note' => '', 'status' => 'pending'];
     }
 }
+$waitingOrders = []; // 申请里还剩、但现在不能审核的订单（待发货 / 未到账）：空列表时告诉财务原因，而不是一片空白
+if ($detail && $canReview && !$detailOrders) $waitingOrders = array_values(array_filter(pbr_orders((int)$detail['employee_id'], $detail['month']), function ($o) { return !empty($o['unshipped']); }));
 $mine = $isFinance ? [] : pbr_orders((int)$actor['employee_id'], $month);
 $myList = [];
 if (!$isFinance && $canReview) { $mq = db()->prepare('SELECT * FROM project_batch_reviews WHERE employee_id=? ORDER BY id DESC LIMIT 12'); $mq->execute([(int)$actor['employee_id']]); $myList = $mq->fetchAll(); }
@@ -68,21 +72,29 @@ function pbr_state_badge($row) { [$label, $tone] = pa_state_meta($row['review_st
   <?php if ($failed): ?><div class="alert alert-warning"><b>这些订单未处理：</b><ul class="mb-0"><?php foreach ($failed as $f): ?><li><?php echo e($f); ?></li><?php endforeach; ?></ul></div><?php endif; ?>
 
 <?php if ($isFinance): ?><p class="small"><a href="<?php echo BASE_URL; ?>/project/completion_sync.php"><i class="fas fa-file-upload mr-1"></i>上传订单汇总表，按“到账情况”标记已完成 / 未完成</a></p><?php endif; ?>
+<?php if ($canReview) include __DIR__ . '/../includes/batch_review_help.php'; ?>
+<?php if ($isFinance): ?><p class="small"><a href="<?php echo BASE_URL; ?>/project/precheck.php?month=<?php echo e($month); ?>"><i class="fas fa-stethoscope mr-1"></i><b>月度上传后自检</b>（审核前先看：订单类型 / 技术人数对不上、套餐重复计域名、金额对不上、无订单号附加行……）</a></p><p class="small"><a href="<?php echo BASE_URL; ?>/project/carry_over.php"><i class="fas fa-exchange-alt mr-1"></i>往月订单改记入本月（往月被批量审核、实际本月才做完 / 到账的订单，把分成挪到本月）</a></p><?php endif; ?>
+<?php $settledThrough = (string)ps_setting_get('refund_settled_through', ''); if ($canReview && $settledThrough !== '' && $month <= $settledThrough): ?>
+  <div class="alert alert-info"><b><?php echo e($month); ?> 已核算（财务设置的“已核算月份”是 <?php echo e($settledThrough); ?>）。</b>这个月的工资已经发放；现在审核通过的订单，系统会自动把分成记入最早还没核算的月份，不会重复记进已发放的月份，往月订单到账后直接审核即可。</div>
+<?php endif; ?>
 <?php if ($canReview && $detail): ?>
   <div class="card mb-4"><div class="card-header d-flex justify-content-between flex-wrap"><span><?php echo e($detail['emp_name']); ?> · <?php echo e($detail['month']); ?> · 申请 <?php echo (int)$detail['order_count']; ?> 单 ¥<?php echo e(number_format((float)$detail['amount'], 2)); ?></span><a href="<?php echo BASE_URL; ?>/project/batch_review.php">← 返回列表</a></div>
     <?php if ($detail['note'] !== ''): ?><div class="card-body pb-0 small"><b>申请说明：</b><?php echo e($detail['note']); ?></div><?php endif; ?>
     <form method="post"><input type="hidden" name="csrf" value="<?php echo e(ps_csrf_token()); ?>"><input type="hidden" name="id" value="<?php echo (int)$detail['id']; ?>"><input type="hidden" name="month" value="<?php echo e($detail['month']); ?>"><input type="hidden" name="emp" value="<?php echo (int)$detail['employee_id']; ?>">
     <div class="table-responsive"><table class="table table-hover mb-0"><thead class="thead-light"><tr><th style="width:36px"><input type="checkbox" id="pbrAll" checked aria-label="全选"></th><th>订单号 / 付款昵称</th><th>日期</th><th>业务</th><th class="text-right">售价</th><th>系统核对</th><th>卡在哪</th><th></th></tr></thead><tbody>
     <?php foreach ($detailOrders as $o): ?><tr class="<?php echo $o['exception'] ? 'table-warning' : ''; ?>">
-      <td><input type="checkbox" name="ids[]" value="<?php echo (int)$o['id']; ?>" class="pbr-pick" <?php echo $o['exception'] ? '' : 'checked'; ?>></td>
+      <td><input type="checkbox" name="ids[]" value="<?php echo (int)$o['id']; ?>" class="pbr-pick" <?php echo ($o['exception'] || $o['delivery_status'] !== 'finished') ? '' : 'checked'; ?>></td>
       <td><b><?php echo e($o['order_no']); ?></b><div class="small text-muted"><?php echo e($o['nick'] ?: '—'); ?></div></td><td class="text-nowrap"><?php echo e($o['order_date']); ?></td>
       <td class="small"><?php echo e($o['project_type']); ?><div class="text-muted"><?php echo e($o['order_kind']); ?></div></td><td class="text-right">¥<?php echo e(number_format((float)$o['contract_amount'], 2)); ?></td>
-      <td><?php echo pbr_state_badge($o); ?></td><td class="small"><?php echo $o['why'] ? e(implode('；', $o['why'])) : '—'; ?><?php echo $o['exception'] ? ' <b class="text-danger">需单独处理</b>' : ''; ?></td>
+      <td><?php echo pbr_state_badge($o); ?></td><td class="small"><?php echo $o['why'] ? e(implode('；', $o['why'])) : '—'; ?><?php echo $o['exception'] ? ' <b class="text-danger">需单独处理</b>' : ''; ?><?php if ($o['delivery_status'] !== 'finished' && !$o['exception']): ?><div class="text-warning font-weight-bold">技术还没做完？默认不勾选。通过会自动记为“已完成”并发放提成；等技术标完成后系统会自动审核通过，不用手动勾。</div><?php endif; ?></td>
       <td class="text-nowrap"><a class="btn btn-sm btn-outline-secondary" target="_blank" href="<?php echo BASE_URL; ?>/project/order.php?id=<?php echo (int)$o['id']; ?>">打开</a></td></tr><?php endforeach; ?>
-    <?php if (!$detailOrders): ?><tr><td colspan="8" class="text-center text-muted py-4">这个月没有待审核订单</td></tr><?php endif; ?>
+    <?php if (!$detailOrders): ?><tr><td colspan="8" class="text-center text-muted py-4"><?php if ($waitingOrders): ?><i class="fas fa-truck text-warning mr-1"></i>现在没有可以审核的订单：申请里还剩 <b><?php echo count($waitingOrders); ?></b> 单待发货 / 未到账，等客户收货或买家付款后才结算，暂不审核（下面列出）。其余订单已经审核通过。<?php else: ?><i class="fas fa-check-circle text-success mr-1"></i>这个月该员工的订单都已经审核通过了，这条申请无需再处理。<?php endif; ?></td></tr><?php endif; ?>
     </tbody></table></div>
+    <?php if ($waitingOrders): ?><div class="card-body border-top"><div class="font-weight-bold small mb-2">暂不能审核的订单（待发货 / 未到账）</div><div class="table-responsive"><table class="table table-sm mb-0"><tbody>
+      <?php foreach ($waitingOrders as $o): ?><tr><td><b><?php echo e($o['order_no']); ?></b><div class="small text-muted"><?php echo e($o['nick'] ?: '—'); ?></div></td><td class="text-nowrap"><?php echo e($o['order_date']); ?></td><td class="small"><?php echo e($o['project_type']); ?></td><td class="text-right">¥<?php echo e(number_format((float)$o['contract_amount'], 2)); ?></td><td class="small text-muted"><?php echo e(($o['trade_status'] ?? '') !== '' ? '店铺状态：' . $o['trade_status'] : implode('；', $o['why'])); ?></td><td><a class="btn btn-sm btn-outline-secondary" target="_blank" href="<?php echo BASE_URL; ?>/project/order.php?id=<?php echo (int)$o['id']; ?>">打开</a></td></tr><?php endforeach; ?>
+    </tbody></table></div></div><?php endif; ?>
     <?php if ($detailOrders && $detail['status'] === 'pending'): ?><div class="card-body">
-      <button name="do" value="approve" class="btn btn-success" onclick="return confirm('对勾选的订单：按售价登记收款、待审核成本一并通过，并审核生成分成（未交付完成的订单将一并标注为已完成）。确认已抽查？')"><i class="fas fa-check-double mr-1"></i>勾选的全部通过</button>
+      <button name="do" value="approve" class="btn btn-success" onclick="return confirm('对勾选的订单：按售价登记收款、待审核成本一并通过，并审核生成分成（未交付完成的订单将一并标注为已完成，技术没做完的请不要勾选）。确认已抽查？')"><i class="fas fa-check-double mr-1"></i>勾选的全部通过</button>
       <span class="small text-muted ml-2">默认勾选没有异常的订单；提交前请核对本次勾选范围。</span>
       <?php if ($isFinance): ?><div class="mt-3 pt-3 border-top">
         <label for="pbrVoidReason" class="small font-weight-bold">批量作废原因</label>
@@ -101,6 +113,12 @@ function pbr_state_badge($row) { [$label, $tone] = pa_state_meta($row['review_st
     <noscript><button class="btn btn-outline-secondary">查看</button></noscript><span class="small text-muted">不用等对方提交申请，选人和月份就能直接抽查审核。</span></form>
 <?php endif; ?>
 <?php if ($canReview): ?>
+  <div class="card mb-4"><div class="card-header"><?php echo e($month); ?> 有未审核订单的人员：<?php echo count($empList); ?> 人 · 共 <?php echo array_sum(array_column($empList, 'n')); ?> 单可审核 <span class="small text-muted font-weight-normal">（上面切换月份，这里随之变化；待发货 / 未到账的订单不在内）</span></div>
+    <div class="table-responsive"><table class="table table-hover mb-0"><thead class="thead-light"><tr><th>员工</th><th class="text-right">可审核订单</th><th class="text-right">售价合计</th><th>异常</th><th></th></tr></thead><tbody>
+    <?php foreach ($empList as $em): ?><tr><td><b><?php echo e($em['name']); ?></b></td><td class="text-right"><?php echo (int)$em['n']; ?> 单</td><td class="text-right">¥<?php echo e(number_format((float)($em['amount'] ?? 0), 2)); ?></td>
+      <td class="small"><?php echo !empty($em['exceptions']) ? '<span class="badge badge-warning">' . (int)$em['exceptions'] . ' 单需单独处理</span>' : '—'; ?></td>
+      <td class="text-right"><a class="btn btn-sm btn-outline-secondary mr-1" title="导出这个月全部订单明细（含未审核），和手算表逐行核对" href="<?php echo BASE_URL; ?>/project/employee_orders_export.php?month=<?php echo e($month); ?>&amp;employee_id=<?php echo (int)$em['id']; ?>"><i class="fas fa-file-csv"></i> 导出明细</a><a class="btn btn-sm btn-primary" href="?month=<?php echo e($month); ?>&amp;emp=<?php echo (int)$em['id']; ?>">去审核</a></td></tr><?php endforeach; ?>
+    <?php if (!$empList): ?><tr><td colspan="5" class="text-center text-muted py-4"><i class="fas fa-check-circle text-success mr-1"></i><?php echo e($month); ?> 没有需要审核的订单</td></tr><?php endif; ?></tbody></table></div></div>
   <div class="card mb-4"><div class="card-header">全部申请</div><div class="table-responsive"><table class="table table-hover mb-0"><thead class="thead-light"><tr><th>申请人</th><th>月份</th><th>订单</th><th>说明</th><th>状态</th><th></th></tr></thead><tbody>
   <?php foreach ($list as $r): [$lt, $lc] = $st[$r['status']]; ?><tr><td><b><?php echo e($r['emp_name']); ?></b><div class="small text-muted"><?php echo e(substr($r['updated_at'], 0, 16)); ?></div></td><td><?php echo e($r['month']); ?></td>
     <td><?php echo (int)$r['order_count']; ?> 单 · ¥<?php echo e(number_format((float)$r['amount'], 2)); ?></td><td class="small"><?php echo e($r['note'] ?: '—'); ?></td>

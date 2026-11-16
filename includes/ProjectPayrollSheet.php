@@ -147,10 +147,11 @@ function pps_pending($month, $onlyEmployeeId = 0)
     foreach ($rq->fetchAll() as $r) $ratio[$r['t'] . '|' . $r['g']] = (float)$r['inc'] > 0 ? max(0.0, min(0.9, (float)$r['cost'] / (float)$r['inc'])) : 0.0;
     $out = [];
     foreach ($q->fetchAll() as $order) {
-        // 开发类业务（网站 / 小程序等）没确认已完成的订单不计入预计：完成情况以技术填写 / 财务按汇总表标记为准
-        if ($order['delivery_status'] !== 'finished' && !empty(ps_business_catalog()[ps_business_normalize((string)$order['project_type'])]['requires_technical'])) continue;
+        // 小程序定制没发货不计入预计；网站类订单只要已收款就计入预计（和财务整月核算口径一致，见 ps_forecast_unshipped）；其他开发类业务没确认已完成的不计入
         require_once __DIR__ . '/ProjectMiniappDelivery.php';
-        if (ps_miniapp_custom_unshipped($order, ['trade_status' => $order['trade_status']])) continue;
+        // 完成状态目前仅针对网站类业务（网站模板 / AI网站定制）；小程序定制按发货状态；其他业务不因未完成跳过
+        if (ps_is_website_order($order['project_type']) && $order['delivery_status'] !== 'finished') continue;
+        if (ps_forecast_unshipped($order, ['trade_status' => $order['trade_status']])) continue;
         if (strpos((string)$order['trade_status'], '交易关闭') !== false && (float)$order['receipt_amount'] <= 0) continue;
         if (strpos((string)$order['trade_status'], '等待卖家发货') !== false && (float)$order['receipt_amount'] <= 0) continue; // 买家已付款、店铺还没发货：不算预计（9 月核对对表误差更小）
         if ((float)$order['contract_amount'] <= 0 && (float)$order['receipt_amount'] <= 0) continue;
@@ -158,6 +159,7 @@ function pps_pending($month, $onlyEmployeeId = 0)
         $costs = ps_costs($order['id']);
         $sum = ps_summary($order, $costs, ps_participants($order['id']));
         foreach ($sum['groups'] as $groupName => $group) foreach ($group['people'] as $person) {
+            if (ps_forecast_group_skip($order, $groupName)) continue; // 技术要等交付完成才预计
             $eid = (int)$person['employee_id'];
             if ($onlyEmployeeId && $eid !== $onlyEmployeeId) continue;
             $calc = $person['estimated_calc'] ?? null;

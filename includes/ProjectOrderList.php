@@ -17,13 +17,18 @@ if ($importFileId > 0) {
     $importFileReport = ps_import_result_get($importFileId);
     $fileOrderIds = array_map('intval', $importFileReport['order_ids'] ?? []);
     $where[] = $fileOrderIds ? 'o.id IN (' . implode(',', $fileOrderIds) . ')' : '1=0';
-} elseif ($keyword !== '') {
+}
+// 关键字搜索：在“这份表格对应的订单”视图里也生效（与表格订单范围取交集），不再被忽略
+if ($keyword !== '') {
     $credentialHits = pv_search_order_hits($keyword);
     $credentialSql = $credentialHits ? ' OR o.id IN (' . implode(',', array_map('intval', array_keys($credentialHits))) . ')' : '';
     // 一笔销售拍成多个订单号：搜任一个关联付款订单号也能找到这张订单
     require_once __DIR__ . '/ProjectOrderPayments.php'; pop_ensure();
     $where[] = '(o.order_no LIKE ? OR o.customer_name LIKE ? OR s.payment_nickname LIKE ? OR o.id IN (SELECT pp.order_id FROM project_order_payments pp WHERE pp.payment_no LIKE ?)' . $credentialSql . ')';
     array_push($params, '%' . $keyword . '%', '%' . $keyword . '%', '%' . $keyword . '%', '%' . $keyword . '%');
+}
+if ($importFileId > 0 || $keyword !== '') {
+    // 表格视图 / 关键字搜索：不按月份限制
 } elseif ($filterState === 'missing_price') {
     // 首页“售价待补”：未审核且没有售价来源的订单，不受月份限制（和首页统计口径一致）
     $where[] = "o.settlement_status IN ('draft','review') AND COALESCE(s.price_source,'missing')='missing'";
@@ -194,12 +199,20 @@ if ($approvedIds) {
     foreach ($snapQuery->fetchAll() as $snap) $snapshotMap[$snap['order_id'] . ':' . $snap['commission_group'] . ':' . $snap['employee_id']] = round((float)$snap['commission_amount'
     ], 2); // commission_amount 已含每单补助（审核时 = 分成份额 + 补助），不能再叠加 subsidy_amount，否则列表预计分成会翻倍
 }
+// 已审核订单的售后 / 实收变更调整（计入后续月份）：列表里的分成显示“快照 + 调整”，改了实收后这里立刻看得到同步结果
+$adjustMap = [];
+if ($approvedIds) {
+    $adjQuery = db()->query('SELECT order_id,employee_id,commission_group,SUM(amount) amt FROM project_commission_adjustments WHERE order_id IN (' . implode(',', $approvedIds) . ') GROUP BY order_id,employee_id,commission_group');
+    foreach ($adjQuery->fetchAll() as $adj) $adjustMap[$adj['order_id'] . ':' . $adj['commission_group'] . ':' . $adj['employee_id']] = round((float)$adj['amt'], 2);
+}
 require_once __DIR__ . '/ProjectCostDisplay.php';
 $costDisplayStates = [];
+$pageOrderParticipants = [];
 foreach ($pageOrders as $row) {
     $cells = [];
     try {
         $rowPeople = ps_participants((int)$row['id']);
+        $pageOrderParticipants[(int)$row['id']] = array_map(function($rp) { return (int)$rp['employee_id']; }, $rowPeople);
         $isApproved = in_array($row['settlement_status'], ['approved', 'locked'], true);
         $rowCosts = $isApproved ? [] : ps_costs((int)$row['id']);
         $costDisplayStates[(int)$row['id']] = ps_cost_display_state($row, $rowCosts);
@@ -207,11 +220,16 @@ foreach ($pageOrders as $row) {
         foreach ($rowPeople as $rp) {
             if ($actor['role'] !== 'finance' && !ps_is_management($actor) && (int)$rp['employee_id'] !== (int)$actor['employee_id'] && !pdh_manages_person($actor, $rp)) continue;
             $amount = null;
-            if ($isApproved) $amount = $snapshotMap[$row['id'] . ':' . $rp['commission_group'] . ':' . $rp['employee_id']] ?? null;
+            $adjNote = 0.0;
+            if ($isApproved) {
+                $amount = $snapshotMap[$row['id'] . ':' . $rp['commission_group'] . ':' . $rp['employee_id']] ?? null;
+                $adjNote = (float)($adjustMap[$row['id'] . ':' . $rp['commission_group'] . ':' . $rp['employee_id']] ?? 0);
+                if ($amount !== null && abs($adjNote) >= 0.005) $amount = round($amount + $adjNote, 2);
+            }
             else foreach ($rowSum['groups'][$rp['commission_group']]['people'] ?? [] as $sp) if ((int)$sp['employee_id'] === (int)$rp['employee_id'] && $sp['estimated_calc']) $amount
     = round($sp['estimated_calc']['share'] + $sp['estimated_calc']['subsidy'], 2);
             if ($costDisplayStates[(int)$row['id']]['block_estimate']) $amount = null;
-            $cells[] = ['name' => $rp['name'], 'group' => $rp['commission_group'], 'employee_id' => (int)$rp['employee_id'], 'amount' => $amount, 'estimated' => !$isApproved];
+            $cells[] = ['name' => $rp['name'], 'group' => $rp['commission_group'], 'employee_id' => (int)$rp['employee_id'], 'amount' => $amount, 'estimated' => !$isApproved, 'adjusted' => $adjNote];
         }
     } catch (Throwable $e) { $cells = []; }
     $commissionCells[(int)$row['id']] = $cells;

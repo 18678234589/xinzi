@@ -12,6 +12,30 @@ function ps_intake_templates($category = null, $business = null)
     return $q->fetchAll();
 }
 
+/**
+ * 小程序开发的“外包技术”：外部开发者（不是本公司技术）做的单，成本 = 实际付给外包的费用，由客服建单时填，财务核对。
+ * 成本中心里从没有过就补一条（和商标“法务外包成本”同一写法：单价 1 元 × 数量 = 实际金额）。已有（哪怕被财务停用）就不动。
+ */
+function ps_ensure_outsource_templates()
+{
+    static $done = false;
+    if ($done) return;
+    $done = true;
+    try {
+        // 只在“从没有过”时补：财务在成本中心停用了它就不再自动加回来（不看是否启用）
+        $has = db()->prepare("SELECT 1 FROM project_cost_templates WHERE category='outsourcing' AND business_scope=? AND name='小程序外包技术' LIMIT 1");
+        $has->execute(['小程序开发']);
+        if ($has->fetchColumn()) return;
+        db()->prepare("INSERT INTO project_cost_templates (category,business_scope,name,specification,unit,price_mode,cost_kind,price,supplier_price,requires_proof,auto_approve,version) VALUES ('outsourcing','小程序开发','小程序外包技术','按实际金额（付给外包开发的实际费用）','元','fixed','one_time',1,NULL,0,0,1)")->execute();
+    } catch (Throwable $e) { error_log('ps_ensure_outsource_templates: ' . $e->getMessage()); }
+}
+
+/** 这个外包模板是不是“按实际金额”（客服建单时要填外包费用）。 */
+function ps_outsource_is_actual($template)
+{
+    return $template && ($template['price_mode'] ?? 'fixed') === 'fixed' && abs((float)$template['price'] - 1.0) < 0.0001 && mb_strpos((string)($template['specification'] ?? ''), '实际金额') !== false;
+}
+
 function ps_intake_template($id, $category)
 {
     $q = db()->prepare('SELECT * FROM project_cost_templates WHERE id=? AND category=? AND is_active=1 AND requires_proof=0');
@@ -23,8 +47,16 @@ function ps_intake_template($id, $category)
 }
 
 /** 按“程序名称”原文（如“5年JSP展示中级版”“PHP”）匹配程序套餐；无法唯一确定时返回 null 交给人工选择。 */
-function ps_intake_program_suggestion($text, $templates, $ownDomain = false)
+function ps_intake_program_suggestion($text, $templates, $ownDomain = false, $domainText = '')
 {
+    // 纯域名注册：表格程序名称写“1年域名注册 / 纯域名注册”等，按域名后缀（.com / .cn / .net / .org）和年数选“纯域名注册”套餐；认不出后缀就留给人工选
+    if (preg_match('/域名注册|纯域名/u', (string)$text)) {
+        $years = preg_match('/(\d+)\s*年/u', (string)$text, $ym) ? (int)$ym[1] : 1;
+        if (preg_match('/\.(com|cn|net|org)(?![a-z])/i', (string)$domainText, $dm)) {
+            foreach ($templates as $template) if ($template['category'] === 'program' && $template['name'] === '纯域名注册' && strpos($template['specification'], '.' . strtolower($dm[1]) . ' ' . $years . '年') === 0) return $template;
+        }
+        return null;
+    }
     // 域名来源写“客户提供”（客户自备域名）：优先选不含域名的“空间”档，不计域名成本
     $matched = poi_template($text, $templates, $ownDomain ? '空间' : '');
     if ($matched && $matched['category'] === 'program') return $matched;

@@ -24,10 +24,27 @@
                     if (!$record['order_date'] && !empty($businessDefinition['free_shop']) && $lookup($row, 'order_date') !== '' && ($lookup($row, 'order_no') !== '' && $lookup($row
     , 'contract_amount') !== '')) { $record['order_date'] = date('Y-m-d'); $record['warning'] = '日期“' . $lookup($row, 'order_date') . '”无法识别，已按今天建单，请核对'
     ; }
-                    // 备案-单量表没有日期列：按导入当天记单（月度归属由上传时间决定，财务可在结算单调整）。
+                    // 备案-单量表没有日期列：优先按文件名月份或所选规则月份（如 11 月初上传 10 月订单），否则按导入当天记单。
                     if (!$record['order_date'] && $selectedBusiness === '备案-单量') {
-                        $record['order_date'] = date('Y-m-d');
-                        $record['warning'] .= ($record['warning'] ? '；' : '') . '表无日期列，已按导入当天记单';
+                        $targetMonth = null;
+                        if (!empty($ruleMonth) && preg_match('/^\d{4}-(0[1-9]|1[0-2])$/', $ruleMonth) && $ruleMonth < date('Y-m')) {
+                            $targetMonth = $ruleMonth;
+                        } elseif (!empty($fileRow['original_name']) && preg_match('/(?:20\d{2}[-_年])?(\d{1,2})月/u', $fileRow['original_name'], $m)) {
+                            $mNum = (int)$m[1];
+                            if ($mNum >= 1 && $mNum <= 12) {
+                                $curYear = (int)date('Y');
+                                $curMonth = (int)date('n');
+                                $targetYear = ($mNum > $curMonth) ? ($curYear - 1) : $curYear;
+                                $targetMonth = sprintf('%04d-%02d', $targetYear, $mNum);
+                            }
+                        }
+                        if ($targetMonth && $targetMonth < date('Y-m')) {
+                            $record['order_date'] = date('Y-m-t', strtotime($targetMonth . '-01'));
+                            $record['warning'] .= ($record['warning'] ? '；' : '') . '表无日期列，已按归属月份（' . $targetMonth . '）记单';
+                        } else {
+                            $record['order_date'] = date('Y-m-d');
+                            $record['warning'] .= ($record['warning'] ? '；' : '') . '表无日期列，已按导入当天记单';
+                        }
                     }
                     $record['contract_amount'] = str_replace([',','¥','￥',' '], '', $lookup($row, 'contract_amount'));
                     // 售价写成算式（如 640+260）：按求和计，并提示核对
@@ -81,6 +98,13 @@
     , $known) !== false; }));
                         if (count($shopMatches) === 1) $record['shop'] = $shopMatches[0];
                         else $record['warning'] .= ($record['warning'] ? '；' : '') . '店铺“' . $shopText . '”不在店铺列表，已按原文保存';
+                    }
+                    // 森动备案：订单编号 / 流水号是“数字+N”（支付宝收款的检索号），店铺却写成微信或没写：按支付宝收款记店铺（兼容旧表一直写微信的习惯），
+                    // 这样才能和“赫鸣支付宝”收款流水对上，不会一直停在“等待收款确认”
+                    if ($selectedBusiness === '森动备案' && ($record['shop'] === '' || mb_strpos($record['shop'], '微信') !== false)
+                        && preg_match('/^\d{10,}N$/i', trim((string)($record['order_no'] !== '' ? $record['order_no'] : ($record['payment_reference'] ?? ''))))) {
+                        $record['shop'] = in_array('赫鸣支付宝', $knownShops, true) ? '赫鸣支付宝' : '支付宝';
+                        $record['warning'] .= ($record['warning'] ? '；' : '') . '订单编号是支付宝检索号（数字+N），店铺已按“' . $record['shop'] . '”记录；下次店铺请选支付宝';
                     }
                     $record['payment_nickname'] = $lookup($row, 'payment_nickname');
                     $record['contact_note'] = $lookup($row, 'contact_note');
@@ -303,6 +327,8 @@
                     $record['lines'] = [$record['line']];
                     $rawDetails = [];
                     foreach ($businessDefinition['fields'] as $key => $label) $rawDetails[$key] = $lookup($row, 'detail:' . $key);
+                    /* 付费SSL证书到期日期：统一成 YYYY-MM-DD，“永久”原样保留，认不出的原文保留 */
+                    if (!empty($rawDetails['ssl_expiry']) && mb_strpos($rawDetails['ssl_expiry'], '永久') === false) $rawDetails['ssl_expiry'] = ps_import_date($rawDetails['ssl_expiry']) ?: $rawDetails['ssl_expiry'];
                     if ($selectedBusiness === '小程序开发') {
                         // 业务种类：永久（一次买断，不续费）/ 年费（按年续费，须有到期日期和续费联系方式）。“永久”也可直接写在到期日期里
                         require_once (dirname(__DIR__, 1)) . '/../includes/ProjectMiniappTemplate.php';
@@ -372,6 +398,17 @@
                             $record['warning'] .= ($record['warning'] ? '；' : '') . '小程序 AI 定制未发货不计分成，到账不能代替发货';
                         }
                         if ($status !== '') $record['trade_status'] = $status;
+                    }
+                    // 网站业务（模板 / AI定制 / 网站定制）的“已完成”只认技术和财务或管理层（冯超）：客服等表格里写的已完成不作数（否则没做完的订单会被算提成），
+                    // 技术上传的表格、“网站订单完成同步”或在系统里由技术/管理标完成后才算。
+                    $uploaderEmpId = (int)($actor['employee_id'] ?? 0);
+                    $uploaderUser = (string)($actor['username'] ?? '');
+                    $isTechOrFinanceOrMgr = in_array((string)($actor['role'] ?? ''), ['technical', 'finance'], true)
+                        || ($actor['type'] ?? '') === 'admin'
+                        || $uploaderEmpId === 71 || $uploaderUser === 'fengchao';
+                    if ($record['delivery_status'] === 'finished' && ps_is_website_order($record['project_type'] ?? '') && !$isTechOrFinanceOrMgr) {
+                        $record['delivery_status'] = 'unfinished';
+                        $record['warning'] .= ($record['warning'] ? '；' : '') . '网站业务的“已完成”需技术确认：本表格是' . (($actor['role'] ?? '') === 'customer_service' ? '客服' : '非技术') . '上传的，状态先记为未完成，由技术上传表格或在订单里标记后才计提成';
                     }
                     if ($existing && ($existing['delivery_status'] ?? '') === 'unfinished' && $record['delivery_status'] === 'finished' && !in_array($existing['settlement_status'], ['approved', 'locked'], true)) $record['warning'] .= ($record['warning'] ? '；' : '') . '原单状态是“未完成”，本次表格写已完成 / 到账，导入后将更新为已完成';
                     if ($existing) $record['existing_snapshot'] = $existing;

@@ -69,7 +69,10 @@
       if (picked && picked.hidden) outsource.value = '0';
       document.getElementById('intakeOutsourceRow').hidden = !Array.prototype.some.call(outsource.options, function (o) { return o.value !== '0' && !o.hidden; });
       picked = outsource.options[outsource.selectedIndex];
-      if (outsource.value !== '0') outsourceCost = picked.dataset.mode === 'percent' ? Math.round(sale * Number(picked.dataset.price)) / 100 : Number(picked.dataset.price);
+      var actualWrap = document.getElementById('intakeOutsourceAmountWrap'), actualInput = document.getElementById('intakeOutsourceAmount');
+      var isActual = outsource.value !== '0' && picked && picked.dataset.actual === '1';
+      if (actualWrap) { actualWrap.hidden = !isActual; actualInput.required = isActual; actualInput.disabled = !isActual; }
+      if (outsource.value !== '0') outsourceCost = isActual ? Number((actualInput && actualInput.value) || 0) : (picked.dataset.mode === 'percent' ? Math.round(sale * Number(picked.dataset.price)) / 100 : Number(picked.dataset.price));
     }
     var directCost = document.getElementById('intakeDirectCost');
     document.getElementById('intakeDirectCostWrap').hidden = !info.costLabel;
@@ -88,6 +91,19 @@
   }
   business.addEventListener('change', function () { selectedKind = ''; refreshKinds(); update(); });
   [mode, domain, server, program, document.getElementById('intakeOutsource')].forEach(function (el) { if (el) el.addEventListener('change', update); });
+  var outsourceAmount = document.getElementById('intakeOutsourceAmount'); if (outsourceAmount) outsourceAmount.addEventListener('input', update);
+  // 制作技术里选“外包技术”：自动选中本业务的外包成本模板（没有合适的就提示）；改回具体技术时取消外包
+  var frontendSelect = document.getElementById('intakeFrontendSelect'), outsourceSelect = document.getElementById('intakeOutsource');
+  function syncOutsourcePick() {
+    if (!frontendSelect || !outsourceSelect) return;
+    if (frontendSelect.value === 'outsource') {
+      var first = Array.prototype.find.call(outsourceSelect.options, function (o) { return o.value !== '0' && !o.hidden && (o.dataset.scope === business.value || o.dataset.scope === ''); });
+      if (first) { outsourceSelect.value = first.value; } else { frontendSelect.value = '0'; window.alert('当前业务（' + business.value + '）还没有配置“外包”成本，请联系财务在成本中心添加后再选。'); }
+    } else if (outsourceSelect.value !== '0' && frontendSelect.value !== '0') { outsourceSelect.value = '0'; }
+    update();
+  }
+  if (frontendSelect) frontendSelect.addEventListener('change', syncOutsourcePick);
+  if (outsourceSelect) outsourceSelect.addEventListener('change', function () { if (outsourceSelect.value !== '0' && frontendSelect && frontendSelect.value === '0') frontendSelect.value = 'outsource'; if (outsourceSelect.value === '0' && frontendSelect && frontendSelect.value === 'outsource') frontendSelect.value = '0'; });
   price.addEventListener('input', update);
   document.getElementById('intakeDirectCost').addEventListener('input', update);
   kind.addEventListener('change', update);

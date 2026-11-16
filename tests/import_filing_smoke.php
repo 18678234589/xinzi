@@ -107,6 +107,19 @@ try {
     foreach ($pq->fetchAll() as $r) $people[$r['order_no']][] = $r['commission_group'] . ':' . $r['role_name'];
     foreach ($pn as $i => $no) $check(($people[$no] ?? []) === ['technical:项目执行'], '第 ' . ($i + 1) . ' 行只有“项目执行”一条参与人：' . implode(',', $people[$no] ?? ['无']));
     $check(mb_strpos((string)$pvp[2]['warning'], '已按“项目执行”记入') !== false && mb_strpos((string)$pvp[0]['warning'], '已按“项目执行”记入') === false, '只写客服列才提示改记项目执行，两列都是本人不提示');
+    // 支付宝收款的检索号（数字+N）：店铺写微信或没写，按支付宝收款店铺记；店铺选了支付宝同样；真正的微信流水号不动
+    $pdo->prepare("INSERT IGNORE INTO shops (name,sort) VALUES ('赫鸣支付宝',16)")->execute();
+    $aliNo = '19' . substr(str_pad((string)hexdec(substr($tag, 0, 5)), 9, '7'), 0, 9) . 'N';
+    $rowsAli = [
+        ['日期' => '2026.9.18', '店铺' => '微信', '业务' => '备案', '付款昵称' => 'nickA' . $tag, '订单编号' => $aliNo, '售价' => '100', '成本' => '80', $sk => '已完成', '联系微信号' => 'nickA' . $tag, '域名' => "t$tag-ali.com"],
+        ['日期' => '2026.9.18', '店铺' => '微信', '业务' => '备案', '付款昵称' => 'nickB' . $tag, '售价' => '100', '成本' => '80', $sk => '已完成', '微信交易流水号' => 'WXB' . $tag, '联系微信号' => 'nickB' . $tag, '域名' => "t$tag-wx.com"],
+    ];
+    [$pva, $impa, $erra] = $importAs($luan, '森动备案', $csvOf('森动备案', $rowsAli));
+    $check($erra === '' && $impa === 2, '支付宝检索号 / 微信流水号两行都导入：' . $impa . ' ' . $erra);
+    $check($pva[0]['shop'] === '赫鸣支付宝' && mb_strpos((string)$pva[0]['warning'], '支付宝检索号') !== false, '店铺写微信、订单编号是数字+N：按“赫鸣支付宝”记录并提示：' . $pva[0]['shop']);
+    $check($pva[1]['shop'] === '微信' && mb_strpos((string)$pva[1]['warning'], '支付宝检索号') === false, '真正的微信流水号：店铺仍是微信，不乱改');
+    $sq = $pdo->prepare('SELECT shop FROM project_orders WHERE order_no=?'); $sq->execute([$aliNo]);
+    $check($sq->fetchColumn() === '赫鸣支付宝', '落库的订单店铺是赫鸣支付宝');
     // 专用 Excel 模板：表头全部能被识别；示例行上传自动跳过；“店铺”写微信 / 对公、订单编号留空的备案照常导入
     require_once __DIR__ . '/../includes/ProjectMiniappTemplate.php';
     $check(in_array('森动备案', pmt_businesses(), true) && substr(pmt_xlsx('森动备案'), 0, 2) === 'PK', '森动备案有专用 xlsx 模板');

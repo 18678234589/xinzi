@@ -46,6 +46,16 @@
                     }
                     if (!$textOnlyNo && $record['order_no'] !== $lookup($row, 'order_no') && $lookup($row, 'order_no') !== '') $record['warning'] .= ($record['warning'] ? '；' : '') . '订单号“'
     . mb_substr($lookup($row, 'order_no'), 0, 40) . '”按“' . $record['order_no'] . '”识别（已去掉标签 / 备注，同号不会重复建单）';
+                    // 附加行（证书、加语言等）订单编号留空：表格习惯是紧跟在主订单下面。并入上一行“同日期、同店铺、同付款昵称”的订单，
+                    // 不再生成独立的 WX- 单（独立单没有店铺流水、收不到款，会一直被判“未到账”不结算）。
+                    $popAddonKey = (string)ps_import_date($lookup($row, 'order_date')) . '|' . trim((string)$lookup($row, 'shop')) . '|' . mb_strtolower(trim((string)$lookup($row, 'payment_nickname')));
+                    $popAddonOk = trim((string)$lookup($row, 'payment_nickname')) !== '' && (string)ps_import_date($lookup($row, 'order_date')) !== '';
+                    if ($record['order_no'] === '' && $popAddonOk && empty($record['public_transfer']) && trim((string)$lookup($row, 'payment_reference')) === '' && !empty($popPrevKeyed) && $popPrevKeyed['key'] === $popAddonKey) {
+                        $record['order_no'] = $popPrevKeyed['no'];
+                        $record['warning'] .= ($record['warning'] ? '；' : '') . '订单编号为空：按表格习惯并入上一行同买家同日期的订单 ' . $popPrevKeyed['no'];
+                    } elseif ($record['order_no'] !== '' && $popAddonOk) {
+                        $popPrevKeyed = ['key' => $popAddonKey, 'no' => $record['order_no']];
+                    }
                     $siteBaseType = null; $siteBaseOrder = null;
                     if ($record['order_no'] !== '' && psp_is_website($record['project_type'])) {
                         $siteTypeQuery = db()->prepare('SELECT id,project_type FROM project_orders WHERE order_no=? LIMIT 1');
@@ -86,16 +96,31 @@
                                 if ($registered) {
                                     $record['order_no'] = $registered['order_no'];
                                     if ((int)$registered['root_order_id'] !== (int)$registered['order_id']) $record['multi_site_parent_no'] = $siteBase;
+                                } elseif (strpos((string)$record['site_key'], 'auto-') !== 0 && ($autoMember = psp_find_auto_member($siteBase, (float)str_replace([',', '¥', '￥', ' '], '', (string)$lookup($row, 'contract_amount')), $siteClaimedAuto[$siteBase] ?? []))) {
+                                    // 之前客服上传时没有域名，系统按顺序给了 auto-N 标识；现在技术上传的表格写了域名：认作同一个网站（售价对得上），本次提交时把标识更新成域名，不再另建一张重复订单
+                                    $siteClaimedAuto[$siteBase][] = (int)$autoMember['order_id'];
+                                    $record['order_no'] = $autoMember['order_no'];
+                                    $record['site_rebind_order_id'] = (int)$autoMember['order_id'];
+                                    if ((int)$autoMember['root_order_id'] !== (int)$autoMember['order_id']) $record['multi_site_parent_no'] = $siteBase;
+                                    $record['warning'] .= ($record['warning'] ? '；' : '') . '对上了之前已录入的网站（订单 ' . $autoMember['order_no'] . '，售价 ¥' . number_format((float)$autoMember['sale'], 2) . '），按同一个网站补充域名，不另建订单';
                                 } else {
                                     $baseCheck = db()->prepare('SELECT id,project_type FROM project_orders WHERE order_no=?');
                                     $baseCheck->execute([$siteBase]);
                                     $baseOrder = $baseCheck->fetch();
                                     if ($baseOrder) {
                                         $baseSite = psp_order((int)$baseOrder['id']);
-                                        if (!$baseSite || (int)$baseSite['root_order_id'] !== (int)$baseOrder['id'] || !psp_is_website($baseOrder['project_type'])) throw new RuntimeException
-    ('原订单尚未绑定网站项目标识，请财务先在原订单页登记第一个网站');
-                                        $record['order_no'] = psp_child_no($siteBase, $record['site_key']);
-                                        $record['multi_site_parent_no'] = $siteBase;
+                                        if (!$baseSite && psp_is_website($baseOrder['project_type']) && !isset($siteBoundInUpload[$siteBase])) {
+                                            /* 旧订单还没有网站项目标识：本次上传里这个付款号的第一个网站就是原订单的网站，提交时给原订单绑定标识（不再要求财务先登记） */
+                                            $siteBoundInUpload[$siteBase] = $record['site_key'];
+                                            $record['site_bind_existing'] = true;
+                                            $record['warning'] .= ($record['warning'] ? '；' : '') . '原订单还没有网站标识，已按本行网站“' . $record['site_key'] . '”绑定；若这不是原订单的网站，请财务在原订单页更正';
+                                        } else {
+                                            if (!$baseSite && psp_is_website($baseOrder['project_type'])) $baseSite = ['root_order_id' => (int)$baseOrder['id']]; // 本次上传前面已有一行绑定了原订单
+                                            if (!$baseSite || (int)$baseSite['root_order_id'] !== (int)$baseOrder['id'] || !psp_is_website($baseOrder['project_type'])) throw new RuntimeException
+    ('原订单不是网站订单或已属于其他网站项目，请财务在原订单页核对');
+                                            $record['order_no'] = psp_child_no($siteBase, $record['site_key']);
+                                            $record['multi_site_parent_no'] = $siteBase;
+                                        }
                                     } elseif ($siteSeq[$siteBase] > 1) {
                                         $record['order_no'] = psp_child_no($siteBase, $record['site_key']);
                                         $record['multi_site_parent_no'] = $siteBase;
@@ -251,7 +276,7 @@
                     if ($existing && empty($record['join_parent']) && (ps_business_normalize($existing['project_type']) !== $record['project_type'] || $coCustomerService)) {
                         if (!empty($record['writing']) && $record['writing']['source'] === 'self' && !ps_import_order_visible((int)$existing['id'], $actor)
                             && ps_business_normalize($existing['project_type']) === '软文代写') throw new RuntimeException('此订单已由其他客服录为软文代写：若本人负责对接，请标注“编辑对接”；确为自接请由财务核对原单归属，不能按空岗位猜分成');
-                        if (!$coCustomerService && ps_import_order_visible((int)$existing['id'], $actor)) { $record['skip_status'] = '已导入过'; throw new RuntimeException('此单已在项目订单中，保留原业务“'
+                        if (!$coCustomerService && ps_import_order_visible((int)$existing['id'], $actor)) { $record['skip_status'] = '已导入过'; $record['mismatch_order_id'] = (int)$existing['id']; throw new RuntimeException('此单已在项目订单中，保留原业务“'
     . $existing['project_type'] . '”和分成规则，不重复建单；改类目请由财务核对'); }
                         if (pos_parent_of((int)$existing['id']) || strpos($record['order_no'], 'WX-') === 0) throw new RuntimeException('该订单号已属于其他业务，请联系财务核对'
     );

@@ -40,6 +40,8 @@ try {
             (SELECT COUNT(*) FROM project_order_resources r JOIN project_orders o ON o.id=r.order_id WHERE r.domain_mode='pending' AND o.settlement_status IN ('draft','review')) AS pending_resources,
             (SELECT COUNT(*) FROM project_orders o LEFT JOIN project_order_sources s ON s.order_id=o.id WHERE o.settlement_status IN ('draft','review') AND COALESCE(s.price_source,'missing')='missing') AS missing_price,
             (SELECT COUNT(*) FROM project_orders WHERE order_date >= DATE_FORMAT(CURDATE(),'%Y-%m-01')) AS month_orders")->fetch();
+        try { require_once __DIR__ . '/includes/ProjectFixRequest.php'; $project_todo['fix_requests'] = pfr_pending_count(); } catch (Throwable $e) { $project_todo['fix_requests'] = 0; } // 合作人员提交的分成更正申请
+        try { require_once __DIR__ . '/includes/ProjectBatchReview.php'; pbr_close_stale(); $project_todo['review_requests'] = pbr_pending_count(); } catch (Throwable $e) { $project_todo['review_requests'] = 0; } // 合作人员提交的批量审核申请（没有可审核订单的自动结案）
     } else {
         // 普通合作人员：只查本人当月的订单数与本人待确认事项
         $my_month_orders = 0;
@@ -84,7 +86,7 @@ $page_title = '工作台首页';
 include __DIR__ . '/includes/header.php';
 require_once __DIR__ . '/includes/ProjectRenewals.php';
 $homeCss = __DIR__ . '/assets/css/home.css';
-$todoTotal = $project_todo ? (int)$project_todo['pending_costs'] + (int)$project_todo['pending_cash'] + (int)$project_todo['pending_resources'] + (int)$project_todo['missing_price'] : 0;
+$todoTotal = $project_todo ? (int)$project_todo['pending_costs'] + (int)$project_todo['pending_cash'] + (int)$project_todo['pending_resources'] + (int)$project_todo['missing_price'] + (int)($project_todo['review_requests'] ?? 0) : 0;
 $B = BASE_URL;
 ?>
 <link rel="stylesheet" href="<?php echo e($B . '/assets/css/home.css?v=' . (is_file($homeCss) ? filemtime($homeCss) : 1)); ?>">
@@ -114,6 +116,8 @@ $B = BASE_URL;
 <?php if ($project_todo !== null): ?>
   <b>待办</b>
   <?php if ($todoTotal === 0): ?><a class="hm-chip ok" href="<?php echo $B; ?>/project/index.php"><i class="fas fa-check-circle"></i> 暂无待审事项</a><?php endif; ?>
+  <?php if ($is_finance_or_admin && (int)($project_todo['fix_requests'] ?? 0)): ?><a class="hm-chip warn" href="<?php echo $B; ?>/project/fix_requests.php" title="合作人员认为某张订单分成算错，申请更正"><i class="fas fa-edit"></i> 分成更正申请 <strong><?php echo (int)$project_todo['fix_requests']; ?></strong></a><?php endif; ?>
+  <?php if ($is_finance_or_admin): ?><a class="hm-chip <?php echo (int)($project_todo['review_requests'] ?? 0) ? 'warn' : ''; ?>" href="<?php echo $B; ?>/project/batch_review.php" title="合作人员提交的订单批量审核申请；也可以直接选人和月份审核未审核订单"><i class="fas fa-clipboard-check"></i> 订单审核 <?php if ((int)($project_todo['review_requests'] ?? 0)): ?>申请 <strong><?php echo (int)$project_todo['review_requests']; ?></strong><?php else: ?>（直接审核）<?php endif; ?></a><?php if ((int)$project_todo['open_orders']): ?><a class="hm-chip" href="<?php echo $B; ?>/project/batch_review.php" title="草稿 / 待审订单，点进去选人 + 月份抽查审核"><i class="fas fa-hourglass-half"></i> 未审核订单 <strong><?php echo (int)$project_todo['open_orders']; ?></strong></a><?php endif; ?><?php endif; ?>
   <?php if ((int)$project_todo['pending_costs']): ?><a class="hm-chip warn" href="<?php echo $B; ?>/project/index.php?state=todo"><i class="fas fa-receipt"></i> 成本待审 <strong><?php echo (int)$project_todo['pending_costs']; ?></strong></a><?php endif; ?>
   <?php if ((int)$project_todo['pending_cash']): ?><a class="hm-chip warn" href="<?php echo $B; ?>/project/index.php?state=todo"><i class="fas fa-coins"></i> 收退款待审 <strong><?php echo (int)$project_todo['pending_cash']; ?></strong></a><?php endif; ?>
   <?php if ((int)$project_todo['pending_resources']): ?><a class="hm-chip warn" href="<?php echo $B; ?>/project/index.php?state=todo"><i class="fas fa-server"></i> 资源待技术确认 <strong><?php echo (int)$project_todo['pending_resources']; ?></strong></a><?php endif; ?>

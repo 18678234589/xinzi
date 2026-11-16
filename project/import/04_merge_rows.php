@@ -100,6 +100,7 @@
             $_SESSION['project_import_file'] = $fileId;
             $resultFileId = $fileId;
             $_SESSION['project_import_sheets'] = $sheetReport;
+            $_SESSION['project_import_other_sheets'] = $otherBusinessSheets ?? [];
             $_SESSION['project_import_ai_touched'] = ps_ai_touched();
             if (!empty($_POST['auto_import'])) {
                 $previewOwner = $actorKey; $previewBusiness = $selectedBusiness; $previewScope = $scope;

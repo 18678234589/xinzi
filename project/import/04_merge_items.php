@@ -3,7 +3,9 @@
                     $target['lines'][] = $record['line'];
                     $target['items'] = array_merge($target['items'] ?? [], $record['items']);
                     $target['renewal_fields'] = pr_import_merge_fields($target['renewal_fields'] ?? [], $record['renewal_fields'] ?? []);
-                    if (empty($record['base_valid']) || empty($target['base_valid'])) {
+                    if (empty($record['base_valid']) && empty($target['base_valid']) && in_array($target['status'] ?? '', ['已导入过', '他人订单'], true) && ($target['status'] ?? '') === ($record['status'] ?? '')) {
+                        // 同号几行都是“已导入过 / 他人订单”：合并后仍按跳过处理，不当成待处理
+                    } elseif (empty($record['base_valid']) || empty($target['base_valid'])) {
                         $target['base_valid'] = false;
                         $target['status'] = '需处理';
                         $target['error'] = trim(($target['error'] ?? '') . '；同号第 ' . $record['line'] . ' 行：' . ($record['error'] ?: '所在订单有错误'), '；');

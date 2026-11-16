@@ -71,6 +71,7 @@ function ps_summary($order, $costs, $participants)
             if (in_array((int)($person['employee_id'] ?? 0), $fixedPayIds, true)) {
                 $rules = [['id'=>0,'commission_group'=>$group,'project_type'=>$order['project_type'],'role_name'=>$person['role_name'] ?? '管理','order_kind'=>'*','calc_mode'=>'individual','rate'=>0,'per_order_subsidy'=>0,'note'=>'管理账户仅固定薪酬，不参与逐单分成']];
             }
+            if ($rules && ps_fee_exempt($order['project_type'], (int)($person['employee_id'] ?? 0))) foreach ($rules as $ri => $_r) { $rules[$ri]['service_fee_rate'] = 0; $rules[$ri]['note'] = trim((string)($_r['note'] ?? '') . '（本人自接单，免店铺服务费）'); }
             $rule = $rules ? $rules[0] : null;
             $people[$i]['rule'] = $rule;
             $people[$i]['rules'] = $rules;

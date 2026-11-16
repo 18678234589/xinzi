@@ -18,7 +18,7 @@ $flow = function ($no) use ($pdo, &$flowIds) {
     $flowIds[] = (int)$pdo->lastInsertId();
 };
 $refund = function ($no, $date) use ($pdo, $tag, &$refundIds) {
-    $pdo->prepare("INSERT INTO project_refund_import_rows (fingerprint,order_id,order_no,refund_date,amount,payment_method,source_payment_reference,payment_reference,reason,review_status,submitted_by_type,submitted_by_id) VALUES (?,NULL,?,?,10,'待核渠道','','','','pending','admin',1)")->execute([sha1($no . $tag), $no, $date]);
+    $pdo->prepare("INSERT INTO project_refund_import_rows (fingerprint,order_id,order_no,refund_date,amount,payment_method,source_payment_reference,payment_reference,reason,review_status,submitted_by_type,submitted_by_id) VALUES (?,NULL,?,?,50,'待核渠道','','','','pending','admin',1)")->execute([sha1($no . $tag), $no, $date]);
     $refundIds[] = (int)$pdo->lastInsertId(); return (int)$pdo->lastInsertId();
 };
 $state = function ($id) use ($pdo) { return $pdo->query("SELECT review_status,order_id FROM project_refund_import_rows WHERE id=$id")->fetch(); };
@@ -36,6 +36,30 @@ try {
     $k = prm_auto_reopen($system, 500);
     $s = $state($r1);
     $check($k >= 1 && $s['review_status'] === 'pending' && (int)$s['order_id'] === $orderIds[0], '订单补录后：退款重新打开并关联到订单，等自动扣减');
+    // 已核算月份：该月及以前、项目系统里没有订单的退款留档结案；已核算月份之后的不动
+    $prevSettled = ps_setting_get('refund_settled_through', '');
+    ps_setting_set('refund_settled_through', date('Y-m', strtotime('-2 months')), 1);
+    try {
+        $noHist = '5127' . $num . '000444'; $noAfter = '5127' . $num . '000555'; $noPartial = '5127' . $num . '000666';
+        $flow($noHist); $flow($noAfter); $flow($noPartial);
+        $h1 = $refund($noHist, date('Y-m-15', strtotime('-3 months'))); $h2 = $refund($noAfter, $recent); $h3 = $refund($noPartial, date('Y-m-15', strtotime('-3 months')));
+        $pdo->exec("UPDATE project_refund_import_rows SET amount=10 WHERE id=$h3"); // 流水里订单 50 元：h1 / h2 整单退完，h3 只退 10 元 = 部分退款
+        $a = prm_auto_archive_history($system, 500);
+        $check($a >= 1 && $state($h1)['review_status'] === 'approved', 'archive: full refund in settled month without project order is closed');
+        $check($state($h2)['review_status'] === 'pending', 'archive: refund after settled month untouched');
+        $check($state($h3)['review_status'] === 'pending', 'archive: partial refund is never closed as unreported');
+        // 已核算月份改早一个月后，被留档的退款重新打开
+        ps_setting_set('refund_settled_through', date('Y-m', strtotime('-4 months')), 1);
+        prm_auto_archive_history($system, 500);
+        $check($state($h1)['review_status'] === 'pending', 'archive: settled month moved earlier -> archived refund reopened');
+    } finally { ps_setting_set('refund_settled_through', (string)$prevSettled, 1); }
+    // 小额返款：对不上订单的自动结案；订单号能对上项目订单的不动
+    $noSmall = '5127' . $num . '000777';
+    $s1 = $refund($noSmall, $recent); $pdo->exec("UPDATE project_refund_import_rows SET amount=10, reason='" . PRM_SMALL_TAG . "' WHERE id=$s1");
+    $sc = prm_auto_close_small($system, 500);
+    $check($sc >= 1 && $state($s1)['review_status'] === 'approved', 'small refund without project order is closed with reason');
+    $sr = prm_auto_reopen($system, 500);
+    $check($state($s1)['review_status'] === 'approved', 'closed small refund is not reopened by order-number reopen');
     echo "全部通过\n";
 } finally {
     foreach ($refundIds as $id) { $pdo->exec("DELETE FROM project_refund_import_rows WHERE id=$id"); $pdo->exec("DELETE FROM project_audit_logs WHERE entity_type='refund_import' AND entity_id=$id"); }

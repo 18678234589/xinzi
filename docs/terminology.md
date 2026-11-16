@@ -20,3 +20,7 @@
 - 数据库字段（`attendances.absent_hours` 等）、规则类型代码（`overtime_pay`）、URL（`/attendance/`）保持不变。
 - 上传表头识别新旧叫法都认：满勤 / 应出勤 / 应到岗确认、实际出勤 / 实际到岗确认、请假 / 服务暂停、缺勤 / 未履约。
 - 回归：`php tests/project_terms_smoke.php`。
+
+## 业务名显示改名（2026-11）
+
+页面上“AI网站定制”统一显示为“AI定制”（`includes/ProjectTerms.php` 的 `pt_terms()` 里，只换可见文字和 title / placeholder 等提示属性）。数据库、表单值、链接、脚本、上传表头识别里仍是“AI网站定制”，两种写法上传都认；下载的 Excel 模板文件内的表头 / 业务名不经过页面替换，仍写“AI网站定制”。

@@ -74,7 +74,8 @@ function ps_business_normalize($name)
 
 function ps_is_website_order($business)
 {
-    return in_array($business, ['AI网站定制', '网站定制', '网站模板'], true);
+    $biz = ps_business_normalize($business);
+    return in_array($biz, ['AI网站定制', '网站定制', '网站模板'], true);
 }
 
 /** 客服建单时必须指定接单技术的业务（客服与制作人员共用同一张订单）。 */
@@ -454,6 +455,28 @@ function ps_business_people_labels($business)
 }
 
 /** 客服、售后人员、冯超（管理层/授权审核）以及技术和财务，均有权限把订单交付状态标注为“已完成”。 */
+/**
+ * 某张订单能不能由这个人标“已完成”：网站类业务（模板 / AI定制 / 网站定制）只有财务（含“网站订单完成同步”）和本订单的技术参与人可以标完成，
+ * 客服、授权审核人员（如冯超）、售后随手标已完成会让没做完的订单被算提成。标“未完成”不受限；小程序等其他业务沿用 ps_can_mark_delivery_finished。
+ */
+function ps_can_mark_order_finished(array $actor, $orderId): bool
+{
+    if (!ps_can_mark_delivery_finished($actor)) return false;
+    $role = (string)($actor['role'] ?? '');
+    $empId = (int)($actor['employee_id'] ?? 0);
+    $username = (string)($actor['username'] ?? '');
+    // 财务、管理员、冯超（管理层）均可在系统随手填已完成
+    if (($actor['type'] ?? '') === 'admin' || $role === 'finance' || $empId === 71 || $username === 'fengchao') return true;
+    $q = db()->prepare('SELECT project_type,order_kind FROM project_orders WHERE id=?'); $q->execute([(int)$orderId]); $o = $q->fetch();
+    if (!$o) return false;
+    require_once __DIR__ . '/ProjectMiniappDelivery.php';
+    if (!ps_is_website_order($o['project_type'] ?? '')) return true;
+    // 网站业务：客服或售后角色、以及本订单的参与人员均可在系统随手填已完成
+    if (in_array($role, ['customer_service', 'aftersales'], true)) return true;
+    $p = db()->prepare("SELECT 1 FROM project_participants WHERE order_id=? AND employee_id=? LIMIT 1"); $p->execute([(int)$orderId, $empId]);
+    return (bool)$p->fetchColumn();
+}
+
 function ps_can_mark_delivery_finished(array $actor): bool
 {
     if (empty($actor)) return false;

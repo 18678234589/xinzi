@@ -17,6 +17,8 @@ $c = ps_sales_package_calc($params, $orders([3000]));
 $check($c['base'] == 1800 && !$c['items'], '正好 3000：保底档 1800');
 $c = ps_sales_package_calc($params, $orders([5999.99]));
 $check($c['base'] == 1800 && !$c['items'], '营业额 5999.99 还没到 6000：仍是保底档');
+$c = ps_sales_package_calc($params, array_merge($orders([2000, 1000]), [['income' => 1290, 'returning' => true]]));
+$check($c['revenue'] == 4290 && $c['base'] == 1800 && !$c['items'], '营业额 4290（保底档）含老客户找回订单：仍只有保底 1800，不加 10%');
 $c = ps_sales_package_calc($params, []);
 $check($c['revenue'] == 0 && $c['base'] == 1800, '当月没有订单：照发保底 1800');
 

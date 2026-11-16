@@ -5,7 +5,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $action = (string)($_POST['action'] ?? '');
         $finance = $actor['role'] === 'finance';
         $reviewer = $finance || pbr_can_review_order($actor, $order); // 授权审核人员只开放成本审核和资源确认
-        if (!in_array($action, ['approve_order', 'post_adjustment', 'set_order_kind', 'submit_commission_correction', 'reassign_backend_approved', 'merge_payment_order'], true)) {
+        if (!in_array($action, ['approve_order', 'post_adjustment', 'set_order_kind', 'submit_commission_correction', 'reassign_backend_approved', 'merge_payment_order', 'change_order_business', 'leave_order', 'revoke_approval'], true)) {
             db()->beginTransaction();
             $lock = db()->prepare('SELECT settlement_status FROM project_orders WHERE id=? FOR UPDATE');
             $lock->execute([$id]);
@@ -24,6 +24,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             /* split: project/order/actions/order_meta/save_customer_intake.php */ include (dirname(__DIR__, 2)) . '/order/actions/order_meta/save_customer_intake.php';
         } elseif ($action === 'set_order_kind') {
             /* split: project/order/actions/order_meta/set_order_kind.php */ include (dirname(__DIR__, 2)) . '/order/actions/order_meta/set_order_kind.php';
+        } elseif ($action === 'leave_order') {
+            /* split: project/order/actions/participants/leave_order.php */ include (dirname(__DIR__, 2)) . '/order/actions/participants/leave_order.php';
+        } elseif ($action === 'change_order_business') {
+            /* split: project/order/actions/order_meta/change_order_business.php */ include (dirname(__DIR__, 2)) . '/order/actions/order_meta/change_order_business.php';
         } elseif ($action === 'add_counterpart') {
             /* split: project/order/actions/participants/add_counterpart.php */ include (dirname(__DIR__, 2)) . '/order/actions/participants/add_counterpart.php';
         } elseif ($action === 'assign_backend') {
@@ -76,6 +80,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             /* split: project/order/actions/delivery_upgrade/review_product_upgrade.php */ include (dirname(__DIR__, 2)) . '/order/actions/delivery_upgrade/review_product_upgrade.php';
         } elseif ($action === 'submit_commission_correction') {
             /* split: project/order/actions/order_meta/submit_commission_correction.php */ include (dirname(__DIR__, 2)) . '/order/actions/order_meta/submit_commission_correction.php';
+        } elseif ($action === 'revoke_approval') {
+            /* split: project/order/actions/order_meta/revoke_approval.php */ include (dirname(__DIR__, 2)) . '/order/actions/order_meta/revoke_approval.php';
         } elseif ($action === 'approve_order') {
             /* split: project/order/actions/order_meta/approve_order.php */ include (dirname(__DIR__, 2)) . '/order/actions/order_meta/approve_order.php';
         } else throw new RuntimeException('操作无效');

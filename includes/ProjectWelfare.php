@@ -240,3 +240,60 @@ function pw_award_year($year)
         return true;
     } catch (Throwable $e) { if (db()->inTransaction()) db()->rollBack(); throw $e; }
 }
+
+const PW_LEDGER_LABELS = ['opening_balance' => '期初余额', 'quarter_remainder' => '任期结转', 'contribution_reward' => '建议 / Bug 奖励预留', 'annual_award' => '年终福利预留', 'manual_adjust' => '财务登记', 'contribution_paid' => '已发放奖励扣除'];
+
+/** 财务手工登记资金：转入（如历史季度结余）或支出（如已发放的奖励），必须写明依据；支出不能超过当前余额。 */
+function pw_manual_adjust($actor, $direction, $amountText, $quarter, $note)
+{
+    if (($actor['role'] ?? '') !== 'finance') throw new RuntimeException('仅财务可登记福利池资金');
+    if (!in_array($direction, ['in', 'out'], true)) throw new RuntimeException('请选择转入或支出');
+    if (!preg_match('/^\d{1,7}(?:\.\d{1,2})?$/', (string)$amountText) || (float)$amountText <= 0) throw new RuntimeException('请填写大于 0 的金额，最多两位小数');
+    if (!preg_match('/^20\d{2}-Q[1-4]$/', (string)$quarter)) throw new RuntimeException('请选择归属季度');
+    $note = trim((string)$note);
+    if (mb_strlen($note) < 4 || mb_strlen($note) > 255) throw new RuntimeException('请写明 4–255 字的依据，例如“三季度结余，按 X 月核对表”');
+    $amount = round((float)$amountText, 2);
+    db()->beginTransaction();
+    try {
+        db()->query('SELECT id FROM project_welfare_policy WHERE id=1 FOR UPDATE')->fetch();
+        if ($direction === 'out' && pw_balance() < $amount) throw new RuntimeException('福利池余额不足，不能支出这么多');
+        $source = 'manual:' . date('YmdHis') . ':' . bin2hex(random_bytes(3));
+        pw_ledger($source, 'manual_adjust', $direction === 'in' ? $amount : -$amount, $quarter, null, $note);
+        ps_audit('welfare_ledger', 0, 'manual_adjust', $actor, ['direction' => $direction, 'amount' => $amount, 'quarter' => $quarter, 'note' => $note]);
+        db()->commit();
+    } catch (Throwable $e) { if (db()->inTransaction()) db()->rollBack(); throw $e; }
+}
+
+/**
+ * 已标记发放、但没有从福利池扣过的建议 / Bug 奖励：台账里直接录入（不经福利池提交流程）、期初日（2026-09-15）之后才登记发放的记录。
+ * 经福利池提交的贡献在核验时已预留，期初前已发放的已包含在期初余额里，都不在此列。
+ */
+function pw_unreserved_paid_rewards()
+{
+    return db()->query("SELECT r.id,r.record_date,r.category,r.bonus_delta,r.reward_paid_on,e.name FROM project_governance_records r JOIN employees e ON e.id=r.owner_employee_id
+        WHERE r.record_kind='contribution' AND r.reward_status='paid' AND r.bonus_delta>0 AND r.reward_paid_on>='2026-09-15'
+        AND NOT EXISTS (SELECT 1 FROM project_welfare_contributions c WHERE c.governance_record_id=r.id)
+        AND NOT EXISTS (SELECT 1 FROM project_welfare_ledger l WHERE l.source_key=CONCAT('paid_record:',r.id))
+        ORDER BY r.reward_paid_on,r.id")->fetchAll();
+}
+
+/** 把所选的已发放奖励从福利池扣除（每条一行台账，来源 paid_record:ID，重复执行不会重复扣）。返回 [条数, 合计]。 */
+function pw_deduct_paid_rewards($actor, array $ids)
+{
+    if (($actor['role'] ?? '') !== 'finance') throw new RuntimeException('仅财务可扣除福利池');
+    $want = array_flip(array_map('intval', $ids));
+    $rows = array_values(array_filter(pw_unreserved_paid_rewards(), function ($r) use ($want) { return isset($want[(int)$r['id']]); }));
+    if (!$rows) throw new RuntimeException('没有可扣除的记录，请刷新页面');
+    $total = round(array_sum(array_column($rows, 'bonus_delta')), 2);
+    db()->beginTransaction();
+    try {
+        db()->query('SELECT id FROM project_welfare_policy WHERE id=1 FOR UPDATE')->fetch();
+        if (pw_balance() < $total) throw new RuntimeException('福利池余额不足（¥' . number_format(pw_balance(), 2) . '），请先登记转入的结余再扣除');
+        foreach ($rows as $r) {
+            pw_ledger('paid_record:' . (int)$r['id'], 'contribution_paid', -(float)$r['bonus_delta'], pw_quarter($r['record_date']), null, '建议 / Bug 奖励 #' . (int)$r['id'] . '（' . $r['name'] . '：' . mb_substr($r['category'], 0, 30) . '）已发放 ' . $r['reward_paid_on'] . '，从福利池扣除');
+        }
+        ps_audit('welfare_ledger', 0, 'deduct_paid_rewards', $actor, ['records' => array_column($rows, 'id'), 'total' => $total]);
+        db()->commit();
+    } catch (Throwable $e) { if (db()->inTransaction()) db()->rollBack(); throw $e; }
+    return [count($rows), $total];
+}

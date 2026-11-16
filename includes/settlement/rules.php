@@ -50,6 +50,11 @@ function ps_rule_for($group, $projectType, $orderDate, $role = '', $orderKind = 
         $score = ($rule['project_type'] === $projectType ? 4 : 0) + ($anyRole ? 0 : 2) + ($anyKind ? 0 : 1);
         if ($score > $bestScore) { $best = $rule; $bestScore = $score; } // 候选按生效日期倒序，同分取最新版本。
     }
+    // AI网站定制的技术岗位写成了规则里没有的名称（如“模板技术”“技术”）：自动按主岗位“前端”的规则匹配（同订单类型的 15% / 13% 等），
+    // 不再因为岗位名对不上让订单卡在“尚未匹配有效分成规则”。外包 / 测试 / 售价档位等有专属规则的岗位名不受影响（它们能匹配到自己的规则）。
+    if (!$best && $group === 'technical' && $projectType === 'AI网站定制' && trim((string)$role) !== '' && !in_array('前端', $roles, true) && !ps_software_testing_role($role)) {
+        return ps_rule_for($group, $projectType, $orderDate, '前端', $orderKind);
+    }
     return $best;
 }
 
@@ -101,6 +106,18 @@ function ps_rule($group, $projectType, $orderDate)
 function money_plain($value)
 {
     return number_format((float)$value, 2, '.', '');
+}
+
+/** 自己接的单不扣店铺服务费的人员（网站售后修改部门：刘晓、戴倩、张宁）。 */
+function ps_fee_exempt($projectType, $employeeId)
+{
+    static $ids = null;
+    if ($projectType !== '网站修改' || $employeeId <= 0) return false;
+    if ($ids === null) {
+        $ids = db()->query("SELECT id FROM employees WHERE name IN ('刘晓','戴倩','张宁')")->fetchAll(PDO::FETCH_COLUMN);
+        $ids = array_map('intval', $ids);
+    }
+    return in_array($employeeId, $ids, true);
 }
 
 /**

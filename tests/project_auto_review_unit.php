@@ -30,6 +30,17 @@ ar_state('design without sale price still blocked',function(&$x)use($spot){$spot
 ar_state('design real exception still blocked',function(&$x)use($spot){$spot($x);$x['pending_refunds']=1;},'exception');
 $r=ar_state('other business unchanged',function(&$x){$x['order']['project_type']='商标';$x['order']['receipt_amount']=0;$x['cash']=[];$x['summary']['income']=0;},'wait_sync');
 ar_check('other business no spot check',$r['spot_check'],false);
+// 网站业务（网站模板 / AI网站定制）：已有交易成功的实付证据、业务已完成，但订单实收还是 0 时，不能再被“未到账”卡死——到账由系统按实付登记（曾导致实收一直录不上）
+$webPaid=function(&$x){$x['order']['project_type']='网站模板';$x['order']['order_kind']='新订单';$x['order']['receipt_amount']=0;$x['order']['contract_amount']=1400;$x['cash']=[];$x['summary']['income']=0;$x['payment']=['paid_cents'=>140000,'refund_cents'=>0,'warnings'=>[],'references'=>[['status'=>'交易成功']],'matched_sources'=>1];$x['source']=['trade_status'=>'交易成功'];};
+$r=ar_state('website with confirmed payment evidence is not stuck at unreceived',$webPaid,'ready');
+ar_check('website receipt registered from payment evidence',[$r['spot_check'],$r['receipt_to_add_cents']],[true,140000]);
+$r=pa_evaluate((function()use($webPaid){$x=ar_base();$webPaid($x);$x['payment']=['paid_cents'=>null,'refund_cents'=>0,'warnings'=>[],'references'=>[],'matched_sources'=>0];return $x;})());
+ar_check('website with no payment evidence still not treated as received',in_array('order_unshipped',array_column($r['reasons'],'code'),true),true);
+$r=pa_evaluate((function()use($webPaid){$x=ar_base();$webPaid($x);$x['source']=['trade_status'=>'未发货'];return $x;})());
+ar_check('website explicitly unshipped still blocked even if paid',in_array('order_unshipped',array_column($r['reasons'],'code'),true),true);
+$shippedSource=['id'=>9,'shop'=>'A','raw'=>['__financial_source__'=>'shop_statement','__order_status__'=>'卖家已发货，等待买家确认','实际支付金额'=>'4100.00','退款金额'=>'0']];
+foreach(['AI网站定制','网站模板','商标'] as $biz)ar_check('shipped awaiting confirmation counts as paid: '.$biz,pa_payment_evidence([$shippedSource],'A',null,$biz)['paid_cents'],4100*100);
+ar_check('shipped awaiting confirmation still not paid for other businesses',pa_payment_evidence([$shippedSource],'A',null,'软文代写')['paid_cents'],null);
 ar_state('ledger mismatch',function(&$x){$x['order']['receipt_amount']=99;},'exception');
 ar_state('unreviewed cash',function(&$x){$x['cash'][]=['review_status'=>'pending'];},'wait_finance');
 ar_state('unreviewed external refund',function(&$x){$x['pending_refunds']=1;},'exception');
@@ -72,7 +83,7 @@ ar_state('profit-dependent fixed bonus waits for income',function(&$x){$x['order
 $r=ar_state('verified explicit paid column',function(&$x){$x['order']['receipt_amount']=0;$x['cash']=[];$x['payment']['paid_cents']=10000;},'ready');ar_check('receipt plan',$r['receipt_to_add_cents'],10000);
 ar_state('approved left untouched',function(&$x){$x['order']['settlement_status']='approved';},'settled');
 ar_state('locked left untouched',function(&$x){$x['order']['settlement_status']='locked';},'settled');
-ar_state('historic estimate flagged, not rewritten',function(&$x){$x['order']['settlement_status']='approved';$x['cash'][0]['note']='按售价';},'exception');
+ar_state('closed order with historic estimate is left untouched (exception checks only apply before settlement)',function(&$x){$x['order']['settlement_status']='approved';$x['cash'][0]['note']='按售价';},'settled');
 $source=['id'=>9,'shop'=>'A','raw'=>['__financial_source__'=>'shop_statement','__order_status__'=>'交易成功','实际支付金额（元）'=>'100.00','退款金额'=>'0']];
 $e=pa_payment_evidence([$source],'A');ar_check('trusted statement paid',$e['paid_cents'],10000);ar_check('trusted field name',$e['references'][0]['field'],'实际支付金额');
 $sale=$source;$sale['raw']=['__financial_source__'=>'shop_statement','__order_status__'=>'交易成功','售价'=>100,'__original_price__'=>100];ar_check('sale not payment',pa_payment_evidence([$sale],'A')['paid_cents'],null);

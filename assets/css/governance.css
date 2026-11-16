@@ -131,3 +131,8 @@
 .evidence-thumb button { position: absolute; top: 2px; right: 2px; width: 20px; height: 20px; padding: 0; border: 0; border-radius: 50%; background: rgba(35, 55, 49, .75); color: #fff; font-size: 14px; line-height: 20px; cursor: pointer; }
 .evidence-drop kbd { padding: 1px 6px; border-radius: 5px; background: #223f39; color: #fff; font-size: 11px; }
 .governance-quick-upload { margin: 0 0 12px; }
+.governance-payline { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; margin-top: 10px; padding-top: 10px; border-top: 1px dashed #dce8e2; }
+.governance-payamt { font-weight: 700; color: #28784e; font-variant-numeric: tabular-nums; }
+.governance-payform { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0; }
+.governance-payform label { margin: 0; font-size: 12px; color: #597466; }
+.governance-payform input[type=date] { border: 1px solid #d3e2db; border-radius: 8px; padding: 2px 8px; font-size: 12px; }

@@ -151,6 +151,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if ($update->rowCount()!==1) throw new RuntimeException('奖励不存在或已标记发放，请刷新');
             ps_audit('welfare_award',$id,'paid',$actor,[]);
             $success = '已标记发放；资金台账不重复扣除。';
+        } elseif ($action === 'ledger_adjust') {
+            pw_manual_adjust($actor, (string)($_POST['direction'] ?? ''), $_POST['amount'] ?? '', (string)($_POST['quarter'] ?? ''), (string)($_POST['note'] ?? ''));
+            $success = '已登记到福利池资金台账。';
+        } elseif ($action === 'deduct_paid') {
+            [$n, $t] = pw_deduct_paid_rewards($actor, (array)($_POST['record_ids'] ?? []));
+            $success = '已从福利池扣除 ' . $n . ' 条已发放的建议 / Bug 奖励，合计 ¥' . number_format($t, 2) . '。';
         } else throw new RuntimeException('操作无效');
     } catch (Throwable $e) { if (db()->inTransaction()) db()->rollBack(); foreach ($stored as $path) @unlink($path); $error = $e->getMessage(); }
 }
@@ -158,6 +164,8 @@ $balance = pw_balance();
 $closures = db()->query('SELECT * FROM project_welfare_closures ORDER BY quarter_key DESC LIMIT 8')->fetchAll();
 $totalIn = (float)db()->query('SELECT COALESCE(SUM(amount),0) FROM project_welfare_ledger WHERE amount>0')->fetchColumn();
 $totalOut = abs((float)db()->query('SELECT COALESCE(SUM(amount),0) FROM project_welfare_ledger WHERE amount<0')->fetchColumn());
+$ledgerRows = $finance ? db()->query('SELECT * FROM project_welfare_ledger ORDER BY created_at,id')->fetchAll() : [];
+$unreservedPaid = $finance ? pw_unreserved_paid_rewards() : [];
 $managers = $finance ? db()->query('SELECT m.*,e.name FROM project_welfare_managers m JOIN employees e ON e.id=m.employee_id ORDER BY m.department,e.name')->fetchAll() : [];
 $where = $finance ? '' : 'WHERE c.employee_id=' . $me . ' OR c.created_by_employee_id=' . $me;
 $contributions = db()->query('SELECT c.*,e.name AS person_name,g.bonus_delta,g.reward_status FROM project_welfare_contributions c JOIN employees e ON e.id=c.employee_id LEFT JOIN project_governance_records g ON g.id=c.governance_record_id ' . $where . ' ORDER BY c.id DESC LIMIT 80')->fetchAll();
@@ -190,7 +198,7 @@ include __DIR__ . '/../includes/header.php';
   <?php if ($error): ?><div class="alert alert-danger"><?php echo e($error); ?></div><?php endif; ?>
   <?php if ($success): ?><div class="alert alert-success"><?php echo e($success); ?></div><?php endif; ?>
   <div class="welfare-term-note"><i class="fas fa-calendar-check" aria-hidden="true"></i><span>当前任期 <strong><?php echo e($currentQuarter); ?></strong> · <?php echo e($currentTermBounds[0]); ?>—<?php echo e((new DateTimeImmutable($currentTermBounds[1]))->modify('-1 day')->format('Y-m-d')); ?>。董事长每届 ¥<?php echo money($policy['chair_quarter_target']); ?> 目标额度独立封顶，不跨给下一任；每届未获得的额度核验后转入全员福利池，池余额跨任期累计。</span></div>
-  <div class="welfare-kpis"><div><small>累计结转</small><strong>¥<?php echo money($totalIn); ?></strong></div><div><small>已预留奖励</small><strong>¥<?php echo money($totalOut); ?></strong></div><div><small>每届贡献奖励上限</small><strong><?php echo number_format((float)$policy['quarterly_award_rate']*100,0); ?>%</strong></div><div><small>年终余额</small><strong>待名单核准</strong></div></div>
+  <div class="welfare-kpis"><div><small>累计转入（结转 / 结余）</small><strong>¥<?php echo money($totalIn); ?></strong></div><div><small>已预留 / 已发放奖励</small><strong>¥<?php echo money($totalOut); ?></strong></div><div><small>每届贡献奖励上限</small><strong><?php echo number_format((float)$policy['quarterly_award_rate']*100,0); ?>%</strong></div><div><small>年终余额</small><strong>待名单核准</strong></div></div>
   <div class="welfare-layout"><section class="welfare-card"><h2>＋ 记录建议或 Bug</h2><p>本人随时可以录入；已授权的部门主管也可以替本部门同伴代录。财务核验后才产生奖励点数。</p>
     <form method="post" enctype="multipart/form-data"><input type="hidden" name="csrf" value="<?php echo e(ps_csrf_token()); ?>"><input type="hidden" name="action" value="contribute">
       <div class="form-row"><div class="form-group col-md-6"><label>贡献人</label><select class="form-control" name="employee_id" required><?php foreach ($staff as $person): if (!$finance && (int)$person['id'] !== $me && !in_array($person['department'],$managed,true)) continue; ?><option value="<?php echo (int)$person['id']; ?>" <?php echo (int)$person['id']===$me?'selected':''; ?>><?php echo e($person['name'].' · '.$person['department']); ?></option><?php endforeach; ?></select></div><div class="form-group col-md-3"><label>类型</label><select class="form-control" name="kind"><option value="suggestion">改进建议</option><option value="bug">发现 Bug</option></select></div><div class="form-group col-md-3"><label>发现日期</label><input class="form-control" type="date" name="occurred_on" value="<?php echo date('Y-m-d'); ?>" max="<?php echo date('Y-m-d'); ?>" required></div></div>
@@ -202,6 +210,24 @@ include __DIR__ . '/../includes/header.php';
     </form></section>
     <section class="welfare-card"><h2>规则一眼看懂</h2><p>自 <?php echo e($policy['effective_quarter']); ?> 对应任期起，每届董事长目标 ¥<?php echo money($policy['chair_quarter_target']); ?>；监委会每人每届 ¥<?php echo money($policy['committee_person_target']); ?>，三人共 ¥<?php echo money((float)$policy['committee_person_target']*3); ?>。任期目标独立重置；任期结束并核验后，未获得的额度逐届结转，累加到同一个全员福利池。</p><p>经财务核实的建议或 Bug：有效 1 点、落地或修复 3 点、重大贡献 5 点。每个核验点奖励 ¥50：1 点 ¥50、3 点 ¥150、5 点 ¥250。核验通过即从福利池预留，登记在贡献台账中，由财务确认发放；季度不重复分配。未分配部分留在池内，年终按财务确认的参与月份分配。</p><a href="<?php echo BASE_URL; ?>/project/rules.php?domain=welfare">查看完整福利池规则 →</a></section></div>
   <section class="welfare-card"><h2>任期结转</h2><?php if (!$closures): ?><p class="text-muted">尚无已结转任期。当前任期于 <?php echo e((new DateTimeImmutable($currentTermBounds[1]))->modify('-1 day')->format('Y-m-d')); ?> 结束，完成核验后才会自动入账。</p><?php else: ?><div class="table-responsive"><table class="table table-sm"><thead><tr><th>任期</th><th>董事长额度</th><th>监委会额度</th><th>已获得</th><th>转入福利池</th><th>完成时间</th></tr></thead><tbody><?php foreach ($closures as $c): [$rowFrom,$rowUntil]=pw_bounds($c['quarter_key']); ?><tr><td><?php echo e($c['quarter_key']); ?><small class="d-block text-muted"><?php echo e($rowFrom); ?>—<?php echo e((new DateTimeImmutable($rowUntil))->modify('-1 day')->format('Y-m-d')); ?></small></td><td>¥<?php echo money($c['chair_funding']); ?></td><td>¥<?php echo money($c['committee_funding']); ?></td><td>¥<?php echo money((float)$c['chair_earned']+(float)$c['committee_earned']); ?></td><td><strong>¥<?php echo money($c['remainder_transfer']); ?></strong></td><td><?php echo e($c['closed_at']); ?></td></tr><?php endforeach; ?></tbody></table></div><?php endif; ?></section>
+  <?php if ($finance): ?><section class="welfare-card" id="ledger"><h2>资金台账与登记</h2><p>福利池余额 = 转入合计 − 奖励预留 / 发放。下面每一笔都可核对；历史季度的结余、没经过福利池就发放的奖励，在这里补登，写明依据即可。</p>
+    <div class="table-responsive"><table class="table table-sm"><thead><tr><th>时间</th><th>类型</th><th>归属</th><th class="text-right">金额</th><th class="text-right">余额</th><th>说明</th></tr></thead><tbody>
+    <?php $run = 0.0; foreach ($ledgerRows as $lr): $run += (float)$lr['amount']; ?><tr><td class="text-nowrap"><?php echo e(substr((string)$lr['created_at'], 0, 10)); ?></td><td><?php echo e(PW_LEDGER_LABELS[$lr['event_type']] ?? $lr['event_type']); ?></td><td><?php echo e($lr['quarter_key']); ?></td><td class="text-right <?php echo (float)$lr['amount'] < 0 ? 'text-danger' : 'text-success'; ?>"><?php echo (float)$lr['amount'] >= 0 ? '+' : '−'; ?>¥<?php echo money(abs((float)$lr['amount'])); ?></td><td class="text-right">¥<?php echo money($run); ?></td><td class="small"><?php echo e($lr['note']); ?></td></tr><?php endforeach; ?>
+    <?php if (!$ledgerRows): ?><tr><td colspan="6" class="text-center text-muted">还没有资金记录</td></tr><?php endif; ?></tbody></table></div>
+    <h3>登记结余 / 调整</h3><p class="small text-muted">例如“三季度结余转入”“线下已发放的奖励支出”。登记后进入福利池余额，并留下审核记录；支出不能超过当前余额。</p>
+    <form method="post" class="welfare-inline"><input type="hidden" name="csrf" value="<?php echo e(ps_csrf_token()); ?>"><input type="hidden" name="action" value="ledger_adjust">
+      <select class="form-control" name="direction" aria-label="转入或支出" required><option value="in">转入（增加余额）</option><option value="out">支出（减少余额）</option></select>
+      <input class="form-control" name="amount" inputmode="decimal" placeholder="金额（元）" aria-label="金额" required>
+      <select class="form-control" name="quarter" aria-label="归属季度" required><?php foreach (['2026-Q1','2026-Q2','2026-Q3','2026-Q4','2027-Q1'] as $qk): ?><option value="<?php echo e($qk); ?>"<?php echo $qk === '2026-Q3' ? ' selected' : ''; ?>><?php echo e($qk); ?></option><?php endforeach; ?></select>
+      <input class="form-control" name="note" maxlength="255" placeholder="依据，如：三季度结余，按 9 月核对表" aria-label="依据" required style="min-width:260px">
+      <button class="btn btn-success" type="submit" onclick="return confirm('确认登记这笔福利池资金？')">登记</button></form>
+    <?php if ($unreservedPaid): $unreservedTotal = array_sum(array_column($unreservedPaid, 'bonus_delta')); ?><h3>已发放、还没从福利池扣除的建议 / Bug 奖励</h3>
+    <p class="small text-muted">这些奖励在“建议 / Bug 奖励”台账里已标记发放，但没有经过福利池预留，所以余额里还没扣。勾选后一次扣除（每条单独记账）。</p>
+    <form method="post"><input type="hidden" name="csrf" value="<?php echo e(ps_csrf_token()); ?>"><input type="hidden" name="action" value="deduct_paid">
+      <div class="table-responsive"><table class="table table-sm"><thead><tr><th></th><th>人员</th><th>事项</th><th>日期</th><th>发放日</th><th class="text-right">奖金</th></tr></thead><tbody>
+      <?php foreach ($unreservedPaid as $ur): ?><tr><td><input type="checkbox" name="record_ids[]" value="<?php echo (int)$ur['id']; ?>" checked></td><td><?php echo e($ur['name']); ?></td><td><?php echo e($ur['category']); ?> <small class="text-muted">#<?php echo (int)$ur['id']; ?></small></td><td><?php echo e($ur['record_date']); ?></td><td><?php echo e($ur['reward_paid_on']); ?></td><td class="text-right">¥<?php echo money($ur['bonus_delta']); ?></td></tr><?php endforeach; ?></tbody></table></div>
+      <button class="btn btn-outline-danger" type="submit" onclick="return confirm('从福利池扣除所选奖励？每条会单独记一笔支出。')">从福利池扣除所选（默认全选，共 ¥<?php echo money($unreservedTotal); ?>）</button></form><?php endif; ?>
+  </section><?php endif; ?>
   <?php if ($finance): ?><section class="welfare-card"><h2>财务核验与结算</h2><p>先核对本届轮值、监委人数与待审事项；完成任期结转后核验建议／Bug，再生成奖励。定时任务会自动尝试，资料不齐时只提示待核对。</p>
     <?php if ($settlementQuarter === $currentQuarter): ?><div class="alert alert-info">第一届任期仍在进行中，结束后才可结转；现在可以先审核建议与 Bug。</div><?php endif; ?>
     <?php foreach (['close_quarter'=>'核验并结转任期','award_quarter'=>'生成本届贡献奖励'] as $actionName=>$buttonLabel): ?>

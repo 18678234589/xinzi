@@ -20,7 +20,19 @@ try {
         if (!(int)$p->query("SELECT GET_LOCK('project_auto_review_job',0)")->fetchColumn()) { echo "{\"busy\":true}\n"; exit; }
     } else $p->exec('START TRANSACTION READ ONLY');
     try {
+        // 重复上传造成的重复草稿订单（同业务 / 日期 / 售价 / 昵称 / 参与人、两次上传相隔 10 分钟以上）：先自动合并，多出来的进回收站（30 天可还原），不用财务逐个清；已审核的重复不动
+        if ($apply) {
+            try {
+                require_once __DIR__ . '/../includes/ProjectDuplicateCleanup.php';
+                $merged = mdd_run(true, date('Y-m-d', strtotime('-75 days')), 10)[0];
+                if ($merged) { echo json_encode(['duplicate_orders_merged' => count($merged)], JSON_UNESCAPED_UNICODE) . "
+"; }
+            } catch (Throwable $mergeError) { fwrite(STDERR, 'duplicate_cleanup_failed: ' . $mergeError->getMessage() . "
+"); }
+        }
         $out = pa_batch($limit, $apply, $refresh, $month);
+        if ($apply) { try { require_once __DIR__ . '/../includes/ProjectOrderNudge.php'; $nudged = pon_send(); if ($nudged) $out['order_check_messages'] = $nudged; } catch (Throwable $nudgeError) { fwrite(STDERR, 'order_nudge_failed: ' . $nudgeError->getMessage() . "
+"); } }
         // 自动结算的免审业务订单，每个业务每月补抽到 5 单交财务抽查（本月和上月）
         if ($apply) $out['spot_checks_assigned'] = psc_assign(date('Y-m')) + psc_assign(date('Y-m', strtotime('first day of last month')));
         if ($apply) { require_once __DIR__ . '/../includes/ProjectMonthly.php'; foreach ([date('Y-m'), date('Y-m', strtotime('first day of last month'))] as $ucMonth) { try { puc_sync($ucMonth); } catch (Throwable $e) { error_log('puc_sync ' . $ucMonth . ' ' . $e->getMessage()); } } }

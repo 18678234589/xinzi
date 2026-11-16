@@ -29,6 +29,8 @@ function pt_terms()
         '工时统计表' => '服务时长', '工时' => '服务时长',
         '请假记录' => '服务暂停申请', '调休记录' => '时段调整确认', '请假' => '服务暂停', '调休' => '时段调整',
         '加班费' => '超时补贴', '加班' => '延时服务',
+        // 业务名显示改名（2026-11）：页面上“AI网站定制”统一显示为“AI定制”；数据库、表单值、上传表头识别里仍用“AI网站定制”（两种写法上传都认）
+        'AI网站定制' => 'AI定制',
     ];
 }
 
@@ -44,7 +46,7 @@ function pt_text($text)
  */
 function pt_filter_html($html)
 {
-    if (!is_string($html) || $html === '' || !preg_match('/考勤|出勤|缺勤|打卡|值班|工时|请假|调休|加班/u', $html)) return $html;
+    if (!is_string($html) || $html === '' || !preg_match('/考勤|出勤|缺勤|打卡|值班|工时|请假|调休|加班|AI网站定制/u', $html)) return $html;
     $parts = preg_split('~(<script\b.*?</script>|<style\b.*?</style>|<textarea\b.*?</textarea>|<!--.*?-->|<[^>]*>)~isu', $html, -1, PREG_SPLIT_DELIM_CAPTURE);
     if ($parts === false) return $html;
     $terms = pt_terms();

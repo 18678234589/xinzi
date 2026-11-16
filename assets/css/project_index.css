@@ -25,11 +25,11 @@
 
 /* 统计卡片 */
 .pi-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin-bottom:14px}
-.pi-kpis>div{padding:14px 18px;border-radius:18px;background:#fff;border:1px solid #e9eee7;box-shadow:0 5px 16px rgba(29,65,46,.05)}
+.pi-kpis>div,.pi-kpis>a{padding:14px 18px;border-radius:18px;background:#fff;border:1px solid #e9eee7;box-shadow:0 5px 16px rgba(29,65,46,.05)}
 .pi-kpis small{display:block;color:#698177;font-size:12.5px;font-weight:700}
 .pi-kpis strong{display:block;font-size:24px;font-weight:800;letter-spacing:-.02em;font-variant-numeric:tabular-nums;line-height:1.3}
 .pi-kpis>div:first-child{background:linear-gradient(135deg,#286b55,#3e8b68);border-color:#2b7057;color:#fff}.pi-kpis>div:first-child small{color:#d9efe0}
-.pi-kpis .is-alert{background:#fff8e8;border-color:#f1dfbc}.pi-kpis .is-alert strong{color:#a8650a}
+.pi-kpis>a{display:block;text-decoration:none;color:inherit;transition:transform .12s,box-shadow .12s}.pi-kpis>a:hover{transform:translateY(-2px);box-shadow:0 8px 20px rgba(168,101,10,.16);text-decoration:none;color:inherit}.pi-kpis .is-alert{background:#fff8e8;border-color:#f1dfbc}.pi-kpis .is-alert strong{color:#a8650a}
 
 /* 提醒条 */
 .app-warm .pi .alert{border-radius:16px;border:1px solid transparent;padding:.7rem 1.1rem}
@@ -69,3 +69,5 @@
 .pi .project-order-table tbody td:last-child .btn{display:block;width:100%;margin:0 0 5px!important;text-align:center}
 .pi-f{flex:1 1 130px;min-width:120px}.pi-q{flex:2 1 220px}.pi-month{flex:1.2 1 210px}
 .pi .project-order-table td a.pi-ono{color:#1f3b32!important;text-decoration:none}.pi .project-order-table td a.pi-ono:hover strong{color:#286b55;text-decoration:underline}
+.pi-list .table-responsive{max-height:calc(100vh - 120px);overflow:auto;cursor:grab}.pi-list .table-responsive.is-dragging{cursor:grabbing;user-select:none}
+.pi .project-order-table thead th{position:sticky;top:0;z-index:2}

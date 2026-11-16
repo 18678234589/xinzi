@@ -55,6 +55,9 @@ function ps_refund_can_view_order($actor, $orderId)
     return (bool)$q->fetchColumn();
 }
 
+/** 小额返款的标记（写在退款原因开头）：这类退款是返给小额引流客户的钱，不是原订单的部分退款。 */
+const PRM_SMALL_TAG = '【小额返款】';
+
 function ps_refund_columns()
 {
     return [
@@ -177,6 +180,7 @@ function ps_refund_preview_row(array $input, $fingerprint, $actor, $fileId = nul
         'payer_note' => trim((string)($input['payer_note'] ?? '')),
         'reason' => mb_substr(trim((string)($input['reason'] ?? '')), 0, 300), 'method' => ps_refund_method($input['method'] ?? ''),
         'fingerprint' => $fingerprint, 'file_id' => $fileId, 'sheet' => $sheet, 'line' => $line, 'status' => '可登记', 'error' => '', 'warning' => '', 'order_id' => 0, 'business' => '', 'available' => '—'];
+    if (!empty($input['small']) && mb_strpos($row['reason'], PRM_SMALL_TAG) === false) $row['reason'] = mb_substr(PRM_SMALL_TAG . $row['reason'], 0, 300);
     if (!$row['refund_date'] || $row['amount'] === null) $row['error'] = '请补正退款日期和正数退款金额（最多两位小数）';
     elseif (mb_strlen($row['reference']) > 150 || mb_strlen($row['source_reference']) > 200 || mb_strlen($row['order_no']) > 100) $row['error'] = '订单号或流水号过长';
     else {
@@ -248,6 +252,8 @@ function ps_refund_parse_file($fileRow, $actor)
             if (!array_filter($cells, function ($v) { return trim((string)$v) !== ''; })) continue;
             $input = [];
             foreach ($map as $key => $col) $input[$key] = $cells[$col] ?? '';
+            // 小额返款 / 小额退款（客服给小额引流客户的 ¥10 左右返款）：退款表里这一列常常没有表头，整行扫一遍
+            foreach ($cells as $cell) if (is_string($cell) && preg_match('/小额(返款|退款|返现)/u', $cell)) { $input['small'] = '1'; break; }
             // 合计行不是退款明细；无店铺订单号但有原支付流水仍可导入。
             if (trim((string)($input['order_no'] ?? '')) === '' && trim((string)($input['source_reference'] ?? '')) === '' && trim((string)($input['reference'] ?? '')) === '') continue;
             $rows[] = ps_refund_preview_row($input, ps_refund_fingerprint($input), $actor, (int)$fileRow['id'], (string)$sheet, $i + 1);
@@ -332,7 +338,7 @@ function ps_refund_review($id, $decision, $actor, $month, $nested = false, $corr
             $q = $pdo->prepare('SELECT * FROM project_orders WHERE id=? FOR UPDATE');
             $q->execute([(int)$resolved['id']]); $order = $q->fetch();
             if (!$order) throw new RuntimeException('原项目订单已变化，请重新核对');
-            $refundBase = (float)$order['receipt_amount'] > 0 ? (float)$order['receipt_amount'] : (float)$order['contract_amount']; // 尚未录入收款时按售价预估
+            $refundBase = ps_refund_base($order); // 尚未录入收款时按售价预估；售价也没录的，按店铺流水里的订单金额
             if ((float)$row['amount'] > round($refundBase - (float)$order['refund_amount'], 2)) throw new RuntimeException((float)$order['receipt_amount'] > 0 ? '退款超过已审核实收的可退余额，请先核对实收/已退款' : '退款超过订单售价的可退余额，请先核对售价/已退款');
             if ($reference !== '') {
                 $repeat = $pdo->prepare("SELECT id FROM project_refund_import_rows WHERE payment_method=? AND payment_reference=? AND review_status='approved' AND id<>? LIMIT 1");
@@ -372,6 +378,24 @@ function ps_refund_review($id, $decision, $actor, $month, $nested = false, $corr
  * 自动记为已审核退款（计入订单退款，预计分成随之扣减）。其余保持“待审核”并给出原因，由财务处理。
  * 上传退款表 / 导入订单后会立即触发，另有定时任务兜底。$dryRun=true 只统计不写入。
  */
+/** 退款的可退基数：已审核实收；没有实收按售价；售价也没录入（售价待补）的订单，按店铺流水里同订单号的订单金额。 */
+function ps_refund_base(array $order)
+{
+    if ((float)$order['receipt_amount'] > 0) return (float)$order['receipt_amount'];
+    if ((float)$order['contract_amount'] > 0) return (float)$order['contract_amount'];
+    try {
+        if (!function_exists('ps_shop_order_lookup')) require_once __DIR__ . '/ProjectOrderSource.php';
+        foreach (ps_shop_order_lookup((string)$order['order_no']) as $m) if ((float)($m['price'] ?? 0) > 0) return (float)$m['price'];
+    } catch (Throwable $e) {}
+    return 0.0;
+}
+
+function ps_refund_month_locked($month)
+{
+    $q = db()->prepare("SELECT status FROM project_payroll_periods WHERE period=?"); $q->execute([$month]);
+    return $q->fetchColumn() === 'locked';
+}
+
 function ps_refund_system_actor() { return ['type' => 'system', 'id' => 0, 'employee_id' => null, 'role' => 'finance', 'username' => 'system']; }
 
 function ps_refund_auto_apply($limit = 300, $dryRun = false)
@@ -384,6 +408,8 @@ function ps_refund_auto_apply($limit = 300, $dryRun = false)
         $summary['linked'] += prm_auto_nickname($system, 300); // 写成客户ID、且只对应一张订单的退款
         $summary['reopened'] = prm_auto_reopen($system, 300);      // 之前自动结案的“未报单”退款，订单后来补录了：重新打开
         $summary['unreported'] = prm_auto_unreported($system, 14, 200); // 没有项目订单、流水里有、过了 14 天：自动结案
+        $summary['small_closed'] = prm_auto_close_small($system, 300);  // 小额返款：客服没报小额引流订单，无分成可扣
+        $summary['archived'] = prm_auto_archive_history($system, 300);  // 已核算月份及以前、项目系统里没有订单：留档结案
         $shop = prm_shop_refund_sync(false); // 店铺里的售中退款 / 交易关闭
         $summary['shop_applied'] = $shop['applied']; $summary['shop_queued'] = $shop['queued'];
     }
@@ -394,9 +420,10 @@ function ps_refund_auto_apply($limit = 300, $dryRun = false)
         $why = '';
         if (!$order) $why = '原订单已不存在';
         // 渠道没写明（待核渠道）不拦：渠道只是记账备注，不影响扣减金额，记录上保留标记
-        elseif (in_array($order['settlement_status'], ['approved', 'locked'], true)) $why = '原订单已审核，需财务选择调整计入的月份';
+        elseif (in_array($order['settlement_status'], ['approved', 'locked'], true) && ps_refund_month_locked(substr($row['refund_date'], 0, 7))) $why = '原订单已审核，退款月份已锁定，需财务选择未锁定的调整月份';
         else {
-            $base = (float)$order['receipt_amount'] > 0 ? (float)$order['receipt_amount'] : (float)$order['contract_amount'];
+            // 原订单已审核：退款在退款当月补扣（所属月份不动），和手工审核选退款月份是同一个结果；月份没锁定就不用再等人选
+            $base = ps_refund_base($order);
             if ((float)$row['amount'] > round($base - (float)$order['refund_amount'], 2)) $why = '退款金额超过订单可退金额（售价 / 实收 ¥' . number_format($base, 2, '.', '') . '，已退 ¥' . number_format((float)$order['refund_amount'], 2, '.', '') . '）';
         }
         if ($why === '' && $dryRun) { $summary['would_apply']++; continue; }

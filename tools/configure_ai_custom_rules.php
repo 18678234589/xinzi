@@ -32,8 +32,8 @@ function acr_definitions()
     $e = $strip($cs);
     $defs[] = array_merge($e, ['order_kind' => 'AI定制', 'is_extra' => 1, 'rate' => 0, 'per_order_subsidy' => 20, 'min_cost_rate' => null, 'effective_from' => ACR_EFFECTIVE,
         'note' => 'AI定制 新建站奖励：每单 20 元（与现有定制客服规则叠加）；2026-10-01 起']);
-    $defs[] = array_merge($e, ['order_kind' => '华梦定制', 'is_extra' => 0, 'min_cost_rate' => 0.8, 'effective_from' => ACR_EFFECTIVE,
-        'note' => '华梦定制客服：成本按售价 80% 记录，其余同现有定制客服规则；2026-10-01 起']);
+    $defs[] = array_merge($e, ['order_kind' => '华梦定制', 'is_extra' => 0, 'min_cost_rate' => 0.8, 'per_order_subsidy' => 0, 'effective_from' => ACR_EFFECTIVE,
+        'note' => '华梦定制客服：成本按售价 80% 记录，其余同现有定制客服规则；不发每单 20 元奖励；2026-10-01 起']);
     return $defs;
 }
 

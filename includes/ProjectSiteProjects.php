@@ -46,6 +46,39 @@ function psp_lookup($external, $key)
     return $q->fetch() ?: null;
 }
 
+/** 同一付款号下之前按顺序自动标识（auto-N）、售价（程序商品）和本次表格一行对得上、本次上传还没认领过的网站。 */
+function psp_find_auto_member($external, $amount, array $claimed = [])
+{
+    if ($amount <= 0) return null;
+    $q = db()->prepare("SELECT p.order_id,p.root_order_id,o.order_no,i.sale_amount AS sale FROM project_site_projects p JOIN project_orders o ON o.id=p.order_id JOIN project_order_items i ON i.order_id=o.id AND i.category='program' AND ABS(i.sale_amount-?)<0.005 WHERE p.external_order_no=? AND p.site_key LIKE 'auto-%' ORDER BY p.order_id");
+    $q->execute([$amount, (string)$external]);
+    foreach ($q->fetchAll() as $r) if (!in_array((int)$r['order_id'], $claimed, true)) return $r;
+    return null;
+}
+
+/**
+ * 同一付款号多个网站时，核对各站点订单售价合计是否等于店铺流水里买家实际支付：对不上说明可能重复建单（技术二次上传）或附加项（SSL / 纯利润）没并进来。
+ * 返回提示文字；一致、没有流水或不是多网站订单返回空串。
+ */
+function psp_payment_mismatch($orderId)
+{
+    try {
+        $own = psp_order((int)$orderId);
+        if (!$own) return '';
+        $s = db()->prepare('SELECT SUM(o.contract_amount) FROM project_site_projects p JOIN project_orders o ON o.id=p.order_id WHERE p.external_order_no=?'); $s->execute([$own['external_order_no']]);
+        $sum = (float)$s->fetchColumn();
+        $n = db()->prepare('SELECT COUNT(*) FROM project_site_projects WHERE external_order_no=?'); $n->execute([$own['external_order_no']]);
+        if ((int)$n->fetchColumn() < 2) return '';
+        $f = db()->prepare("SELECT raw_data,order_amount FROM orders WHERE order_no=? AND employee_id=0 AND order_scope='department' AND COALESCE(is_deleted,0)=0 ORDER BY id DESC LIMIT 1"); $f->execute([$own['external_order_no']]); $row = $f->fetch();
+        if (!$row) return '';
+        $raw = json_decode((string)$row['raw_data'], true) ?: [];
+        foreach (['买家实际支付金额', '买家实付金额'] as $k) if (isset($raw[$k]) && is_numeric(str_replace(',', '', (string)$raw[$k]))) { $paid = (float)str_replace(',', '', (string)$raw[$k]); break; }
+        if (!isset($paid)) $paid = (float)$row['order_amount'];
+        if ($paid <= 0 || abs($paid - $sum) < 0.01) return '';
+        return '同一付款号 ' . (int)$n->fetchColumn() . ' 个网站的售价合计 ¥' . number_format($sum, 2) . '，店铺流水实付 ¥' . number_format($paid, 2) . '，对不上：可能重复建了订单，或 SSL / 纯利润附加行没并进来，请先核对（订单号 ' . $own['external_order_no'] . '）';
+    } catch (Throwable $e) { return ''; }
+}
+
 function psp_order($orderId)
 {
     $q = db()->prepare('SELECT * FROM project_site_projects WHERE order_id=?');

@@ -70,6 +70,27 @@ function pa_sources(array $order, array $source, $lock = false)
     return $rows;
 }
 
+/**
+ * 自动结算的分成归属月份：订单日期所在月份；但那个月份已经核算完毕（≤ 财务设置的“已核算至”月份）或已锁定的，
+ * 订单是之后才完成 / 发货的，就算到最早还没核算的月份（上月没完成、这个月完成的，算在这个月，不会漏掉也不会改已结的月份）。
+ */
+function pa_payroll_month_for($orderDate, $today = null)
+{
+    $now = $today ? strtotime($today) : time();
+    $month = substr((string)$orderDate, 0, 7);
+    // 工资月自动截止：每月 payroll_close_day（默认 15）日之后，上个月就不再接收迟到的订单（发货 / 到账晚了的订单算进当月）；
+    // 之前（含当天）上个月仍可补入。不需要财务每月手动设置。
+    $closeDay = (int)ps_setting_get('payroll_close_day', 15); if ($closeDay < 1 || $closeDay > 28) $closeDay = 15;
+    $floor = (int)date('j', $now) > $closeDay ? date('Y-m', $now) : date('Y-m', strtotime('first day of last month', $now));
+    if ($month < $floor) $month = $floor;
+    $settled = (string)ps_setting_get('refund_settled_through', '');
+    if (preg_match('/^\d{4}-(0[1-9]|1[0-2])$/', $settled)) {
+        $floor = date('Y-m', strtotime($settled . '-01 +1 month'));
+        if ($month < $floor) $month = $floor;
+    }
+    return ps_next_open_month($month);
+}
+
 function pa_context($orderId, $lock = false)
 {
     $p = db();
@@ -107,7 +128,7 @@ function pa_context($orderId, $lock = false)
     if (!empty($source['payment_reference'])) { $refundWhere .= ' OR source_payment_reference=?'; $refundParams[] = $source['payment_reference']; }
     $q = $p->prepare("SELECT id FROM project_refund_import_rows WHERE review_status='pending' AND ($refundWhere)" . prt_active_sql() . ($lock ? ' FOR UPDATE' : '')); $q->execute($refundParams); $refunds = count($q->fetchAll());
     $q = $p->prepare('SELECT COUNT(*) FROM project_commission_snapshots WHERE order_id=?'); $q->execute([$orderId]); $snapshots = (int)$q->fetchColumn();
-    $q = $p->prepare('SELECT status FROM project_payroll_periods WHERE period=?' . ($lock ? ' FOR UPDATE' : '')); $q->execute([substr($order['order_date'], 0, 7)]); $period = $q->fetchColumn();
+    $q = $p->prepare('SELECT status FROM project_payroll_periods WHERE period=?' . ($lock ? ' FOR UPDATE' : '')); $q->execute([pa_payroll_month_for($order['order_date'])]); $period = $q->fetchColumn();
     return [
         'order' => $order, 'source' => $source, 'resource' => $resource, 'cash' => $cash, 'costs' => $costs, 'participants' => $people,
         'items' => poi_items($orderId),
@@ -166,6 +187,29 @@ function pa_retryable_database_error(Throwable $e)
     return $e instanceof PDOException && ((string)$e->getCode() === '40001' || (int)($e->errorInfo[1] ?? 0) === 1213);
 }
 
+/**
+ * 套餐已含空间 / 域名的网站订单（网站模板、AI网站定制）：订单已选好成本中心程序套餐、业务已完成、资源模式还停在“待技术确认”时，
+ * 视同技术确认“无需另选域名 / 服务器”（与批量审核、导入时一致），自动确认资源并带入套餐成本，不再等人工。
+ * 只在自动结算（apply）的事务里执行；有交付、套餐、未结算、未锁月、没有分成快照才动。返回是否确认了。
+ */
+function pa_auto_confirm_resource(array $ctx)
+{
+    $o = $ctx['order'];
+    if (empty($ctx['catalog']['resources']) || in_array($o['settlement_status'], ['approved', 'locked'], true)) return false;
+    if (($o['delivery_status'] ?? '') !== 'finished' || ($ctx['period_status'] ?? '') === 'locked' || (int)($ctx['snapshot_count'] ?? 0) > 0) return false;
+    if ($ctx['resource'] && ($ctx['resource']['domain_mode'] ?? 'pending') !== 'pending') return false;
+    $program = 0;
+    foreach ($ctx['items'] ?? [] as $item) if (($item['category'] ?? '') === 'program' && !empty($item['template_id'])) { $program = (int)$item['template_id']; break; }
+    // 加购 / 纯利润 / 补差价 / SSL 证书 / 加语言这类附加项本身没有域名和空间，不用等技术确认
+    $addon = $program <= 0 && (preg_match('/加购|纯利润|补差价/u', (string)($o['order_kind'] ?? '')) || preg_match('/业务说明：[^；]*(ssl|证书|加语言|加中文|补差价|纯利润)/iu', (string)($o['note'] ?? '')));
+    if ($program <= 0 && !$addon) return false;
+    require_once __DIR__ . '/ProjectIntake.php';
+    $actor = ['type' => 'system', 'id' => 0, 'role' => 'finance'];
+    ps_intake_confirm_resources((int)$o['id'], 'none', 0, 0, $actor, $program);
+    ps_audit('order', (int)$o['id'], 'confirm_resources', $actor, ['domain_mode' => 'none', 'via' => $addon ? 'auto_review_addon' : 'auto_review', 'program_template_id' => $program]);
+    return true;
+}
+
 function pa_check_order($orderId, $apply = false, $persist = false)
 {
     $outerTransaction = db()->inTransaction();
@@ -180,6 +224,19 @@ function pa_check_order($orderId, $apply = false, $persist = false)
     }
 }
 
+/** 免财务审核业务：把订单上不超过 PA_SPOT_COST_AUTO_LIMIT 的待审成本直接通过（记审计）。返回是否有成本被通过。 */
+function pa_spot_approve_small_costs(array $ctx)
+{
+    $n = 0;
+    foreach ($ctx['costs'] as $cost) {
+        if (($cost['review_status'] ?? '') !== 'pending' || abs((float)$cost['amount']) > PA_SPOT_COST_AUTO_LIMIT) continue;
+        $u = db()->prepare("UPDATE project_costs SET review_status='approved',review_note='免财务审核业务：小额成本自动通过，事后抽查' WHERE id=? AND review_status='pending'");
+        $u->execute([(int)$cost['id']]);
+        if ($u->rowCount()) { $n++; ps_audit('cost', (int)$cost['id'], 'auto_approve_spot', ['type' => 'system', 'id' => 0, 'role' => 'finance'], ['order_id' => (int)$ctx['order']['id'], 'amount' => (float)$cost['amount']]); }
+    }
+    return $n > 0;
+}
+
 function pa_check_order_once($orderId, $apply = false, $persist = false)
 {
     // The rollout/pause switch also gates explicit automatic processing, not just cron.
@@ -187,7 +244,11 @@ function pa_check_order_once($orderId, $apply = false, $persist = false)
     $p = db(); $nested = $p->inTransaction(); $transaction = $apply || $persist;
     if ($transaction) { if ($nested) $p->exec('SAVEPOINT auto_review_order'); else $p->beginTransaction(); }
     try {
-        $ctx = pa_context($orderId, $transaction); $result = pa_evaluate($ctx); $applied = false;
+        $ctx = pa_context($orderId, $transaction);
+        if ($apply && pa_auto_confirm_resource($ctx)) $ctx = pa_context($orderId, true);
+        // 免财务审核业务：小额待审成本随自动结算一并通过（事后抽查）
+        if ($apply && in_array(ps_business_normalize($ctx['order']['project_type'] ?? ''), PA_SPOT_CHECK_BUSINESSES, true) && pa_spot_approve_small_costs($ctx)) $ctx = pa_context($orderId, true);
+        $result = pa_evaluate($ctx); $applied = false;
         if ($apply && $result['can_apply']) {
             $spot = !empty($result['spot_check']);
             if ($result['receipt_to_add_cents'] > 0) {
@@ -202,7 +263,7 @@ function pa_check_order_once($orderId, $apply = false, $persist = false)
                 ps_recalculate_cash($orderId);
             }
             // Original order month only; locked months never silently roll forward.
-            ps_approve_order($orderId, ['type' => 'system', 'id' => 0, 'role' => 'finance'], substr($ctx['order']['order_date'], 0, 7));
+            ps_approve_order($orderId, ['type' => 'system', 'id' => 0, 'role' => 'finance'], pa_payroll_month_for($ctx['order']['order_date']));
             $ctx = pa_context($orderId, true); $result = pa_evaluate($ctx); $result['state'] = $spot ? 'spot_check' : 'auto_passed'; $applied = true;
         }
         if ($transaction) pa_record($ctx, $result, $applied);
@@ -255,6 +316,16 @@ function pa_view(array $row)
     if ($stale) $state = 'queued';
     if ($state === 'queued' && in_array($row['settlement_status'], ['approved', 'locked'], true)) $state = ($row['auto_review_state'] ?? '') === 'spot_check' ? 'spot_check' : 'settled';
     $reasons = $stale ? [] : (json_decode((string)($row['auto_review_reasons'] ?? ''), true) ?: []);
+    $closed = in_array($row['settlement_status'] ?? '', ['approved', 'locked'], true);
+    if ($closed) {
+        // 财务已审核/锁定的订单：过滤掉事前提醒项（如“历史实收按售价估算，请财务复核”等），只保留事后异常（退款冲突、流水不平）
+        $reasons = array_values(array_filter($reasons, function ($r) {
+            return in_array($r['code'] ?? '', ['cash_ledger_mismatch', 'later_refund', 'external_refund_pending'], true);
+        }));
+        if (!$reasons) {
+            $state = in_array($state, ['auto_passed', 'spot_check'], true) ? $state : 'settled';
+        }
+    }
     // 已存下来的旧提示文字换成大白话（不改核对规则版本，避免全部订单重新排队）
     $plainText = ['已匹配订单来源，但尚无明确实付字段或已核验收款；比例分成须等实收' => '已找到这张订单，但还没有这笔钱的收款记录；按比例算的提成要等收款确认后才能结算', '尚未匹配可信收款流水；售价仅用于预估' => '还没找到这笔钱的收款记录；现在显示的金额只是按售价估算的预计值', '没有可结算净实收，需核对收退款' => '还没有已确认的收款，暂时无法结算；请财务核对收款和退款'];
     foreach ($reasons as $ri => $reasonRow) if (isset($reasonRow['text'], $plainText[$reasonRow['text']])) $reasons[$ri]['text'] = $plainText[$reasonRow['text']];

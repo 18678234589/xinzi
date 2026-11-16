@@ -26,6 +26,8 @@ $resumeFile = null;
 if ($resumeFileId > 0) {
     try {
         $resumeFile = ps_import_file_get($resumeFileId, $operator);
+        // 退款表格在“退款与返现”页核对导入，不走订单导入页（那里需要业务类型，售后退款部没有）
+        if ($resumeFile['business_name'] === '项目退款与返现' && ($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'GET') { header('Location: ' . BASE_URL . '/project/refunds.php?resume_file=' . $resumeFileId); exit; }
         $actor = ps_import_upload_actor($resumeFile, $operator);
         $_SESSION['project_import_delegate_file'] = $resumeFileId;
         $_SESSION['project_import_delegate_operator'] = $operator['type'] . ':' . $operator['id'];

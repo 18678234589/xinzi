@@ -94,7 +94,12 @@ function pop_check_extras($primaryNo, array $extras)
         $exists->execute([$no]); $otherOrder = (int)$exists->fetchColumn();
         if ($otherOrder > 0 && $otherOrder !== $primaryId) { $problems[] = '订单号 ' . $no . ' 已经是另一张独立订单（#' . $otherOrder . '），请财务在订单页把它并入主订单后再上传'; continue; }
         $hit = pop_find($no);
-        if ($hit && (int)$hit['order_id'] !== $primaryId) { $problems[] = '订单号 ' . $no . ' 已关联到订单 ' . $hit['order_no']; continue; }
+        if ($hit && (int)$hit['order_id'] !== $primaryId) {
+            // 关联到的订单号和本行主订单号只差一两位：多半是之前表格里把订单号写错了位数，提示财务改正
+            $near = levenshtein((string)$primaryNo, (string)$hit['order_no']) <= 2 && (string)$primaryNo !== (string)$hit['order_no'];
+            $problems[] = '订单号 ' . $no . ' 已关联到订单 ' . $hit['order_no'] . ($near ? '（与本行订单号只差一两位，可能是之前表格里写错了位数；请财务核对后把那张订单的订单号改正）' : '');
+            continue;
+        }
         $ok[] = $no;
     }
     return [$ok, $problems];

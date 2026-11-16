@@ -33,9 +33,12 @@
                         $error = '文件类型仅支持 .xlsx / .csv';
                     } else {
                         if ($ext === 'csv') {
-                            $fp = fopen($tmp, 'r');
-                            $bom = fread($fp, 3);
-                            if ($bom !== "\xEF\xBB\xBF") { rewind($fp); }
+                            // 文件内容统一转成 UTF-8 再解析：拼多多等平台的官方导出常是 GBK 编码，直接读会整表乱码
+                            $csvText = (string)file_get_contents($tmp);
+                            if (substr($csvText, 0, 3) === "\xEF\xBB\xBF") $csvText = substr($csvText, 3);
+                            if (!mb_check_encoding($csvText, 'UTF-8')) $csvText = mb_convert_encoding($csvText, 'UTF-8', 'GB18030');
+                            $fp = fopen('php://temp', 'r+');
+                            fwrite($fp, $csvText); rewind($fp);
                             while (($data = fgetcsv($fp)) !== false) { $rows[] = $data; }
                             fclose($fp);
                         } else {
@@ -69,7 +72,13 @@
                     // 找金额/价格/成本列（模糊匹配，支持多种表头名称）
                     $idxPrice = null; $idxCost = null; $idxAmount = null;
                     $idxOrderNo = null; $idxTradeTime = null; $idxOrderStatus = null; $idxTradeTimeRank = 9; $idxRefund = null;
+                    $idxPddAmount = null; $idxPddPaid = null; $idxAfterSale = null; $idxTitle = null;
                     foreach ($colMap as $k => $idx) {
+                        // 拼多多官方导出：订单金额取“商家实收金额(元)”（没有就取“用户实付金额(元)”）；“售后状态”列并入订单状态；“商品”列当商品标题
+                        if ($idxPddAmount === null && mb_strpos($k, '商家实收金额') !== false) $idxPddAmount = $idx;
+                        if ($idxPddPaid === null && mb_strpos($k, '用户实付金额') !== false) $idxPddPaid = $idx;
+                        if ($idxAfterSale === null && $k === '售后状态') $idxAfterSale = $idx;
+                        if ($idxTitle === null && $k === '商品') $idxTitle = $idx;
                         if ($idxAmount === null && (mb_strpos($k, '订单金额') !== false || mb_strpos($k, '交易金额') !== false || mb_strpos($k, '金额') !== false)) $idxAmount
     = $idx;
                         if ($idxPrice === null && (mb_strpos($k, '价格') !== false || mb_strpos($k, '售价') !== false)) $idxPrice = $idx;
@@ -83,6 +92,7 @@
                         if ($idxRefund === null && mb_strpos($k, '退款金额') !== false) $idxRefund = $idx;
                     }
 
+                    if ($idxPddAmount !== null) $idxAmount = $idxPddAmount; elseif ($idxPddPaid !== null) $idxAmount = $idxPddPaid;
                     // 校验：要么有订单金额列，要么有价格和成本列
                     if ($idxAmount === null && ($idxPrice === null || $idxCost === null)) {
                         $error = '表头缺少金额字段：需要"订单金额"列，或同时有"价格/售价"和"成本/总成本"列';
@@ -95,7 +105,7 @@
 
                     $inserted = 0; $skipped = 0; $noDate = 0; $updated = 0; $dups = 0; $dupSame = 0; $dupOlder = []; $dupOlderN = 0;
                     require_once (dirname(__DIR__, 2)) . '/../includes/ShopOrderDate.php';
-                    $monthFallback = 0; $fallbackSamples = []; $byMonth = []; $seenInFile = []; $conflicts = [];
+                    $monthFallback = 0; $fallbackSamples = []; $byMonth = []; $seenInFile = []; $conflicts = []; $touchedNos = [];
                     // 预读：本店铺已有的同订单号流水（按店铺 + 订单号去重；一次查完，避免逐行查询拖慢上传）
                     $existingMap = []; $prepNos = [];
                     foreach ($dataRows as $r0) {
@@ -190,10 +200,19 @@
                         if ($idxOrderStatus !== null) {
                             $orderStatus = trim((string)($row[$idxOrderStatus] ?? ''));
                         }
-                        // 科恒扫码收款、对公收款：有订单状态按订单状态，没有则默认交易成功
-                        if (in_array($shop['name'], ['科恒扫码收款', '对公收款'])) {
+                        // 收款流水类店铺（科恒扫码收款、对公收款、赫鸣支付宝等微信 / 支付宝 / 对公收款账单）：有订单状态按订单状态，没有则默认交易成功。
+                        // 不能只认固定的两个店铺名：新增的收款店铺账单没有“订单状态”列，漏掉就永远不被当作收款凭证
+                        require_once (dirname(__DIR__, 2)) . '/../includes/ProjectOrderSource.php';
+                        if (in_array($shop['name'], ['科恒扫码收款', '对公收款'], true) || ps_shop_channel($shop['name']) !== '') {
                             if ($orderStatus === '') { $orderStatus = '交易成功'; }
                         }
+                        // 拼多多：售后状态写了退款成功 / 退款中的，订单按退款处理（订单状态列只有 待发货 / 已发货 / 已收货）
+                        if ($idxAfterSale !== null) {
+                            $afterSale = trim((string)($row[$idxAfterSale] ?? ''));
+                            if (preg_match('/退款成功|已退款|售后成功/u', $afterSale)) $orderStatus = '退款成功';
+                            elseif (preg_match('/退款中|申请|售后中|处理中/u', $afterSale) && !preg_match('/取消|无售后/u', $afterSale)) $orderStatus = '退款中';
+                        }
+                        if ($idxTitle !== null && !isset($rawMap['商品标题'])) $rawMap['商品标题'] = trim((string)($row[$idxTitle] ?? ''));
                         if ($orderStatus !== '') { $rawMap['__order_status__'] = $orderStatus; }
                         // 提取订单号：优先使用检索号列，否则用通用提取
                         $orderNo = '';
@@ -203,6 +222,7 @@
                         if ($orderNo === '') {
                             $orderNo = extract_order_no($rawMap);
                         }
+                        if ($orderNo !== '' && $amount > 0) $touchedNos[$orderNo] = true; // 上传后要让等收款的项目订单重新核对
 
                         // 退款类状态自动折算（与 ETMLL 同口径）：交易关闭 / 退款成功 → 记为退款（负数）；部分退款 → 记净额
                         $refundCell = $idxRefund !== null ? extract_amount($row[$idxRefund] ?? '') : 0.0;
@@ -271,6 +291,21 @@
                     } catch (Exception $txEx) {
                         db()->rollBack();
                         throw $txEx;
+                    }
+                    // 新到的收款流水：对应的项目订单（订单号或支付流水号对得上、还没审核的）马上重新核对，
+                    // 不用等定时任务轮到——否则“等待收款确认”的订单在流水上传后还会停很久
+                    if ($touchedNos) {
+                        try {
+                            require_once (dirname(__DIR__, 2)) . '/../includes/ProjectAutoReview.php';
+                            $reIds = [];
+                            foreach (array_chunk(array_keys($touchedNos), 400) as $chunk) {
+                                $mark = implode(',', array_fill(0, count($chunk), '?'));
+                                $rq2 = db()->prepare("SELECT DISTINCT o.id FROM project_orders o LEFT JOIN project_order_sources s ON s.order_id=o.id WHERE o.settlement_status NOT IN ('approved','locked') AND (o.order_no IN ($mark) OR s.payment_reference IN ($mark))");
+                                $rq2->execute(array_merge($chunk, $chunk));
+                                foreach ($rq2->fetchAll(PDO::FETCH_COLUMN) as $rid) $reIds[] = (int)$rid;
+                            }
+                            if ($reIds) pa_after_save($reIds, 12);
+                        } catch (Throwable $reEx) { error_log('shop_upload_recheck ' . $reEx->getMessage()); }
                     }
 
                     if ($error === '') {

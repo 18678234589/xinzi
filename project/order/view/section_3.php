@@ -73,6 +73,9 @@
 <?php if ($actor['role'] === 'finance'): ?><td><?php if ($canEdit): ?><form method="post"><input type="hidden" name="csrf" value="<?php echo e(ps_csrf_token()); ?>"><input type="hidden" name="action" value="remove_participant"><input type="hidden" name="participant_id" value="<?php
     echo (int)$person['id']; ?>"><button class="btn btn-outline-danger btn-sm">移除</button></form><?php endif; ?></td><?php endif; ?></tr><?php endforeach; ?>
 <?php if (!$people): ?><tr><td colspan="7" class="text-center text-muted">尚无参与人</td></tr><?php endif; ?></tbody></table></div>
+<?php if ($actor['role'] !== 'finance' && $order['settlement_status'] !== 'locked' && count(array_unique(array_column($people, 'employee_id'))) > 1 && in_array((int)$actor['employee_id'], array_map('intval', array_column($people, 'employee_id')), true)): ?>
+<form method="post" class="mt-2 mb-3 d-flex flex-wrap align-items-center" style="gap:8px" onsubmit="return confirm('确认把你自己从这张订单移除吗？\n<?php echo $order['settlement_status'] === 'approved' ? '订单已审核：你已计的分成会按差额扣回，计入下一个未锁定月份，并通知财务。' : '订单还没审核：移除后订单不再出现在你的项目订单里。'; ?>')"><input type="hidden" name="csrf" value="<?php echo e(ps_csrf_token()); ?>"><input type="hidden" name="action" value="leave_order"><button class="btn btn-outline-danger btn-sm"><i class="fas fa-user-minus mr-1"></i>这单不是我的，把我从这单移除</button><small class="text-muted">不用申请、不用找财务；只能移除你自己。订单录错了业务请用上面的“更正业务类型”。</small></form>
+<?php endif; ?>
 <?php $commissionCorrections = ps_corr_for_order($id); foreach ($people as $person): if ($actor['role'] !== 'finance' && (int)$person['employee_id'] !== $actor['employee_id']) continue
     ; $mk = $person['commission_group'] . ':' . $person['employee_id']; $mp = $personLookup[$mk] ?? null; echo ps_render_calc_modal('calcModal' . (int)$person['id'], $person + ['rule'
     => $mp['rule'] ?? null], $order, $mp['calc'] ?? null, $mp['estimated_calc'] ?? null, $snapshotByPerson[$mk] ?? null, $id, $commissionCorrections, true); endforeach; ?>

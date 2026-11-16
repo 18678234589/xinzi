@@ -72,6 +72,7 @@ $customerServiceChoices = $actor['role'] === 'finance' ? $employees : array_valu
 $domainTemplates = ps_intake_templates('domain');
 $serverTemplates = ps_intake_templates('server');
 $programTemplates = ps_intake_templates('program');
+ps_ensure_outsource_templates(); // 小程序外包技术（没有就补一条，DDL 以外的普通插入，事务之外）
 $outsourceTemplates = ps_intake_templates('outsourcing');
 
 // 删除传错订单的共用清理：先删无级联的子表，再删订单本体（已审核订单在调用前拦截，不可恢复）。

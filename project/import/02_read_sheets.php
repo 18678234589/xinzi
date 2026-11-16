@@ -41,6 +41,8 @@
             $fixPaymentReferences = in_array($action, ['repair_preview', 'followup'], true) ? (array)($_POST['fix_payment_reference'] ?? []) : [];
             $fixSiteKeys = in_array($action, ['repair_preview', 'followup'], true) ? (array)($_POST['fix_site_key'] ?? []) : [];
             $fixTechnical = in_array($action, ['repair_preview', 'followup'], true) ? (array)($_POST['fix_technical'] ?? []) : [];
+            $fixJoin = in_array($action, ['repair_preview', 'followup'], true) ? (array)($_POST['fix_join'] ?? []) : [];
+            $fixOutsourceAmounts = in_array($action, ['repair_preview', 'followup'], true) ? (array)($_POST['fix_outsource_amount'] ?? []) : [];
             $sheetReport = [];
             $usedSheets = 0;
             $totalRows = 0;
@@ -62,7 +64,9 @@
             $seen = [];
             $wxSeq = []; // 无订单号行的同键序号：同一张表里完全相同的行也各得一个稳定的内部号
             $siteSeq = []; // 只计重复号；网站身份由项目标识决定，不能用行顺序决定
-            $siteSeenKeys = [];
+            $siteSeenKeys = []; $siteClaimedAuto = [];
+            $otherBusinessSheets = []; // 同一个文件里属于另一个备案业务的工作表：[表名 => 业务]
+            $siteBoundInUpload = []; // 旧订单没有网站标识时，本次上传里第一个网站绑定给原订单
             $siteLastOrderNos = []; // 网站附加项跟随本付款号最近一个网站，不一律挂到主网站。
             $siteExplicit = []; // 同付款号里已有行写明网站项目标识 / 网址的，其余行不自动编号
             $blankRows = [];
@@ -152,6 +156,8 @@
                         if (!is_array($r)) return $r;
                         $r = array_pad(array_values($r), $ebWidth, '');
                         $dom = trim((string)($r[$ebDomain] ?? '')); $con = $ebContact !== false ? trim((string)($r[$ebContact] ?? '')) : '';
+                        // 备案-单量表尾常有“单量 / 金额”汇总行（如 域名列写 469、状态列写 2345）：域名不像域名（没有“点”）又没有联系方式的，整行忽略，不当订单
+                        if ($ebPrefix === 'BA' && $con === '' && !preg_match('/\.[^.\s]{2,}/u', $dom)) return array_fill(0, count($r) + 1, '');
                         $r[] = $dom !== '' ? $ebPrefix . '-' . strtoupper(substr(md5($ebSalt . mb_strtolower($dom) . '|' . $con), 0, 12)) : '';
                         return $r;
                     }, $raw);
@@ -242,6 +248,19 @@
                     if ($entry['map'] !== null && in_array($selectedBusiness, ['网站模板', 'AI网站定制'], true) && !array_filter($head, function ($h) { return strpos((string)$h, '续费联系方式') === 0; })) $entry['ai'] = trim($entry['ai'] . ' 这张表是旧版模板，没有“网站域名 / 域名到期日期 / 服务器到期日期 / 续费联系方式”列，导入后续费提醒要财务另行补录。请点“下载此业务模板”获取新版（Excel，带下拉选择）。');
                     // 小程序旧版模板没有“订单类型”列：提醒下载新版（新订单 = 小程序商城新注册搭建，每单 20 元补助；其他订单没有）
                     if ($entry['map'] !== null && $selectedBusiness === '小程序开发' && !isset($entry['map']['order_kind'])) $entry['ai'] = trim($entry['ai'] . ' 这张表没有“订单类型”列（旧版模板）：未写类型的行只按“业务 / 制作要求”文字猜，描述不清一律按“注册公众号、认证等其他服务”（无 20 元补助）。请点“下载此业务模板”获取新版，在小程序商城新注册搭建的订单，在“订单类型”列选“小程序商城新注册搭建”。');
+                }
+                // 备案原表常把“备案”（提成表：订单编号 / 售价）和“备案修改”（单量表：联系方式 / 域名 / 状态）放在同一个文件的两张工作表里：各归各的业务，
+                // 单量表不能把带订单编号 / 售价的提成表也读成单量（每单会多算 5 元），提成表也不读单量表。
+                if ($entry['map'] !== null && $selectedBusiness === '备案-单量' && isset($entry['map']['contract_amount'])) { // 单量表自己没有售价列（订单编号是系统按域名 + 联系方式生成的，不能拿来判断）
+                    $entry['map'] = null; $entry['reason'] = '这张表有订单编号 / 售价，是“备案-提成”表，请在“备案-提成”业务下导入';
+                } elseif ($entry['map'] === null && $selectedBusiness === '备案-提成' && in_array('联系方式', $head, true) && in_array('域名', $head, true)) {
+                    $entry['reason'] = '这张表是“备案-单量”表（联系方式 / 域名 / 状态），请在“备案-单量”业务下导入';
+                }
+                if ($entry['map'] === null && in_array($selectedBusiness, ['备案-提成', '备案-单量'], true)) {
+                    $isCountSheet = in_array('联系方式', $head, true) && in_array('域名', $head, true) && !array_intersect(['订单编号', '订单号'], $head);
+                    $isSaleSheet = (bool)array_intersect(['订单编号', '订单号'], $head) && (bool)array_intersect(['售价', '金额', '订单金额'], $head);
+                    $otherBusiness = $selectedBusiness === '备案-提成' ? ($isCountSheet ? '备案-单量' : null) : ($isSaleSheet ? '备案-提成' : null);
+                    if ($otherBusiness !== null && in_array($otherBusiness, $allowedBusinesses, true)) $otherBusinessSheets[(string)$sheetName] = $otherBusiness;
                 }
                 $parsedSheets[(string)$sheetName] = $entry;
             }

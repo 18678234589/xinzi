@@ -222,6 +222,7 @@ body.pd-shell::before {
 }
 .pd-filter label { color: #c5e5e0 !important; font-weight: 700; }
 .pd-filter .form-control {
+  color-scheme: dark; /* 月份选择器弹层随之变深色，字体不再白底白字 */
   color: #ebfffa;
   border: 1px solid rgba(177, 240, 221, .23);
   background: rgba(240, 255, 252, .11);
@@ -229,7 +230,7 @@ body.pd-shell::before {
 }
 .pd-filter .form-control:focus { border-color: #75e4d1; box-shadow: 0 0 0 3px rgba(105, 231, 204, .16); }
 .pd-filter select option { color: #133944; background: #f5fbfa; }
-.pd-filter input[type="month"]::-webkit-calendar-picker-indicator { filter: invert(1); opacity: .8; }
+.pd-filter input[type="month"]::-webkit-calendar-picker-indicator { opacity: .8; cursor: pointer; }
 .pd-filter .btn {
   color: #092e36;
   font-weight: 800;

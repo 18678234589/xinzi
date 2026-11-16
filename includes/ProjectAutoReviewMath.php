@@ -3,7 +3,8 @@ require_once __DIR__ . '/ProjectMiniappDelivery.php';
 require_once __DIR__ . '/ProjectCommissionRoles.php';
 /** Deterministic review policy. No database, network, AI or clock side effects. */
 const PA_POLICY_VERSION = '2026-11-07.1';
-const PA_SPOT_CHECK_BUSINESSES = ['设计', 'AI网站定制', '网站模板']; // 不逐单财务审核、改为事后抽查的业务
+const PA_SPOT_CHECK_BUSINESSES = ['设计', 'AI网站定制', '网站模板', '微信代写', '环境配置']; // 不逐单财务审核、改为事后抽查的业务
+const PA_SPOT_COST_AUTO_LIMIT = 500; // 免财务审核业务：不超过这个金额的待审成本，自动结算时一并通过
 const PA_PER_ORDER_BUSINESSES = ['回购订单']; // 提成只有每单固定补助、订单不带售价和收款的业务：不要求收款记录，登记完成后直接结算
 
 function pa_cents($value)
@@ -54,9 +55,9 @@ function pa_payment_evidence(array $sources, $shop, $asof = null, $business = ''
             if (trim((string)$value) === '' || trim((string)$value) === '—') continue;
             $cents = pa_cents($value);
             if ($cents === null || $cents < 0) { $warnings['payment_invalid'] = '实付字段金额无效，需要核对原始流水'; continue; }
-            $success = $isEtmll ? '/交易成功|TRADE_SUCCESS|TRADE_FINISHED/' : '/交易成功|支付成功|交易完成|收款成功|已入账|TRADE_SUCCESS|TRADE_FINISHED/';
+            $success = $isEtmll ? '/交易成功|已收货|TRADE_SUCCESS|TRADE_FINISHED/' : '/交易成功|已收货|支付成功|交易完成|收款成功|已入账|TRADE_SUCCESS|TRADE_FINISHED/'; // 已收货＝拼多多订单的完成状态（与淘宝“交易成功”同义）
             $isShipped = preg_match('/已发货|等待买家确认|等待确认收货/u', $status);
-            $isPaid = preg_match($success, $status) || ($business === '商标' && $isShipped);
+            $isPaid = preg_match($success, $status) || (in_array($business, ['商标', '小程序开发', '网站续费', '网站修改', '设计', '平面设计', '环境配置', 'AI网站定制', '网站模板'], true) && $isShipped); // 商标、小程序、网站续费、网站售后修改、设计、环境配置：已发货就是买家已付款的证据
             if (!$isPaid || preg_match('/未支付|未付款|支付失败|付款失败/', $status)) {
                 $warnings['payment_status'] = '已找到实付金额，但支付成功状态尚未确认'; continue;
             }
@@ -110,27 +111,40 @@ function pa_evaluate(array $ctx)
         } else $ledgerRefund += $c;
     }
     if ($ledgerReceipt !== $receipt || $ledgerRefund !== $refund) $add('cash_ledger_mismatch', '订单收退款合计与已审核流水不一致', 'exception');
-    if ($hasEstimate && ($e['paid_cents'] === null || $e['paid_cents'] !== $receipt)) $add('legacy_sale_estimate', '历史实收按售价估算，尚无独立实付证据，请财务复核', 'exception');
-    foreach ($e['warnings'] as $code => $text) $add($code, $text, 'exception');
-    if ($e['paid_cents'] !== null && $receipt !== 0 && $receipt !== $e['paid_cents']) $add('receipt_conflict', '已确认收款与交易实付不一致，保留原金额待核对', 'exception');
-    if ($e['paid_cents'] !== null && (float)$o['contract_amount'] > 0 && $e['paid_cents'] > (int)round((float)$o['contract_amount'] * 100)) $add('payment_over_sale', '实付超过已登记售价，需核对合并付款、补款或关联错误', 'exception');
-    if (!$receipt && $e['paid_cents'] !== null && (float)$o['contract_amount'] > 0 && $e['paid_cents'] !== (int)round((float)$o['contract_amount'] * 100)) $add('payment_sale_variance', '实付与售价有差异，需财务确认优惠、补贴或分期口径，不猜测差额', 'exception');
     if ($e['refund_cents'] > $refund) $add('refund_gap', '交易来源存在尚未登记的退款，先核对退款', 'exception');
     if (!empty($ctx['pending_refunds'])) $add('external_refund_pending', '有支付宝／微信等渠道退款待核验', 'exception');
 
     // Already approved/locked orders are never rewritten or re-snapshotted.
     $closed = in_array($o['settlement_status'], ['approved', 'locked'], true);
     if (!$closed) {
+        if ($hasEstimate && ($e['paid_cents'] === null || $e['paid_cents'] !== $receipt)) $add('legacy_sale_estimate', '历史实收按售价估算，尚无独立实付证据，请财务复核', 'exception');
+        foreach ($e['warnings'] as $code => $text) $add($code, $text, 'exception');
+        if ($e['paid_cents'] !== null && $receipt !== 0 && $receipt !== $e['paid_cents']) $add('receipt_conflict', '已确认收款与交易实付不一致，保留原金额待核对', 'exception');
+        if ($e['paid_cents'] !== null && (float)$o['contract_amount'] > 0 && $e['paid_cents'] > (int)round((float)$o['contract_amount'] * 100)) $add('payment_over_sale', '实付超过已登记售价，需核对合并付款、补款或关联错误', 'exception');
+        if (!$receipt && $e['paid_cents'] !== null && (float)$o['contract_amount'] > 0 && $e['paid_cents'] !== (int)round((float)$o['contract_amount'] * 100)) $add('payment_sale_variance', '实付与售价有差异，需财务确认优惠、补贴或分期口径，不猜测差额', 'exception');
         if ((float)($ctx['later_refund'] ?? 0) > 0) $add('later_refund', '存在跨月退款，需要财务核验原月分成与后月补扣是否对应', 'exception');
         if ((int)($ctx['snapshot_count'] ?? 0) > 0) $add('existing_snapshot', '未结算订单已有分成快照，请财务核对，避免重复生成', 'exception');
         $date = (string)($o['order_date'] ?? '');
         $d = DateTimeImmutable::createFromFormat('!Y-m-d', $date);
         if (!$d || $d->format('Y-m-d') !== $date || $date > $ctx['today']) $add('order_date', '订单日期缺失、无效或晚于今天，请补齐核对');
         if (($ctx['period_status'] ?? '') === 'locked') $add('period_locked', '订单归属月份已锁定，需要财务选择调整月份', 'exception');
-        if (($o['delivery_status'] ?? '') !== 'finished') $add('delivery', '尚未确认业务已完成；付款成功不代替交付确认');
-        if (ps_miniapp_custom_unshipped($o, $ctx['source'] ?? [])) $add('miniapp_unshipped', '小程序 AI 定制尚未发货，不计分成；到账不代表已发货');
+        require_once __DIR__ . '/ProjectMiniappDelivery.php';
+        // 小程序定制已发货就算交付，不再要求另外确认业务已完成
+        if (($o['delivery_status'] ?? '') !== 'finished' && !ps_miniapp_custom_shipped($o, $ctx['source'] ?? [])) $add('delivery', '尚未确认业务已完成；付款成功不代替交付确认');
+        // 订单实收还是 0，但已有交易成功的实付证据：到账由本次自动结算按实付登记，不能再算“未到账”（否则永远录不上实收）
+        $shipOrder = $o;
+        if ((float)($o['receipt_amount'] ?? 0) - (float)($o['refund_amount'] ?? 0) <= 0 && ($e['paid_cents'] ?? null) !== null && $e['paid_cents'] > 0) $shipOrder['receipt_amount'] = $e['paid_cents'] / 100;
+        if (ps_deferred_order_unshipped($shipOrder, $ctx['source'] ?? [])) $add('order_unshipped', (in_array($o['project_type'] ?? '', ['小程序开发', '小程序客服'], true) ? '小程序定制' : $o['project_type']) . '尚未发货或未到账，不计分成；到账不代表已发货');
         if (!empty($ctx['pending_requests'])) $add('request_pending', '交付／升级申请已提交，等待审核，无需重复提交', 'finance');
         if (!empty($ctx['catalog']['resources']) && (!$ctx['resource'] || ($ctx['resource']['domain_mode'] ?? 'pending') === 'pending')) $add('resource', '域名、空间等实际资源待技术确认');
+        if (!empty($ctx['pending_requests'])) $add('request_pending', '交付／升级申请已提交，等待审核，无需重复提交', 'finance');
+        if (!empty($ctx['catalog']['resources']) && (!$ctx['resource'] || ($ctx['resource']['domain_mode'] ?? 'pending') === 'pending')) $add('resource', '域名、空间等实际资源待技术确认');
+        // 资源里登记了预期 SSL 成本、却还没有按“证书”类别补录并审核的成本：审核时会被拦（“SSL 报备成本尚未按凭证补录”），先在这里提示，别显示成可自动通过
+        $sslExpectedCents = (int)round((float)($ctx['resource']['ssl_expected_amount'] ?? 0) * 100);
+        if ($sslExpectedCents > 0) {
+            $sslHave = 0; foreach ($ctx['costs'] ?? [] as $cost) if (($cost['category'] ?? '') === 'certificate' && ($cost['review_status'] ?? '') === 'approved') $sslHave += (int)round((float)$cost['amount'] * 100);
+            if ($sslHave < $sslExpectedCents) $add('ssl_cost', 'SSL 证书成本（预期 ¥' . number_format($sslExpectedCents / 100, 2) . '）还没有补录并审核，请先补成本');
+        }
         if (!empty($ctx['catalog']['requires_technical']) && empty($ctx['technical_count'])) $add('technical', '尚未指定参与技术');
         if (in_array(ps_business_normalize($o['project_type'] ?? ''), ['AI网站定制', '网站定制'], true) && !empty($ctx['technical_count'])) {
             $hasBackend = false;
@@ -140,7 +154,8 @@ function pa_evaluate(array $ctx)
                     break;
                 }
             }
-            if (!$hasBackend) {
+            // 订单上只有一位技术：就是一人全栈，不用再指定后端（需要拆前后端时，在结算单加后端即可）
+            if (!$hasBackend && (int)$ctx['technical_count'] > 1) {
                 $add('backend_technical', '尚未指定后端技术（前端可在结算单指定同事或设为一人全栈）', 'data');
             }
         }
@@ -154,7 +169,7 @@ function pa_evaluate(array $ctx)
                 else $add('cost_pending', '成本已登记，等待财务核验；如有凭证可在结算单补充', 'finance');
             }
             if ($cost['review_status'] === 'approved') {
-                if (!empty($cost['is_custom']) && empty($cost['proof_path']) && empty($cost['reviewed_by_admin'])) $add('custom_cost_proof', '请在结算单补充自定义成本凭证，或联系财务核验', 'data');
+                if (!empty($cost['is_custom']) && empty($cost['proof_path']) && empty($cost['reviewed_by_admin']) && ps_business_normalize($o['project_type'] ?? '') !== '微信代写') $add('custom_cost_proof', '请在结算单补充自定义成本凭证，或联系财务核验', 'data');
                 if (isset($cost['quantity'], $cost['unit_price']) && (int)round((float)$cost['quantity'] * (float)$cost['unit_price'] * 100) !== (int)round((float)$cost['amount'] * 100)) $add('cost_arithmetic', '成本数量 × 单价与小计不一致', 'exception');
                 $signature = json_encode([$cost['category'], $cost['item_name'] ?? '', $cost['template_id'] ?? null, $cost['quantity'] ?? 1, $cost['amount'], $cost['cost_kind'] ?? 'one_time']);
                 if (isset($costSignatures[$signature])) {
@@ -199,9 +214,17 @@ function pa_evaluate(array $ctx)
     $spot = !$closed && in_array(ps_business_normalize($o['project_type'] ?? ''), PA_SPOT_CHECK_BUSINESSES, true);
     $spotReceipt = 0;
     if ($spot) {
-        foreach (['receipt_missing', 'income', 'payment_sale_variance', 'payment_over_sale', 'receipt_conflict', 'legacy_sale_estimate', 'monthly_profit_receipt'] as $code) unset($reasons[$code]);
+        foreach (['receipt_missing', 'income', 'payment_sale_variance', 'payment_over_sale', 'receipt_conflict', 'legacy_sale_estimate', 'monthly_profit_receipt', 'custom_cost_proof'] as $code) unset($reasons[$code]); // ssl_cost 不能去掉：审核时无论什么业务都要求预期 SSL 成本已按证书补录并审核，去掉会显示“可自动通过”、审核却失败
+        // 提交的成本都在小额范围（每笔 ≤ 500）：不再等财务逐笔审核，自动结算时一并通过，事后随订单一起抽查（大额成本仍等财务）
+        if (isset($reasons['cost_pending'])) {
+            $bigPending = false;
+            foreach ($ctx['costs'] as $cost) if (($cost['review_status'] ?? '') === 'pending' && abs((float)$cost['amount']) > PA_SPOT_COST_AUTO_LIMIT) $bigPending = true;
+            if (!$bigPending) unset($reasons['cost_pending']);
+        }
         if ($receipt === 0) {
-            $spotReceipt = $e['paid_cents'] !== null ? $e['paid_cents'] : (int)round((float)$o['contract_amount'] * 100);
+            // 店铺实付可能是几个部门 / 几张订单合在一起付的钱（实付大于本单售价）：只登记本单自己的售价，不能把整笔实付都记成本单实收（多算分成）
+            $contractCents = (int)round((float)$o['contract_amount'] * 100);
+            $spotReceipt = $e['paid_cents'] !== null ? ($contractCents > 0 ? min($e['paid_cents'], $contractCents) : $e['paid_cents']) : $contractCents;
             if ($spotReceipt <= 0) $add('spot_no_sale', '没有售价也没有实付记录，无法登记收款；请补齐售价');
         }
         $kinds = array_column($reasons, 'kind');

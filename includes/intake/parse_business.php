@@ -3,7 +3,7 @@
 function ps_import_domain_mode($text)
 {
     $text = mb_strtolower(trim((string)$text));
-    if (in_array($text, ['否','无','无需','无需域名','no','n','客户提供','客户自有','客户自备'], true)) return 'none';
+    if (in_array($text, ['否','无','无需','无需域名','no','n','客户提供','客户自有','客户自备','第三方','第三方域名','客户第三方','客户提供第三方','第三方注册'], true)) return 'none';
     if (in_array($text, ['是','有','yes','y','我们注册','我方注册','公司注册'], true)) return 'template';
     return '';
 }

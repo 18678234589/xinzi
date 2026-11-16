@@ -17,7 +17,7 @@ foreach ($preview as $previewRow) {
     }
 }
 $templateUrl = $selectedBusiness ? '?business=' . rawurlencode($selectedBusiness) . '&scope=' . ($departmentMode ? 'department' : 'personal') . '&download=1' : '';
-$repairableCount = count(array_filter($preview, function ($row) use ($isSkipRow) { return !$isSkipRow($row) && (empty($row['order_no']) || empty($row['order_date']) || !empty($row['need_technical'])); }));
+$repairableCount = count(array_filter($preview, function ($row) use ($isSkipRow) { return !$isSkipRow($row) && (empty($row['order_no']) || empty($row['order_date']) || !empty($row['need_technical']) || !empty($row['can_join'])); }));
 $siteKeyFixCount = count(array_filter($preview, function ($row) use ($isSkipRow) { return !$isSkipRow($row) && !empty($row['site_external_no']); }));
 $suggestedDates = []; $lastDateBySheet = [];
 foreach ($preview as $previewRow) {
@@ -27,3 +27,15 @@ foreach ($preview as $previewRow) {
     elseif (isset($lastDateBySheet[$sheetKey])) $suggestedDates[(int)$previewRow['line']] = $lastDateBySheet[$sheetKey];
 }
 $page_title = $departmentMode ? '网站售后部门订单' : '导入项目订单';
+// 备案原表一个文件两张工作表：当前业务导入完成后，自动接着导入同一文件里属于另一个备案业务的工作表（失败时保留页面上的“继续核对”按钮）
+$chainedNote = '';
+$chainSheets = (array)($_SESSION['project_import_other_sheets'] ?? []); // 核对那一遍记下的“同文件里属于另一个备案业务的工作表”
+if (!empty($importReport) && $chainSheets && empty($GLOBALS['project_import_chain']) && empty($GLOBALS['project_import_api']) && ($actor['type'] ?? '') === 'employee' && (int)($resultFileId ?? 0) > 0) {
+    require_once __DIR__ . '/../../includes/ProjectImportChain.php';
+    $chainBusiness = reset($chainSheets);
+    $GLOBALS['project_import_chain'] = true;
+    try { [$chainImported, $chainError] = pic_chain_other_sheets((int)$resultFileId, $chainBusiness, $actor); } catch (Throwable $chainEx) { $chainImported = 0; $chainError = $chainEx->getMessage(); }
+    unset($GLOBALS['project_import_chain']);
+    if ($chainError === '') { $chainedNote = '同一个文件里的“' . implode('、', array_keys($chainSheets)) . '”表已自动按“' . $chainBusiness . '”导入 ' . (int)$chainImported . ' 单。'; $_SESSION['project_import_other_sheets'] = []; }
+    else $chainedNote = '同一个文件里的“' . implode('、', array_keys($chainSheets)) . '”表没能自动导入（' . $chainError . '），请点下面的按钮继续核对“' . $chainBusiness . '”。';
+}

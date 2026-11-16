@@ -21,7 +21,7 @@ function pmt_order_no_column()
 /** 有专用 xlsx 模板的业务。 */
 function pmt_businesses()
 {
-    return ['小程序开发', '网站模板', 'AI网站定制', '商标', '森动备案', '微信代写', '回购订单'];
+    return ['小程序开发', '网站模板', 'AI网站定制', '商标', '森动备案', '微信代写', '回购订单', '备案-提成', '备案-单量'];
 }
 
 /** 列定义：[表头, 列宽, 类型 text|date|list|plain, 下拉选项, 是否必填, 说明] */
@@ -29,6 +29,8 @@ function pmt_columns($business = '小程序开发')
 {
     if ($business === '商标') { require_once __DIR__ . '/ProjectTrademarkTemplate.php'; return ptt_columns(); }
     if ($business === '森动备案') return pmt_filing_columns();
+    if ($business === '备案-提成') return pmt_filing_commission_columns();
+    if ($business === '备案-单量') return pmt_filing_count_columns();
     if ($business === '微信代写') return pmt_writing_columns();
     if ($business === '回购订单') return pmt_buyback_columns();
     if ($business === '网站模板' || $business === 'AI网站定制') return pmt_web_columns($business);
@@ -117,7 +119,7 @@ function pmt_filing_columns()
 {
     return [
         ['日期', 12, 'date', [], true, '备案 / 二次备案的日期，如 2026-09-01'],
-        ['店铺', 12, 'list_soft', ['微信', '对公', '淘宝'], false, '收款方式：微信 / 对公 / 淘宝。选“淘宝”的备案订单记为“备案-淘宝”（另有补贴）；也可直接写淘宝店名（含“淘宝”二字）'],
+        ['店铺', 12, 'list_soft', ['微信', '对公', '淘宝', '支付宝'], false, '收款方式：微信 / 对公 / 淘宝 / 支付宝。选“淘宝”的备案订单记为“备案-淘宝”（另有补贴）；也可直接写淘宝店名（含“淘宝”二字）。订单编号是“数字+N”结尾（如 19069005109N）的是支付宝收款的检索号，店铺请选支付宝，不要写微信'],
         ['业务', 14, 'list', ['备案', '二次备案'], true, '备案＝首次备案；二次备案＝备案售后、迁移、改信息等杂项。请用下拉选择'],
         ['付款昵称', 20, 'plain', [], false, '客户付款的微信昵称 / 淘宝旺旺。备案必填；二次备案可不填'],
         ['订单编号', 24, 'text', [], false, '淘宝订单填店铺订单号；微信 / 对公付款没有订单号就留空（系统自动生成内部订单号）；二次备案留空'],
@@ -142,7 +144,74 @@ function pmt_filing_examples()
     return [
         $base + ['店铺' => '微信', '业务' => '备案', '付款昵称' => '示例-客户微信昵称', '订单编号' => '', '售价' => '100', '成本' => '80', '联系微信号' => 'wx_example', '域名' => 'example.com', '微信交易流水号' => '4200002012202609018888888888', '程序' => '森动', '接入商' => '百度云'],
         $base + ['店铺' => '对公', '业务' => '备案', '付款昵称' => '示例-某某公司', '订单编号' => '', '售价' => '100', '联系微信号' => 'wx_example2', '域名' => 'example.cn'],
+        $base + ['店铺' => '支付宝', '业务' => '备案', '付款昵称' => '示例-客户', '订单编号' => '示例-19069005109N', '售价' => '100', '联系微信号' => 'wx_example3', '域名' => 'example.net'],
         $base + ['业务' => '二次备案', '付款昵称' => '示例-客户', '订单编号' => '', '联系微信号' => 'wx_example', '域名' => 'example.com', '备案状态' => '已备案'],
+    ];
+}
+
+/**
+ * 网站售后备案部（房烁）：一个文件两张数据表。“备案”＝备案-提成表（订单编号 / 售价 / 成本…），“备案修改”＝备案-单量表（联系方式 / 域名 / 状态，每行一单）。
+ * 两个业务下载的是同一个文件；只在其中一个业务下上传，系统会自动接着导入另一张表。表头与旧表一致，旧表照常上传。
+ */
+function pmt_sheet_defs($business)
+{
+    if (in_array($business, ['备案-提成', '备案-单量'], true)) {
+        return [['备案', pmt_filing_commission_columns(), pmt_filing_commission_examples()], ['备案修改', pmt_filing_count_columns(), pmt_filing_count_examples()]];
+    }
+    return [['订单', pmt_columns($business), pmt_example_rows($business)]];
+}
+
+function pmt_sheet_intro($business, $sheetName)
+{
+    if ($sheetName === '备案') return '备案提成表：每行一张订单。算提成的订单都填在这里（拍小程序链接的在“建站订单”列写上）。';
+    if ($sheetName === '备案修改') return '备案修改单量表：每行一单（一个客户一个域名）。只有联系方式、域名、状态，不用写订单编号和售价。';
+    return '';
+}
+
+function pmt_filing_commission_columns()
+{
+    return [
+        ['日期', 12, 'date', [], true, '订单日期，如 2026-10-14（也可以写 2026.10.14）'],
+        ['店铺', 18, 'list_soft', ['美呀美旗舰店', '清风易软件专营店', '对公收款', '微信收款', '支付宝收款'], true, '收款店铺 / 方式，点右侧小箭头选；表里没有的可以直接手输'],
+        ['付费旺旺', 18, 'plain', [], false, '客户付款的旺旺 / 微信昵称；对公收款写公司名'],
+        ['订单编号', 26, 'text', [], true, '只填编号本身：淘宝订单写店铺订单号；对公收款写你们自己编的对公编号（如 数2026101701）；微信收款写微信交易流水号'],
+        ['售价', 10, 'money', [], true, '客户实付金额，数字'],
+        ['成本', 10, 'money', [], false, '这一单的成本，数字；没有成本填 0 或留空'],
+        ['快递费', 10, 'money', [], false, '寄出的快递费，数字；系统并入成本一起减'],
+        ['建站订单', 18, 'list_soft', ['拍小程序链接'], false, '这单是“拍小程序链接”的就选上；不是的留空。系统按拍链接订单处理（每单另有补贴）'],
+        ['截图', 10, 'plain', [], false, '付款 / 对公凭证说明，只做记录；截图请贴在原表里或另存，系统不读图片'],
+        ['状态', 12, 'list_soft', ['已发货', '已完成', '未完成'], true, '订单进度，点右侧小箭头选'],
+        ['备注', 22, 'list_soft', ['房烁备案优刻云', '房烁备案欧赛', '房烁备案景安'], false, '备案接入商 / 说明，可选可手输。每一行订单都会按 1 单计入提成表单量，不用为了计单量特意填备注'],
+        ['客户手机号', 16, 'text', [], false, '选填：客户手机号，用于到期短信提醒'],
+        ['海外客户微信号', 18, 'text', [], false, '选填：海外客户没有手机号时填微信号（微信号不发短信）'],
+        ['域名归属', 14, 'list_soft', ['我们注册', '客户提供', '第三方'], false, '选填：域名是客户自己的还是我们注册的'],
+    ];
+}
+
+function pmt_filing_commission_examples()
+{
+    $base = ['日期' => '2026-10-14', '状态' => '已发货', '成本' => '0', '快递费' => '0', '售价' => '100'];
+    return [
+        $base + ['店铺' => '清风易软件专营店', '付费旺旺' => '示例-tb12345678', '订单编号' => '示例-3317114532160048267', '建站订单' => '拍小程序链接', '备注' => '房烁备案优刻云'],
+        $base + ['店铺' => '美呀美旗舰店', '付费旺旺' => '示例-tb87654321', '订单编号' => '示例-5127708744074003640', '备注' => '房烁备案欧赛'],
+        $base + ['店铺' => '对公收款', '付费旺旺' => '示例-某某科技有限公司', '订单编号' => '示例-数2026101701', '备注' => '房烁备案景安'],
+    ];
+}
+
+function pmt_filing_count_columns()
+{
+    return [
+        ['日期', 12, 'date', [], false, '这一单的日期，选填。某一行不填就沿用上一行的日期；整列都不填就按你上传当天记单。月底前后上传时请填上，否则会算到下个月'],
+        ['联系方式', 28, 'text', [], true, '客户联系方式，如 微信 xxx（可带日期、昵称备注）'],
+        ['域名', 26, 'text', [], true, '备案的域名，如 example.com。同一客户同一域名重复上传不会重复计单'],
+        ['状态', 12, 'list', ['已完成', '未完成'], true, '备案修改进度，点右侧小箭头选'],
+    ];
+}
+
+function pmt_filing_count_examples()
+{
+    return [
+        ['联系方式' => '示例-微信 wx_example', '域名' => 'example.com', '状态' => '已完成', '日期' => '2026-10-28'],
     ];
 }
 
@@ -166,19 +235,33 @@ function pmt_program_kind($programName)
 }
 
 /** 网站类业务（AI网站定制）的列：域名、域名 / 服务器到期日期、续费联系方式都是一等公民。 */
+/** 网站定制表里“前端（技术）/ 后端”下拉的人员名单：近三个月在网站类订单里做过技术的人（最后一项“无”＝没有后端）。 */
+function pmt_web_tech_names()
+{
+    static $names = null;
+    if ($names !== null) return $names;
+    $names = [];
+    try {
+        $q = db()->query("SELECT e.name FROM project_participants p JOIN employees e ON e.id=p.employee_id JOIN project_orders o ON o.id=p.order_id WHERE p.commission_group='technical' AND o.project_type IN ('AI网站定制','网站定制','网站模板') AND o.order_date>=DATE_SUB(CURDATE(),INTERVAL 3 MONTH) GROUP BY e.id,e.name ORDER BY COUNT(*) DESC LIMIT 60");
+        $names = array_values(array_filter(array_map('strval', $q->fetchAll(PDO::FETCH_COLUMN)), 'strlen'));
+    } catch (Throwable $e) { $names = []; }
+    $names[] = '无';
+    return $names;
+}
+
 function pmt_web_columns($business)
 {
     if ($business === '网站模板') return pmt_template_columns();
     return [
         ['日期', 12, 'date', [], true, '下单 / 付款日期，如 2026-09-01'],
-        ['AI定制类型', 14, 'list', ['博山定制', 'AI定制', '华梦定制'], false, '这一单属于哪种定制：博山定制＝正常的定制单（前端、后端分开做）；AI定制＝前后端由一个技术做；华梦定制＝大连华梦那边的单子。选填，不选系统按原规则识别'],
+        ['AI定制类型', 14, 'list', ['博山定制', 'AI定制', '华梦定制'], true, '这一单属于哪种定制（请用下拉选择，系统按它算提成）：博山定制＝前端、后端两个技术分开做；AI定制＝前后端由一个技术做（“前端（技术）”选这位技术，“后端”选“无”）；华梦定制＝大连华梦那边的单子'],
         ['店铺', 14, 'plain', [], false, '店铺名称'],
         ['付款昵称', 16, 'plain', [], false, '客户付款账号 / 旺旺'],
         pmt_number_kind_column(),
         pmt_order_no_column(),
         ['售价', 10, 'plain', [], true, '客户实付金额，数字'],
         ['网站域名', 22, 'text', [], true, '客户网站域名，如 example.com。同一付款号做多个网站时，每个网站一行，各写各的域名'],
-        ['域名来源', 12, 'list', ['客户提供', '我们注册'], false, '客户提供＝客户自己的域名，不计成本；我们注册＝由我们注册域名，按域名后缀自动计入注册成本。请用下拉选择'],
+        ['域名来源', 12, 'list', ['我们注册', '客户提供', '第三方'], true, '必填（证书、加语言等附加行可不填）：我们注册＝由我们注册域名，按域名后缀自动计入注册成本；客户提供＝客户自己的域名，不计成本；第三方＝客户在第三方（其他注册商 / 别的公司）注册的域名，不计成本。请用下拉选择'],
         ['空间来源', 14, 'list', ['我们的空间', '客户自有空间'], false, '我们的空间＝用我们的服务器 / 空间；客户自有空间＝客户用自己的空间（由客户自己维护，空间成本请财务核对）。请用下拉选择；不填按我们的空间'],
         ['域名到期日期', 14, 'date', [], false, '域名到期日；永久的可直接写“永久”'],
         ['服务器到期日期', 14, 'date', [], false, '服务器 / 空间到期日；永久的可直接写“永久”'],
@@ -188,8 +271,8 @@ function pmt_web_columns($business)
         ['业务', 18, 'plain', [], false, '具体做了什么，如 企业官网、商城'],
         ['状态(填已完成/未完成)', 14, 'list', ['已完成', '未完成'], true, '订单进度，请用下拉选择'],
         ['客服', 10, 'plain', [], false, '客服姓名'],
-        ['前端（技术）', 12, 'plain', [], false, '前端技术姓名'],
-        ['后端', 10, 'plain', [], false, '后端技术姓名'],
+        ['前端（技术）', 12, 'list_sheet', pmt_web_tech_names(), false, '前端技术（请用下拉选择）；AI定制只有一个技术时选在这里'],
+        ['后端', 10, 'list_sheet', pmt_web_tech_names(), false, '后端技术（请用下拉选择）；AI定制一个技术做、没有后端时选“无”'],
         ['备注', 24, 'plain', [], false, '其他需要说明的内容'],
     ];
 }
@@ -203,7 +286,6 @@ function pmt_template_columns()
 {
     return [
         ['日期', 12, 'date', [], true, '下单 / 付款日期，如 2026-09-01'],
-        ['网站模板类型', 14, 'list', ['新订单', '续费', '加购/纯利润'], false, '这一单是新建站、续费，还是加购 / 纯利润类。选填，不选系统按“程序名称”识别'],
         ['编号类型', 16, 'list', ['淘宝订单编号', '天猫订单编号', '拼多多订单编号', '美呀美旗舰店', '清风易软件专营店', '美丽街旗舰店', '美啊美设计旗舰店', '对公转账编号', '微信支付流水号', '支付宝支付流水号'], true, '先选这个订单的编号是哪一种：淘宝 / 天猫 / 拼多多订单编号＝平台订单号；微信支付流水号、支付宝支付流水号＝微信 / 支付宝付款没有订单号时的交易流水号；选店铺（美呀美旗舰店 / 清风易软件专营店 / 美丽街旗舰店 / 美啊美设计旗舰店）＝订单编号是该店铺的订单号，同时记录店铺；微信交易流水号＝微信付款没有订单号；对公转账编号＝客户转到我们对公账户的对公编码。然后把编号粘贴到右边“订单编号”列'],
         ['付款账号', 20, 'plain', [], false, '客户付款账号 / 旺旺'],
         ['订单编号', 22, 'text', [], true, '把编号粘贴在这里：左边“编号类型”选了店铺就粘贴该店铺的订单号，选微信交易流水号就粘贴微信流水号，选对公转账编号就粘贴对公编码。一笔生意在店铺拍成了几个订单（客户限额、改价、分次付款）：几个订单号都写在这一格，用 / 、空格、逗号或换行（Alt+Enter）隔开，售价写合计，系统算 1 单'],
@@ -212,7 +294,7 @@ function pmt_template_columns()
         ['成本', 10, 'plain', [], false, '核算成本，算提成时用，数字；不填则按成本中心标准成本'],
         ['程序名称', 18, 'list_sheet', pmt_program_choices(), true, '建站用的程序 / 套餐，请用下拉选择；购买年数在右边“年限”列选。博山定制＝正常的定制单（前端、后端分开做）；AI定制＝前后端由一个技术做；华梦定制＝大连华梦那边的单子；纯利润 / 补差价 / 域名注册 / SSL证书＝加购类，并入同号订单'],
         ['年限', 9, 'list', array_map(function ($n) { return $n . '年'; }, range(1, 10)), false, '客户购买的年数，1-10 年下拉选择；不填按 1 年。程序名称里已写“5年xxx”的以名称为准'],
-        ['域名来源', 12, 'list', ['客户提供', '我们注册'], false, '客户提供＝客户自己的域名，不计成本；我们注册＝由我们注册域名，按域名后缀自动计入注册成本。请用下拉选择'],
+        ['域名来源', 12, 'list', ['我们注册', '客户提供', '第三方'], false, '我们注册＝由我们注册域名，按域名后缀自动计入注册成本；客户提供＝客户自己的域名，不计成本；第三方＝客户在第三方（其他注册商 / 别的公司）注册的域名，不计成本。请用下拉选择'],
         ['空间来源', 14, 'list', ['我们的空间', '客户自有空间'], false, '我们的空间＝用我们的服务器 / 空间；客户自有空间＝客户用自己的空间（由客户自己维护，空间成本请财务核对）。请用下拉选择；不填按我们的空间'],
         ['备注', 24, 'plain', [], false, '其他需要说明的内容'],
         ['客服', 10, 'plain', [], false, '客服姓名'],
@@ -225,6 +307,7 @@ function pmt_template_columns()
         ['网站域名', 22, 'text', [], true, '客户网站域名，如 example.com。同一付款号做多个网站时，每个网站一行，各写各的域名'],
         ['域名到期日期', 14, 'date', [], false, '域名到期日；永久的可直接写“永久”'],
         ['服务器到期日期', 14, 'date', [], false, '服务器 / 空间到期日；永久的可直接写“永久”'],
+        ['付费SSL证书到期日期', 16, 'date', [], false, '客户购买了付费 SSL 证书时填到期日；没有付费证书就留空，永久的可直接写“永久”'],
         ['部署与交付说明', 24, 'plain', [], false, '部署、交付情况说明'],
     ];
 }
@@ -233,13 +316,13 @@ function pmt_template_examples()
 {
     $base = ['日期' => '2026-09-01', '付款账号' => 'tb12345678', '售价' => '998', '孙曼要成本' => '260', '成本' => '360', '程序名称' => 'JSP展示中级版', '年限' => '1年', '状态(填已完成/未完成)' => '已完成', '客服' => '宋倩倩', '技术' => '张强'];
     return [
-        $base + ['网站模板类型' => '新订单', '编号类型' => '淘宝订单编号', '订单编号' => '示例-3316440471002001958', '域名来源' => '我们注册', '空间来源' => '我们的空间', '备注' => '新建站：填域名、域名和服务器的到期日期、客户联系方式', '续费金额' => '300', '续费联系方式电话' => '13800138000', '网站域名' => 'example.com', '域名到期日期' => '2027-09-01', '服务器到期日期' => '2027-09-01'],
-        $base + ['网站模板类型' => '新订单', '编号类型' => '对公转账编号', '订单编号' => '示例-DG2026090100123', '程序名称' => '森动中级版', '域名来源' => '客户提供', '空间来源' => '客户自有空间', '备注' => '客户自备域名在“域名来源”选“客户提供”；客户用自己的空间在“空间来源”选“客户自有空间”；永久的到期日期直接写“永久”；海外客户填微信号', '续费联系方式微信' => 'example_wechat', '网站域名' => 'customer-own.com', '服务器到期日期' => '永久'],
-        $base + ['网站模板类型' => '续费', '编号类型' => '微信支付流水号', '订单编号' => '示例-4200002876202609018412345678', '售价' => '300', '备注' => '续费单：填新的到期日期', '续费联系方式电话' => '13800138000', '网站域名' => 'example.com', '域名到期日期' => '2028-09-01', '服务器到期日期' => '2028-09-01'],
+        $base + ['编号类型' => '淘宝订单编号', '订单编号' => '示例-3316440471002001958', '域名来源' => '我们注册', '空间来源' => '我们的空间', '备注' => '新建站：填域名、域名和服务器的到期日期、客户联系方式', '续费金额' => '300', '续费联系方式电话' => '13800138000', '网站域名' => 'example.com', '域名到期日期' => '2027-09-01', '服务器到期日期' => '2027-09-01'],
+        $base + ['编号类型' => '对公转账编号', '订单编号' => '示例-DG2026090100123', '程序名称' => '森动中级版', '域名来源' => '客户提供', '空间来源' => '客户自有空间', '备注' => '客户自备域名在“域名来源”选“客户提供”；客户用自己的空间在“空间来源”选“客户自有空间”；永久的到期日期直接写“永久”；海外客户填微信号', '续费联系方式微信' => 'example_wechat', '网站域名' => 'customer-own.com', '服务器到期日期' => '永久'],
+        $base + ['编号类型' => '微信支付流水号', '订单编号' => '示例-4200002876202609018412345678', '售价' => '300', '备注' => '续费单：填新的到期日期', '续费联系方式电话' => '13800138000', '网站域名' => 'example.com', '域名到期日期' => '2028-09-01', '服务器到期日期' => '2028-09-01'],
         // 一笔生意拍成多个订单：订单号都写在同一格；程序 + SSL 分两行，加购行写其中任意一个号
-        $base + ['网站模板类型' => '新订单', '编号类型' => '淘宝订单编号', '订单编号' => '示例-3316440471002001958 / 3316440471002001959 / 3316440471002001960', '售价' => '550', '备注' => '客户限额拍了 3 个订单：3 个订单号都写在“订单编号”这一格（/、空格、逗号或换行隔开），售价写合计 550，算 1 单', '续费联系方式电话' => '13800138000', '网站域名' => 'multi-order.com', '域名到期日期' => '2027-09-01', '服务器到期日期' => '2027-09-01'],
-        $base + ['网站模板类型' => '新订单', '编号类型' => '拼多多订单编号', '订单编号' => '示例-230915-543216789012345 / 230915-543216789012346', '售价' => '750', '备注' => '程序 750 + SSL 200，客户拍了 900 + 50 两个订单：两个订单号都写在这一格', '续费联系方式电话' => '13800138000', '网站域名' => 'with-ssl.com', '域名到期日期' => '2027-09-01', '服务器到期日期' => '2027-09-01'],
-        $base + ['网站模板类型' => '加购/纯利润', '编号类型' => '拼多多订单编号', '订单编号' => '示例-230915-543216789012345', '程序名称' => 'SSL证书', '售价' => '200', '备注' => 'SSL 加购行单独一行，订单编号写上面那个订单号（两个号写哪个都行），合并成同一单，总价 750 + 200 = 950；加购行的“网站域名”留空', '续费联系方式电话' => '13800138000'],
+        $base + ['编号类型' => '淘宝订单编号', '订单编号' => '示例-3316440471002001958 / 3316440471002001959 / 3316440471002001960', '售价' => '550', '备注' => '客户限额拍了 3 个订单：3 个订单号都写在“订单编号”这一格（/、空格、逗号或换行隔开），售价写合计 550，算 1 单', '续费联系方式电话' => '13800138000', '网站域名' => 'multi-order.com', '域名到期日期' => '2027-09-01', '服务器到期日期' => '2027-09-01'],
+        $base + ['编号类型' => '拼多多订单编号', '订单编号' => '示例-230915-543216789012345 / 230915-543216789012346', '售价' => '750', '备注' => '程序 750 + SSL 200，客户拍了 900 + 50 两个订单：两个订单号都写在这一格', '续费联系方式电话' => '13800138000', '网站域名' => 'with-ssl.com', '域名到期日期' => '2027-09-01', '服务器到期日期' => '2027-09-01'],
+        $base + ['编号类型' => '拼多多订单编号', '订单编号' => '示例-230915-543216789012345', '程序名称' => 'SSL证书', '售价' => '200', '备注' => 'SSL 加购行单独一行，订单编号写上面那个订单号（两个号写哪个都行），合并成同一单，总价 750 + 200 = 950；加购行的“网站域名”留空', '续费联系方式电话' => '13800138000'],
     ];
 }
 
@@ -247,12 +330,14 @@ function pmt_web_examples($business)
 {
     if ($business === '网站模板') return pmt_template_examples();
     $base = ['日期' => '2026-09-01', '店铺' => '美呀美旗舰店', '付款昵称' => 'tb12345678', '售价' => '998', '状态(填已完成/未完成)' => '已完成', '客服' => '宋倩倩', '前端（技术）' => '张强', '后端' => '李四'];
-    return [
+    $rows = [
         $base + ['AI定制类型' => '博山定制', '编号类型' => '淘宝订单编号', '订单编号' => '示例-3316440471002001958', '网站域名' => 'example.com', '域名来源' => '我们注册', '空间来源' => '我们的空间', '域名到期日期' => '2027-09-01', '服务器到期日期' => '2027-09-01', '续费联系方式' => '13800138000', 'SSL证书使用' => '0', '业务' => '企业官网', '备注' => '新建站：填域名、域名和服务器的到期日期、客户联系方式'],
         $base + ['AI定制类型' => 'AI定制', '编号类型' => '微信支付流水号', '订单编号' => '示例-4200002876202609018412345678', '店铺' => '微信', '网站域名' => 'customer-own.com', '域名来源' => '客户提供', '空间来源' => '客户自有空间', '服务器到期日期' => '永久', '续费联系方式' => 'example_wechat', '业务' => '企业官网', '备注' => '客户自备域名在“域名来源”选“客户提供”；客户用自己的空间在“空间来源”选“客户自有空间”；永久的到期日期直接写“永久”；海外客户填微信号'],
         $base + ['AI定制类型' => '华梦定制', '编号类型' => '拼多多订单编号', '订单编号' => '示例-230915-543216789012345', '网站域名' => 'example.com', '域名到期日期' => '2028-09-01', '服务器到期日期' => '2028-09-01', '续费联系方式' => '13800138000', '售价' => '300', '业务' => '续费一年', '备注' => '续费单：填新的到期日期'],
         $base + ['AI定制类型' => '博山定制', '编号类型' => '淘宝订单编号', '订单编号' => '示例-3316440471002001958 / 3316440471002001959', '网站域名' => 'multi-order.com', '域名到期日期' => '2027-09-01', '服务器到期日期' => '2027-09-01', '续费联系方式' => '13800138000', '售价' => '550', '业务' => '企业官网', '备注' => '客户限额拍了 2 个订单：两个订单号都写在“订单编号”这一格（/、空格、逗号或换行隔开），售价写合计 550，算 1 单'],
     ];
+    foreach ($rows as $n => $row) if (($row['AI定制类型'] ?? '') === 'AI定制') $rows[$n]['后端'] = '无'; // AI定制＝一个技术做，后端选“无”
+    return $rows;
 }
 
 function pmt_headers($business = '小程序开发')
@@ -265,6 +350,8 @@ function pmt_example_rows($business = '小程序开发')
 {
     if ($business === '商标') { require_once __DIR__ . '/ProjectTrademarkTemplate.php'; return ptt_examples(); }
     if ($business === '森动备案') return pmt_filing_examples();
+    if ($business === '备案-提成') return pmt_filing_commission_examples();
+    if ($business === '备案-单量') return pmt_filing_count_examples();
     if ($business === '微信代写') return pmt_writing_examples();
     if ($business === '回购订单') return pmt_buyback_examples();
     if ($business === '网站模板' || $business === 'AI网站定制') return pmt_web_examples($business);
@@ -325,7 +412,6 @@ function pmt_cell($ref, $value, $style, $number = false)
 function pmt_xlsx($business = '小程序开发')
 {
     $columns = pmt_columns($business);
-    $last = pmt_col_letter(count($columns) - 1);
     $maxRow = 1000;
     // 样式：0 默认；1 必填表头；2 选填表头；3 日期；4 文本；5 示例文本；6 示例日期；7 说明正文（换行）；8 说明标题
     $styles = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
@@ -346,74 +432,85 @@ function pmt_xlsx($business = '小程序开发')
         . '<xf numFmtId="49" fontId="2" fillId="3" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1" applyNumberFormat="1"><alignment vertical="center"/></xf>'
         . '</cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>';
 
-    // 订单表
-    $cols = '';
-    foreach ($columns as $i => [$name, $width, $type]) {
-        $style = $type === 'date' ? 3 : ($type === 'text' ? 4 : 0);
-        $cols .= '<col min="' . ($i + 1) . '" max="' . ($i + 1) . '" width="' . $width . '" style="' . $style . '" customWidth="1"/>';
-    }
-    $rows = '<row r="1" ht="42" customHeight="1">';
-    foreach ($columns as $i => $c) $rows .= pmt_cell(pmt_col_letter($i) . '1', $c[0], $c[4] ? 1 : 2);
-    $rows .= '</row>';
-    foreach (pmt_example_rows($business) as $n => $example) {
-        $r = $n + 2;
-        $rows .= '<row r="' . $r . '">';
-        foreach ($columns as $i => $c) {
-            $value = $example[$c[0]] ?? '';
-            $ref = pmt_col_letter($i) . $r;
-            if ($c[2] === 'date' && $value !== '' && preg_match('/^\d{4}-\d{2}-\d{2}$/', $value)) $rows .= pmt_cell($ref, pmt_serial($value), 6, true);
-            else $rows .= pmt_cell($ref, $value, 5);
+    // 数据工作表（订单 / 备案 / 备案修改…）：[列定义, 示例行, 是否第一张]
+    $dataSheet = function (array $columns, array $examples, $selected) use ($business, $maxRow, &$optionSheet) {
+        $last = pmt_col_letter(count($columns) - 1);
+        $cols = '';
+        foreach ($columns as $i => [$name, $width, $type]) {
+            $style = $type === 'date' ? 3 : ($type === 'text' ? 4 : 0);
+            $cols .= '<col min="' . ($i + 1) . '" max="' . ($i + 1) . '" width="' . $width . '" style="' . $style . '" customWidth="1"/>';
         }
+        $rows = '<row r="1" ht="42" customHeight="1">';
+        foreach ($columns as $i => $c) $rows .= pmt_cell(pmt_col_letter($i) . '1', $c[0], $c[4] ? 1 : 2);
         $rows .= '</row>';
-    }
-    $validations = '';
-    $optionSheet = null; // 下拉选项分表（list_sheet 列用）
-    $count = 0;
-    foreach ($columns as $i => $c) {
-        $range = pmt_col_letter($i) . '2:' . pmt_col_letter($i) . $maxRow;
-        if ($c[2] === 'list_soft') {
-            // 软下拉：有下拉选项方便选，但允许手输其它内容（如淘宝店名），不弹错误
-            $validations .= '<dataValidation type="list" allowBlank="1" showInputMessage="1" showErrorMessage="0" sqref="' . $range . '"><formula1>"' . pmt_xml(implode(',', $c[3])) . '"</formula1></dataValidation>';
-            $count++;
-        } elseif ($c[2] === 'list_sheet') {
-            $validations .= '<dataValidation type="list" allowBlank="1" showInputMessage="1" showErrorMessage="1" errorTitle="请从下拉里选择" error="请点单元格右侧的小箭头，从列表里选择" promptTitle="' . pmt_xml($c[0]) . '" prompt="请从下拉列表选择" sqref="' . $range . '"><formula1>' . pmt_xml("'选项'!\$A\$1:\$A\$" . count($c[3])) . '</formula1></dataValidation>';
-            $optionSheet = $c[3];
-            $count++;
-        } elseif ($c[2] === 'list') {
-            $validations .= '<dataValidation type="list" allowBlank="1" showInputMessage="1" showErrorMessage="1" errorTitle="请从下拉里选择" error="请点单元格右侧的小箭头，从列表里选择：' . pmt_xml(implode(' / ', $c[3])) . '" promptTitle="' . pmt_xml(explode('(', $c[0])[0]) . '" prompt="请从下拉列表选择" sqref="' . $range . '"><formula1>"' . pmt_xml(implode(',', $c[3])) . '"</formula1></dataValidation>';
-            $count++;
-        } elseif ($c[2] === 'integer') {
-            $validations .= '<dataValidation type="whole" operator="between" allowBlank="1" showInputMessage="1" showErrorMessage="1" errorTitle="计价数量" error="请填写范围内的整数，不能按小数件计费" promptTitle="整数数量" prompt="' . pmt_xml($c[5]) . '" sqref="' . $range . '"><formula1>' . (int)$c[3][0] . '</formula1><formula2>' . (int)$c[3][1] . '</formula2></dataValidation>';
-            $count++;
-        } elseif ($c[2] === 'money') {
-            $validations .= '<dataValidation type="decimal" operator="greaterThanOrEqual" allowBlank="1" showErrorMessage="1" errorTitle="金额" error="请填写非负金额，不要填写文字、负数或单件单价" sqref="' . $range . '"><formula1>0</formula1></dataValidation>';
-            $count++;
-        } elseif ($c[2] === 'date' && mb_strpos($c[5], '永久') !== false) {
-            // 到期日期既可填日期也可写“永久”：自定义校验放行日期、“永久”和空白
-            $first = pmt_col_letter($i) . '2';
-            $validations .= '<dataValidation type="custom" allowBlank="1" showErrorMessage="1" errorTitle="到期日期" error="请填写日期（如 2027-09-01），永久的写“永久”" sqref="' . $range . '"><formula1>OR(' . $first . '="",' . $first . '="永久",ISNUMBER(' . $first . '))</formula1></dataValidation>';
-            $count++;
-        } elseif ($c[2] === 'date') {
-            $validations .= '<dataValidation type="date" operator="greaterThan" allowBlank="1" showErrorMessage="1" errorTitle="日期格式" error="请填写日期，如 2026-09-01" sqref="' . $range . '"><formula1>36526</formula1></dataValidation>';
-            $count++;
+        foreach ($examples as $n => $example) {
+            $r = $n + 2;
+            $rows .= '<row r="' . $r . '">';
+            foreach ($columns as $i => $c) {
+                $value = $example[$c[0]] ?? '';
+                $ref = pmt_col_letter($i) . $r;
+                if ($c[2] === 'date' && $value !== '' && preg_match('/^\d{4}-\d{2}-\d{2}$/', $value)) $rows .= pmt_cell($ref, pmt_serial($value), 6, true);
+                else $rows .= pmt_cell($ref, $value, 5);
+            }
+            $rows .= '</row>';
         }
-    }
-    $pane = $business === '商标' ? 'bottomRight' : 'bottomLeft';
-    $firstInput = ($business === '商标' ? 'D' : 'A') . (count(pmt_example_rows($business)) + 2);
-    $freeze = $business === '商标' ? 'xSplit="4" ySplit="1" topLeftCell="E2"' : 'ySplit="1" topLeftCell="A2"';
-    $sheet1 = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
-        . '<dimension ref="A1:' . $last . (count(pmt_example_rows($business)) + 1) . '"/>'
-        . '<sheetViews><sheetView workbookViewId="0" tabSelected="1"><pane ' . $freeze . ' activePane="' . $pane . '" state="frozen"/><selection pane="' . $pane . '" activeCell="' . $firstInput . '" sqref="' . $firstInput . '"/></sheetView></sheetViews>'
-        . '<sheetFormatPr defaultRowHeight="18"/><cols>' . $cols . '</cols><sheetData>' . $rows . '</sheetData>'
-        . ($count ? '<dataValidations count="' . $count . '">' . $validations . '</dataValidations>' : '')
-        . '<pageMargins left="0.7" right="0.7" top="0.75" bottom="0.75" header="0.3" footer="0.3"/></worksheet>';
+        $validations = '';
+        $count = 0;
+        foreach ($columns as $i => $c) {
+            $range = pmt_col_letter($i) . '2:' . pmt_col_letter($i) . $maxRow;
+            if ($c[2] === 'list_soft') {
+                // 软下拉：有下拉选项方便选，但允许手输其它内容（如淘宝店名），不弹错误
+                $validations .= '<dataValidation type="list" allowBlank="1" showInputMessage="1" showErrorMessage="0" sqref="' . $range . '"><formula1>"' . pmt_xml(implode(',', $c[3])) . '"</formula1></dataValidation>';
+                $count++;
+            } elseif ($c[2] === 'list_sheet') {
+                $validations .= '<dataValidation type="list" allowBlank="1" showInputMessage="1" showErrorMessage="1" errorTitle="请从下拉里选择" error="请点单元格右侧的小箭头，从列表里选择" promptTitle="' . pmt_xml($c[0]) . '" prompt="请从下拉列表选择" sqref="' . $range . '"><formula1>' . pmt_xml("'选项'!\$A\$1:\$A\$" . count($c[3])) . '</formula1></dataValidation>';
+                $optionSheet = $c[3];
+                $count++;
+            } elseif ($c[2] === 'list') {
+                $validations .= '<dataValidation type="list" allowBlank="1" showInputMessage="1" showErrorMessage="1" errorTitle="请从下拉里选择" error="请点单元格右侧的小箭头，从列表里选择：' . pmt_xml(implode(' / ', $c[3])) . '" promptTitle="' . pmt_xml(explode('(', $c[0])[0]) . '" prompt="请从下拉列表选择" sqref="' . $range . '"><formula1>"' . pmt_xml(implode(',', $c[3])) . '"</formula1></dataValidation>';
+                $count++;
+            } elseif ($c[2] === 'integer') {
+                $validations .= '<dataValidation type="whole" operator="between" allowBlank="1" showInputMessage="1" showErrorMessage="1" errorTitle="计价数量" error="请填写范围内的整数，不能按小数件计费" promptTitle="整数数量" prompt="' . pmt_xml($c[5]) . '" sqref="' . $range . '"><formula1>' . (int)$c[3][0] . '</formula1><formula2>' . (int)$c[3][1] . '</formula2></dataValidation>';
+                $count++;
+            } elseif ($c[2] === 'money') {
+                $validations .= '<dataValidation type="decimal" operator="greaterThanOrEqual" allowBlank="1" showErrorMessage="1" errorTitle="金额" error="请填写非负金额，不要填写文字、负数或单件单价" sqref="' . $range . '"><formula1>0</formula1></dataValidation>';
+                $count++;
+            } elseif ($c[2] === 'date' && mb_strpos($c[5], '永久') !== false) {
+                // 到期日期既可填日期也可写“永久”：自定义校验放行日期、“永久”和空白
+                $first = pmt_col_letter($i) . '2';
+                $validations .= '<dataValidation type="custom" allowBlank="1" showErrorMessage="1" errorTitle="到期日期" error="请填写日期（如 2027-09-01），永久的写“永久”" sqref="' . $range . '"><formula1>OR(' . $first . '="",' . $first . '="永久",ISNUMBER(' . $first . '))</formula1></dataValidation>';
+                $count++;
+            } elseif ($c[2] === 'date') {
+                $validations .= '<dataValidation type="date" operator="greaterThan" allowBlank="1" showErrorMessage="1" errorTitle="日期格式" error="请填写日期，如 2026-09-01" sqref="' . $range . '"><formula1>36526</formula1></dataValidation>';
+                $count++;
+            }
+        }
+        $pane = $business === '商标' ? 'bottomRight' : 'bottomLeft';
+        $firstInput = ($business === '商标' ? 'D' : 'A') . (count($examples) + 2);
+        $freeze = $business === '商标' ? 'xSplit="4" ySplit="1" topLeftCell="E2"' : 'ySplit="1" topLeftCell="A2"';
+        $sheetXml = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
+            . '<dimension ref="A1:' . $last . (count($examples) + 1) . '"/>'
+            . '<sheetViews><sheetView workbookViewId="0"' . ($selected ? ' tabSelected="1"' : '') . '><pane ' . $freeze . ' activePane="' . $pane . '" state="frozen"/><selection pane="' . $pane . '" activeCell="' . $firstInput . '" sqref="' . $firstInput . '"/></sheetView></sheetViews>'
+            . '<sheetFormatPr defaultRowHeight="18"/><cols>' . $cols . '</cols><sheetData>' . $rows . '</sheetData>'
+            . ($count ? '<dataValidations count="' . $count . '">' . $validations . '</dataValidations>' : '')
+            . '<pageMargins left="0.7" right="0.7" top="0.75" bottom="0.75" header="0.3" footer="0.3"/></worksheet>';
+        return $sheetXml;
+    };
+    $optionSheet = null; // 下拉选项分表（list_sheet 列用）
+    $defs = pmt_sheet_defs($business);
+    $dataXml = [];
+    foreach ($defs as $k => [$sheetName, $sheetColumns, $sheetExamples]) $dataXml[] = $dataSheet($sheetColumns, $sheetExamples, $k === 0);
 
     // 填写说明
     $help = [['列名', '是否必填', '怎么填']];
-    foreach ($columns as $c) $help[] = [$c[0], $c[4] ? '必填' : '选填', $c[5]];
+    foreach ($defs as [$sheetName, $sheetColumns]) {
+        if (count($defs) > 1) $help[] = ['【' . $sheetName . '】工作表', '', pmt_sheet_intro($business, $sheetName)];
+        foreach ($sheetColumns as $c) $help[] = [$c[0], $c[4] ? '必填' : '选填', $c[5]];
+    }
     $help[] = ['', '', ''];
     $exampleCount = count(pmt_example_rows($business));
-    $help[] = ['示例行', '', '表格前 ' . $exampleCount . ' 行灰色字是示例，订单编号以“示例”开头，上传时自动跳过，可删可留；从第 ' . ($exampleCount + 2) . ' 行起填写真实订单。'];
+    if (count($defs) > 1) $help[] = ['示例行', '', '每张表前几行灰色字是示例（带“示例”字样），上传时自动跳过，可删可留；从示例行下面开始填写真实订单。'];
+    else $help[] = ['示例行', '', '表格前 ' . $exampleCount . ' 行灰色字是示例，订单编号以“示例”开头，上传时自动跳过，可删可留；从第 ' . ($exampleCount + 2) . ' 行起填写真实订单。'];
     if ($business === '商标') $help = array_merge($help, ptt_notes());
     elseif ($business === '微信代写') {
         $help[] = ['自接与对接必须分开', '', '自接订单才计入本人微信代写部门利润分成；淘宝自接另外有店铺单量补助。编辑对接只按规则中心的对接编辑单量规则计算，不再拿本单的自接利润分成或淘宝自接补助。'];
@@ -425,6 +522,11 @@ function pmt_xlsx($business = '小程序开发')
         $help[] = ['序号很重要', '', '系统按“序号 + 日期所在月份”识别每一单：序号从 1 开始往下排，每个序号算 1 单。同一个月的表追加新行后整张重传，已有的序号不会重复，只会新增新序号的行。'];
         $help[] = ['订单编号只是记录', '', '订单编号选填，写了只当备注保存；系统不会按订单编号去匹配别的订单，所以不会把你挂到网站 / 小程序的订单上，也不会影响别人的分成。'];
         $help[] = ['选哪个业务', '', '上传时业务选“回购订单”；即使账号里还有别的业务，只要表头是“序号 + 旺旺号 + 订单编号”，系统也会自动按回购订单处理。'];
+    }
+    elseif (in_array($business, ['备案-提成', '备案-单量'], true)) {
+        $help[] = ['一个文件两张表', '', '“备案”表和“备案修改”表放在同一个文件里就行。上传时业务选“备案-提成”，导入完成后系统会自动把“备案修改”表按“备案-单量”接着导入，不用换业务、不用再传一次。'];
+        $help[] = ['旧表还能用', '', '以前的表（没有“日期”列的备案修改表、没有下拉的备案表）照常上传，表头认得出就行；新表只是多了下拉和日期列，录入更快、不容易写错。'];
+        $help[] = ['重复上传', '', '同一张表改完可以整张重传，已有订单按最新内容更新，不会重复建单。'];
     }
     elseif ($business === '森动备案') {
         $help[] = ['怎么区分两种单', '', '“业务”选备案：填日期、店铺（微信 / 对公 / 淘宝）、付款昵称、售价；没有订单编号就留空，系统自动生成。“业务”选二次备案：只需填日期、联系微信号、域名、状态。'];
@@ -456,16 +558,28 @@ function pmt_xlsx($business = '小程序开发')
         $sheet3 = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetFormatPr defaultRowHeight="18"/><cols><col min="1" max="1" width="26" customWidth="1"/></cols><sheetData>' . $optionRows . '</sheetData></worksheet>';
     }
     $ns = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships';
-    $files = [
-        '[Content_Types].xml' => '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/worksheets/sheet2.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>' . ($sheet3 ? '<Override PartName="/xl/worksheets/sheet3.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>' : '') . '<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/></Types>',
-        '_rels/.rels' => '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="' . $ns . '/officeDocument" Target="xl/workbook.xml"/></Relationships>',
-        'xl/workbook.xml' => '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="' . $ns . '"><bookViews><workbookView activeTab="0"/></bookViews><sheets><sheet name="订单" sheetId="1" r:id="rId1"/><sheet name="填写说明" sheetId="2" r:id="rId2"/>' . ($sheet3 ? '<sheet name="选项" sheetId="3" r:id="rId4"/>' : '') . '</sheets></workbook>',
-        'xl/_rels/workbook.xml.rels' => '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="' . $ns . '/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="' . $ns . '/worksheet" Target="worksheets/sheet2.xml"/><Relationship Id="rId3" Type="' . $ns . '/styles" Target="styles.xml"/>' . ($sheet3 ? '<Relationship Id="rId4" Type="' . $ns . '/worksheet" Target="worksheets/sheet3.xml"/>' : '') . '</Relationships>',
-        'xl/styles.xml' => $styles,
-        'xl/worksheets/sheet1.xml' => $sheet1,
-        'xl/worksheets/sheet2.xml' => $sheet2,
-    ];
-    if ($sheet3) $files['xl/worksheets/sheet3.xml'] = $sheet3;
+    $ws = 'application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml';
+    $n = count($dataXml); $helpNo = $n + 1; $optNo = $n + 2;
+    $types = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>';
+    $sheetsXml = ''; $rels = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">';
+    $files = [];
+    foreach ($dataXml as $k => $xml) {
+        $no = $k + 1; $name = count($defs) === 1 ? '订单' : $defs[$k][0];
+        $types .= '<Override PartName="/xl/worksheets/sheet' . $no . '.xml" ContentType="' . $ws . '"/>';
+        $sheetsXml .= '<sheet name="' . pmt_xml($name) . '" sheetId="' . $no . '" r:id="rId' . $no . '"/>';
+        $rels .= '<Relationship Id="rId' . $no . '" Type="' . $ns . '/worksheet" Target="worksheets/sheet' . $no . '.xml"/>';
+        $files['xl/worksheets/sheet' . $no . '.xml'] = $xml;
+    }
+    $types .= '<Override PartName="/xl/worksheets/sheet' . $helpNo . '.xml" ContentType="' . $ws . '"/>' . ($sheet3 ? '<Override PartName="/xl/worksheets/sheet' . $optNo . '.xml" ContentType="' . $ws . '"/>' : '') . '<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/></Types>';
+    $sheetsXml .= '<sheet name="填写说明" sheetId="' . $helpNo . '" r:id="rId' . $helpNo . '"/>' . ($sheet3 ? '<sheet name="选项" sheetId="' . $optNo . '" r:id="rId' . ($optNo + 1) . '"/>' : '');
+    $rels .= '<Relationship Id="rId' . $helpNo . '" Type="' . $ns . '/worksheet" Target="worksheets/sheet' . $helpNo . '.xml"/><Relationship Id="rId' . ($optNo + 2) . '" Type="' . $ns . '/styles" Target="styles.xml"/>' . ($sheet3 ? '<Relationship Id="rId' . ($optNo + 1) . '" Type="' . $ns . '/worksheet" Target="worksheets/sheet' . $optNo . '.xml"/>' : '') . '</Relationships>';
+    $files['[Content_Types].xml'] = $types;
+    $files['_rels/.rels'] = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="' . $ns . '/officeDocument" Target="xl/workbook.xml"/></Relationships>';
+    $files['xl/workbook.xml'] = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="' . $ns . '"><bookViews><workbookView activeTab="0"/></bookViews><sheets>' . $sheetsXml . '</sheets></workbook>';
+    $files['xl/_rels/workbook.xml.rels'] = $rels;
+    $files['xl/styles.xml'] = $styles;
+    $files['xl/worksheets/sheet' . $helpNo . '.xml'] = $sheet2;
+    if ($sheet3) $files['xl/worksheets/sheet' . $optNo . '.xml'] = $sheet3;
     return pmt_zip($files);
 }
 

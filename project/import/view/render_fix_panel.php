@@ -6,7 +6,7 @@ if ($fxRows):
     $fxInline = []; $fxOther = [];
     foreach ($fxRows as $r) {
         $needNo = empty($r['order_no']); $needDate = empty($r['order_date']); $needTech = !empty($r['need_technical']);
-        if ($needNo || $needDate || $needTech) $fxInline[] = $r; else $fxOther[] = $r;
+        if ($needNo || $needDate || $needTech || !empty($r['can_join'])) $fxInline[] = $r; else $fxOther[] = $r;
     }
     $fxTechChoices = null;
 ?>
@@ -27,8 +27,12 @@ if ($fxRows):
       <?php if (empty($r['order_date'])): ?>
         <label class="fx-f"><span>订单日期<?php echo isset($suggestedDates[$ln]) ? '（已带入建议，请核对）' : ''; ?></span><input type="date" name="fix_date[<?php echo $ln; ?>]" value="<?php echo e($suggestedDates[$ln] ?? ''); ?>"></label>
       <?php endif; ?>
-      <?php if (!empty($r['need_technical'])): if ($fxTechChoices === null) $fxTechChoices = poj_technician_choices($selectedBusiness); ?>
-        <label class="fx-f"><span>接单技术</span><select name="fix_technical[<?php echo $ln; ?>]"><option value="">选择接单技术…</option><?php foreach ($fxTechChoices as $techId => $techName): ?><option value="<?php echo (int)$techId; ?>"><?php echo e($techName); ?></option><?php endforeach; ?></select></label>
+      <?php if (!empty($r['can_join'])): ?>
+        <label class="fx-f" style="flex:1 1 100%"><span><input type="checkbox" name="fix_join[<?php echo $ln; ?>]" value="1"> 我确实参与了这单（原技术：<?php echo e($r['can_join']['names']); ?>）：加入为共同技术，技术分成按人数均分，财务审核订单时核对</span></label>
+      <?php endif; ?>
+      <?php if (!empty($r['need_technical'])): if ($fxTechChoices === null) $fxTechChoices = poj_technician_choices($selectedBusiness); if (!isset($fxOutsource)) $fxOutsource = null; ?>
+        <label class="fx-f"><span>接单技术</span><select name="fix_technical[<?php echo $ln; ?>]"><option value="">选择接单技术…</option><?php foreach ($fxTechChoices as $techId => $techName): ?><option value="<?php echo (int)$techId; ?>"><?php echo e($techName); ?></option><?php endforeach; ?><?php if ($fxOutsource === null) { ps_ensure_outsource_templates(); $fxOutsource = db()->prepare("SELECT id FROM project_cost_templates WHERE category='outsourcing' AND is_active=1 AND requires_proof=0 AND (business_scope='' OR business_scope=?) ORDER BY business_scope DESC,id DESC LIMIT 1"); $fxOutsource->execute([ps_business_normalize($selectedBusiness)]); $fxOutsource = (int)$fxOutsource->fetchColumn(); } if ($fxOutsource): ?><option value="outsource">外包技术（外部开发，不走本公司技术）</option><?php endif; ?></select></label>
+        <label class="fx-f"><span>外包费用（元，选“外包技术”时填）</span><input type="number" min="0.01" step="0.01" name="fix_outsource_amount[<?php echo $ln; ?>]" placeholder="付给外包的实际费用"></label>
       <?php endif; ?>
     </div>
   </div>

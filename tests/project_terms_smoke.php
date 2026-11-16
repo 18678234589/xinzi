@@ -28,5 +28,9 @@ try {
     $check(is_file($attendanceView), '考勤页视图存在');
     $src = file_get_contents($attendanceView);
     $check(preg_match($banned, $src) === 1, '（前提）源码里仍保留老词，由页面输出统一替换');
+    $biz = '<option value="AI网站定制">AI网站定制</option><a href="/project/index.php?business=AI网站定制" title="AI网站定制订单">看 AI网站定制</a><script>var b="AI网站定制";</script><input value="AI网站定制">';
+    $bizOut = pt_filter_html($biz);
+    $check(strpos($bizOut, '<option value="AI网站定制">AI定制</option>') !== false && strpos($bizOut, 'title="AI定制订单">看 AI定制</a>') !== false, '页面上“AI网站定制”显示为“AI定制”（可见文字和 title）');
+    $check(strpos($bizOut, 'value="AI网站定制">') !== false && strpos($bizOut, 'business=AI网站定制"') !== false && strpos($bizOut, 'var b="AI网站定制";') !== false, '表单值 / 链接 / 脚本里的业务标识不变，提交和筛选不受影响');
     echo "\n=== 对外用语测试全部通过 ===\n";
 } catch (Throwable $e) { fwrite(STDERR, $e->getMessage() . "\n"); exit(1); }

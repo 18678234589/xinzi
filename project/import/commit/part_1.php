@@ -37,14 +37,15 @@
                 if ($needsResources && !empty($_POST['auto_import']) && ($row['domain_mode'] ?? '') === '' && !isset($choices[$line])) $row['domain_mode'] = 'pending';
                 $programId = $needsResources && $usesProgram ? (int)($programChoices[$line] ?? $row['program_template_id']) : 0;
                 $programTemplate = $programId > 0 ? ps_intake_template($programId, 'program') : null;
-                $choice = $needsResources ? (string)($choices[$line] ?? ($row['domain_mode'] === 'none' || ($programTemplate && in_array($row['domain_mode'], ['', 'pending'], true)
-    ) ? 'none' : ($row['domain_mode'] === 'pending' ? 'pending' : ($row['domain_template_id'] ?: '')))) : 'none';
+                $pureDomain = $programTemplate && $programTemplate['name'] === '纯域名注册';
+                $choice = $needsResources ? ($pureDomain ? 'none' : (string)($choices[$line] ?? ($row['domain_mode'] === 'none' || ($programTemplate && in_array($row['domain_mode'], ['', 'pending'], true)
+    ) ? 'none' : ($row['domain_mode'] === 'pending' ? 'pending' : ($row['domain_template_id'] ?: ''))))) : 'none';
                 if ($choice === 'pending' && $programTemplate) $choice = 'none';
                 if ($choice === 'pending' && $row['domain_mode'] !== 'pending') $choice = '';
                 if ($choice === 'pending') { $ready[] = [$row, null, null, $programTemplate, 'pending']; continue; }
                 if ($choice !== 'none' && !ctype_digit($choice)) { $skipped++; continue; }
                 $domainTemplate = $choice === 'none' ? null : ps_intake_template((int)$choice, 'domain');
-                if ($needsResources && $row['domain_mode'] === 'template' && $choice === 'none') throw new RuntimeException('第 ' . $line . ' 行写了使用域名，不能选无需域名；请修正表格或选择模板'
+                if ($needsResources && $row['domain_mode'] === 'template' && $choice === 'none' && !$pureDomain) throw new RuntimeException('第 ' . $line . ' 行写了使用域名，不能选无需域名；请修正表格或选择模板'
     );
                 if ($needsResources && $row['domain_mode'] === 'none' && $choice !== 'none') throw new RuntimeException('第 ' . $line . ' 行写了无需域名，不能选择域名模板；请修正表格'
     );

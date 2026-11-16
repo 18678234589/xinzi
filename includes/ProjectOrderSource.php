@@ -130,11 +130,11 @@ function ps_shop_status_rank($status)
 {
     $s = trim((string)$status);
     if ($s === '') return 1;
-    if (preg_match('/交易关闭|退款成功|已退款|全额退款/u', $s)) return 5;
+    if (preg_match('/交易关闭|退款成功|已退款|全额退款|已取消/u', $s)) return 5;
     if (preg_match('/退款中|申请退款|售后中|部分退款|退款处理/u', $s)) return 4;
     if (preg_match('/交易成功|已完成|已收货|确认收货/u', $s)) return 3;
     if (preg_match('/已发货|等待买家确认|等待确认收货/u', $s)) return 2;
-    if (preg_match('/等待买家付款|待付款|未付款/u', $s)) return 0;
+    if (preg_match('/等待买家付款|待付款|未付款|待支付/u', $s)) return 0;
     return 1;
 }
 
@@ -146,8 +146,47 @@ function ps_shop_compatible($orderShop, $statementShop)
 {
     $a = trim((string)$orderShop); $b = trim((string)$statementShop);
     if ($a === '' || $b === '' || $a === $b) return true;
-    $ca = ps_shop_channel($a);
-    return $ca !== '' && $ca === ps_shop_channel($b);
+    $ca = ps_shop_channel($a); $cb = ps_shop_channel($b);
+    if ($ca !== '' && $ca === $cb) return true;
+    // 流水是收款渠道账单（微信 / 支付宝 / 对公），订单表里“店铺”填的却不是任何真实店铺（如“老客户”“二维码”这类人手写的备注）：
+    // 渠道流水的检索号 / 交易号本身唯一，不会和别的店铺重号，按订单号对上即可，否则这类订单永远等不到收款确认
+    if ($ca === '' && !ps_shop_is_known($a)) {
+        if ($cb !== '') return true;
+        // 订单表里人手写的简称（“校知网”“美呀美”“英文店”“14店”…）：能唯一认出是哪家店就按那家店比；认不出的写法不能证明是别的店，订单号对上即可
+        $resolved = ps_shop_resolve($a);
+        return $resolved === '' || $resolved === $b;
+    }
+    return false;
+}
+
+/** 店铺表里登记过的店铺名（进程内缓存；表读不出时返回 null，调用方保持原来的严格比较）。 */
+function ps_shop_known_list()
+{
+    static $known = false;
+    if ($known === false) {
+        try { $known = array_values(array_map('trim', db()->query('SELECT name FROM shops')->fetchAll(PDO::FETCH_COLUMN))); }
+        catch (Throwable $e) { $known = null; }
+    }
+    return $known;
+}
+
+function ps_shop_is_known($name)
+{
+    $list = ps_shop_known_list();
+    return $list === null || in_array(trim((string)$name), $list, true);
+}
+
+/** 把人手写的店铺简称认成店铺表里的标准名（完全一致或唯一包含关系）；认不出返回 ''。 */
+function ps_shop_resolve($name)
+{
+    $list = ps_shop_known_list();
+    $name = trim((string)$name);
+    if ($name === '' || !$list) return '';
+    if (in_array($name, $list, true)) return $name;
+    if (!function_exists('match_shop_name')) require_once __DIR__ . '/lib/order_text.php';
+    $hit = [];
+    foreach ($list as $std) if ($std !== '' && (mb_strpos($std, $name) !== false || mb_strpos($name, $std) !== false)) $hit[] = $std;
+    return count($hit) === 1 ? $hit[0] : '';
 }
 
 /**
@@ -159,7 +198,9 @@ function ps_shop_channel($name)
     $n = trim((string)$name);
     if ($n === '') return '';
     if (mb_strpos($n, '对公') !== false) return 'public';
-    if (in_array($n, ['微信', '微信收款', '微信支付', '扫码收款'], true) || mb_strpos($n, '扫码收款') !== false) return 'wechat';
+    if (in_array($n, ['微信', '微信收款', '微信支付', '扫码收款'], true) || mb_strpos($n, '扫码收款') !== false || mb_strpos($n, '微信') === 0 || mb_strpos($n, '二维码') !== false) return 'wechat';
+    // 支付宝收款流水（如“赫鸣支付宝”）：和微信同属扫码收款。订单表里常把支付宝付款也写成“微信”，按店铺名一字不差去比永远对不上
+    if (mb_strpos($n, '支付宝') !== false) return 'wechat';
     return '';
 }
 

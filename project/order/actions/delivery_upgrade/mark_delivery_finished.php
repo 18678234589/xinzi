@@ -8,6 +8,7 @@ $status = trim((string)($_POST['delivery_status'] ?? 'finished'));
 if (!in_array($status, ['finished', 'unfinished'], true)) {
     $status = 'finished';
 }
+if ($status === 'finished' && !ps_can_mark_order_finished($actor, $id)) throw new RuntimeException('网站业务的完成情况只有本订单的技术或财务可以标记；客服请通知技术确认');
 
 $q = db()->prepare('UPDATE project_orders SET delivery_status=?, row_version=row_version+1 WHERE id=?');
 $q->execute([$status, $id]);

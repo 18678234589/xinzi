@@ -111,6 +111,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     . $projectType);
         if ($outsourceTemplate && ($outsourceTemplate['price_mode'] ?? 'fixed') === 'percent' && ($contract === '' || (float)$contract <= 0)) throw new RuntimeException('外包成本按售价比例计算，请先填写售价'
     );
+        $outsourceActual = ps_outsource_is_actual($outsourceTemplate);
+        $outsourceAmount = $outsourceActual ? round((float)($_POST['outsource_amount'] ?? 0), 2) : 0.0;
+        if ($outsourceActual && ($outsourceAmount <= 0 || $outsourceAmount > 1000000)) throw new RuntimeException('选了“' . $outsourceTemplate['name'] . '”，请填写付给外包的实际费用（元）');
         $groups = ['technical' => [], 'customer_service' => []];
         foreach (['customer_service_id' => ['customer_service', '客服'], 'frontend_id' => ['technical', $peopleLabels['frontend']], 'backend_id' => ['technical', $peopleLabels['backend'
     ]]] as $field => $target) {
@@ -135,7 +138,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if (!$groups['technical'] && !$groups['customer_service']) throw new RuntimeException('请至少选择一位客服或技术参与人');
         // 客服与制作人员共用一张订单：客服建单须指定已开通同业务账号的技术，对方登录即可看到并补成本。
         if ($actor['role'] === 'customer_service' && ps_business_requires_technical($projectType) && !$outsourceTemplate) {
-            if (!$groups['technical']) throw new RuntimeException('请指定接收此单的技术（外包给华梦等下游时，请在“外包”里选择外包成本）');
+            if (!$groups['technical']) throw new RuntimeException('请指定接收此单的技术：在“制作技术”下拉里选本公司技术；如果是外包给外部开发者 / 华梦等下游，请在“制作技术”里选“外包技术”（并填外包费用）');
             foreach ($groups['technical'] as $person) if ((int)$person['id'] !== $selfEmployeeId && !ps_active_employee_for_business($person['id'], 'technical', $projectType)) throw
     new RuntimeException('指定的技术未开通当前业务的有效账号，请联系财务配置');
         }
@@ -196,7 +199,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if ($business['resources']) ps_intake_save_resources($id, 'manual', null, $domainTemplate, $serverTemplate, $sslCost !== '' ? $sslCost : null, $domainMode, $programTemplate
     );
         if ($programTemplate) ps_intake_add_template_cost($id, $programTemplate, $actor, '手动录入：程序套餐');
-        if ($outsourceTemplate) ps_intake_add_template_cost($id, $outsourceTemplate, $actor, '手动录入：外包');
+        if ($outsourceTemplate) ps_intake_add_template_cost($id, $outsourceTemplate, $actor, '手动录入：外包', $outsourceActual ? $outsourceAmount : 1);
         if ($domainTemplate) ps_intake_add_template_cost($id, $domainTemplate, $actor, '手动录入：域名');
         if ($serverTemplate) ps_intake_add_template_cost($id, $serverTemplate, $actor, '手动录入：服务器');
         if ($directCost !== '' && (float)$directCost != 0) {

@@ -140,15 +140,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     }
                 } catch (RuntimeException $e) {
                     $record['base_valid'] = false; $record['status'] = $record['skip_status'] ?? '需处理'; $record['error'] = $e->getMessage();
-                    // 已跳过的行（已导入过 / 他人订单）在读到日期、售价之前就中止了：直接显示原表里的实际值，不能显示成“缺日期 / 待补”
-                    if (in_array($record['status'], ['已导入过', '他人订单'], true)) {
-                        if (empty($record['order_date'])) $record['order_date'] = ps_import_date($lookup($row, 'order_date')) ?: '';
-                        if (($record['contract_amount'] ?? '') === '') $record['contract_amount'] = str_replace([',', '¥', '￥', ' '], '', $lookup($row, 'contract_amount'));
-                    }
+                    // 行在读到日期、售价之前就因别的原因中止了（已导入过 / 他人订单 / 网站标识 / 关联冲突等）：直接带出原表里的实际值，不能显示成“缺日期 / 待补”
+                    if (empty($record['order_date'])) $record['order_date'] = ps_import_date($lookup($row, 'order_date')) ?: '';
+                    if (($record['contract_amount'] ?? '') === '') $record['contract_amount'] = str_replace([',', '¥', '￥', ' '], '', $lookup($row, 'contract_amount'));
                 }
                 $itemTemplates = $itemTemplates ?? ps_intake_templates(null, $selectedBusiness);
                 $record['items'] = !empty($businessDefinition['program']) ? poi_from_row($record['program_name'], empty($record['amount_from_shop']) ? $record['contract_amount'] :
-    null, $head, $row, $itemTemplates, $record['line'], (preg_match('/^(客户提供|客户自备|客户自有|客户的)/u', trim((string)($record['domain_used'] ?? ''))) && trim((string)($record['resource_note'] ?? '')) === '') ? '空间' : ($record['resource_note'] ?? '')) : []; // 域名来源写“客户提供”：选不含域名的“空间”档
+    null, $head, $row, $itemTemplates, $record['line'], (preg_match('/^(客户提供|客户自备|客户自有|客户的|第三方|客户第三方)/u', trim((string)($record['domain_used'] ?? ''))) && trim((string)($record['resource_note'] ?? '')) === '') ? '空间' : ($record['resource_note'] ?? '')) : []; // 域名来源写“客户提供”：选不含域名的“空间”档
                 if (!$record['resource_locked']) foreach ($record['items'] as $item) if ($item['category'] === 'program' && $item['template_id']) { $record['program_template_id'] =
     (int)$item['template_id']; break; }
                 // 同一订单号保留全部商品明细；收款只落在主单，不给证书另建一笔收入。

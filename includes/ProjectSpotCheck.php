@@ -1,12 +1,12 @@
 <?php
 /**
  * 财务抽查任务：免财务审核的业务（PA_SPOT_CHECK_BUSINESSES，见 ProjectAutoReviewMath.php）由系统自动结算，
- * 每个业务每月随机抽 PSC_PER_BUSINESS 单交给财务事后核对。任务在 project_spot_checks，处理页 project/spot_checks.php。
+ * 每月总共只随机抽 PSC_PER_MONTH 单（所有业务和退款合计）交给财务事后核对，各业务轮流各抽一单。任务在 project_spot_checks，处理页 project/spot_checks.php。
  * 提醒：每个财务页面顶部常驻提示（includes/spot_check_banner.php）、站内信（有员工账号的财务）、订单页提示。
  */
 require_once __DIR__ . '/ProjectAutoReview.php';
 
-const PSC_PER_BUSINESS = 5;
+const PSC_PER_MONTH = 5; // 每月给财务抽查的订单总数（所有免审业务 + 退款合计）
 
 function psc_ensure()
 {
@@ -28,22 +28,24 @@ function psc_ensure()
 
 const PSC_REFUND_BUSINESS = '退款自动结案';
 
-/** 给免审业务补足某月的抽查任务（每个业务共 PSC_PER_BUSINESS 单，已抽过的算在内）；返回新增条数。 */
+/** 给免审业务补足某月的抽查任务（全部业务合计 PSC_PER_MONTH 单，已抽过的算在内，各业务轮流抽）；返回新增条数。 */
 function psc_assign($month)
 {
     if (!preg_match('/^\d{4}-(0[1-9]|1[0-2])$/', (string)$month)) return 0;
     psc_ensure();
     $pdo = db(); $added = 0; $byBusiness = [];
     $from = $month . '-01'; $until = date('Y-m-d', strtotime($from . ' +1 month'));
-    $have = $pdo->prepare('SELECT COUNT(*) FROM project_spot_checks WHERE month=? AND business=?');
+    $have = $pdo->prepare('SELECT COUNT(*) FROM project_spot_checks WHERE month=?');
     $pick = $pdo->prepare("SELECT o.id FROM project_orders o JOIN project_auto_reviews a ON a.order_id=o.id LEFT JOIN project_spot_checks c ON c.kind='order' AND c.order_id=o.id
         WHERE o.project_type=? AND o.order_date>=? AND o.order_date<? AND a.state='spot_check' AND c.id IS NULL ORDER BY RAND() * IF(EXISTS (SELECT 1 FROM project_orders o2 JOIN project_participants p2 ON p2.order_id=o2.id WHERE o2.id<>o.id AND o2.project_type=o.project_type AND o2.order_date=o.order_date AND o2.contract_amount=o.contract_amount AND EXISTS (SELECT 1 FROM project_participants p1 WHERE p1.order_id=o.id AND p1.employee_id=p2.employee_id)), 0.25, 1) LIMIT ?");
     // 同一人、同业务、同一天、同金额还有别的订单（可能是重复导入，也可能真是两单）：抽中的几率约为普通订单的 4 倍，只提醒财务核对，不拦截
     $ins = $pdo->prepare("INSERT IGNORE INTO project_spot_checks (kind,order_id,month,business) VALUES ('order',?,?,?)");
-    foreach (PA_SPOT_CHECK_BUSINESSES as $business) {
-        $have->execute([$month, $business]);
-        $need = PSC_PER_BUSINESS - (int)$have->fetchColumn();
-        if ($need <= 0) continue;
+    $businesses = PA_SPOT_CHECK_BUSINESSES; shuffle($businesses);
+    for ($pass = 0; $pass < PSC_PER_MONTH; $pass++) foreach ($businesses as $business) {
+        $have->execute([$month]);
+        $need = PSC_PER_MONTH - (int)$have->fetchColumn();
+        if ($need <= 0) break 2;
+        $need = 1; // 各业务轮流各抽一单，避免一个业务占满
         $pick->bindValue(1, $business); $pick->bindValue(2, $from); $pick->bindValue(3, $until); $pick->bindValue(4, $need, PDO::PARAM_INT);
         $pick->execute();
         foreach ($pick->fetchAll(PDO::FETCH_COLUMN) as $oid) {
@@ -53,8 +55,8 @@ function psc_assign($month)
     }
     // 系统自动结案（未报单）的退款：同样每月抽 5 条（order_id 存退款记录 id，kind='refund'）
     require_once __DIR__ . '/ProjectRefundMatch.php';
-    $have->execute([$month, PSC_REFUND_BUSINESS]);
-    $need = PSC_PER_BUSINESS - (int)$have->fetchColumn();
+    $have->execute([$month]);
+    $need = PSC_PER_MONTH - (int)$have->fetchColumn();
     if ($need > 0) {
         $pr = $pdo->prepare("SELECT r.id FROM project_refund_import_rows r LEFT JOIN project_spot_checks c ON c.kind='refund' AND c.order_id=r.id
             WHERE r.review_status='approved' AND r.order_id IS NULL AND r.reason LIKE ? AND r.reviewed_at>=? AND r.reviewed_at<? AND c.id IS NULL ORDER BY RAND() LIMIT " . (int)$need);

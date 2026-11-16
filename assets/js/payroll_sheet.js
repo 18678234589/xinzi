@@ -72,6 +72,7 @@
       fd.querySelector('[data-f="ftitle"]').textContent = fb.getAttribute('data-name') + ' · ' + month; fd.querySelector('[data-f="ferr"]').hidden = true; fd.setAttribute('data-net', '0');
       fd.querySelector('[data-f="net"]').textContent = '…'; fd.querySelector('[data-f="diff"]').textContent = '—';
       var rv = fd.querySelector('[data-f="review"]'); rv.hidden = false; rv.href = '/project/batch_review.php?month=' + encodeURIComponent(month) + '&emp=' + encodeURIComponent(id);
+      var ex = fd.querySelector('[data-f="export"]'); if (ex) { ex.hidden = false; ex.href = '/project/employee_orders_export.php?month=' + encodeURIComponent(month) + '&employee_id=' + encodeURIComponent(id); }
       var rl = fd.querySelector('[data-f="reasons"]'); rl.innerHTML = '<div class="pps-empty">正在分析差异原因…</div>';
       fd.showModal();
       fetch(host.getAttribute('data-src') + '?flag_info=' + encodeURIComponent(id) + '&pm=' + encodeURIComponent(month), { credentials: 'same-origin', cache: 'no-store' })
