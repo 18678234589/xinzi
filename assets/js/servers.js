@@ -6,7 +6,8 @@
   var esc = function (v) { return String(v == null ? '' : v).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); };
   var state = { country: '', category: '', q: '', onlyStock: false, hosts: null, hostFilter: 'all', hostQ: '' };
 
-  function notice(text, error) { var n = $('svNotice'); n.textContent = text || ''; n.hidden = !text; n.classList.toggle('error', !!error); if (text) n.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); }
+  function notice(text, error) { var n = $('svNotice'); var bm = $('svBuyMsg'); if (bm && $('svBuy').open) n = bm; // 开通弹窗是模态的，页面级提示被挡在后面，用户看不到
+     n.textContent = text || ''; n.hidden = !text; n.classList.toggle('error', !!error); if (text) n.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); }
   async function api(action, values) {
     var body = new URLSearchParams({ action: action, csrf: csrf });
     Object.keys(values || {}).forEach(function (k) { var v = values[k]; if (Array.isArray(v)) v.forEach(function (x) { body.append(k + '[]', x); }); else body.append(k, v); });
@@ -97,7 +98,7 @@
   async function openBuy(pid) {
     var p = product(pid); if (!p) return;
     buy = { pid: pid, info: null, quote: null };
-    $('svBuyTitle').textContent = '开通：' + p.t; $('svBuyBody').innerHTML = '<p class="sv-help">正在读取配置…</p>'; $('svBuy').showModal();
+    $('svBuyTitle').textContent = '开通：' + p.t; notice(''); $('svBuyBody').innerHTML = '<p class="sv-help">正在读取配置…</p>'; $('svBuy').showModal();
     try { buy.info = await api('options', { pid: pid }); renderBuy(); } catch (e) { $('svBuyBody').innerHTML = '<div class="sv-notice error">' + esc(e.message) + '</div>'; }
   }
   function renderBuy() {
@@ -111,7 +112,7 @@
       '<label>付款周期<select id="svCycle">' + cyc.map(function (c) { return '<option value="' + c + '">' + esc(boot.cycles[c] || c) + ' · 成本价 ' + money(i.cycles[c]) + (i.list_cycles && i.list_cycles[c] && Number(i.list_cycles[c]) > Number(i.cycles[c]) + 0.005 ? '（标价 ' + money(i.list_cycles[c]) + '）' : '') + '</option>'; }).join('') + '</select></label>' + opts +
       (i.stock_control ? '<p class="sv-help">当前库存：' + i.stock + '</p>' : '') + '<button type="submit" class="sv-btn" id="svQuoteBtn">查询报价（不扣费）</button><div id="svQuoteBox"></div></form>';
     $('svBuyForm').onsubmit = function (e) { e.preventDefault(); busy($('svQuoteBtn'), quote); };
-    $('svBuyForm').onchange = function () { buy.quote = null; $('svQuoteBox').innerHTML = ''; };
+    $('svBuyForm').onchange = function (e) { if (!e.target.matches('[data-opt],#svCycle')) return; /* 勾选确认框也会触发 change，不能因此清掉报价 */ buy.quote = null; $('svQuoteBox').innerHTML = ''; };
   }
   async function quote() {
     var sel = {}; $('svBuyForm').querySelectorAll('[data-opt]').forEach(function (el) { sel[el.dataset.opt] = el.value; });
