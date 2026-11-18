@@ -127,7 +127,7 @@
     busy(btn, async function () {
       var r = await api('submit', { token: q.token, confirm: $('svConfirm').value.trim(), ack: '1', pid: buy.pid }); buy.quote = null; var o = r.order;
       var cls = o.status === 'done' ? '' : (o.status === 'failed' ? ' error' : ' warn');
-      $('svBuyBody').innerHTML = '<div class="sv-notice' + cls + '"><b>' + ({ done: '开通成功', failed: '开通失败', unknown: '结果待核对', started: '处理中' }[o.status] || o.status) + '</b>：' + esc(o.message) + (o.host_id ? '（主机编号 ' + o.host_id + '）' : '') + '</div><p class="sv-help">可以到「我的服务器」查看新主机；开通可能需要几分钟，状态会从“开通中”变为“运行中”。</p>';
+      $('svBuyBody').innerHTML = '<div class="sv-notice' + cls + '"><b>' + ({ done: '已付款，主机开通中', failed: '开通失败', unknown: '结果待核对', started: '处理中' }[o.status] || o.status) + '</b>：' + esc(o.message) + (o.host_id ? '（主机编号 ' + o.host_id + '）' : '') + '</div><p class="sv-help">可以到「我的服务器」查看新主机；开通可能需要几分钟，状态会从“开通中”变为“运行中”。</p>';
       if (o.status === 'done') { state.hosts = null; }
     });
   }
@@ -222,7 +222,7 @@
   /* ---------------- 开通记录 / 权限 ---------------- */
   async function loadOrders() {
     if (!$('svOrderList')) return; $('svOrderList').innerHTML = '<p class="sv-empty">读取中…</p>';
-    try { var d = await api('orders'); $('svOrderList').innerHTML = d.rows.length ? '<table class="sv-table"><thead><tr><th>时间</th><th>套餐</th><th>周期 / 金额</th><th>状态</th><th>操作人</th></tr></thead><tbody>' + d.rows.map(function (o) { var c = o.status === 'done' ? 'ok' : (o.status === 'failed' ? 'bad' : 'warn'); return '<tr><td>' + esc(o.created) + '</td><td>' + esc(o.name) + '<br><small>' + esc(o.details.join(' / ')) + '</small></td><td>' + esc(o.cycle) + '<br>' + money(o.amount) + '</td><td><span class="sv-badge ' + c + '">' + ({ done: '已开通', failed: '失败', unknown: '待核对', started: '处理中' }[o.status] || o.status) + '</span><br><small>' + esc(o.message) + (o.host_id ? ' · 主机 #' + o.host_id : '') + '</small></td><td>' + esc(o.actor) + '</td></tr>'; }).join('') + '</tbody></table>' : '<p class="sv-empty">还没有开通记录。</p>'; }
+    try { var d = await api('orders'); $('svOrderList').innerHTML = d.rows.length ? '<table class="sv-table"><thead><tr><th>时间</th><th>套餐</th><th>周期 / 金额</th><th>状态</th><th>操作人</th></tr></thead><tbody>' + d.rows.map(function (o) { var live = o.status === 'done' && o.host_status && o.host_status !== 'Active'; var c = o.status === 'done' && !live && o.host_status ? 'ok' : (o.status === 'failed' ? 'bad' : 'warn'); return '<tr><td>' + esc(o.created) + '</td><td>' + esc(o.name) + '<br><small>' + esc(o.details.join(' / ')) + '</small></td><td>' + esc(o.cycle) + '<br>' + money(o.amount) + '</td><td><span class="sv-badge ' + c + '">' + (o.status === 'done' ? (o.host_status === 'Active' ? '已开通' : '已付款 · ' + (o.host_status_text || '开通中')) : ({ failed: '失败', unknown: '待核对', started: '处理中' }[o.status] || o.status)) + '</span><br><small>' + esc(o.message) + (o.host_id ? ' · 主机 #' + o.host_id : '') + '</small></td><td>' + esc(o.actor) + '</td></tr>'; }).join('') + '</tbody></table>' : '<p class="sv-empty">还没有开通记录。</p>'; }
     catch (e) { $('svOrderList').innerHTML = '<div class="sv-notice error">' + esc(e.message) + '</div>'; }
   }
   function renderSettings() {

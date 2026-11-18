@@ -149,14 +149,14 @@ function yo_submit($pdo, $actor, $token, $confirm, $ack, $now = null, $call = 'y
         }
         $invoice = (int)($set['data']['invoiceid'] ?? 0);
         $extra = ['host' => $hostIds ? (int)$hostIds[0] : null, 'invoice' => $invoice ?: null];
-        if ((int)($set['status'] ?? 0) === 1001) { yo_set($pdo, $id, 'done', '已开通（已自动支付）', $extra); return yo_row($pdo, $id); }
+        if ((int)($set['status'] ?? 0) === 1001) { yo_set($pdo, $id, 'done', '已付款，主机开通中（雅云处理需几分钟）', $extra); return yo_row($pdo, $id); }
         if ($invoice < 1 || count($hostIds) !== 1) { yo_set($pdo, $id, 'unknown', '订单里的主机数量异常（' . count($hostIds) . ' 台），为避免多扣费没有支付，请到雅云后台核对订单 / 账单 ' . $invoice, $extra); return yo_row($pdo, $id); }
         // 能读到账单金额时必须等于报价才支付；读不到（接口不返回）时靠“订单里恰好一台主机”兜底。
         $total = $set['data']['total'] ?? $set['data']['amount'] ?? $set['data']['invoice']['total'] ?? null;
         if ($total === null) { try { $detail = $call('invoice/detail', ['invoiceid' => $invoice], 'GET', 30); $total = $detail['data']['invoice']['total'] ?? $detail['invoice']['total'] ?? $detail['data']['total'] ?? null; } catch (Throwable $ie) { $total = null; } }
         if ($total !== null && yo_cents($total) !== (int)$o['amount_cents']) { yo_set($pdo, $id, 'unknown', '账单金额 ¥' . number_format(yo_cents($total) / 100, 2) . ' 与报价 ¥' . number_format($o['amount_cents'] / 100, 2) . ' 不一致，没有支付，请到雅云后台核对账单 ' . $invoice, $extra); return yo_row($pdo, $id); }
         $pay = $call('apply_credit', ['invoiceid' => $invoice, 'use_credit' => 1], 'POST', 60);
-        if ((int)($pay['status'] ?? 0) === 1001) { yo_set($pdo, $id, 'done', '已开通', $extra); return yo_row($pdo, $id); }
+        if ((int)($pay['status'] ?? 0) === 1001) { yo_set($pdo, $id, 'done', '已付款，主机开通中（雅云处理需几分钟）', $extra); return yo_row($pdo, $id); }
         yo_set($pdo, $id, 'unknown', '订单已生成但余额支付未完成：' . mb_substr((string)($pay['msg'] ?? ''), 0, 100) . '（账单 ' . $invoice . '）。请到雅云后台处理，不要重复提交', $extra);
     } catch (Throwable $e) {
         yo_set($pdo, $id, 'unknown', '提交过程中断，结果不确定：' . mb_substr($e->getMessage(), 0, 120) . '。请先到「我的服务器」或雅云后台核对，不要重复开通');
@@ -181,9 +181,18 @@ function yo_public(array $o)
     $s = json_decode($o['quote_json'], true) ?: [];
     return ['id' => (int)$o['id'], 'pid' => (int)$o['pid'], 'name' => $s['name'] ?? '', 'cycle' => $s['cycle_label'] ?? $o['cycle'], 'details' => $s['details'] ?? [], 'amount' => number_format($o['amount_cents'] / 100, 2, '.', ''), 'status' => $o['status'], 'message' => (string)$o['message'], 'host_id' => $o['upstream_host_id'] === null ? null : (int)$o['upstream_host_id'], 'created' => date('Y-m-d H:i', (int)$o['created_at']), 'actor' => $o['actor_key']];
 }
-function yo_history($pdo, $limit = 50)
+/** status=done 只表示“已付款、订单已提交”；主机是否真的开通以雅云主机状态为准，这里带上实时状态（读不到就不带）。 */
+function yo_history($pdo, $limit = 50, $call = 'ya_call')
 {
-    return array_map('yo_public', $pdo->query("SELECT * FROM yayun_orders WHERE status<>'quoted' ORDER BY id DESC LIMIT " . (int)$limit)->fetchAll(PDO::FETCH_ASSOC));
+    $rows = array_map('yo_public', $pdo->query("SELECT * FROM yayun_orders WHERE status<>'quoted' ORDER BY id DESC LIMIT " . (int)$limit)->fetchAll(PDO::FETCH_ASSOC));
+    $live = null;
+    foreach ($rows as &$r) {
+        if ($r['status'] !== 'done' || !$r['host_id']) continue;
+        if ($live === null) { $live = []; try { foreach (yh_list($call)[0] as $h) $live[$h['id']] = $h; } catch (Throwable $e) { /* 读不到就只显示已付款 */ } }
+        if (isset($live[$r['host_id']])) { $r['host_status'] = $live[$r['host_id']]['status']; $r['host_status_text'] = $live[$r['host_id']]['status_text']; }
+    }
+    unset($r);
+    return $rows;
 }
 
 /* ---------- 价格 / 库存同步（jobs/yayun_sync.php 调用，页面只读 yayun_prices） ---------- */

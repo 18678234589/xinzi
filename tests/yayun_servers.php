@@ -120,6 +120,9 @@ yt($r7['status'] === 'unknown' && !in_array('apply_credit', array_column($calls,
 unset($hostRows); $settle = ['status' => 200, 'data' => ['hostid' => [7001], 'invoiceid' => 55, 'total' => '99.00']]; $pay = ['status' => 1001, 'data' => ['hostid' => [7001]]];
 $total = '4000.00'; yt(yrej(function () use ($pdo, $staff, $api) { yo_quote($pdo, $staff, 1013, 'monthly', [], null, $api); }), 'over the per-order cap is refused'); $total = '99.00';
 yt(count(yo_history($pdo)) === 7, 'history lists submitted orders only (not bare quotes)');
+$liveApi = function ($path, array $d = [], $m = 'GET', $t = 30) { return ['status' => 200, 'data' => ['sum' => 1, 'list' => [['id' => 7010, 'productid' => 1013, 'domainstatus' => 'Pending']]]]; };
+$h6 = array_values(array_filter(yo_history($pdo, 50, $liveApi), function ($x) { return $x['host_id'] === 7010; }))[0];
+yt($h6['status'] === 'done' && $h6['host_status'] === 'Pending', 'order list carries the live upstream host status (paid != provisioned)');
 
 // 价格同步
 $sync = yo_sync_prices($pdo, 30, $now, $api);

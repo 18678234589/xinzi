@@ -161,5 +161,5 @@ include __DIR__ . '/../includes/header.php';
   <dialog id="svBuy" class="sv-drawer wide"><div class="sv-drawer-head"><div><span class="sv-kicker">NEW SERVER</span><h2 id="svBuyTitle">开通服务器</h2></div><button type="button" class="sv-close" id="svBuyClose" aria-label="关闭">×</button></div><div class="sv-notice" id="svBuyMsg" hidden style="margin:12px 24px 0"></div><div class="sv-drawer-body" id="svBuyBody"></div></dialog>
 </main>
 <script id="svBoot" type="application/json"><?php echo json_encode($boot, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?></script>
-<script src="<?php echo BASE_URL; ?>/assets/js/servers.js?v=20261118a" defer></script>
+<script src="<?php echo BASE_URL; ?>/assets/js/servers.js?v=20261118b" defer></script>
 <?php include __DIR__ . '/../includes/footer.php'; ?>
