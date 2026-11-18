@@ -6,6 +6,7 @@
  */
 require_once __DIR__ . '/YayunApi.php';
 require_once __DIR__ . '/YayunCatalog.php';
+require_once __DIR__ . '/YayunHosts.php';
 
 const YO_MAX_CENTS = 300000; // 单笔上限 ¥3000，更贵的请到雅云后台下单
 const YO_QUOTE_TTL = 600;
@@ -136,11 +137,16 @@ function yo_submit($pdo, $actor, $token, $confirm, $ack, $now = null, $call = 'y
     if ($claim->rowCount() !== 1) { $q->execute([hash('sha256', (string)$token)]); return $q->fetch(PDO::FETCH_ASSOC); }
     $id = (int)$o['id'];
     try {
+        // 提交前记下已有主机编号：雅云 cart/settle 的返回里不一定带 hostid，届时靠“多出来的那一台”确认。
+        $beforeIds = null; try { $beforeIds = array_column(yh_list($call)[0], 'id'); } catch (Throwable $e) { /* 读不到就没有兜底，按原逻辑处理 */ }
         $add = $call('cart/add_to_shop', ['pid' => (int)$o['pid'], 'billingcycle' => $o['cycle'], 'qty' => 1, 'configoption' => $config, 'customfield' => [], 'host' => '', 'password' => yo_password(), 'currencyid' => 1, 'is_api' => true], 'POST', 30);
         if ((int)($add['status'] ?? 0) !== 200) { yo_set($pdo, $id, 'failed', '加入购物车失败：' . ($add['msg'] ?? '')); return yo_row($pdo, $id); }
         $set = $call('cart/settle', [], 'POST', 60);
         if ((int)($set['status'] ?? 0) !== 200 && (int)($set['status'] ?? 0) !== 1001) { yo_set($pdo, $id, 'failed', '生成订单失败：' . ($set['msg'] ?? '')); return yo_row($pdo, $id); }
         $hostIds = array_values(array_filter((array)($set['data']['hostid'] ?? []), 'is_numeric'));
+        if (!$hostIds && $beforeIds !== null && (int)($set['data']['invoiceid'] ?? 0) > 0) {
+            try { $new = array_values(array_filter(yh_list($call)[0], function ($h) use ($beforeIds, $o) { return !in_array($h['id'], $beforeIds) && (int)$h['pid'] === (int)$o['pid']; })); if (count($new) === 1) $hostIds = [(int)$new[0]['id']]; } catch (Throwable $e) { /* 保持 unknown，不付款 */ }
+        }
         $invoice = (int)($set['data']['invoiceid'] ?? 0);
         $extra = ['host' => $hostIds ? (int)$hostIds[0] : null, 'invoice' => $invoice ?: null];
         if ((int)($set['status'] ?? 0) === 1001) { yo_set($pdo, $id, 'done', '已开通（已自动支付）', $extra); return yo_row($pdo, $id); }

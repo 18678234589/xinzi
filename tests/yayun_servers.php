@@ -106,8 +106,20 @@ $r4 = yo_submit($pdo, $staff, $q4['token'], '1013', '1', null, $api);
 yt($r4['status'] === 'unknown' && strpos($r4['message'], '余额') !== false, 'unpaid invoice is reported, not retried');
 $q5 = yo_quote($pdo, $staff, 1013, 'monthly', [], null, $api); $boom = function ($path, array $data = [], $m = 'POST', $t = 30) use ($api) { if ($path === 'cart/settle') throw new RuntimeException('timeout'); return $api($path, $data, $m, $t); };
 $r5 = yo_submit($pdo, $staff, $q5['token'], '1013', '1', null, $boom); yt($r5['status'] === 'unknown', 'interruption leaves an unknown, never silently retried');
+// 雅云 cart/settle 不带 hostid 时：提交前后对比主机列表，恰好多出一台同商品的主机才付款（真实开通 2026-11-18 遇到过）
+$hostRows = [['id' => 1, 'productid' => 1013, 'domain' => 'old']];
+$api2 = function ($path, array $data = [], $m = 'POST', $t = 30) use ($api, &$hostRows) { if ($path === 'host/list') return ['status' => 200, 'data' => ['sum' => count($hostRows), 'list' => $hostRows]]; if ($path === 'cart/settle') { $hostRows[] = ['id' => 7010, 'productid' => 1013, 'domain' => 'new', 'domainstatus' => 'Pending']; } return $api($path, $data, $m, $t); };
+$q6 = yo_quote($pdo, $staff, 1013, 'monthly', [], null, $api); $settle = ['status' => 200, 'data' => ['invoiceid' => 59, 'total' => '99.00']]; $pay = ['status' => 1001]; $calls = [];
+$r6 = yo_submit($pdo, $staff, $q6['token'], '1013', '1', null, $api2);
+yt($r6['status'] === 'done' && (int)$r6['upstream_host_id'] === 7010 && in_array('apply_credit', array_column($calls, 0), true), 'settle without hostid: the single new host is found and paid');
+$hostRows = [['id' => 1, 'productid' => 1013, 'domain' => 'old']];
+$api3 = function ($path, array $data = [], $m = 'POST', $t = 30) use ($api, &$hostRows) { if ($path === 'host/list') return ['status' => 200, 'data' => ['sum' => count($hostRows), 'list' => $hostRows]]; if ($path === 'cart/settle') { $hostRows[] = ['id' => 7011, 'productid' => 1013]; $hostRows[] = ['id' => 7012, 'productid' => 1013]; } return $api($path, $data, $m, $t); };
+$q7 = yo_quote($pdo, $staff, 1013, 'monthly', [], null, $api); $calls = [];
+$r7 = yo_submit($pdo, $staff, $q7['token'], '1013', '1', null, $api3);
+yt($r7['status'] === 'unknown' && !in_array('apply_credit', array_column($calls, 0), true), 'settle without hostid and two new hosts is never paid');
+unset($hostRows); $settle = ['status' => 200, 'data' => ['hostid' => [7001], 'invoiceid' => 55, 'total' => '99.00']]; $pay = ['status' => 1001, 'data' => ['hostid' => [7001]]];
 $total = '4000.00'; yt(yrej(function () use ($pdo, $staff, $api) { yo_quote($pdo, $staff, 1013, 'monthly', [], null, $api); }), 'over the per-order cap is refused'); $total = '99.00';
-yt(count(yo_history($pdo)) === 5, 'history lists submitted orders only (not bare quotes)');
+yt(count(yo_history($pdo)) === 7, 'history lists submitted orders only (not bare quotes)');
 
 // 价格同步
 $sync = yo_sync_prices($pdo, 30, $now, $api);
