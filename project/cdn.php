@@ -2,6 +2,7 @@
 require_once __DIR__ . '/../includes/BizcnDomains.php';
 require_once __DIR__ . '/../includes/QiniuCdn.php';
 require_once __DIR__ . '/../includes/QiniuCdnTraffic.php';
+require_once __DIR__ . '/../includes/QiniuCdnBilling.php';
 require_once __DIR__ . '/../includes/QiniuCdnDns.php';
 require_once __DIR__ . '/../includes/QiniuCdnHttps.php';
 $actor = ps_require_actor();
@@ -13,7 +14,7 @@ header('X-Robots-Tag: noindex');
 $actorKey = $actor['type'] . ':' . $actor['id'];
 $csrf = ps_csrf_token();
 $error = ''; $preview = null; $previewToken = ''; $verify = null; $verifyNote = ''; $detail = null; $list = ['rows'=>[], 'marker'=>''];
-$certificates = []; $certError = ''; $input = [];
+$certificates = []; $certError = ''; $input = []; $domainTotal = 0; $pageCount = 1; $pageNo = 1; $billing = null;
 $flash = $_SESSION['cdn_flash'] ?? null; unset($_SESSION['cdn_flash']);
 $configured = pas_is_set('qiniu', 'access_key') && pas_is_set('qiniu', 'secret_key');
 if (!isset($_SESSION['cdn_previews'])) $_SESSION['cdn_previews'] = [];
@@ -179,7 +180,7 @@ $name = trim((string)($_GET['d'] ?? ''));
 if ($configured) {
     try {
         if ($name !== '') { $name = qc_domain($name); $detail = qc_detail($name); }
-        else $list = qc_list((string)($_GET['marker'] ?? ''));
+        else { list($rows, $domainTotal, $pageCount, $pageNo) = qc_list_page((int)($_GET['page'] ?? 1)); $list = ['rows' => $rows, 'marker' => '']; }
     } catch (Throwable $e) { $error = $error ?: ($e instanceof RuntimeException ? $e->getMessage() : '暂时读取失败，请稍后刷新'); }
     if ($name === '') {
         try { $certificates = qc_certificates(); }
@@ -199,6 +200,7 @@ if ($configured) {
             $dnsInfo = qt_dns_map(db(), array_column($list['rows'], 'name'));
             $traffic = qt_summary(db(), array_column($list['rows'], 'name'));
             $overview = qt_overview(db());
+            try { $billing = qb_overview(); } catch (Throwable $be) { $billing = null; }
             if (!$overview['updated_at']) { $overview = null; $trafficNote = '流量数据正在首次同步，稍后刷新即可看到。'; }
         }
     } catch (Throwable $e) { $trafficNote = '流量数据暂时无法读取。'; }
@@ -208,7 +210,7 @@ include __DIR__ . '/../includes/header.php';
 $value = function ($key, $default='') use ($input) { return e((string)($input[$key] ?? $default)); };
 ?>
 <link rel="stylesheet" href="<?php echo BASE_URL; ?>/assets/css/dns.css?v=20261013-contrast">
-<link rel="stylesheet" href="<?php echo BASE_URL; ?>/assets/css/cdn.css?v=20261031b">
+<link rel="stylesheet" href="<?php echo BASE_URL; ?>/assets/css/cdn.css?v=20261119a">
 <main class="dns-console cdn-console">
   <section class="dns-hero">
     <div><div class="dns-kicker">QINIU · CONTENT DELIVERY</div><h1>CDN 管理</h1><p>直接在本站添加七牛 CDN 加速域名、查看状态和 CNAME，再到本站解析管理完成接入。</p></div>
@@ -346,19 +348,33 @@ $value = function ($key, $default='') use ($input) { return e((string)($input[$k
       <div class="cdn-form-actions"><button class="dns-btn" type="submit">预览添加配置</button><span class="dns-help">预览不会创建域名或修改解析。</span></div>
     </form>
   </section>
+  <?php if ($billing && ($billing['balance'] || $billing['month'] || $billing['last'])): $bm = $billing['balance']; ?>
+  <section class="dns-card cdn-billing"><div class="dns-card-head"><h2>七牛账户余额与消费</h2><span class="dns-help">更新于 <?php echo e(date('m-d H:i', (int)$billing['updated_at'])); ?><?php echo !empty($billing['stale']) ? '（读取失败，显示的是旧数据）' : ''; ?></span></div>
+    <dl class="cdn-summary">
+      <?php if ($bm): ?><div><dt>可用余额</dt><dd>¥<?php echo number_format($bm['available'], 2); ?></dd></div><div><dt>现金余额</dt><dd>¥<?php echo number_format($bm['cash'], 2); ?></dd></div><?php if ($bm['present'] > 0): ?><div><dt>赠送金</dt><dd>¥<?php echo number_format($bm['present'], 2); ?></dd></div><?php endif; ?><?php endif; ?>
+      <?php if ($billing['month']): ?><div><dt><?php echo e($billing['month']['label']); ?> 累计消费（截至 <?php echo e(substr($billing['month']['through'], 5)); ?>，预估）</dt><dd>¥<?php echo number_format($billing['month']['total'], 2); ?></dd></div><?php endif; ?>
+      <?php if ($billing['last']): ?><div><dt><?php echo e($billing['last']['label']); ?> 账单</dt><dd>¥<?php echo number_format($billing['last']['total'], 2); ?></dd></div><?php endif; ?>
+    </dl>
+    <?php if ($billing['month'] && $billing['month']['by_product']): ?><p class="dns-help">本月按产品：<?php echo implode('；', array_map(function ($p, $v) { return e($p) . ' ¥' . number_format($v, 2); }, array_keys($billing['month']['by_product']), $billing['month']['by_product'])); ?>。本月数字是七牛的实时预估，每月 4 号出账后以账单为准。</p><?php endif; ?>
+    <?php if ($billing['errors']): ?><p class="dns-help">部分数据暂时没读到：<?php echo e(implode('；', array_unique($billing['errors']))); ?></p><?php endif; ?>
+  </section>
+  <?php endif; ?>
   <?php if ($overview): ?>
   <section class="dns-card cdn-traffic"><div class="dns-card-head"><h2>流量概览</h2></div>
     <dl class="cdn-summary"><div><dt>全部域名近 7 天</dt><dd><?php echo e(qt_bytes($overview['week'])); ?></dd></div><div><dt>全部域名近 30 天</dt><dd><?php echo e(qt_bytes($overview['month'])); ?></dd></div></dl>
     <?php if ($overview['top']): ?><p class="dns-help">近 30 天流量前 <?php echo count($overview['top']); ?>：<?php echo implode('；', array_map(function ($t) { return '<a href="cdn.php?d=' . rawurlencode($t['domain']) . '">' . e($t['domain']) . '</a> ' . e(qt_bytes($t['month'])); }, $overview['top'])); ?>。最近同步 <?php echo e(date('m-d H:i', $overview['updated_at'])); ?>。</p><?php endif; ?>
   </section>
   <?php elseif ($trafficNote): ?><div class="dns-notice warn"><?php echo e($trafficNote); ?></div><?php endif; ?>
-  <section class="dns-card"><div class="dns-card-head"><h2>七牛账号下的 CDN 域名</h2><a href="cdn.php" class="dns-btn ghost">刷新 / 返回第一页</a></div>
+  <section class="dns-card"><div class="dns-card-head"><h2>七牛账号下的 CDN 域名 <small>共 <?php echo (int)$domainTotal; ?> 个</small></h2><a href="cdn.php" class="dns-btn ghost">刷新 / 返回第一页</a></div>
     <form method="get" class="cdn-lookup"><label for="cdnLookup">查询完整域名</label><input id="cdnLookup" name="d" required placeholder="cdn.example.com" maxlength="253"><button class="dns-btn ghost" type="submit">查看详情</button></form>
     <div class="dns-table-wrap"><table class="dns-table"><thead><tr><th>加速域名</th><th>配置状态</th><th>区域 / 协议</th><th><button type="button" class="cdn-sort" data-sort="week" title="点击按近 7 天流量排序">近 7 天流量 <span aria-hidden="true">↕</span></button></th><th><button type="button" class="cdn-sort" data-sort="today" title="点击按今日流量排序">今日 <span aria-hidden="true">↕</span></button></th><th>应解析到（七牛 CNAME）</th><th>当前公网解析</th><th></th></tr></thead><tbody>
       <?php if (!$list['rows']): ?><tr><td colspan="8" class="dns-empty"><?php echo $error?'暂未读取到列表，请稍后重试':'账号下暂未读取到 CDN 域名'; ?></td></tr><?php endif; ?>
       <?php foreach ($list['rows'] as $row): ?><tr data-name="<?php echo e($row['name']); ?>"><td><strong><?php echo e($row['name']); ?></strong><?php $cid = (string)(($dnsInfo[strtolower($row['name'])]['cert_id'] ?? '') ?: ($row['https_cert_id'] ?? '')); if ($cid !== '') { $cx = null; foreach ($certificates as $cc) if (($cc['certid'] ?? '') === $cid) $cx = $cc; if ($cx) { $left = (int)floor(((int)$cx['not_after'] - time()) / 86400); echo '<small class="cdn-cert ' . ($left < 14 ? 'bad' : ($left < 30 ? 'warn' : 'ok')) . '">HTTPS 证书' . ($left < 0 ? '已过期' : '剩余 ' . $left . ' 天') . '</small>'; } else echo '<small class="cdn-cert ok">HTTPS 已启用</small>'; } elseif (isset($dnsInfo[strtolower($row['name'])]) && array_key_exists('cert_id', $dnsInfo[strtolower($row['name'])]) && $dnsInfo[strtolower($row['name'])]['state'] !== 'builtin') echo '<small class="cdn-cert none">未启用 HTTPS</small>'; ?></td><td><?php echo e(qc_state_label($row['operatingState'])); ?></td><td><?php echo e(QC_REGIONS[$row['geoCover']]??$row['geoCover']); ?><small><?php echo e(strtoupper($row['protocol'])); ?></small></td><?php $tr = $traffic[strtolower($row['name'])] ?? null; ?><td data-sort-week="<?php echo $tr ? (int)$tr['week'] : -1; ?>"><?php echo ($tr && $tr['has_data']) ? e(qt_bytes($tr['week'])) : '<span class="dns-help">—</span>'; ?></td><td data-sort-today="<?php echo $tr ? (int)$tr['today'] : -1; ?>"><?php echo ($tr && $tr['has_data']) ? e(qt_bytes($tr['today'])) . ($tr['spike'] ? ' <span class="cdn-spike" title="今日流量明显高于前 7 天平均，请核对是否被盗刷或正常活动">异常增长</span>' : '') : '<span class="dns-help">—</span>'; ?></td><td><code class="dns-value"><?php echo e($row['cname'] ?: '七牛暂未返回'); ?></code><?php if ($row['cname']): ?> <button type="button" class="dns-btn ghost cdn-mini" data-copy="<?php echo e($row['cname']); ?>">复制</button><?php endif; ?></td><?php $di = $dnsInfo[strtolower($row['name'])] ?? null; ?><td><?php if ($di): ?><span class="cdn-dns <?php echo e($di['state']); ?>"><?php echo e(qt_dns_label($di['state'])); ?></span><small><?php echo e($di['resolved']); ?></small><?php else: ?><span class="dns-help">待检查</span><?php endif; ?></td><td><a class="dns-btn ghost" href="?d=<?php echo rawurlencode($row['name']); ?>">查看 / 接入解析</a></td></tr><?php endforeach; ?>
     </tbody></table></div>
-    <?php if ($list['marker']): ?><a class="dns-btn ghost" href="?marker=<?php echo rawurlencode($list['marker']); ?>">下一页</a><?php endif; ?>
+    <?php if ($pageCount > 1): ?><nav class="cdn-pager" aria-label="域名分页"><span>第 <?php echo (int)$pageNo; ?> / <?php echo (int)$pageCount; ?> 页，每页 50 个，共 <?php echo (int)$domainTotal; ?> 个</span>
+      <?php if ($pageNo > 1): ?><a class="dns-btn ghost" href="?page=<?php echo $pageNo - 1; ?>">上一页</a><?php endif; ?>
+      <?php foreach (qc_pager_items($pageNo, $pageCount) as $pi): ?><?php if ($pi === 0): ?><span class="gap">…</span><?php elseif ($pi === $pageNo): ?><strong class="cur" aria-current="page"><?php echo $pi; ?></strong><?php else: ?><a href="?page=<?php echo $pi; ?>"><?php echo $pi; ?></a><?php endif; ?><?php endforeach; ?>
+      <?php if ($pageNo < $pageCount): ?><a class="dns-btn ghost" href="?page=<?php echo $pageNo + 1; ?>">下一页</a><?php endif; ?></nav><?php endif; ?>
   </section>
   <?php endif; ?>
 </main>

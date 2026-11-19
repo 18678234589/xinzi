@@ -42,6 +42,30 @@ function qt_all_rows()
     }
     return array_values($all);
 }
+/** 域名页码：七牛列表只有“下一页”标记，没法跳页；这里把全部域名读出来缓存 2 分钟，再按页码切片。返回 [本页行, 总数, 总页数, 当前页]。 */
+function qc_list_page($page, $per = 50, $now = null, $file = null)
+{
+    $now = $now ?? time();
+    $file = $file ?? dirname(__DIR__) . '/storage/private/qiniu_domains.json';
+    $cached = is_file($file) ? json_decode((string)@file_get_contents($file), true) : null;
+    if (is_array($cached) && $now - (int)($cached['at'] ?? 0) < 120 && is_array($cached['rows'] ?? null)) $rows = $cached['rows'];
+    else {
+        $rows = qt_all_rows();
+        if (!is_dir(dirname($file))) @mkdir(dirname($file), 0700, true);
+        if (@file_put_contents($file, json_encode(['at' => $now, 'rows' => $rows])) !== false) @chmod($file, 0666);
+    }
+    $total = count($rows); $pages = max(1, (int)ceil($total / $per)); $page = max(1, min((int)$page, $pages));
+    return [array_slice($rows, ($page - 1) * $per, $per), $total, $pages, $page];
+}
+/** 页码条：首页、当前页前后各 2 页、末页，中间用省略号。 */
+function qc_pager_items($page, $pages)
+{
+    $items = [];
+    foreach (range(1, $pages) as $p) if ($p === 1 || $p === $pages || abs($p - $page) <= 2) $items[] = $p;
+    $out = []; $prev = 0;
+    foreach ($items as $p) { if ($p - $prev > 1) $out[] = 0; $out[] = $p; $prev = $p; }
+    return $out;
+}
 function qt_all_domains() { return array_map(function ($r) { return strtolower($r['name']); }, qt_all_rows()); }
 function qt_store($pdo, $flux, $bw, $now)
 {
