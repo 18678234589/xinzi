@@ -11,7 +11,7 @@ function yh_status_labels()
     return ['Active' => '运行中', 'Pending' => '开通中', 'Suspended' => '已暂停', 'Terminated' => '已终止', 'Cancelled' => '已取消', 'Fraud' => '异常', 'Deleted' => '已删除'];
 }
 /** 需要「可开通」权限的动作。 */
-function yh_manage_actions() { return ['hard_off', 'hard_reboot', 'reset_password', 'reinstall', 'rescue', 'exit_rescue', 'rescue_info', 'renew', 'cancel', 'password']; }
+function yh_manage_actions() { return ['hard_off', 'hard_reboot', 'reset_password', 'reinstall', 'rescue', 'exit_rescue', 'rescue_info', 'renew', 'cancel', 'password', 'auto_renew']; }
 
 function yh_public_row(array $row)
 {
@@ -143,4 +143,17 @@ function yh_remark($id, $remark, $call = 'ya_call')
     $res = $call('host/remark', ['id' => $id, 'remark' => $remark], 'POST', 30);
     if ((int)($res['status'] ?? 0) !== 200) throw new RuntimeException(mb_substr((string)($res['msg'] ?? '备注保存失败'), 0, 120));
     return ['id' => $id, 'remark' => $remark, 'message' => $remark === '' ? '备注已清空' : '备注已保存'];
+}
+/** 开启 / 关闭雅云余额自动续费（POST host/autorenew，参数 hostid + initiative_renew）；提交后复查详情确认上游生效。 */
+function yh_auto_renew($id, $enable, $call = 'ya_call')
+{
+    $id = (int)$id;
+    $want = (bool)$enable;
+    $v = $want ? 1 : 0;
+    yh_detail($id, false, $call);
+    $res = $call('host/autorenew', ['hostid' => $id, 'initiative_renew' => $v], 'POST', 30);
+    if ((int)($res['status'] ?? 0) !== 200) throw new RuntimeException(mb_substr((string)($res['msg'] ?? '自动续费设置失败'), 0, 120));
+    $after = yh_detail($id, false, $call);
+    if ($after['auto_renew'] !== $want) throw new RuntimeException('雅云未确认自动续费状态变更，请刷新后重试');
+    return ['id' => $id, 'auto_renew' => $want, 'message' => $want ? '已开启自动续费（到期将从雅云余额自动扣费）' : '已关闭自动续费（到期不再自动扣费）'];
 }

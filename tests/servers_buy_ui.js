@@ -8,7 +8,7 @@ function node(id) {
 (async () => {
   const nodes = new Map(), get = id => { if (!nodes.has(id)) nodes.set(id, node(id)); return nodes.get(id); };
   get('svRoot').dataset.csrf = 'fixture';
-  get('svBoot').textContent = JSON.stringify({ products: [{ id: 1224, k: 'vps', t: '新加坡BGP云主机 2核 4GB B型', c: 'sg', zid: 1, p: 21.6, s: [], z: '', g: '', cy: { monthly: 21.6 } }], cycles: { monthly: '月付' }, countries: { sg: { sort: 1, flag: 'S', name: '新加坡' } }, categories: { vps: { sort: 1, name: '云服务器' } }, updated: 0, provisioners: [], employees: [] });
+  get('svBoot').textContent = JSON.stringify({ canProvision: true, products: [{ id: 1224, k: 'vps', t: '新加坡BGP云主机 2核 4GB B型', c: 'sg', zid: 1, p: 21.6, s: [], z: '', g: '', cy: { monthly: 21.6 } }], cycles: { monthly: '月付' }, countries: { sg: { sort: 1, flag: 'S', name: '新加坡' } }, categories: { vps: { sort: 1, name: '云服务器' } }, updated: 0, provisioners: [], employees: [] });
   const calls = [];
   const hostListData = [
     { id: 24299, name: 'ser523416892979', product: '香港CN2+BGP 4核 8GB D型', status: 'Active', status_text: '已激活', ip: '38.76.208.243', due: '2026-12-20 14:30', days_left: 27, amount: '58.50', cycle: '月付', notes: '', remark: '', auto_renew: false },
@@ -21,11 +21,12 @@ function node(id) {
       : a === 'hosts' ? { rows: hostListData.map(x => Object.assign({}, x)), total: hostListData.length }
       : a === 'host_detail' ? { host: Object.assign({ assigned_ips: [], os_groups: [] }, hostListData.find(x => x.id === Number(b.get('id')))), can_manage: true }
       : a === 'host_remark' ? { id: Number(b.get('id')), remark: b.get('remark'), message: b.get('remark') ? '备注已保存' : '备注已清空' }
+      : a === 'host_auto_renew' ? { id: Number(b.get('id')), auto_renew: b.get('enabled') === '1', message: b.get('enabled') === '1' ? '已开启自动续费' : '已关闭自动续费' }
       : { order: { status: 'done', message: 'ok', host_id: 9 } };
     return { ok: true, redirected: false, json: async () => ({ ok: true, data }) };
   };
-  let confirmed = 0;
-  vm.runInNewContext(source, { document: { getElementById: get }, URLSearchParams, AbortController, setTimeout, clearTimeout, Promise, JSON, Number, String, Object, Array, Math, Date, fetch: fetchStub, window: { confirm() { confirmed++; return true; } } });
+  let confirmed = 0, nextConfirm = true, lastConfirmMsg = '';
+  vm.runInNewContext(source, { document: { getElementById: get }, URLSearchParams, AbortController, setTimeout, clearTimeout, Promise, JSON, Number, String, Object, Array, Math, Date, fetch: fetchStub, window: { confirm(msg) { confirmed++; lastConfirmMsg = String(msg || ''); return nextConfirm; } } });
   const tick = () => new Promise(r => setTimeout(r, 5));
   // 打开开通弹窗 → 查询报价
   get('svGrid').onclick({ target: { closest: s => s === '[data-buy]' ? { dataset: { buy: '1224' } } : null } }); await tick();
@@ -70,5 +71,19 @@ function node(id) {
   assert(calls.includes('host_remark') && get('svHostList').innerHTML.includes('香港官网主站'), 'saving remark updates card list');
   get('svHostQuery').value = '香港官网'; get('svHostQuery').oninput();
   assert(get('svHostList').innerHTML.includes('24299') && !get('svHostList').innerHTML.includes('24266'), 'newly saved remark is immediately searchable');
-  console.log(JSON.stringify({ passed: 13 }));
+  // 自动续费：勾选直接开启；取消勾选弹出确认框，点取消不发请求并保持勾选，点确定才关闭
+  assert(get('svHostList').innerHTML.includes('data-autorenew="24299"'), 'host card renders auto-renew checkbox');
+  const arCb = node('ar24299'); arCb.dataset = { autorenew: '24299' }; arCb.checked = true;
+  const beforeConfirm = confirmed;
+  get('svHostList').onchange({ target: { closest: s => s === 'input[data-autorenew]' ? arCb : null } }); await tick(); await tick();
+  assert(confirmed === beforeConfirm && calls.filter(c => c === 'host_auto_renew').length === 1 && arCb.checked === true, 'checking auto-renew submits without confirm');
+  // 取消勾选 → 点取消
+  arCb.checked = false; nextConfirm = false;
+  get('svHostList').onchange({ target: { closest: s => s === 'input[data-autorenew]' ? arCb : null } }); await tick(); await tick();
+  assert(confirmed === beforeConfirm + 1 && lastConfirmMsg.includes('关闭') && lastConfirmMsg.includes('香港官网主站') && arCb.checked === true && calls.filter(c => c === 'host_auto_renew').length === 1, 'canceling uncheck prompt keeps auto-renew checked without API call');
+  // 取消勾选 → 点确定
+  arCb.checked = false; nextConfirm = true;
+  get('svHostList').onchange({ target: { closest: s => s === 'input[data-autorenew]' ? arCb : null } }); await tick(); await tick();
+  assert(confirmed === beforeConfirm + 2 && arCb.checked === false && calls.filter(c => c === 'host_auto_renew').length === 2, 'confirming uncheck disables auto-renew');
+  console.log(JSON.stringify({ passed: 17 }));
 })().catch(e => { console.error(e); process.exit(1); });

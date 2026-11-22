@@ -157,13 +157,19 @@
       return true;
     });
     $('svHostList').innerHTML = list.length ? '<div class="sv-hosts">' + list.map(function (h) {
-      var rm = hostRemark(h);
+      var rm = hostRemark(h), dead = isDead(h);
       var titleHtml = rm
         ? '<div class="sv-host-title"><h4>' + esc(rm) + '</h4><span class="sv-host-sub">' + esc(h.name || ('主机 ' + h.id)) + '</span></div>'
         : '<div class="sv-host-title"><h4>' + esc(h.name || ('主机 ' + h.id)) + '</h4></div>';
+      var arHtml = '';
+      if (!dead) {
+        arHtml = boot.canProvision
+          ? '<label class="sv-ar" title="勾选后到期时由雅云从账户余额自动续费"><input type="checkbox" data-autorenew="' + h.id + '"' + (h.auto_renew ? ' checked' : '') + '><span>自动续费</span></label>'
+          : (h.auto_renew ? '<span class="sv-ar-ro">已开自动续费</span>' : '');
+      }
       return '<article class="sv-host" data-card="' + h.id + '"><div class="sv-row">' + titleHtml + statusBadge(h) + '</div><div class="sv-row"><span>' + esc(h.product) + '</span></div><div class="sv-row"><span class="ip">' + esc(h.ip || '—') + '</span><span>#' + h.id + '</span></div>' +
         '<div class="sv-row"><span>到期</span><b class="sv-due ' + dueClass(h) + '">' + esc(h.due || '—') + (h.days_left !== null ? '（' + (h.days_left < 0 ? '已过期' : h.days_left + ' 天') + '）' : '') + '</b></div><div class="sv-row"><span>续费</span><b>' + money(h.amount) + ' / ' + esc(h.cycle) + '</b></div>' +
-        '<div class="sv-actions sv-host-foot"><button type="button" class="sv-btn sm" data-host="' + h.id + '">管理</button><button type="button" class="sv-btn sm ghost" data-remark-btn="' + h.id + '"><i class="fas fa-pen"></i> 备注</button></div>' +
+        '<div class="sv-actions sv-host-foot"><button type="button" class="sv-btn sm" data-host="' + h.id + '">管理</button><button type="button" class="sv-btn sm ghost" data-remark-btn="' + h.id + '"><i class="fas fa-pen"></i> 备注</button>' + arHtml + '</div>' +
         '<div class="sv-remark-slot" data-remark-slot="' + h.id + '" hidden></div></article>';
     }).join('') + '</div>' : '<p class="sv-empty">没有符合条件的服务器。</p>';
     $('svHostCount').textContent = state.hosts ? live.length : '';
@@ -198,12 +204,45 @@
     };
     slot.querySelector('[data-remark-cancel]').onclick = function () { slot.hidden = true; slot.innerHTML = ''; };
   }
+  async function toggleAutoRenew(id, cb, labelEl) {
+    var want = cb.checked;
+    var h = (state.hosts || []).filter(function (x) { return x.id === id; })[0] || (cur && cur.host && cur.host.id === id ? cur.host : null);
+    if (!want) {
+      var title = h ? hostTitle(h) : ('主机 #' + id);
+      var dueTip = h && h.due ? ('\n到期时间：' + h.due) : '';
+      if (!window.confirm('确认关闭「' + title + '」的自动续费？' + dueTip + '\n关闭后到期将不再从雅云余额自动扣费，未及时手动续费可能导致服务器停机或数据释放。')) {
+        cb.checked = true;
+        return;
+      }
+    }
+    cb.disabled = true;
+    try {
+      var r = await api('host_auto_renew', { id: id, enabled: want ? 1 : 0 });
+      patchHost(id, { auto_renew: !!r.auto_renew });
+      cb.checked = !!r.auto_renew;
+      if (labelEl) labelEl.textContent = r.auto_renew ? '已开启（到期由雅云从账户余额自动扣费）' : '未开启（勾选后到期将自动扣费）';
+      if (state.hosts) {
+        var cardCb = $('svHostList').querySelector('input[data-autorenew="' + id + '"]');
+        if (cardCb && cardCb !== cb) cardCb.checked = !!r.auto_renew;
+      }
+      notice(r.message, false);
+    } catch (err) {
+      cb.checked = !want;
+      notice(err.message, true);
+    } finally {
+      cb.disabled = false;
+    }
+  }
   $('svHostRefresh').onclick = function () { busy(this, function () { return loadHosts(true); }); };
   $('svHostFilter').onclick = function (e) { var b = e.target.closest('[data-f]'); if (!b) return; state.hostFilter = b.dataset.f; this.querySelectorAll('button').forEach(function (x) { x.classList.toggle('active', x === b); }); renderHosts(); };
   $('svHostQuery').oninput = function () { state.hostQ = this.value.trim(); renderHosts(); };
   $('svHostList').onclick = function (e) {
     var rb = e.target.closest('[data-remark-btn]'); if (rb) return openCardRemark(Number(rb.dataset.remarkBtn));
     var b = e.target.closest('[data-host]'); if (b) openHost(Number(b.dataset.host));
+  };
+  $('svHostList').onchange = function (e) {
+    var cb = e.target.closest('input[data-autorenew]'); if (!cb) return;
+    toggleAutoRenew(Number(cb.dataset.autorenew), cb, null);
   };
 
   /* ---------------- 主机详情 / 管理 ---------------- */
@@ -213,13 +252,16 @@
     try { var d = await api('host_detail', { id: id }); cur.host = d.host; cur.manage = d.can_manage; renderHost(); } catch (e) { $('svDrawerBody').innerHTML = '<div class="sv-notice error">' + esc(e.message) + '</div>'; }
   }
   function renderHost() {
-    var h = cur.host, m = cur.manage, rm = hostRemark(h);
+    var h = cur.host, m = cur.manage, rm = hostRemark(h), dead = isDead(h);
     $('svDrawerTitle').textContent = hostTitle(h);
     var power = '<button class="sv-btn sm" data-do="on">开机</button><button class="sv-btn sm ghost" data-do="reboot">重启</button><button class="sv-btn sm ghost" data-do="off">关机</button><button class="sv-btn sm ghost" data-do="status">查看状态</button><button class="sv-btn sm ghost" data-do="vnc">VNC 控制台</button>' +
       (m ? '<button class="sv-btn sm danger" data-do="hard_reboot">强制重启</button><button class="sv-btn sm danger" data-do="hard_off">强制断电</button>' : '');
     var login = m ? '<div class="sv-sec"><h3>登录信息</h3><dl class="sv-kv"><dt>账号</dt><dd>' + esc(h.username || '—') + '</dd><dt>端口</dt><dd>' + esc(h.port || '上游未提供') + '</dd><dt>密码</dt><dd><span class="sv-pw" id="svPw">••••••••</span> <button type="button" class="sv-btn sm ghost" id="svShowPw">显示</button></dd></dl></div>' : '<p class="sv-help">登录账号和密码仅「可开通名单」里的同事可见。</p>';
     var manage = m ? '<div class="sv-sec"><h3>高级管理</h3><div class="sv-actions"><button class="sv-btn sm" data-panel="renew">续费</button><button class="sv-btn sm ghost" data-panel="reinstall">重装系统</button><button class="sv-btn sm ghost" data-panel="password">重置密码</button><button class="sv-btn sm ghost" data-panel="rescue">救援系统</button><button class="sv-btn sm danger" data-panel="cancel">申请停用</button></div><div id="svPanel"></div></div>' : '';
-    $('svDrawerBody').innerHTML = '<div class="sv-sec"><h3>概览</h3><dl class="sv-kv"><dt>状态</dt><dd>' + statusBadge(h) + '</dd><dt>备注名称</dt><dd id="svRemarkDd"><span id="svRemarkVal">' + esc(rm || '未设置') + '</span> <button type="button" class="sv-btn sm ghost" id="svEditRemark">修改</button></dd><dt>主机名</dt><dd>' + esc(h.name || '—') + '</dd><dt>套餐</dt><dd>' + esc(h.product) + '</dd><dt>主 IP</dt><dd>' + esc(h.ip || '—') + '</dd><dt>附加 IP</dt><dd>' + esc((h.assigned_ips || []).join(' / ') || '—') + '</dd><dt>系统</dt><dd>' + esc(h.os || '—') + '</dd><dt>开通时间</dt><dd>' + esc(h.active || '—') + '</dd><dt>到期时间</dt><dd class="sv-due ' + dueClass(h) + '">' + esc(h.due || '—') + (h.days_left !== null ? '（' + (h.days_left < 0 ? '已过期' : h.days_left + ' 天') + '）' : '') + '</dd><dt>续费价</dt><dd>' + money(h.amount) + ' / ' + esc(h.cycle) + '</dd><dt>自动续费</dt><dd>' + (h.auto_renew ? '已开启' : '未开启') + '</dd></dl></div>' +
+    var autoRenewDd = (m && !dead)
+      ? '<label class="sv-ar"><input type="checkbox" id="svDetailAutoRenew"' + (h.auto_renew ? ' checked' : '') + '><span id="svDetailAutoRenewTxt">' + (h.auto_renew ? '已开启（到期由雅云从账户余额自动扣费）' : '未开启（勾选后到期将自动扣费）') + '</span></label>'
+      : (h.auto_renew ? '已开启' : '未开启');
+    $('svDrawerBody').innerHTML = '<div class="sv-sec"><h3>概览</h3><dl class="sv-kv"><dt>状态</dt><dd>' + statusBadge(h) + '</dd><dt>备注名称</dt><dd id="svRemarkDd"><span id="svRemarkVal">' + esc(rm || '未设置') + '</span> <button type="button" class="sv-btn sm ghost" id="svEditRemark">修改</button></dd><dt>主机名</dt><dd>' + esc(h.name || '—') + '</dd><dt>套餐</dt><dd>' + esc(h.product) + '</dd><dt>主 IP</dt><dd>' + esc(h.ip || '—') + '</dd><dt>附加 IP</dt><dd>' + esc((h.assigned_ips || []).join(' / ') || '—') + '</dd><dt>系统</dt><dd>' + esc(h.os || '—') + '</dd><dt>开通时间</dt><dd>' + esc(h.active || '—') + '</dd><dt>到期时间</dt><dd class="sv-due ' + dueClass(h) + '">' + esc(h.due || '—') + (h.days_left !== null ? '（' + (h.days_left < 0 ? '已过期' : h.days_left + ' 天') + '）' : '') + '</dd><dt>续费价</dt><dd>' + money(h.amount) + ' / ' + esc(h.cycle) + '</dd><dt>自动续费</dt><dd>' + autoRenewDd + '</dd></dl></div>' +
       '<div class="sv-sec"><h3>电源与控制台</h3><div class="sv-actions" id="svPower">' + power + '</div></div>' + login +
       '<div class="sv-sec"><h3>监控（近 24 小时）</h3><div class="sv-actions"><button class="sv-btn sm ghost" data-chart="cpu">CPU</button><button class="sv-btn sm ghost" data-chart="memory">内存</button><button class="sv-btn sm ghost" data-chart="flow">流量</button><button class="sv-btn sm ghost" data-chart="disk">磁盘</button></div><div id="svChart"></div></div>' + manage;
     if ($('svShowPw')) $('svShowPw').onclick = function () { var el = $('svPw'); if (this.dataset.on) { el.textContent = '••••••••'; this.textContent = '显示'; delete this.dataset.on; } else { el.textContent = h.password || '上游未提供'; this.textContent = '隐藏'; this.dataset.on = '1'; } };
@@ -242,6 +284,9 @@
           notice(r.message, false);
         });
       };
+    };
+    if ($('svDetailAutoRenew')) $('svDetailAutoRenew').onchange = function () {
+      toggleAutoRenew(h.id, this, $('svDetailAutoRenewTxt'));
     };
   }
   function spark(list, unit) {

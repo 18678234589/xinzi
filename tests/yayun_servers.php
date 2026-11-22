@@ -161,6 +161,25 @@ $rmClear = yh_remark(24299, '   ', $remarkApi);
 yt($rmClear['remark'] === '' && $rmClear['message'] === '备注已清空', 'yh_remark allows clearing remark');
 yt(yrej(function () use ($remarkApi) { yh_remark(24299, str_repeat('注', 101), $remarkApi); }), 'remark over 100 chars refused');
 yt(yrej(function () use ($remarkApi) { yh_remark(99999, '测试', $remarkApi); }), 'unknown host remark refused');
+// 自动续费开关（POST host/autorenew，参数 hostid + initiative_renew，改后复查 host/header）
+yt(in_array('auto_renew', yh_manage_actions(), true), 'auto_renew requires provisioner permission');
+$arFlag = 0; $arCalls = [];
+$arApi = function ($path, array $data = [], $m = 'GET', $t = 30) use (&$arFlag, &$arCalls) {
+    $arCalls[] = [$path, $data, $m];
+    if ($path === 'host/header') return ['status' => 200, 'data' => ['host_data' => ['id' => 24299, 'domain' => 'ser1', 'initiative_renew' => $arFlag]]];
+    if ($path === 'host/autorenew') { $arFlag = (int)($data['initiative_renew'] ?? 0); return ['status' => 200, 'msg' => '请求成功']; }
+    throw new RuntimeException('unexpected ' . $path);
+};
+$arOn = yh_auto_renew(24299, true, $arApi);
+yt($arOn['auto_renew'] === true && $arCalls[1] === ['host/autorenew', ['hostid' => 24299, 'initiative_renew' => 1], 'POST'], 'yh_auto_renew enables via host/autorenew');
+$arOff = yh_auto_renew(24299, false, $arApi);
+yt($arOff['auto_renew'] === false && $arFlag === 0, 'yh_auto_renew disables via host/autorenew');
+$staleArApi = function ($path, array $data = [], $m = 'GET', $t = 30) {
+    if ($path === 'host/header') return ['status' => 200, 'data' => ['host_data' => ['id' => 24299, 'domain' => 'ser1', 'initiative_renew' => 0]]];
+    if ($path === 'host/autorenew') return ['status' => 200, 'msg' => '请求成功'];
+    throw new RuntimeException('unexpected ' . $path);
+};
+yt(yrej(function () use ($staleArApi) { yh_auto_renew(24299, true, $staleArApi); }), 'unconfirmed auto_renew change fails');
 // 成本价：按默认配置逐周期取 cart/get_total 的 sale_total；折扣后低于标价
 $discount = function ($path, array $data = [], $m = 'POST', $t = 30) use ($api) { if ($path === 'cart/get_total') return ['status' => 200, 'products' => ['sale_total' => (string)round(($data['billingcycle'] === 'annually' ? 1188 : 99) * 0.92, 2), 'setupfee_total' => '0.00', 'qty' => 3, 'stock_control' => 1]]; return $api($path, $data, $m, $t); };
 $cost = yo_options(1013, $discount, true);

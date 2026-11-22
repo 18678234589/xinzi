@@ -55,6 +55,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             case 'host_remark':
                 $result = yh_remark($id, (string)($_POST['remark'] ?? ''));
                 $audit('host_remark', ['host' => $id, 'remark' => $result['remark']]); break;
+            case 'host_auto_renew':
+                $needProvision();
+                $enabled = !empty($_POST['enabled']) && (string)$_POST['enabled'] !== '0';
+                $result = yh_auto_renew($id, $enabled);
+                $audit('host_auto_renew', ['host' => $id, 'enabled' => $result['auto_renew']]); break;
             case 'options': $needProvision(); $result = yo_options((int)($_POST['pid'] ?? 0), 'ya_call', true); break;
             case 'quote':
                 $needProvision();
@@ -111,7 +116,7 @@ $boot = [
 $page_title = '服务器管理';
 include __DIR__ . '/../includes/header.php';
 ?>
-<link rel="stylesheet" href="<?php echo BASE_URL; ?>/assets/css/servers.css?v=20261122a">
+<link rel="stylesheet" href="<?php echo BASE_URL; ?>/assets/css/servers.css?v=20261122b">
 <main class="sv" id="svRoot" data-csrf="<?php echo htmlspecialchars($csrf, ENT_QUOTES, 'UTF-8'); ?>">
   <section class="sv-hero">
     <div class="sv-hero-copy">
@@ -164,5 +169,5 @@ include __DIR__ . '/../includes/header.php';
   <dialog id="svBuy" class="sv-drawer wide"><div class="sv-drawer-head"><div><span class="sv-kicker">NEW SERVER</span><h2 id="svBuyTitle">开通服务器</h2></div><button type="button" class="sv-close" id="svBuyClose" aria-label="关闭">×</button></div><div class="sv-notice" id="svBuyMsg" hidden style="margin:12px 24px 0;position:sticky;top:76px;z-index:5;box-shadow:0 6px 20px rgba(0,0,0,.35)"></div><div class="sv-drawer-body" id="svBuyBody"></div></dialog>
 </main>
 <script id="svBoot" type="application/json"><?php echo json_encode($boot, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?></script>
-<script src="<?php echo BASE_URL; ?>/assets/js/servers.js?v=20261122a" defer></script>
+<script src="<?php echo BASE_URL; ?>/assets/js/servers.js?v=20261122b" defer></script>
 <?php include __DIR__ . '/../includes/footer.php'; ?>
