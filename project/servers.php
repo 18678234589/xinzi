@@ -52,6 +52,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $needProvision();
                 $audit('host_cancel_requested', ['host' => $id, 'type' => (string)($_POST['type'] ?? '')]);
                 $result = ['message' => yh_cancel($id, (string)($_POST['type'] ?? ''), (string)($_POST['reason'] ?? ''), (string)($_POST['confirm'] ?? ''))]; break;
+            case 'host_remark':
+                $result = yh_remark($id, (string)($_POST['remark'] ?? ''));
+                $audit('host_remark', ['host' => $id, 'remark' => $result['remark']]); break;
             case 'options': $needProvision(); $result = yo_options((int)($_POST['pid'] ?? 0), 'ya_call', true); break;
             case 'quote':
                 $needProvision();
@@ -108,7 +111,7 @@ $boot = [
 $page_title = '服务器管理';
 include __DIR__ . '/../includes/header.php';
 ?>
-<link rel="stylesheet" href="<?php echo BASE_URL; ?>/assets/css/servers.css?v=20261101d">
+<link rel="stylesheet" href="<?php echo BASE_URL; ?>/assets/css/servers.css?v=20261122a">
 <main class="sv" id="svRoot" data-csrf="<?php echo htmlspecialchars($csrf, ENT_QUOTES, 'UTF-8'); ?>">
   <section class="sv-hero">
     <div class="sv-hero-copy">
@@ -144,7 +147,7 @@ include __DIR__ . '/../includes/header.php';
   </section>
 
   <section id="svHosts" class="sv-panel" hidden>
-    <div class="sv-toolbar"><label class="sv-search"><i class="fas fa-search"></i><input id="svHostQuery" placeholder="搜索主机名 / IP / 套餐" maxlength="60" autocomplete="off"></label>
+    <div class="sv-toolbar"><label class="sv-search"><i class="fas fa-search"></i><input id="svHostQuery" placeholder="搜索备注 / 主机名 / IP / 套餐" maxlength="60" autocomplete="off"></label>
       <div class="sv-seg" id="svHostFilter"><button type="button" class="active" data-f="all">全部</button><button type="button" data-f="Active">运行中</button><button type="button" data-f="soon">即将到期</button><button type="button" data-f="other">已删除 / 已过期</button></div>
       <button type="button" class="sv-btn ghost" id="svHostRefresh"><i class="fas fa-sync-alt"></i> 刷新</button></div>
     <div id="svHostList"><p class="sv-empty">点击上方「我的服务器」加载…</p></div>
@@ -157,9 +160,9 @@ include __DIR__ . '/../includes/header.php';
     <button type="button" class="sv-btn" id="svSaveProvisioners">保存名单</button>
   </section><?php endif; ?>
 
-  <dialog id="svDrawer" class="sv-drawer"><div class="sv-drawer-head"><div><span class="sv-kicker">SERVER</span><h2 id="svDrawerTitle">服务器</h2></div><button type="button" class="sv-close" id="svDrawerClose" aria-label="关闭">×</button></div><div class="sv-drawer-body" id="svDrawerBody"></div></dialog>
+  <dialog id="svDrawer" class="sv-drawer"><div class="sv-drawer-head"><div><span class="sv-kicker">SERVER</span><h2 id="svDrawerTitle">服务器</h2></div><button type="button" class="sv-close" id="svDrawerClose" aria-label="关闭">×</button></div><div class="sv-notice" id="svDrawerMsg" hidden style="margin:12px 24px 0"></div><div class="sv-drawer-body" id="svDrawerBody"></div></dialog>
   <dialog id="svBuy" class="sv-drawer wide"><div class="sv-drawer-head"><div><span class="sv-kicker">NEW SERVER</span><h2 id="svBuyTitle">开通服务器</h2></div><button type="button" class="sv-close" id="svBuyClose" aria-label="关闭">×</button></div><div class="sv-notice" id="svBuyMsg" hidden style="margin:12px 24px 0;position:sticky;top:76px;z-index:5;box-shadow:0 6px 20px rgba(0,0,0,.35)"></div><div class="sv-drawer-body" id="svBuyBody"></div></dialog>
 </main>
 <script id="svBoot" type="application/json"><?php echo json_encode($boot, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?></script>
-<script src="<?php echo BASE_URL; ?>/assets/js/servers.js?v=20261118c" defer></script>
+<script src="<?php echo BASE_URL; ?>/assets/js/servers.js?v=20261122a" defer></script>
 <?php include __DIR__ . '/../includes/footer.php'; ?>

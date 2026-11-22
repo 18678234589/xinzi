@@ -17,12 +17,13 @@ function yh_public_row(array $row)
 {
     $due = (int)($row['nextduedate'] ?? 0);
     $status = (string)($row['domainstatus'] ?? '');
+    $remark = trim((string)(($row['remark'] ?? '') !== '' ? $row['remark'] : ($row['notes'] ?? '')));
     return [
         'id' => (int)($row['id'] ?? 0), 'name' => (string)($row['domain'] ?? ''), 'product' => (string)($row['productname'] ?? ''), 'pid' => (int)($row['productid'] ?? $row['pid'] ?? 0),
         'status' => $status, 'status_text' => (string)($row['domainstatus_desc'] ?? (yh_status_labels()[$status] ?? $status)),
         'ip' => (string)($row['dedicatedip'] ?? ''), 'due_ts' => $due, 'due' => $due > 0 ? date('Y-m-d H:i', $due) : '', 'days_left' => $due > 0 ? (int)floor(($due - time()) / 86400) : null,
         'amount' => number_format((float)($row['amount'] ?? 0), 2, '.', ''), 'cycle' => (string)($row['cycle_desc'] ?? $row['billingcycle'] ?? ''),
-        'os' => str_replace('^', ' · ', (string)($row['os'] ?? '')), 'notes' => (string)($row['notes'] ?? ''), 'created' => !empty($row['regdate']) ? date('Y-m-d', (int)$row['regdate']) : '',
+        'os' => str_replace('^', ' · ', (string)($row['os'] ?? '')), 'notes' => (string)($row['notes'] ?? ''), 'remark' => $remark, 'created' => !empty($row['regdate']) ? date('Y-m-d', (int)$row['regdate']) : '',
         'order_id' => (int)($row['orderid'] ?? 0), 'auto_renew' => (int)($row['initiative_renew'] ?? 0) === 1,
     ];
 }
@@ -50,7 +51,7 @@ function yh_detail($id, $withSecret = false, $call = 'ya_call')
     $host = yh_public_row($row) + [
         'assigned_ips' => array_values((array)($row['assignedips'] ?? [])), 'port' => (string)($row['port'] ?? ''), 'username' => $withSecret ? (string)($row['username'] ?? '') : '',
         'password' => $withSecret ? (string)($row['password'] ?? '') : '', 'first_amount' => number_format((float)($row['firstpaymentamount'] ?? 0), 2, '.', ''),
-        'cycle' => (string)($row['billingcycle_desc'] ?? $row['billingcycle'] ?? ''), 'active' => !empty($row['regdate']) ? date('Y-m-d H:i', (int)$row['regdate']) : '', 'remark' => (string)($row['remark'] ?? ''),
+        'cycle' => (string)($row['billingcycle_desc'] ?? $row['billingcycle'] ?? ''), 'active' => !empty($row['regdate']) ? date('Y-m-d H:i', (int)$row['regdate']) : '',
     ];
     $groups = [];
     foreach ((array)($res['data']['cloud_os_group'] ?? []) as $g) $groups[(int)($g['id'] ?? 0)] = ['id' => (int)($g['id'] ?? 0), 'name' => (string)($g['name'] ?? ''), 'images' => []];
@@ -131,4 +132,15 @@ function yh_cancel($id, $type, $reason, $confirm, $call = 'ya_call')
     $res = $call('host/cancel', ['id' => (int)$id, 'type' => $type, 'reason' => $reason], 'POST', 30);
     if ((int)($res['status'] ?? 0) !== 200) throw new RuntimeException(mb_substr((string)($res['msg'] ?? '停用申请失败'), 0, 120));
     return (string)($res['msg'] ?? '停用申请已提交');
+}
+/** 修改主机备注名称（同步写入雅云 host/remark）。 */
+function yh_remark($id, $remark, $call = 'ya_call')
+{
+    $id = (int)$id;
+    $remark = trim((string)$remark);
+    if (mb_strlen($remark) > 100) throw new InvalidArgumentException('备注名称最多 100 个字');
+    yh_detail($id, false, $call);
+    $res = $call('host/remark', ['id' => $id, 'remark' => $remark], 'POST', 30);
+    if ((int)($res['status'] ?? 0) !== 200) throw new RuntimeException(mb_substr((string)($res['msg'] ?? '备注保存失败'), 0, 120));
+    return ['id' => $id, 'remark' => $remark, 'message' => $remark === '' ? '备注已清空' : '备注已保存'];
 }

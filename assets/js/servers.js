@@ -6,7 +6,7 @@
   var esc = function (v) { return String(v == null ? '' : v).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); };
   var state = { country: '', category: '', q: '', onlyStock: false, hosts: null, hostFilter: 'all', hostQ: '' };
 
-  function notice(text, error) { var n = $('svNotice'); var bm = $('svBuyMsg'); if (bm && $('svBuy').open) n = bm; // 开通弹窗是模态的，页面级提示被挡在后面，用户看不到
+  function notice(text, error) { var n = $('svNotice'); var bm = $('svBuyMsg'), dm = $('svDrawerMsg'); if (bm && $('svBuy').open) n = bm; else if (dm && $('svDrawer').open) n = dm; // 弹窗是模态的，页面级提示被挡在后面，用户看不到
      n.textContent = text || ''; n.hidden = !text; n.classList.toggle('error', !!error); if (text) n.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); }
   async function api(action, values) {
     var body = new URLSearchParams({ action: action, csrf: csrf });
@@ -133,6 +133,12 @@
   }
 
   /* ---------------- 我的服务器 ---------------- */
+  function hostRemark(h) { return String((h && (h.remark || h.notes)) || '').trim(); }
+  function hostTitle(h) { return hostRemark(h) || (h && h.name) || ('主机 ' + (h ? h.id : '')); }
+  function patchHost(id, patch) {
+    (state.hosts || []).forEach(function (h) { if (h.id === id) Object.assign(h, patch); });
+    if (cur && cur.host && cur.host.id === id) Object.assign(cur.host, patch);
+  }
   function dueClass(h) { return h.days_left === null ? '' : (h.days_left < 0 ? 'bad' : (h.days_left < 7 ? 'bad' : (h.days_left < 15 ? 'warn' : ''))); }
   function statusBadge(h) { var c = h.status === 'Active' ? 'ok' : (h.status === 'Pending' ? 'warn' : 'bad'); return '<span class="sv-badge ' + c + '">' + esc(h.status_text || h.status) + '</span>'; }
   // 已删除 / 已终止 / 已取消 / 已过期的主机默认不展示，点「已删除 / 已过期」才看。
@@ -143,12 +149,22 @@
       if (state.hostFilter === 'other') { if (!isDead(h)) return false; } else if (isDead(h)) return false;
       if (state.hostFilter === 'Active' && h.status !== 'Active') return false;
       if (state.hostFilter === 'soon' && !(h.days_left !== null && h.days_left < 15 && h.status === 'Active')) return false;
-      if (state.hostQ) { var t = (h.name + ' ' + h.ip + ' ' + h.product + ' ' + h.id).toLowerCase(); if (t.indexOf(state.hostQ.toLowerCase()) < 0) return false; }
+      if (state.hostQ) {
+        var t = (hostRemark(h) + ' ' + (h.name || '') + ' ' + (h.ip || '') + ' ' + (h.product || '') + ' #' + h.id + ' ' + h.id).toLowerCase();
+        var terms = state.hostQ.toLowerCase().split(/\s+/).filter(Boolean);
+        if (!terms.every(function (w) { return t.indexOf(w) >= 0; })) return false;
+      }
       return true;
     });
     $('svHostList').innerHTML = list.length ? '<div class="sv-hosts">' + list.map(function (h) {
-      return '<article class="sv-host"><div class="sv-row"><h4>' + esc(h.name || ('主机 ' + h.id)) + '</h4>' + statusBadge(h) + '</div><div class="sv-row"><span>' + esc(h.product) + '</span></div><div class="sv-row"><span class="ip">' + esc(h.ip || '—') + '</span><span>#' + h.id + '</span></div>' +
-        '<div class="sv-row"><span>到期</span><b class="sv-due ' + dueClass(h) + '">' + esc(h.due || '—') + (h.days_left !== null ? '（' + (h.days_left < 0 ? '已过期' : h.days_left + ' 天') + '）' : '') + '</b></div><div class="sv-row"><span>续费</span><b>' + money(h.amount) + ' / ' + esc(h.cycle) + '</b></div><div class="sv-actions"><button type="button" class="sv-btn sm" data-host="' + h.id + '">管理</button></div></article>';
+      var rm = hostRemark(h);
+      var titleHtml = rm
+        ? '<div class="sv-host-title"><h4>' + esc(rm) + '</h4><span class="sv-host-sub">' + esc(h.name || ('主机 ' + h.id)) + '</span></div>'
+        : '<div class="sv-host-title"><h4>' + esc(h.name || ('主机 ' + h.id)) + '</h4></div>';
+      return '<article class="sv-host" data-card="' + h.id + '"><div class="sv-row">' + titleHtml + statusBadge(h) + '</div><div class="sv-row"><span>' + esc(h.product) + '</span></div><div class="sv-row"><span class="ip">' + esc(h.ip || '—') + '</span><span>#' + h.id + '</span></div>' +
+        '<div class="sv-row"><span>到期</span><b class="sv-due ' + dueClass(h) + '">' + esc(h.due || '—') + (h.days_left !== null ? '（' + (h.days_left < 0 ? '已过期' : h.days_left + ' 天') + '）' : '') + '</b></div><div class="sv-row"><span>续费</span><b>' + money(h.amount) + ' / ' + esc(h.cycle) + '</b></div>' +
+        '<div class="sv-actions sv-host-foot"><button type="button" class="sv-btn sm" data-host="' + h.id + '">管理</button><button type="button" class="sv-btn sm ghost" data-remark-btn="' + h.id + '"><i class="fas fa-pen"></i> 备注</button></div>' +
+        '<div class="sv-remark-slot" data-remark-slot="' + h.id + '" hidden></div></article>';
     }).join('') + '</div>' : '<p class="sv-empty">没有符合条件的服务器。</p>';
     $('svHostCount').textContent = state.hosts ? live.length : '';
   }
@@ -157,28 +173,76 @@
     $('svHostList').innerHTML = '<p class="sv-empty">正在读取雅云账号下的主机…</p>';
     try { var d = await api('hosts'); state.hosts = d.rows; renderHosts(); } catch (e) { $('svHostList').innerHTML = '<div class="sv-notice error">' + esc(e.message) + '</div>'; }
   }
+  function openCardRemark(id) {
+    var h = (state.hosts || []).filter(function (x) { return x.id === id; })[0];
+    var slot = $('svHostList').querySelector('[data-remark-slot="' + id + '"]');
+    if (!h || !slot) return;
+    if (!slot.hidden) { slot.hidden = true; slot.innerHTML = ''; return; }
+    slot.innerHTML = '<form class="sv-remark-form"><input type="text" maxlength="100" value="' + esc(hostRemark(h)) + '" placeholder="输入备注名称，如：官网主站（留空可清除）" autocomplete="off"><button type="submit" class="sv-btn sm">保存</button><button type="button" class="sv-btn sm ghost" data-remark-cancel="1">取消</button></form>';
+    slot.hidden = false;
+    var inp = slot.querySelector('input');
+    if (inp) {
+      inp.focus(); inp.select();
+      inp.onkeydown = function (ev) { if (ev.key === 'Escape') { slot.hidden = true; slot.innerHTML = ''; } };
+    }
+    var form = slot.querySelector('form');
+    form.onsubmit = function (ev) {
+      ev.preventDefault();
+      var val = inp.value.trim();
+      busy(form.querySelector('button[type=submit]'), async function () {
+        var r = await api('host_remark', { id: id, remark: val });
+        patchHost(id, { remark: r.remark, notes: r.remark });
+        renderHosts();
+        notice(r.message, false);
+      });
+    };
+    slot.querySelector('[data-remark-cancel]').onclick = function () { slot.hidden = true; slot.innerHTML = ''; };
+  }
   $('svHostRefresh').onclick = function () { busy(this, function () { return loadHosts(true); }); };
   $('svHostFilter').onclick = function (e) { var b = e.target.closest('[data-f]'); if (!b) return; state.hostFilter = b.dataset.f; this.querySelectorAll('button').forEach(function (x) { x.classList.toggle('active', x === b); }); renderHosts(); };
   $('svHostQuery').oninput = function () { state.hostQ = this.value.trim(); renderHosts(); };
-  $('svHostList').onclick = function (e) { var b = e.target.closest('[data-host]'); if (b) openHost(Number(b.dataset.host)); };
+  $('svHostList').onclick = function (e) {
+    var rb = e.target.closest('[data-remark-btn]'); if (rb) return openCardRemark(Number(rb.dataset.remarkBtn));
+    var b = e.target.closest('[data-host]'); if (b) openHost(Number(b.dataset.host));
+  };
 
   /* ---------------- 主机详情 / 管理 ---------------- */
   var cur = null;
   async function openHost(id) {
-    cur = { id: id }; $('svDrawerTitle').textContent = '主机 #' + id; $('svDrawerBody').innerHTML = '<p class="sv-help">正在读取详情…</p>'; $('svDrawer').showModal();
+    cur = { id: id }; $('svDrawerTitle').textContent = '主机 #' + id; if ($('svDrawerMsg')) { $('svDrawerMsg').hidden = true; $('svDrawerMsg').textContent = ''; } $('svDrawerBody').innerHTML = '<p class="sv-help">正在读取详情…</p>'; $('svDrawer').showModal();
     try { var d = await api('host_detail', { id: id }); cur.host = d.host; cur.manage = d.can_manage; renderHost(); } catch (e) { $('svDrawerBody').innerHTML = '<div class="sv-notice error">' + esc(e.message) + '</div>'; }
   }
   function renderHost() {
-    var h = cur.host, m = cur.manage;
-    $('svDrawerTitle').textContent = h.name || ('主机 #' + h.id);
+    var h = cur.host, m = cur.manage, rm = hostRemark(h);
+    $('svDrawerTitle').textContent = hostTitle(h);
     var power = '<button class="sv-btn sm" data-do="on">开机</button><button class="sv-btn sm ghost" data-do="reboot">重启</button><button class="sv-btn sm ghost" data-do="off">关机</button><button class="sv-btn sm ghost" data-do="status">查看状态</button><button class="sv-btn sm ghost" data-do="vnc">VNC 控制台</button>' +
       (m ? '<button class="sv-btn sm danger" data-do="hard_reboot">强制重启</button><button class="sv-btn sm danger" data-do="hard_off">强制断电</button>' : '');
     var login = m ? '<div class="sv-sec"><h3>登录信息</h3><dl class="sv-kv"><dt>账号</dt><dd>' + esc(h.username || '—') + '</dd><dt>端口</dt><dd>' + esc(h.port || '上游未提供') + '</dd><dt>密码</dt><dd><span class="sv-pw" id="svPw">••••••••</span> <button type="button" class="sv-btn sm ghost" id="svShowPw">显示</button></dd></dl></div>' : '<p class="sv-help">登录账号和密码仅「可开通名单」里的同事可见。</p>';
     var manage = m ? '<div class="sv-sec"><h3>高级管理</h3><div class="sv-actions"><button class="sv-btn sm" data-panel="renew">续费</button><button class="sv-btn sm ghost" data-panel="reinstall">重装系统</button><button class="sv-btn sm ghost" data-panel="password">重置密码</button><button class="sv-btn sm ghost" data-panel="rescue">救援系统</button><button class="sv-btn sm danger" data-panel="cancel">申请停用</button></div><div id="svPanel"></div></div>' : '';
-    $('svDrawerBody').innerHTML = '<div class="sv-sec"><h3>概览</h3><dl class="sv-kv"><dt>状态</dt><dd>' + statusBadge(h) + '</dd><dt>套餐</dt><dd>' + esc(h.product) + '</dd><dt>主 IP</dt><dd>' + esc(h.ip || '—') + '</dd><dt>附加 IP</dt><dd>' + esc((h.assigned_ips || []).join(' / ') || '—') + '</dd><dt>系统</dt><dd>' + esc(h.os || '—') + '</dd><dt>开通时间</dt><dd>' + esc(h.active || '—') + '</dd><dt>到期时间</dt><dd class="sv-due ' + dueClass(h) + '">' + esc(h.due || '—') + (h.days_left !== null ? '（' + (h.days_left < 0 ? '已过期' : h.days_left + ' 天') + '）' : '') + '</dd><dt>续费价</dt><dd>' + money(h.amount) + ' / ' + esc(h.cycle) + '</dd><dt>自动续费</dt><dd>' + (h.auto_renew ? '已开启' : '未开启') + '</dd></dl></div>' +
+    $('svDrawerBody').innerHTML = '<div class="sv-sec"><h3>概览</h3><dl class="sv-kv"><dt>状态</dt><dd>' + statusBadge(h) + '</dd><dt>备注名称</dt><dd id="svRemarkDd"><span id="svRemarkVal">' + esc(rm || '未设置') + '</span> <button type="button" class="sv-btn sm ghost" id="svEditRemark">修改</button></dd><dt>主机名</dt><dd>' + esc(h.name || '—') + '</dd><dt>套餐</dt><dd>' + esc(h.product) + '</dd><dt>主 IP</dt><dd>' + esc(h.ip || '—') + '</dd><dt>附加 IP</dt><dd>' + esc((h.assigned_ips || []).join(' / ') || '—') + '</dd><dt>系统</dt><dd>' + esc(h.os || '—') + '</dd><dt>开通时间</dt><dd>' + esc(h.active || '—') + '</dd><dt>到期时间</dt><dd class="sv-due ' + dueClass(h) + '">' + esc(h.due || '—') + (h.days_left !== null ? '（' + (h.days_left < 0 ? '已过期' : h.days_left + ' 天') + '）' : '') + '</dd><dt>续费价</dt><dd>' + money(h.amount) + ' / ' + esc(h.cycle) + '</dd><dt>自动续费</dt><dd>' + (h.auto_renew ? '已开启' : '未开启') + '</dd></dl></div>' +
       '<div class="sv-sec"><h3>电源与控制台</h3><div class="sv-actions" id="svPower">' + power + '</div></div>' + login +
       '<div class="sv-sec"><h3>监控（近 24 小时）</h3><div class="sv-actions"><button class="sv-btn sm ghost" data-chart="cpu">CPU</button><button class="sv-btn sm ghost" data-chart="memory">内存</button><button class="sv-btn sm ghost" data-chart="flow">流量</button><button class="sv-btn sm ghost" data-chart="disk">磁盘</button></div><div id="svChart"></div></div>' + manage;
     if ($('svShowPw')) $('svShowPw').onclick = function () { var el = $('svPw'); if (this.dataset.on) { el.textContent = '••••••••'; this.textContent = '显示'; delete this.dataset.on; } else { el.textContent = h.password || '上游未提供'; this.textContent = '隐藏'; this.dataset.on = '1'; } };
+    if ($('svEditRemark')) $('svEditRemark').onclick = function () {
+      var dd = $('svRemarkDd');
+      dd.innerHTML = '<form class="sv-remark-form" id="svDetailRemarkForm"><input type="text" maxlength="100" value="' + esc(hostRemark(h)) + '" placeholder="输入备注名称（留空可清除）" autocomplete="off"><button type="submit" class="sv-btn sm">保存</button><button type="button" class="sv-btn sm ghost" id="svDetailRemarkCancel">取消</button></form>';
+      var inp = dd.querySelector('input');
+      if (inp) {
+        inp.focus(); inp.select();
+        inp.onkeydown = function (ev) { if (ev.key === 'Escape') renderHost(); };
+      }
+      $('svDetailRemarkCancel').onclick = function () { renderHost(); };
+      $('svDetailRemarkForm').onsubmit = function (ev) {
+        ev.preventDefault();
+        busy(this.querySelector('button[type=submit]'), async function () {
+          var r = await api('host_remark', { id: h.id, remark: inp.value.trim() });
+          patchHost(h.id, { remark: r.remark, notes: r.remark });
+          renderHost();
+          if (state.hosts) renderHosts();
+          notice(r.message, false);
+        });
+      };
+    };
   }
   function spark(list, unit) {
     var v = list.map(function (x) { return Number(x.value != null ? x.value : (x.y != null ? x.y : (Array.isArray(x) ? x[1] : 0))) || 0; }); if (v.length < 2) return '<p class="sv-help">暂无监控数据</p>';

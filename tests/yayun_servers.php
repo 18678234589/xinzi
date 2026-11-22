@@ -145,6 +145,22 @@ yt(yrej(function () use ($hostApi) { yh_action(5, 'reinstall', ['os' => 9], $hos
 yt(yrej(function () use ($hostApi) { yh_action(5, 'reset_password', ['password' => 'short'], $hostApi); }), 'weak password refused');
 yt(yrej(function () use ($hostApi) { yh_action(5, 'rm -rf', [], $hostApi); }), 'unknown action refused');
 yt(in_array('reinstall', yh_manage_actions(), true) && !in_array('reboot', yh_manage_actions(), true), 'destructive actions are manager-only, reboot is not');
+// 备注读取与修改（host/list 返回 notes，host/header 返回 remark，修改走 POST host/remark）
+yt(yh_public_row(['id' => 1, 'notes' => ' 官网主站 '])['remark'] === '官网主站', 'list notes normalized into remark');
+yt(yh_public_row(['id' => 1, 'remark' => '客服机', 'notes' => '旧备注'])['remark'] === '客服机', 'header remark takes precedence');
+$remarkCalls = [];
+$remarkApi = function ($path, array $data = [], $m = 'GET', $t = 30) use (&$remarkCalls) {
+    $remarkCalls[] = [$path, $data, $m];
+    if ($path === 'host/header') return ['status' => 200, 'data' => ['host_data' => ['id' => 24299, 'domain' => 'ser1', 'remark' => '']]];
+    if ($path === 'host/remark') return ['status' => 200, 'msg' => '更新成功'];
+    throw new RuntimeException('unexpected ' . $path);
+};
+$rm = yh_remark(24299, '  香港主站  ', $remarkApi);
+yt($rm['remark'] === '香港主站' && $rm['message'] === '备注已保存' && end($remarkCalls) === ['host/remark', ['id' => 24299, 'remark' => '香港主站'], 'POST'], 'yh_remark trims and posts to host/remark');
+$rmClear = yh_remark(24299, '   ', $remarkApi);
+yt($rmClear['remark'] === '' && $rmClear['message'] === '备注已清空', 'yh_remark allows clearing remark');
+yt(yrej(function () use ($remarkApi) { yh_remark(24299, str_repeat('注', 101), $remarkApi); }), 'remark over 100 chars refused');
+yt(yrej(function () use ($remarkApi) { yh_remark(99999, '测试', $remarkApi); }), 'unknown host remark refused');
 // 成本价：按默认配置逐周期取 cart/get_total 的 sale_total；折扣后低于标价
 $discount = function ($path, array $data = [], $m = 'POST', $t = 30) use ($api) { if ($path === 'cart/get_total') return ['status' => 200, 'products' => ['sale_total' => (string)round(($data['billingcycle'] === 'annually' ? 1188 : 99) * 0.92, 2), 'setupfee_total' => '0.00', 'qty' => 3, 'stock_control' => 1]]; return $api($path, $data, $m, $t); };
 $cost = yo_options(1013, $discount, true);
