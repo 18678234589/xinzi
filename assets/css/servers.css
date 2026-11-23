@@ -47,3 +47,7 @@ dialog.sv-drawer{border:0;padding:0;margin:0 0 0 auto;height:100vh;max-height:10
 .sv-ar{display:inline-flex;align-items:center;gap:6px;margin:0;font-size:12px;color:var(--ink);cursor:pointer;user-select:none}.sv-ar input{width:15px;height:15px;accent-color:var(--acc);cursor:pointer;margin:0}.sv-ar input:disabled{opacity:.5;cursor:wait}
 .sv-ar-ro{font-size:12px;color:var(--ok);font-weight:600}
 .sv-remark-slot{padding-top:4px}.sv-remark-form{display:flex;gap:6px;align-items:center;flex-wrap:wrap}.sv-remark-form input{flex:1 1 160px;min-width:0;padding:6px 10px;border-radius:8px;border:1px solid var(--line);background:#f3f8fc;color:#193744;font-size:13px}
+/* 站点主题（theme.css）里有 .app-warm label{color:深灰} 等全局规则，会把深色面板里没单独设色的文字压成深灰；这里用更高优先级锁定本页的颜色。 */
+.app-warm .sv label,.app-warm .sv-drawer label{color:var(--ink)}
+.app-warm .sv .sv-form label,.app-warm .sv-drawer .sv-form label{color:var(--mute)}
+.app-warm .sv h1,.app-warm .sv h2,.app-warm .sv h3,.app-warm .sv h4,.app-warm .sv-drawer h2,.app-warm .sv-drawer h3,.app-warm .sv-drawer h4{color:#fff}

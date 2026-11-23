@@ -116,7 +116,7 @@ $boot = [
 $page_title = '服务器管理';
 include __DIR__ . '/../includes/header.php';
 ?>
-<link rel="stylesheet" href="<?php echo BASE_URL; ?>/assets/css/servers.css?v=20261122b">
+<link rel="stylesheet" href="<?php echo BASE_URL; ?>/assets/css/servers.css?v=20261122c">
 <main class="sv" id="svRoot" data-csrf="<?php echo htmlspecialchars($csrf, ENT_QUOTES, 'UTF-8'); ?>">
   <section class="sv-hero">
     <div class="sv-hero-copy">
