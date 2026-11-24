@@ -85,6 +85,7 @@ if ($canEdit && ps_can_mark_delivery_finished($actor)): ?>
     ['resources'] ? '与资源提示' : ''; ?>：</strong><?php echo nl2br(e(ps_contact_for($actor, $order['note']))); ?><?php if ($businessDefinition && $businessDefinition['resources'
     ]): ?><div class="text-muted">已选择的标准域名/服务器会显示在下方成本明细；SSL 等非标准成本仍需补录并上传凭证。</div><?php endif; ?></div><?php
     endif; ?>
+<?php require_once (dirname(__DIR__, 2)) . '/../includes/ProjectOrderSourceRows.php'; echo osr_render($actor, (int)$order['id']); ?>
   <hr><div class="row text-center"><div class="col-md-3"><small>可结算收入</small><h4>¥<?php echo money($sum['income']); ?></h4></div><div class="col-md-3"><small><?php echo
     $sum['service_fee'] > 0 ? '直接成本（含服务费）' : '已审核直接成本'; ?></small><h4>¥<?php echo money($sum['approved_cost']); ?></h4></div><div class="col-md-3"><small>项目贡献利润</small><h4 class="text-success">¥<?php
     echo money($sum['profit']); ?></h4></div><div class="col-md-3"><small>待审成本 / 审核后预计利润</small><h4>¥<?php echo money($sum['pending_cost']); ?> / ¥<?php echo

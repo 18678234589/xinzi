@@ -20,5 +20,6 @@
 <script src="<?php echo BASE_URL; ?>/assets/js/knowledge.js?v=20261002.7" data-keywords-url="<?php echo BASE_URL; ?>/project/knowledge_keywords.php" <?php echo ($_rel ?? '') === 'project/vault.php' ? 'data-skip-keywords="1"' : ''; ?> defer></script>
 <?php endif; ?>
 <?php include __DIR__ . '/announcement_popup.php'; ?>
+<?php include __DIR__ . '/daily_fix_popup.php'; ?>
 </body>
 </html>

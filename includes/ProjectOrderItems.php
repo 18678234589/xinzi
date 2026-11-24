@@ -41,7 +41,7 @@ function poi_template($name, $templates, $resourceHint = '')
     $key = preg_replace('/^一年(ssl(?:证书)?)$/u', '1年$1', $key);
     $years = preg_match('/^(\d+)年/u', $key, $m) ? (int)$m[1] : 1;
     $key = preg_replace('/^\d+年/u', '', $key);
-    $aliases = ['青站' => '青站(标准)', 'ssl' => '域名ssl证书', 'ssl证书' => '域名ssl证书', 'ssl证书软件' => 'https加密功能/ssl证书软件', '安全证书' => '域名ssl证书', 'jsp中级' => 'jsp展示中级版', 'jsp高级' => 'jsp展示高级版'];
+    $aliases = ['wordpress模板' => '优站', 'wp模板' => '优站', 'wordpress' => '优站', '青站' => '青站(标准)', 'ssl' => '域名ssl证书', 'ssl证书' => '域名ssl证书', 'ssl证书软件' => 'https加密功能/ssl证书软件', '安全证书' => '域名ssl证书', 'jsp中级' => 'jsp展示中级版', 'jsp高级' => 'jsp展示高级版'];
     $key = $aliases[$key] ?? $key;
     $matches = [];
     foreach ($templates as $t) {

@@ -250,7 +250,7 @@ foreach ($results as $row) $resultsByEmployee[(int)$row['employee_id']][] = $row
 $inputs = ps_monthly_inputs($month);
 $activeMonthly = ps_monthly_rules_for($month);
 // 可按月填写的规则：计件、部门其他费用、固定服务费 / 全勤 / 固定补助的本月覆盖金额、手工调整、按名次的排名奖。
-$inputRules = array_values(array_filter($activeMonthly, function ($r) { return in_array($r['rule_type'], ['per_unit', 'dept_share', 'base_fee', 'attendance_bonus', 'fixed', 'manual', 'sales_package'], true) || ($r['rule_type'] === 'ranking' && $r['metric'] === 'manual'); }));
+$inputRules = array_values(array_filter($activeMonthly, function ($r) { return !(($r['rule_type'] === 'per_unit') && (($r['params']['auto'] ?? '') === 'template_dev')) && in_array($r['rule_type'], ['per_unit', 'dept_share', 'base_fee', 'attendance_bonus', 'fixed', 'manual', 'sales_package'], true) || ($r['rule_type'] === 'ranking' && $r['metric'] === 'manual'); }));
 $inputRows = [];
 $inputRuleNames = [];
 foreach ($activeMonthly as $r) $inputRuleNames[(int)$r['id']] = $r;
@@ -271,7 +271,7 @@ $describe = function ($rule) use ($pct) {
         case 'ranking': return '前 ' . count($p['awards'] ?? []) . ' 名：' . implode(' / ', array_map(function ($a) { return '¥' . money($a); }, $p['awards'] ?? []));
         case 'dept_share': return '部门' . (($p['base'] ?? '') === 'revenue' ? '收入（扣服务费）' : '毛利') . (!empty($p['deduct_commissions']) ? ' − 部门提成' : '') . ' − 其他费用，× ' . $pct($p['rate'] ?? 0) . ' × 分配 ' . $pct($p['share'] ?? 1);
         case 'fixed': return '每月 ¥' . money($p['amount'] ?? 0) . (!empty($p['separate']) ? '（另行支付，不计入应结算）' : '');
-        case 'per_unit': return '每个 ¥' . money($p['amount'] ?? 0) . '（件数每月在下方填写）';
+        case 'per_unit': return ($p['auto'] ?? '') === 'template_dev' ? '每个 ¥' . money($p['amount'] ?? 0) . '（自动：来自“优站/WP模板开发登记”，订单完成并审核后计入）' : '每个 ¥' . money($p['amount'] ?? 0) . '（件数每月在下方填写）';
         case 'base_fee': return (float)($p['amount'] ?? 0) > 0 ? '每月 ¥' . money($p['amount']) . '，按考勤折算' : '每月金额在下方填写，按考勤折算';
         case 'attendance_bonus': return '¥' . money($p['amount'] ?? 0) . '（请假 <4h 全额、≥4h 减半、≥8h 不发）';
         case 'overtime_pay': return '固定服务费 ÷ 30 × 延时服务天数 × 倍率：节假日当天 ' . rtrim(rtrim(number_format((float)($p['holiday_rate'] ?? 1.5), 2, '.', ''), '0'), '.') . ' 倍（元旦、除夕、春节初一 / 初二、清明、5.1、端午、中秋、10.1），其余日期 ' . rtrim(rtrim(number_format((float)($p['normal_rate'] ?? 1), 2, '.', ''), '0'), '.') . ' 倍；延时服务天数取自考勤表';

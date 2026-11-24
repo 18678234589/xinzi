@@ -74,6 +74,22 @@ function pda_find_existing($business, $date, $amount, $nickname, $domain, $exclu
 }
 
 /**
+ * 没有订单号的行，金额等于“已有订单里某个商品的金额”（一张订单把程序 + 加购合并成了一个总价，再传时又拆成多行）：同业务、同日期、
+ * 付款昵称相同（必须都写了），已有订单合计有 N 个这个金额的商品，表里第 1…N 次出现的这个金额按顺序对应它们，第 N+1 次才是新订单。
+ * 例：已有两张订单各含“优站 400 + 纯利润 100”，再传“100、400、100”三行 → 全部算已有，不再新建。
+ */
+function pda_find_existing_item($business, $date, $amount, $nickname, $seq)
+{
+    $nickname = mb_strtolower(trim((string)$nickname));
+    if ($business === '' || $nickname === '' || (float)$amount <= 0 || $seq < 1 || !preg_match('/^\d{4}-\d{2}-\d{2}$/', (string)$date)) return null;
+    $q = db()->prepare("SELECT o.id,o.order_no,o.settlement_status,o.shop,i.id item_id FROM project_orders o JOIN project_order_sources s ON s.order_id=o.id JOIN project_order_items i ON i.order_id=o.id
+        WHERE o.project_type=? AND o.order_date=? AND LOWER(TRIM(s.payment_nickname))=? AND ABS(i.sale_amount-?)<0.005 ORDER BY o.id,i.id");
+    $q->execute([$business, $date, $nickname, round((float)$amount, 2)]);
+    $rows = $q->fetchAll();
+    return isset($rows[$seq - 1]) ? $rows[$seq - 1] : null;
+}
+
+/**
  * 二次备案（没有金额）：同业务、同日期、同域名的已有二次备案订单，按出现顺序一一对应——表里第 N 次出现的“同日期同域名”行，对应库里第 N 张。
  * 库里已有的张数不够（表里这天这个域名写了更多行）时返回 null，多出来的行才作为新订单。
  */

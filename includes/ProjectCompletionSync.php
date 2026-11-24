@@ -13,6 +13,20 @@ function pcs_can_access(array $actor)
         || (($actor['type'] ?? '') === 'employee' && (int)($actor['employee_id'] ?? 0) === 71);
 }
 
+/** 汇总表登记的完成情况落库（以最近一次上传为准，之后导入 / 自动审核 / 批量审核 / 随手标完成都以此为准）。建表是 DDL，必须在事务外调用。 */
+function pcs_record(array $map, array $actor, $source)
+{
+    db()->exec("CREATE TABLE IF NOT EXISTS project_completion_sheet (
+        order_no VARCHAR(100) NOT NULL PRIMARY KEY,
+        sheet_status VARCHAR(8) NOT NULL,
+        source VARCHAR(40) NOT NULL DEFAULT '',
+        updated_by INT NULL,
+        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+    $st = db()->prepare('INSERT INTO project_completion_sheet (order_no,sheet_status,source,updated_by) VALUES (?,?,?,?) ON DUPLICATE KEY UPDATE sheet_status=VALUES(sheet_status),source=VALUES(source),updated_by=VALUES(updated_by)');
+    foreach ($map as $no => $t) if ($t === 'fin' || $t === 'unf') $st->execute([(string)$no, $t, mb_substr((string)$source, 0, 40), (int)($actor['id'] ?? 0)]);
+}
+
 function pcs_manual_finish($orderId, array $actor)
 {
     if (($actor['role'] ?? '') !== 'finance') throw new RuntimeException('只有财务可以确认完成');
@@ -20,8 +34,8 @@ function pcs_manual_finish($orderId, array $actor)
     $q->execute([(int)$orderId]); $order = $q->fetch();
     if (!$order || !ps_is_website_order($order['project_type'])) throw new RuntimeException('只能标记网站业务订单');
     if (in_array($order['settlement_status'], ['approved','locked'], true)) throw new RuntimeException('订单已审核或锁定，请在订单详情中核对');
-    if ($order['delivery_status'] === 'finished') return ['finished'=>0,'unfinished'=>0,'reopened'=>0,'skipped'=>[]];
-    $result = pcs_apply(['mark_finished'=>[$order],'mark_unfinished'=>[],'approved_unfinished'=>[]], false, $actor, '财务手动确认');
+    if ($order['delivery_status'] === 'finished') { pcs_record([$order['order_no'] => 'fin'], $actor, '财务手动确认'); return ['finished'=>0,'unfinished'=>0,'reopened'=>0,'skipped'=>[]]; }
+    $result = pcs_apply(['mark_finished'=>[$order],'mark_unfinished'=>[],'approved_unfinished'=>[]], false, $actor, '财务手动确认', [$order['order_no'] => 'fin']);
     if (!$result['finished'] && !$result['skipped']) throw new RuntimeException('订单状态已变化，请刷新后重试');
     return $result;
 }
@@ -124,10 +138,11 @@ function pcs_plan(array $map)
  * 执行：改未审核订单的完成情况；$reopen 为真时撤回“已审核但总表未完成”的订单（删分成快照、回到未审核）。
  * 返回统计和跳过原因。
  */
-function pcs_apply(array $plan, $reopen, array $actor, $source = '订单汇总表')
+function pcs_apply(array $plan, $reopen, array $actor, $source = '订单汇总表', array $map = [])
 {
     if (($actor['role'] ?? '') !== 'finance') throw new RuntimeException('只有财务可以确认完成状态');
     $pdo = db();
+    pcs_record($map, $actor, $source);
     $res = ['finished' => 0, 'unfinished' => 0, 'reopened' => 0, 'skipped' => []];
     foreach ($plan['mark_finished'] as $o) {
         if (!ps_is_website_order($o['project_type'] ?? '')) { $res['skipped'][] = $o['order_no'] . '：非网站业务，已跳过'; continue; }
@@ -149,18 +164,20 @@ function pcs_apply(array $plan, $reopen, array $actor, $source = '订单汇总�
         $r->execute([(int)$o['id']]);
         if ($r->rowCount()) { ps_audit('order', (int)$o['id'], 'sync_completion', $actor, ['to' => 'unfinished', 'source' => '订单汇总表']); $res['unfinished']++; }
     }
-    if ($reopen) foreach ($plan['approved_unfinished'] as $o) {
+    // 汇总表是完成情况的依据：已审核但表里写未完成的，自动撤回分成（月份已核算 / 锁定、已申请结算的撤不了，列出来走“售后调整”）
+    foreach ($plan['approved_unfinished'] as $o) {
         if (!ps_is_website_order($o['project_type'] ?? '')) { $res['skipped'][] = $o['order_no'] . '：非网站业务，已跳过'; continue; }
-        if ($why = pcs_reopen_block((int)$o['id'])) { $res['skipped'][] = $o['order_no'] . '：' . $why . '，未撤回'; continue; }
         $pdo->beginTransaction();
         try {
-            $s = $pdo->prepare('SELECT * FROM project_commission_snapshots WHERE order_id=?'); $s->execute([(int)$o['id']]);
-            $backup = $s->fetchAll(PDO::FETCH_ASSOC);
-            $pdo->prepare('DELETE FROM project_commission_snapshots WHERE order_id=?')->execute([(int)$o['id']]);
-            $pdo->prepare("UPDATE project_orders SET settlement_status='draft',delivery_status='unfinished',row_version=row_version+1 WHERE id=? AND settlement_status='approved'")->execute([(int)$o['id']]);
-            ps_audit('order', (int)$o['id'], 'sync_completion_reopen', $actor, ['source' => '订单汇总表', 'snapshots_backup' => $backup]);
+            // 这单名下还没核算月份的分成调整（如收款变更）随快照一起清掉，已核算月份的调整不动（撤销会拒绝）
+            $settled = (string)ps_setting_get('refund_settled_through', '');
+            $adj = $pdo->prepare('SELECT * FROM project_commission_adjustments WHERE order_id=?'); $adj->execute([(int)$o['id']]); $adjRows = $adj->fetchAll(PDO::FETCH_ASSOC);
+            foreach ($adjRows as $a) if ($settled !== '' && $a['payroll_month'] <= $settled) throw new RuntimeException('已有已核算月份（' . $a['payroll_month'] . '）的分成调整，请用“售后调整”冲回');
+            $n = ps_revoke_approval((int)$o['id'], $actor, '网站订单完成同步：汇总表登记为未完成，不计提成');
+            if ($adjRows) $pdo->prepare('DELETE FROM project_commission_adjustments WHERE order_id=?')->execute([(int)$o['id']]);
+            ps_audit('order', (int)$o['id'], 'sync_completion_reopen', $actor, ['source' => $source, 'snapshots' => $n, 'adjustments_backup' => $adjRows]);
             $pdo->commit(); $res['reopened']++;
-        } catch (Throwable $e) { if ($pdo->inTransaction()) $pdo->rollBack(); $res['skipped'][] = $o['order_no'] . '：' . $e->getMessage(); }
+        } catch (Throwable $e) { if ($pdo->inTransaction()) $pdo->rollBack(); $res['skipped'][] = $o['order_no'] . '：' . $e->getMessage() . '，未撤回'; }
     }
     return $res;
 }

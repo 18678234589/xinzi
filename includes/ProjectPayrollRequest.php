@@ -53,6 +53,11 @@ function pspr_month_checked($employeeId, $month)
 {
     $viewer = function_exists('ps_actor') ? ps_actor() : null;
     if ($viewer && (($viewer['type'] ?? '') === 'admin' || ($viewer['role'] ?? '') === 'finance')) return true;
+    // 已核算月份（refund_settled_through，原工资表已发放）之后的往月：次月起随时可以申请，不需要财务先打核对标记；
+    // 打款前仍由财务在“结算申请”页核对。已核算及更早的月份仍要财务核对过，避免固定服务费等被凭空再算一遍。
+    require_once __DIR__ . '/ProjectSystem.php';
+    $settled = (string)ps_setting_get('refund_settled_through', '');
+    if ($settled !== '' && (string)$month > $settled) return true;
     ppf_ensure();
     return isset(ppf_all($month)[(int)$employeeId]);
 }

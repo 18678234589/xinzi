@@ -407,8 +407,18 @@
                         || ($actor['type'] ?? '') === 'admin'
                         || $uploaderEmpId === 71 || $uploaderUser === 'fengchao';
                     if ($record['delivery_status'] === 'finished' && ps_is_website_order($record['project_type'] ?? '') && !$isTechOrFinanceOrMgr) {
-                        $record['delivery_status'] = 'unfinished';
+                        $record['delivery_status'] = 'unfinished'; $record['delivery_forced'] = true;
                         $record['warning'] .= ($record['warning'] ? '；' : '') . '网站业务的“已完成”需技术确认：本表格是' . (($actor['role'] ?? '') === 'customer_service' ? '客服' : '非技术') . '上传的，状态先记为未完成，由技术上传表格或在订单里标记后才计提成';
                     }
+                    // 网站业务：表格明确写“未完成”而原单是已完成 —— 以“未完成”为准（没做完不计提成）：没审核的退回未完成；已审核的只提示，由财务撤销审核
+                    if ($existing && ($existing['delivery_status'] ?? '') === 'finished' && $record['delivery_status'] === 'unfinished' && empty($record['delivery_forced']) && ps_deferred_delivery_order($record) && !ps_miniapp_custom_order($record)) {
+                        if (in_array($existing['settlement_status'], ['approved', 'locked'], true)) $record['warning'] .= ($record['warning'] ? '；' : '') . '本表格写“未完成”，但原单已审核为已完成：请财务核对，确实没做完请在订单页“撤销审核”';
+                        else { $record['delivery_downgrade'] = true; $record['warning'] .= ($record['warning'] ? '；' : '') . '本表格写“未完成”，原单标的是已完成：导入后改为未完成（没做完不计提成）'; }
+                    }
                     if ($existing && ($existing['delivery_status'] ?? '') === 'unfinished' && $record['delivery_status'] === 'finished' && !in_array($existing['settlement_status'], ['approved', 'locked'], true)) $record['warning'] .= ($record['warning'] ? '；' : '') . '原单状态是“未完成”，本次表格写已完成 / 到账，导入后将更新为已完成';
+                    // 网站模板：“模板开发技术”（优站 / WordPress 模板的开发技术）——导入后登记，订单完成并审核后补助自动计入（见 ProjectTemplateDev.php）
+                    if (($record['project_type'] ?? '') === '网站模板') {
+                        $tdYz = trim($lookup($row, 'template_dev')); $tdWp = trim($lookup($row, 'template_dev_wp'));
+                        if ($tdYz !== '' || $tdWp !== '') { $record['template_dev'] = ['yz' => $tdYz, 'wp' => $tdWp]; require_once __DIR__ . '/../../includes/ProjectTemplateDev.php'; ptmd_ensure(); }
+                    }
                     if ($existing) $record['existing_snapshot'] = $existing;

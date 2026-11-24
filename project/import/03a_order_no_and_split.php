@@ -245,6 +245,13 @@
                                 $exists->execute([$record['order_no']]);
                                 $existing = $exists->fetch();
                                 $record['warning'] .= ($record['warning'] ? '；' : '') . '重复订单申诉已通过，按独立订单处理';
+                            } elseif (empty($record['writing']) && strpos((string)$record['order_no'], 'WX-') === 0 && ($pdaItemSeq[$pdaKey] = ($pdaItemSeq[$pdaKey] ?? 0) + 1) && !isset($pdaAdopted[$pdaKey]) && !pda_find_existing($selectedBusiness, $pdaDate, $pdaAmount, $pdaNick, $pdaDomain, (string)$record['order_no'])
+                                && ($pdaMatch = pda_find_existing_item($selectedBusiness, $pdaDate, $pdaAmount, $pdaNick, $pdaItemSeq[$pdaKey]))) {
+                                $record['order_no'] = $pdaMatch['order_no'];
+                                $exists->execute([$record['order_no']]);
+                                $existing = $exists->fetch();
+                                $record['dup_adopted'] = ['order_id' => (int)$pdaMatch['id'], 'order_no' => $pdaMatch['order_no'], 'url' => pda_appeal_url($selectedBusiness, $pdaMatch, $pdaDate, $pdaAmount, $pdaNick, $pdaDomain, trim((string)$lookup($row, 'shop')))];
+                                $record['warning'] .= ($record['warning'] ? '；' : '') . '这一行的金额等于已有订单 ' . $pdaMatch['order_no'] . ' 里某个商品的金额（同日期、同付款昵称），已按已有订单处理（不会新建）；确实是另一笔订单请点“去申诉”';
                             } elseif (!isset($pdaAdopted[$pdaKey]) && ($pdaMatch = pda_find_existing($selectedBusiness, $pdaDate, $pdaAmount, $pdaNick, $pdaDomain, (string)$record['order_no']))) {
                                 $pdaAdopted[$pdaKey] = true; // 同一张表里同样的两行：第一行沿用已有订单，第二行才可能是另一笔
                                 $record['order_no'] = $pdaMatch['order_no'];

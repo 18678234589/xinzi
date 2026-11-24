@@ -166,6 +166,7 @@ $nav = function ($href, $icon, $label, $active) {
     <?php echo $nav('/index.php', 'fa-home', '工作台首页', $is_home); ?>
     <?php echo $nav('/project/dashboard.php', 'fa-chart-line', '我的经营看板', $_rel === 'project/dashboard.php'); ?>
     <?php echo $nav('/project/index.php', 'fa-folder-open', '我的项目订单', $is_project_orders); ?>
+    <?php try { if ((ps_actor()['role'] ?? '') === 'technical') echo $nav('/project/template_dev.php', 'fa-puzzle-piece', '优站/WP模板开发登记', $_rel === 'project/template_dev.php'); } catch (Throwable $e) {} ?>
     <?php try { $stActor = ps_actor() ?: []; if (function_exists('ps_software_tester_can_join') && !empty($stActor['employee_id']) && ps_software_tester_can_join((int)$stActor['employee_id'])) echo $nav('/project/testing.php', 'fa-vial', '我的软件测试提成', $_rel === 'project/testing.php'); } catch (Throwable $e) {} ?>
     <?php try { if (function_exists('ptd_can_review') && ptd_can_review(ps_actor() ?: [])) { $tmN = ptd_count(); echo $nav('/project/trademark_costs.php', 'fa-copy', '商标成本核对' . ($tmN ? '（' . $tmN . '）' : ''), $_rel === 'project/trademark_costs.php'); } } catch (Throwable $e) { } ?>
     <?php if ($department_upload_nav): echo $nav('/project/import.php?scope=department&business=' . rawurlencode($department_upload_business), 'fa-users', '部门订单上传', $_rel === 'project/import.php' && ($_GET['scope'] ?? $_POST['scope'] ?? '') === 'department'); endif; ?>
@@ -186,6 +187,7 @@ $nav = function ($href, $icon, $label, $active) {
     <?php echo $nav('/project/index.php', 'fa-folder-open', '项目订单', $is_project_orders); ?>
     <?php echo $nav('/project/testing.php', 'fa-vial', '软件测试订单', $_rel === 'project/testing.php'); ?>
     <?php echo $nav('/project/completion_sync.php', 'fa-check-double', '网站订单完成同步', $_rel === 'project/completion_sync.php'); ?>
+    <?php echo $nav('/project/template_dev.php', 'fa-puzzle-piece', '优站/WP模板开发登记', $_rel === 'project/template_dev.php'); ?>
     <?php echo $nav('/project/import.php?scope=department&business=网站续费', 'fa-users', '网站售后部门订单', $_rel === 'project/import.php' && ($_GET['scope'] ?? $_POST['scope'] ?? '') === 'department'); ?>
     <?php echo $nav('/project/payroll.php', 'fa-wallet', '项目报酬结算', $_rel === 'project/payroll.php'); ?>
     <?php try { $srN = (int)db()->query("SELECT COUNT(*) FROM project_settlement_requests WHERE status='pending'")->fetchColumn(); } catch (Throwable $e) { $srN = 0; } echo $nav('/project/settlement_requests.php', 'fa-hand-holding-usd', '结算申请' . ($srN ? '（' . $srN . '）' : ''), $_rel === 'project/settlement_requests.php'); ?>

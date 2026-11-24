@@ -25,9 +25,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $map = $_SESSION['pcs_map'] ?? null;
             if (!$map) throw new RuntimeException('预览已过期，请重新上传');
             $plan = pcs_plan($map);
-            $result = pcs_apply($plan, !empty($_POST['reopen']), $actor);
+            $result = pcs_apply($plan, true, $actor, '订单汇总表', $map);
             unset($_SESSION['pcs_map']);
-            $success = '已标记完成 ' . $result['finished'] . ' 单、标记未完成 ' . $result['unfinished'] . ' 单' . (!empty($_POST['reopen']) ? '、撤回已审核 ' . $result['reopened'] . ' 单' : '');
+            $success = '已标记完成 ' . $result['finished'] . ' 单、标记未完成 ' . $result['unfinished'] . ' 单' . '、撤回已审核 ' . $result['reopened'] . ' 单' . '。汇总表登记的完成情况已记录：之后导入、自动审核、批量审核、随手标完成都以它为准，下次上传更新才会改变';
             $plan = null;
         } else throw new RuntimeException('操作无效');
     } catch (Throwable $e) { $error = $e instanceof RuntimeException ? $e->getMessage() : '操作失败，请稍后再试'; }
@@ -72,14 +72,14 @@ $listRows = function (array $list, $max = 40) { $out = ''; foreach (array_slice(
     <ul>
       <li>将标记为 <b>已完成</b>：<?php echo count($mf); ?> 单（系统里目前是未完成）</li>
       <li>将标记为 <b>未完成</b>：<?php echo count($mu); ?> 单（系统里目前是已完成，且还没审核）</li>
-      <li>已审核、但表里是未完成：<b><?php echo count($au); ?> 单</b>，已生成的分成合计 ¥<?php echo number_format($sumComm($au), 2); ?>（默认不动，下面可选撤回）</li>
+      <li>已审核、但表里是未完成：<b><?php echo count($au); ?> 单</b>，已生成的分成合计 ¥<?php echo number_format($sumComm($au), 2); ?>（确认后自动撤回分成，回到未审核）</li>
       <li>已一致：<?php echo (int)$plan['same']; ?> 单；交易关闭不处理：<?php echo (int)$plan['closed']; ?> 单；非网站业务跳过：<?php echo (int)$plan['not_website']; ?> 单；系统里找不到：<?php echo count($plan['missing']); ?> 个订单号</li>
     </ul>
     <?php if ($au): ?><details class="mb-3"><summary>已审核但表里未完成的订单</summary><table class="table table-sm mt-2"><thead><tr><th>订单号</th><th>业务</th><th class="text-right">售价</th><th class="text-right">已生成分成</th></tr></thead><tbody><?php echo $listRows($au); ?></tbody></table></details><?php endif; ?>
     <?php if ($plan['missing']): ?><details class="mb-3"><summary>系统里找不到的订单号（前 40 个）</summary><div class="small"><?php echo e(implode('、', array_slice($plan['missing'], 0, 40))); ?></div></details><?php endif; ?>
     <?php if ($canConfirm): ?><form method="post" onsubmit="return confirm('确认按表标记？未审核订单的完成情况会被修改。')">
       <input type="hidden" name="csrf" value="<?php echo e(ps_csrf_token()); ?>"><input type="hidden" name="do" value="apply">
-      <?php if ($au): ?><div class="form-check mb-3"><input class="form-check-input" type="checkbox" name="reopen" value="1" id="pcsReopen"><label class="form-check-label" for="pcsReopen">同时撤回上面“已审核但未完成”的 <?php echo count($au); ?> 单：删除它们的分成快照、回到未审核（备份在审计日志里；已锁月、已申请结算或有调整的会跳过）。不勾则这些订单的分成保持现状。</label></div><?php endif; ?>
+      <?php if ($au): ?><p class="small text-muted mb-3">表里是未完成的已审核订单会自动撤回：删除分成快照、回到未审核（备份在审计日志；已核算月份 / 已锁定 / 已申请结算的撤不了，会列出来，请用“售后调整”冲回）。</p><?php endif; ?>
       <button class="btn btn-success">确认标记</button> <a class="btn btn-outline-secondary" href="completion_sync.php">取消</a>
     </form><?php else: ?><p class="text-muted">以上为预览，请由财务确认完成状态。</p><?php endif; ?>
   </div></div>

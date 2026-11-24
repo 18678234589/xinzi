@@ -28,6 +28,7 @@ function pmt_businesses()
 function pmt_columns($business = '小程序开发')
 {
     if ($business === '商标') { require_once __DIR__ . '/ProjectTrademarkTemplate.php'; return ptt_columns(); }
+    if ($business === '优站模板开发登记') return pmt_tdev_columns();
     if ($business === '森动备案') return pmt_filing_columns();
     if ($business === '备案-提成') return pmt_filing_commission_columns();
     if ($business === '备案-单量') return pmt_filing_count_columns();
@@ -218,7 +219,7 @@ function pmt_filing_count_examples()
 /** 网站模板“程序名称”下拉的可选项（与 xlsx 模板、在线录入页下拉共用）。 */
 function pmt_program_choices()
 {
-    return ['PHP', '优站', 'SSL证书', '纯利润', '补差价', '域名注册', '博山定制', 'AI定制', '华梦定制',
+    return ['PHP', '优站', 'WordPress模板', 'SSL证书', '纯利润', '补差价', '域名注册', '博山定制', 'AI定制', '华梦定制',
         'JSP展示初级版', 'JSP展示中级版', 'JSP展示高级版', 'JSP展示至尊版', 'JSP展示国际版', 'JSP展示国际旗舰版',
         'JSP商城标准版', 'JSP商城高级版', 'JSP商城豪华版',
         '森动中级版', '森动高级版', '森动旗舰版', '森动推广版', '森动优化版', '森动全推版', '森动强推版',
@@ -299,6 +300,7 @@ function pmt_template_columns()
         ['备注', 24, 'plain', [], false, '其他需要说明的内容'],
         ['客服', 10, 'plain', [], false, '客服姓名'],
         ['技术', 10, 'plain', [], false, '负责建站的技术姓名'],
+        ['模板开发技术', 12, 'plain', [], false, '程序名称选“优站”或“WordPress模板”时填：开发这个站模板的技术姓名（优站每站 15 元，WordPress 每站 50 元；订单完成并审核后自动计入该技术当月报酬）。不填就不登记，之后可在“优站/WP模板开发登记”里补'],
         ['状态(填已完成/未完成)', 14, 'list', ['已完成', '未完成'], true, '订单进度，请用下拉选择'],
         ['续费金额', 10, 'plain', [], false, '客户到期续费时的金额，数字；仅记录，方便到期前沟通'],
         ['续费联系方式电话', 16, 'text', [], false, '客户手机号，用于到期短信提醒；电话和微信至少填一项（海外客户没有手机号就填微信）'],
@@ -346,9 +348,36 @@ function pmt_headers($business = '小程序开发')
 }
 
 /** 示例行（订单编号以“示例”开头，上传时自动跳过）。 */
+/** “优站模板开发登记”表（项目 → 优站/WP模板开发登记 页面上传）。人名下拉取自网站技术 / 定制 / 模板开发部门。 */
+function pmt_tdev_columns()
+{
+    $names = [];
+    try { $names = db()->query("SELECT name FROM employees WHERE department IN ('网站技术','网站定制','定制前端','定制后端') ORDER BY id")->fetchAll(PDO::FETCH_COLUMN); } catch (Throwable $e) { $names = []; }
+    return [
+        ['日期', 12, 'date', [], false, '下单日期，如 2026-10-04'],
+        ['付款账号', 20, 'plain', [], false, '客户付款账号 / 旺旺，方便核对'],
+        ['订单编号', 26, 'text', [], true, '优站订单的订单编号（淘宝 / 天猫 / 拼多多订单号，直接复制粘贴）。一笔付款做了多个站时，同一编号写一行即可，该笔下的网站都登记给这个人'],
+        ['程序名称', 14, 'plain', [], false, '优站 或 WordPress模板，只作记录'],
+        ['年限', 9, 'plain', [], false, '如 1年，只作记录'],
+        ['技术', 10, 'plain', [], false, '这个订单的建站技术，只作记录'],
+        ['优站模板技术', 14, 'list_sheet', $names, false, '开发优站模板的技术（每站 15 元），请从下拉选择；是 WordPress 模板就留空，填右边一列'],
+        ['WP模板技术', 14, 'list_sheet', $names, false, '开发 WordPress 模板的技术（每站 50 元），请从下拉选择'],
+    ];
+}
+
+function pmt_tdev_examples()
+{
+    $base = ['日期' => '2026-11-04', '付款账号' => 'tb12345678', '程序名称' => '优站', '年限' => '1年', '技术' => '张强'];
+    return [
+        $base + ['订单编号' => '示例-5127481442457328003', '优站模板技术' => '李子晖'],
+        array_merge($base, ['程序名称' => 'WordPress模板', '订单编号' => '示例-3316918693023039381', 'WP模板技术' => '李仁超']),
+    ];
+}
+
 function pmt_example_rows($business = '小程序开发')
 {
     if ($business === '商标') { require_once __DIR__ . '/ProjectTrademarkTemplate.php'; return ptt_examples(); }
+    if ($business === '优站模板开发登记') return pmt_tdev_examples();
     if ($business === '森动备案') return pmt_filing_examples();
     if ($business === '备案-提成') return pmt_filing_commission_examples();
     if ($business === '备案-单量') return pmt_filing_count_examples();
@@ -527,6 +556,12 @@ function pmt_xlsx($business = '小程序开发')
         $help[] = ['一个文件两张表', '', '“备案”表和“备案修改”表放在同一个文件里就行。上传时业务选“备案-提成”，导入完成后系统会自动把“备案修改”表按“备案-单量”接着导入，不用换业务、不用再传一次。'];
         $help[] = ['旧表还能用', '', '以前的表（没有“日期”列的备案修改表、没有下拉的备案表）照常上传，表头认得出就行；新表只是多了下拉和日期列，录入更快、不容易写错。'];
         $help[] = ['重复上传', '', '同一张表改完可以整张重传，已有订单按最新内容更新，不会重复建单。'];
+    }
+    elseif ($business === '优站模板开发登记') {
+        $help[] = ['这张表是做什么的', '', '登记每个优站 / WordPress 订单是谁开发的模板：优站每站 15 元，WordPress（优站里的高级模板）每站 50 元。订单完成并审核通过后，补助自动计入开发技术当月的报酬，未完成的订单不给。'];
+        $help[] = ['怎么上传', '', '在“优站/WP模板开发登记”页面上传这张表；也可以不上传，直接在页面里给每个订单选开发技术。订单表格里也可以用“程序名称”下拉选“优站”或“WordPress模板”，并填“模板开发技术”列。'];
+        $help[] = ['优站模板技术 / WP模板技术', '', '二选一：开发的是优站模板就在“优站模板技术”列选人，是 WordPress 模板就在“WP模板技术”列选人；人名请从下拉里选。'];
+        $help[] = ['订单必须已在系统里', '', '订单编号对应的网站模板订单要先由客服 / 技术上传到系统；系统里找不到的订单会在上传结果里列出来。'];
     }
     elseif ($business === '森动备案') {
         $help[] = ['怎么区分两种单', '', '“业务”选备案：填日期、店铺（微信 / 对公 / 淘宝）、付款昵称、售价；没有订单编号就留空，系统自动生成。“业务”选二次备案：只需填日期、联系微信号、域名、状态。'];

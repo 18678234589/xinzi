@@ -25,6 +25,7 @@ if(ex)ex.addEventListener('click',function(){p.classList.toggle('expanded');});
 if(bd)bd.addEventListener('click',function(){set(false);});
 document.getElementById('hn-close').addEventListener('click',function(){set(false);});
 document.addEventListener('keydown',function(e){if(e.key==='Escape'&&p.classList.contains('open'))set(false);});})();</script>
+<a class="btn btn-outline-primary btn-sm mr-2 d-inline-flex align-items-center text-nowrap" href="<?php echo BASE_URL; ?>/project/xcx_sso.php" target="_blank" rel="noopener noreferrer" title="使用当前账号进入小程序商城"><i class="fas fa-store mr-1" aria-hidden="true"></i>小程序商城</a>
 <a class="btn btn-outline-primary btn-sm mr-2 d-inline-flex align-items-center text-nowrap" href="https://media.laibangwo.com/?sso=me" target="_blank" rel="noopener noreferrer" title="使用当前账号进入自媒体工作台"><i class="fas fa-video mr-1" aria-hidden="true"></i>自媒体工作台</a>
 <?php require_once __DIR__ . '/BizcnDomains.php'; if (bd_can_access(ps_actor())): ?>
 <a class="btn btn-outline-primary btn-sm mr-2 d-inline-flex align-items-center text-nowrap" href="<?php echo BASE_URL; ?>/project/domains.php"><i class="fas fa-globe mr-1" aria-hidden="true"></i>域名管理</a>

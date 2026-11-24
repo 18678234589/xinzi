@@ -128,6 +128,9 @@ $B = BASE_URL;
   <a class="hm-chip" href="<?php echo $B; ?>/project/index.php"><i class="fas fa-folder-open"></i> 项目订单</a>
   <a class="hm-chip" href="<?php echo $B; ?>/project/dashboard.php"><i class="fas fa-chart-line"></i> 经营看板</a>
   <a class="hm-chip" href="<?php echo $B; ?>/project/rules.php"><i class="fas fa-percent"></i> 规则中心</a>
+<?php if ($is_finance_or_admin || ps_is_management($actor)): ?>
+  <a class="hm-chip" href="<?php echo $B; ?>/project/refund_rate.php"><i class="fas fa-undo-alt"></i> 退款率查询</a>
+<?php endif; ?>
 <?php if ($is_finance_or_admin): ?>
   <a class="hm-chip" href="<?php echo $B; ?>/project/import.php"><i class="fas fa-file-excel"></i> 导入部门表格</a>
   <a class="hm-chip" href="<?php echo $B; ?>/shops/etmll_sync.php"><i class="fas fa-sync-alt"></i> ETMLL 订单同步</a>

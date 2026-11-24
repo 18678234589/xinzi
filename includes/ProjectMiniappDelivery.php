@@ -31,7 +31,7 @@ function ps_miniapp_custom_unshipped(array $order, array $source = [])
  */
 function ps_forecast_group_skip(array $order, $group)
 {
-    return ps_deferred_delivery_order($order) && !ps_miniapp_custom_order($order) && ($order['delivery_status'] ?? '') !== 'finished';
+    return ps_deferred_delivery_order($order) && !ps_miniapp_custom_order($order) && ps_website_unfinished($order);
 }
 
 /**
@@ -42,7 +42,7 @@ function ps_forecast_group_skip(array $order, $group)
 function ps_forecast_unshipped(array $order, array $source = [])
 {
     if (ps_deferred_delivery_order($order) && !ps_miniapp_custom_order($order)) {
-        if (($order['delivery_status'] ?? '') !== 'finished') return true;
+        if (ps_website_unfinished($order)) return true;
         $status = trim((string)($source['trade_status'] ?? $order['trade_status'] ?? ''));
         $custom = in_array(ps_business_normalize((string)($order['project_type'] ?? '')), ['AI网站定制', '网站定制'], true);
         if ($custom && (float)($order['receipt_amount'] ?? 0) - (float)($order['refund_amount'] ?? 0) <= 0 && !preg_match('/关闭|取消/u', $status)

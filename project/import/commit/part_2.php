@@ -166,7 +166,14 @@
                             $finish->execute([$orderId]);
                             if ($finish->rowCount()) ps_audit('order', $orderId, 'import_delivery_finished', $actor, ['line' => $row['line'], 'from' => 'unfinished', 'to' => 'finished']);
                         }
+                        if (!empty($row['delivery_downgrade'])) {
+                            $down = $pdo->prepare("UPDATE project_orders SET delivery_status='unfinished',row_version=row_version+1 WHERE id=? AND delivery_status='finished' AND settlement_status NOT IN ('approved','locked')");
+                            $down->execute([$orderId]);
+                            if ($down->rowCount()) ps_audit('order', $orderId, 'import_delivery_unfinished', $actor, ['line' => $row['line'], 'from' => 'finished', 'to' => 'unfinished']);
+                        }
+                        if (!empty($row['template_dev'])) { require_once __DIR__ . '/../../../includes/ProjectTemplateDev.php'; ptmd_import_row($orderId, $row['template_dev'], $actor); }
                         ps_audit('order', $orderId, 'import_supplement', $actor, ['line' => $row['line'], 'order_no' => $row['order_no']]);
+                        osr_save($orderId, $draftFileId, $row['source_rows'] ?? []);
                         if ($departmentMode) ps_department_import_record($orderId, $actor);
                         foreach (($row['extra_order_nos'] ?? []) as $extraNo) pop_add($orderId, $extraNo, null, $actor, '上传表格订单编号格');
                         $imported++;
@@ -225,6 +232,7 @@
                     if ($domainTemplate) ps_intake_add_template_cost($orderId, $domainTemplate, $actor, 'Excel 第' . $row['line'] . '行：域名');
                     if ($serverTemplate) ps_intake_add_template_cost($orderId, $serverTemplate, $actor, 'Excel 第' . $row['line'] . '行：服务器');
                     poi_save($orderId, $row['items'] ?? [], (int)$_SESSION['project_import_file'], $actor);
+                    if (!empty($row['template_dev'])) { require_once __DIR__ . '/../../../includes/ProjectTemplateDev.php'; ptmd_import_row($orderId, $row['template_dev'], $actor); }
                     if ($businessDefinition['resources']) ps_intake_ssl_standard_cost($orderId, $row['ssl_used'] ?? null, $actor, 'Excel 第' . $row['line'] . '行：SSL 报备与标准成本一致');
                     // 商标成本按明确办理事项同步；实际成本差额、成品/国际/法务成本须财务审核。
                     if ($writeBusiness === '商标') ptc_sync_order_cost($orderId, $actor, 'Excel 第' . $row['line'] . '行', $row['direct_cost'] ?? '', implode(' ', [$row['details']['trademark_name'] ?? '', $row['details']['service_type'] ?? '', $row['contact_note'] ?? '', $row
@@ -241,6 +249,7 @@
                     if ($writeBusiness === '森动备案' && ($row['direct_cost'] ?? '') === '') pfc_apply($orderId, $row['order_kind'] ?? '', $actor, 'Excel 第' . $row['line'] . '行');
                     foreach (($row['extra_order_nos'] ?? []) as $extraNo) pop_add($orderId, $extraNo, null, $actor, '上传表格订单编号格');
                     ps_audit('order', $orderId, 'import', $actor, ['line' => $row['line'], 'order_no' => $row['order_no'], 'domain_template_id' => $domainTemplate['id'] ?? null]);
+                    osr_save($orderId, $draftFileId, $row['source_rows'] ?? []);
                     $imported++;
                 }
                 if ($actor['role'] !== 'finance') {

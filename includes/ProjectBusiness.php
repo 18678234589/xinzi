@@ -268,6 +268,7 @@ function ps_business_import_columns($business)
         $columns['returning_marker'] = ['老客户'];
     }
     if (!empty($definition['program'])) { $columns['program_name'] = ['程序名称', '程序套餐']; $columns['program_years'] = ['年限', '购买年限', '程序年限', '年数']; }
+    if ($business === '网站模板') { $columns['template_dev'] = ['模板开发技术', '优站模板技术', '优站开发技术']; $columns['template_dev_wp'] = ['WP模板技术', 'WordPress模板技术']; }
     if (in_array($business, ['网站模板', 'AI网站定制'], true)) $columns['site_project_key'] = ['网站项目标识', '网站项目名称', '项目网站', '项目域名', '网站域名'];
     if ($definition['resources']) {
         $columns['domain_used'] = ['域名使用（写是/否）', '域名使用', '域名来源'];
@@ -456,6 +457,28 @@ function ps_business_people_labels($business)
 
 /** 客服、售后人员、冯超（管理层/授权审核）以及技术和财务，均有权限把订单交付状态标注为“已完成”。 */
 /**
+ * 财务上传的“网站订单完成同步”汇总表登记的完成情况（以最近一次上传为准）：'unf' 未完成 / 'fin' 已完成 / '' 表里没有。
+ * 表还没建（从没上传过）时返回 ''。
+ */
+function pcs_sheet_status($orderNo)
+{
+    static $missing = false;
+    if ($missing || (string)$orderNo === '') return '';
+    try {
+        $q = db()->prepare('SELECT sheet_status FROM project_completion_sheet WHERE order_no=?'); $q->execute([(string)$orderNo]);
+        return (string)$q->fetchColumn();
+    } catch (PDOException $e) { $missing = true; return ''; }
+}
+
+/** 网站业务是否还没做完：订单没标完成，或汇总表登记为未完成（以汇总表为准）。非网站业务返回 false。 */
+function ps_website_unfinished(array $order)
+{
+    require_once __DIR__ . '/ProjectMiniappDelivery.php';
+    if (!ps_is_website_order($order['project_type'] ?? '')) return false;
+    return ($order['delivery_status'] ?? '') !== 'finished' || pcs_sheet_status((string)($order['order_no'] ?? '')) === 'unf';
+}
+
+/**
  * 某张订单能不能由这个人标“已完成”：网站类业务（模板 / AI定制 / 网站定制）只有财务（含“网站订单完成同步”）和本订单的技术参与人可以标完成，
  * 客服、授权审核人员（如冯超）、售后随手标已完成会让没做完的订单被算提成。标“未完成”不受限；小程序等其他业务沿用 ps_can_mark_delivery_finished。
  */
@@ -465,6 +488,9 @@ function ps_can_mark_order_finished(array $actor, $orderId): bool
     $role = (string)($actor['role'] ?? '');
     $empId = (int)($actor['employee_id'] ?? 0);
     $username = (string)($actor['username'] ?? '');
+    $nq = db()->prepare('SELECT order_no,project_type FROM project_orders WHERE id=?'); $nq->execute([(int)$orderId]); $no = $nq->fetch();
+    require_once __DIR__ . '/ProjectMiniappDelivery.php';
+    if ($no && ps_is_website_order($no['project_type']) && pcs_sheet_status($no['order_no']) === 'unf') throw new RuntimeException('完成情况汇总表里这张订单登记为未完成，不能随手标已完成：由财务在“网站订单完成同步”按订单号确认完成，或上传更新后的汇总表');
     // 财务、管理员、冯超（管理层）均可在系统随手填已完成
     if (($actor['type'] ?? '') === 'admin' || $role === 'finance' || $empId === 71 || $username === 'fengchao') return true;
     $q = db()->prepare('SELECT project_type,order_kind FROM project_orders WHERE id=?'); $q->execute([(int)$orderId]); $o = $q->fetch();

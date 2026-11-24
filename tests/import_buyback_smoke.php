@@ -69,9 +69,9 @@ try {
     $ids = $mine->fetchAll(PDO::FETCH_COLUMN);
     $st = $pdo->query("SELECT settlement_status,COUNT(*) FROM project_orders WHERE id IN (" . implode(',', array_map('intval', $ids)) . ") GROUP BY settlement_status")->fetchAll(PDO::FETCH_KEY_PAIR);
     $check($st === ['approved' => 19], '上传后 19 张自动核对通过并结算：' . json_encode($st));
-    $sum = $pdo->prepare("SELECT COALESCE(SUM(commission_amount),0),COUNT(*) FROM project_commission_snapshots WHERE employee_id=? AND payroll_month='2026-09' AND order_id IN (" . implode(',', array_map('intval', $ids)) . ")");
+    $sum = $pdo->prepare("SELECT COALESCE(SUM(commission_amount),0),COUNT(*) FROM project_commission_snapshots WHERE employee_id=? AND payroll_month='" . pa_payroll_month_for('2026-09-15') . "' AND order_id IN (" . implode(',', array_map('intval', $ids)) . ")");
     $sum->execute([(int)$wu['employee_id']]); [$total, $n] = $sum->fetch(PDO::FETCH_NUM);
-    $check((float)$total === 570.0 && (int)$n === 19, '9 月提成合计 570（19 单 × 30）：' . $total . ' / ' . $n);
+    $check((float)$total === 570.0 && (int)$n === 19, '9 月订单提成合计 570（19 单 × 30，算进 ' . pa_payroll_month_for('2026-09-15') . '）：' . $total . ' / ' . $n);
     // ---- 吴宁的真实情况：表里的订单编号多半已是网站订单，系统不能按号把整张表归到网站业务、也不能把她挂进别人的订单 ----
     $fileId = $upload($wu, '网站模板', $csv);
     $det = ps_import_business_detect(ps_import_file_get($fileId, $wu), ['回购订单', '网站模板', 'AI网站定制'], '网站模板', (int)$wu['employee_id']);

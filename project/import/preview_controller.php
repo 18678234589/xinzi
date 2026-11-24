@@ -95,6 +95,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     [$rowLine] ?? '')) === '' && ($amountCell === '' || (is_numeric($amountCell) && (float)$amountCell == 0)) && !($selectedBusiness === '森动备案' && $lookup($row, 'detail:domain_name') !== '')) { $blankRows[$sheetName] = ($blankRows[$sheetName] ?? 0) + 1; continue
     ; }
                 // 只写了订单号的续行（同一客户的第二个订单号 / 加购单）：日期、店铺、付款昵称、客服、技术等沿用上一行
+                require_once (dirname(__DIR__, 1)) . '/../includes/ProjectOrderSourceRows.php';
+                $sourceCells = osr_cells($head, $row); // 原始表格这一行的全部列（订单详情页完整显示）
                 $continuationOf = 0;
                 $emptyCell = function ($key) use ($row, $columnMap) { return !isset($columnMap[$key]) || trim((string)($row[$columnMap[$key]] ?? '')) === ''; };
                 if ($lookup($row, 'order_no') !== '' && $emptyCell('order_date') && $emptyCell('shop') && $emptyCell('payment_nickname') && $emptyCell('customer_service') && $emptyCell
@@ -109,7 +111,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         }
                     }
                 } else { $prevFullRow = $row; $prevFullLine = $rowLine; }
-                $record = ['line' => $rowLine, 'sheet' => $sheetName, 'layout_signature' => $layoutSignature, 'business_signature' => ps_import_business_signature($head, $sheetName
+                $record = ['source_rows' => [['sheet' => $sheetName, 'line' => $rowLine, 'cells' => $sourceCells]], 'line' => $rowLine, 'sheet' => $sheetName, 'layout_signature' => $layoutSignature, 'business_signature' => ps_import_business_signature($head, $sheetName
     ), 'status' => '可导入', 'error' => '', 'warning' => '', 'base_valid' => true, 'people' => ['technical' => [], 'customer_service' => []], 'domain_mode' => '', 'domain_template_id'
     => 0];
                 require_once (dirname(__DIR__, 1)) . '/../includes/ProjectRenewalImport.php';

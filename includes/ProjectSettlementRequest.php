@@ -348,7 +348,10 @@ function psr_check(array $req)
             $isGreen = ppf_is_green((int)$req['employee_id'], $req['payroll_month']);
             if (!$isGreen) {
                 if ($month['pending_n'] > 0) $issues[] = '本月仍含待审核预计分成';
-                $issues[] = '财务核对状态已改变，请重新核对整月实结算';
+                // 已核算月份之后的月份不再要求先打核对标记（申请本身就是财务核对的入口）；已核算及更早的月份仍要核对标记
+                require_once __DIR__ . '/ProjectSystem.php';
+                $settledThrough = (string)ps_setting_get('refund_settled_through', '');
+                if (!($settledThrough !== '' && (string)$req['payroll_month'] > $settledThrough)) $issues[] = '财务核对状态已改变，请重新核对整月实结算';
             }
             $c = db()->prepare("SELECT COUNT(*) FROM project_commission_corrections c JOIN project_orders o ON o.id=c.order_id WHERE c.target_employee_id=? AND c.status='pending' AND DATE_FORMAT(o.order_date,'%Y-%m')=?");
             $c->execute([(int)$req['employee_id'], $req['payroll_month']]);

@@ -251,7 +251,7 @@ function pbr_orders($employeeId, $month, $scope = null)
         // 只有店铺状态明确是待发货 / 未付款 / 交易关闭的才排除。
         if ($isUnshipped && ps_deferred_delivery_order($r) && !ps_miniapp_custom_order($r)) {
             // 网站业务交付没完成：不计提成，即使已到账也不进批量审核（等技术标已完成）；完成了的，只排除待发货 / 未付款 / 交易关闭
-            $isUnshipped = $r['delivery_status'] !== 'finished' || preg_match('/未发货|待发货|等待卖家发货|等待发货|未付款|待付款|交易关闭|已关闭|取消/u', (string)($r['trade_status'] ?? '')) === 1;
+            $isUnshipped = ps_website_unfinished($r) || preg_match('/未发货|待发货|等待卖家发货|等待发货|未付款|待付款|交易关闭|已关闭|取消/u', (string)($r['trade_status'] ?? '')) === 1;
         }
         // 小程序定制没有任何店铺状态（微信 / 对公付款，没有店铺流水）：由财务按到账 / 交付情况确认，批量审核时登记收款并记为已完成
         if ($isUnshipped && ps_miniapp_custom_order($r) && trim((string)($r['trade_status'] ?? '')) === '') $isUnshipped = false;
@@ -261,10 +261,10 @@ function pbr_orders($employeeId, $month, $scope = null)
         }
         $why = [];
         if ($isUnshipped) {
-            $why[] = (ps_is_website_order($r['project_type']) && $r['delivery_status'] !== 'finished') ? '网站业务还没做完，不计提成（即使已到账）：在“网站订单完成同步”登记完成情况（或订单里标“已完成”）后才结算' : '尚未发货或未到账，待客户收货后结算（不推给财务审核）';
+            $why[] = ps_website_unfinished($r) ? '网站业务还没做完，不计提成（即使已到账）：在“网站订单完成同步”登记完成情况（或订单里标“已完成”）后才结算' : '尚未发货或未到账，待客户收货后结算（不推给财务审核）';
         }
         if ((float)$r['receipt_amount'] - (float)$r['refund_amount'] <= 0) $why[] = (float)$r['contract_amount'] > 0 ? '还没有确认的收款' : ($r['order_kind'] === '编辑对接' ? '' : '没有售价，需补售价（或确认这是只按每单补助结算的单）');
-        if (ps_is_website_order($r['project_type']) && $r['delivery_status'] !== 'finished') $why[] = '还没确认业务已完成';
+        if (ps_website_unfinished($r)) $why[] = '还没确认业务已完成';
         $exception = $r['review_state'] === 'exception' || $isUnshipped;
         foreach (json_decode((string)$r['reasons_json'], true) ?: [] as $reason) if (($reason['kind'] ?? '') === 'exception') $why[] = (string)$reason['text'];
         // 定制订单（博山 / AI / 华梦）的域名、空间还没确认：通过会按“无需另计”处理，不计域名成本——提醒财务核对是不是我们注册的域名
@@ -283,9 +283,14 @@ function pbr_orders($employeeId, $month, $scope = null)
                 $used = array_filter(array_column(poi_items((int)$r['id']), 'cost_id'));
                 $fq = db()->prepare("SELECT id FROM project_costs WHERE order_id=? AND review_status IN ('approved','pending')"); $fq->execute([(int)$r['id']]);
                 $free = count(array_diff($fq->fetchAll(PDO::FETCH_COLUMN), $used));
-                if (count($norm) > $free) $why[] = '商品“' . implode('”、“', array_values($norm)) . '”还没有对应的成本（订单上没有可关联的成本），通过前请点“打开”补成本';
+                if (count($norm) > $free) { $why[] = '商品“' . implode('”、“', array_values($norm)) . '”还没有对应的成本（订单上没有可关联的成本），通过前请点“打开”补成本'; $exception = true; } // 缺成本：批量通过会失败，不能标成“可直接审核”
             }
         } catch (Throwable $e) { /* 不影响列表 */ }
+        // 商标：成本项目和办理事项不一致，审核一定失败——提前标异常
+        if (ps_business_normalize($r['project_type']) === '商标') {
+            try { require_once __DIR__ . '/ProjectTrademarkCost.php'; ptc_approval_guard((int)$r['id'], ps_costs((int)$r['id'])); }
+            catch (RuntimeException $e) { $why[] = $e->getMessage(); $exception = true; } catch (Throwable $e) { /* 不影响列表 */ }
+        }
         if (strpos((string)$r['order_no'], 'WX-') === 0 && trim((string)$r['nick']) !== '') { $hint = pbr_addon_hint($r); if ($hint !== '') $why[] = $hint; }
         if (!empty($r['site_mismatch'])) $exception = true; // 付款号合计对不上：默认不勾选，先核对
         $r['why'] = array_values(array_unique(array_filter($why, 'strlen')));

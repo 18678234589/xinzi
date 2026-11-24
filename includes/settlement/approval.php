@@ -70,6 +70,7 @@ function ps_approve_order($orderId, $actor, $payrollMonth)
         $order = $q->fetch();
         if (!$order || !in_array($order['settlement_status'], ['draft','review'], true)) throw new RuntimeException('当前订单不可审核');
         require_once dirname(__DIR__) . '/ProjectMiniappDelivery.php';
+        if (ps_is_website_order($order['project_type']) && pcs_sheet_status($order['order_no']) === 'unf') throw new RuntimeException('完成情况汇总表里这张订单登记为未完成，不能结算：确认已做完后，由财务在“网站订单完成同步”按订单号确认完成（或上传更新后的汇总表）');
         if (ps_deferred_delivery_order($order)) {
             $shipping = $pdo->prepare('SELECT trade_status FROM project_order_sources WHERE order_id=? FOR UPDATE');
             $shipping->execute([$orderId]);

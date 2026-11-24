@@ -30,6 +30,8 @@ function ps_monthly_presets()
     ],
         ['name' => '优站模板奖励', 'rule_type' => 'per_unit', 'scope_business' => '*', 'scope_group' => '*', 'scope_role' => '*', 'employee' => null, 'metric' => 'profit', 'params'
     => ['amount' => 15], 'note' => '每做一个优站模板奖励 15 元（8 月李仁超 75、李子晖 195、崔鑫栋 30）'],
+        ['name' => '优站模板开发补助', 'rule_type' => 'per_unit', 'scope_business' => '*', 'scope_group' => '*', 'scope_role' => '*', 'employee' => null, 'metric' => 'profit', 'params' => ['amount' => 15, 'auto' => 'template_dev', 'kind' => 'youzhan'], 'note' => '自动：开发技术在“优站/WP模板开发登记”登记，订单完成并审核后每个站 15 元（原由宋文娜月初统计）', 'from' => '2026-11'],
+        ['name' => 'WP模板开发补助', 'rule_type' => 'per_unit', 'scope_business' => '*', 'scope_group' => '*', 'scope_role' => '*', 'employee' => null, 'metric' => 'profit', 'params' => ['amount' => 50, 'auto' => 'template_dev', 'kind' => 'wp'], 'note' => '自动：WP（WordPress，优站里的高级模板）每个站 50 元，订单完成并审核后计入', 'from' => '2026-11'],
         ['name' => '其他业务提成（未接入系统）', 'rule_type' => 'manual', 'scope_business' => '*', 'scope_group' => '*', 'scope_role' => '*', 'employee' => null, 'metric'
     => 'profit', 'params' => [], 'note' => '标书、续费、代写等尚未在项目系统录单的业务提成，由财务每月填写'],
         ['name' => '微信代写部门利润池', 'rule_type' => 'profit_pool', 'scope_business' => '微信代写', 'scope_group' => 'customer_service', 'scope_role' => '*', 'employee'

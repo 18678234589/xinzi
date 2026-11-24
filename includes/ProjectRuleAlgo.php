@@ -209,7 +209,7 @@ function pra_monthly_text(array $m)
     } elseif ($type === 'dept_share') {
         $headline = '(' . (($p['base'] ?? '') === 'revenue' ? '部门收入' : '部门毛利') . ' − 扣除项) × ' . pra_pct($p['rate'] ?? 0) . ' × 分配比例 ' . pra_pct($p['share'] ?? 1);
     } elseif ($type === 'per_unit') {
-        $headline = '每件 ' . pra_money($amount ?? 0); $details[] = '件数由财务当月在规则中心填写';
+        $headline = '每件 ' . pra_money($amount ?? 0); $details[] = ($p['auto'] ?? '') === 'template_dev' ? '件数自动取自“优站/WP模板开发登记”：订单完成并审核后计入开发技术' : '件数由财务当月在规则中心填写';
     } elseif ($type === 'order_count') {
         $headline = '每单 ' . pra_money($amount ?? 0);
     } elseif ($type === 'unique_customer') {
