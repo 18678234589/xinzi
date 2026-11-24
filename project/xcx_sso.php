@@ -1,7 +1,7 @@
 <?php
 /**
  * 小程序商城单点登录跳转入口
- * 携带当前登录用户身份生成签名并跳转至 xcxsc.laibangwo.com
+ * 携带当前登录用户身份生成签名并跳转至 xcx.laibangwo.com
  */
 header('Cache-Control: no-store, no-cache, must-revalidate');
 require_once __DIR__ . '/../includes/auth.php';
@@ -16,7 +16,7 @@ if (empty($_SESSION['admin_id']) && empty($_SESSION['project_user_id'])) {
 $cfgFile = dirname(__DIR__) . '/config/xcxsc_sso.php';
 $cfg = is_file($cfgFile) ? require $cfgFile : [
     'secret' => 'laibangwo_xcxsc_sso_secret_20261124_9f8e7d6c5b4a3210',
-    'sso_url' => 'https://xcxsc.laibangwo.com/index.php?r=admin%2Fpassport%2Fsso',
+    'sso_url' => 'https://xcx.laibangwo.com/index.php?r=admin%2Fpassport%2Fsso',
 ];
 
 $secret = $cfg['secret'];
